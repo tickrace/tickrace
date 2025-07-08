@@ -1,0 +1,20 @@
+[
+  {
+    "id": 101,
+    "nom": "Trail du Roc",
+    "lieu": "Larzac",
+    "date": "2025-09-15",
+    "formats": [
+      {
+        "distance_km": 15,
+        "dplus": 700
+      },
+      {
+        "distance_km": 35,
+        "dplus": 2100
+      }
+    ],
+    "organisateur_id": 2,
+    "itra": 7.5
+  }
+]

@@ -1,0 +1,9 @@
+[
+  {
+    "code": "PREMIUM50",
+    "type": "réduction",
+    "cible": "premium",
+    "valable_pour": "toutes",
+    "utilisations": 1
+  }
+]

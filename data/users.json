@@ -1,0 +1,26 @@
+[
+  {
+    "id": 1,
+    "nom": "Alice Martin",
+    "email": "alice@example.com",
+    "role": "coureur",
+    "itra": 650,
+    "premium": true
+  },
+  {
+    "id": 2,
+    "nom": "Benoit Lefèvre",
+    "email": "benoit@example.com",
+    "role": "organisateur",
+    "itra": null,
+    "premium": false
+  },
+  {
+    "id": 3,
+    "nom": "Claire Dubois",
+    "email": "admin@tickrace.com",
+    "role": "admin",
+    "itra": null,
+    "premium": false
+  }
+]

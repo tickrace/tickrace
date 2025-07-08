@@ -1,0 +1,18 @@
+[
+  {
+    "id": 201,
+    "type": "entrée",
+    "montant": 30,
+    "source": "alice@example.com",
+    "destination": "tickrace",
+    "statut": "reçu"
+  },
+  {
+    "id": 202,
+    "type": "reversement",
+    "montant": 28.5,
+    "source": "tickrace",
+    "destination": "benoit@example.com",
+    "statut": "envoyé"
+  }
+]

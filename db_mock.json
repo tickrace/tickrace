@@ -1,0 +1,16 @@
+
+{
+  "users": [
+    { "id": 1, "name": "Nicolas", "role": "admin" },
+    { "id": 2, "name": "Karine", "role": "organisateur" }
+  ],
+  "courses": [
+    {
+      "id": 101,
+      "title": "Skyrace des Gorges du Tarn",
+      "distance_km": 26,
+      "denivele_dplus": 1800,
+      "date": "2025-06-07"
+    }
+  ]
+}

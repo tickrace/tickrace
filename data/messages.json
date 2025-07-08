@@ -1,0 +1,9 @@
+[
+  {
+    "id": 1,
+    "course_id": 101,
+    "auteur": "alice@example.com",
+    "message": "Est-ce que le parcours est balisé ?",
+    "réponse_ia": "Oui, l’intégralité du parcours est balisée avec rubalise."
+  }
+]
