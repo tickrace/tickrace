@@ -1,0 +1,30 @@
+# 📦 Node modules
+node_modules/
+
+# 📂 Dossier de build
+dist/
+
+# 🛠 Config environnement (ne jamais commit .env)
+.env
+.env.local
+.env.development
+.env.production
+
+# 💾 Fichiers système
+.DS_Store
+Thumbs.db
+
+# 🧪 Logs & debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# 🚀 Vercel
+.vercel/
+
+# 🛡️ Supabase config
+.supabase/
+
+# 🔥 Firebase config
+.firebase/
