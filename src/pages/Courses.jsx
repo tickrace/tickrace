@@ -1,53 +1,56 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-export default function Courses() {
+const Courses = () => {
   const [courses, setCourses] = useState([]);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchCourses() {
+    const fetchCourses = async () => {
       const { data, error } = await supabase
         .from("courses")
-        .select("id, nom, lieu, date, distance_km, denivele_dplus, denivele_dmoins, cote_itra, photo_url")
+        .select("*")
         .order("date", { ascending: true });
 
       if (error) {
-        console.error("Erreur lors de la récupération des courses:", error.message);
+        console.error("Erreur lors de la récupération des courses :", error);
       } else {
         setCourses(data);
       }
-      setLoading(false);
-    }
+    };
 
     fetchCourses();
   }, []);
 
   return (
-    <div className="p-4 max-w-5xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Toutes les épreuves</h1>
-
-      {loading && <p>Chargement...</p>}
-
-      {!loading && courses.length === 0 && <p>Aucune épreuve trouvée.</p>}
-
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+    <div className="p-4">
+      <h1 className="text-2xl font-bold mb-4">Toutes les épreuves</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {courses.map((course) => (
-          <div key={course.id} className="border rounded-xl p-4 shadow-md bg-white">
-            {course.photo_url && (
+          <div
+            key={course.id}
+            className="border rounded-lg p-4 shadow bg-white"
+          >
+            {course.image_url && (
               <img
-                src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.photo_url}`}
+                src={course.image_url}
                 alt={course.nom}
-                className="w-full h-40 object-cover rounded mb-4"
+                className="w-full h-48 object-cover rounded mb-2"
               />
             )}
-            <h2 className="text-xl font-semibold mb-1">{course.nom}</h2>
-            <p className="text-sm text-gray-600 mb-2">📍 {course.lieu} – 📅 {new Date(course.date).toLocaleDateString()}</p>
-            <p className="text-sm">{course.distance_km} km – D+ {course.denivele_dplus} m – D- {course.denivele_dmoins} m</p>
-            {course.cote_itra && <p className="text-sm mt-1">🔢 Cote ITRA : {course.cote_itra}</p>}
+            <h2 className="text-xl font-semibold">{course.nom}</h2>
+            <p>{course.lieu}</p>
+            <p>
+              📅 {new Date(course.date).toLocaleDateString("fr-FR")}
+            </p>
+            <p>📏 {course.distance_km} km</p>
+            <p>📈 D+ : {course.denivele_dplus} m</p>
+            <p>📉 D- : {course.denivele_dmoins} m</p>
+            {course.cote_itra && <p>🏁 Cote ITRA : {course.cote_itra}</p>}
           </div>
         ))}
       </div>
     </div>
   );
-}
+};
+
+export default Courses;
