@@ -2,121 +2,134 @@ import React, { useState } from "react";
 import { supabase } from "../supabase";
 
 export default function Organisateur() {
-  const [formData, setFormData] = useState({
-    nom: "",
-    lieu: "",
-    date: "",
-    distance_km: "",
-    denivele_dplus: "",
-    denivele_dmoins: "",
-    cote_itra: "",
-  });
+  const [nom, setNom] = useState("");
+  const [lieu, setLieu] = useState("");
+  const [date, setDate] = useState("");
+  const [distance, setDistance] = useState("");
+  const [denivele, setDenivele] = useState("");
+  const [deniveleMoins, setDeniveleMoins] = useState("");
+  const [coteITRA, setCoteITRA] = useState("");
   const [imageFile, setImageFile] = useState(null);
-  const [status, setStatus] = useState("");
+  const [message, setMessage] = useState("");
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
-  };
+  const handleImageUpload = async () => {
+    if (!imageFile) return null;
 
-  const handleFileChange = (e) => {
-    setImageFile(e.target.files[0]);
+    const fileName = `${Date.now()}.jpg`;
+    const { data, error } = await supabase.storage
+      .from("courses")
+      .upload(`courses/${fileName}`, imageFile);
+
+    if (error) {
+      console.error("Erreur upload image :", error.message);
+      setMessage("❌ Erreur lors de l'upload de l'image.");
+      return null;
+    }
+
+    const { data: publicUrlData } = supabase.storage
+      .from("courses")
+      .getPublicUrl(`courses/${fileName}`);
+
+    return publicUrlData.publicUrl;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setStatus("⏳ Envoi en cours...");
+    setMessage("⏳ Enregistrement...");
 
-    let image_url = "";
-
-    if (imageFile) {
-      const fileExt = imageFile.name.split(".").pop();
-      const fileName = `${Date.now()}.${fileExt}`;
-      const filePath = `courses/${fileName}`;
-
-      const { error: uploadError } = await supabase.storage
-        .from("courses")
-        .upload(filePath, imageFile);
-
-      if (uploadError) {
-        console.error(uploadError);
-        setStatus("❌ Erreur lors de l'upload de l'image.");
-        return;
-      }
-
-      const { data } = supabase.storage.from("courses").getPublicUrl(filePath);
-      image_url = data.publicUrl;
-    }
+    const imageUrl = await handleImageUpload();
 
     const { error } = await supabase.from("courses").insert([
       {
-        ...formData,
-        image_url,
+        nom,
+        lieu,
+        date,
+        distance_km: parseFloat(distance),
+        denivele_dplus: parseFloat(denivele),
+        denivele_dmoins: parseFloat(deniveleMoins),
+        cote_itra: parseFloat(coteITRA),
+        image_url: imageUrl,
       },
     ]);
 
     if (error) {
-      console.error(error);
-      setStatus("❌ Erreur lors de l'enregistrement.");
+      console.error("Erreur insertion :", error.message);
+      setMessage("❌ Erreur lors de l'enregistrement.");
     } else {
-      setStatus("✅ Course ajoutée avec succès !");
-      setFormData({
-        nom: "",
-        lieu: "",
-        date: "",
-        distance_km: "",
-        denivele_dplus: "",
-        denivele_dmoins: "",
-        cote_itra: "",
-      });
+      setMessage("✅ Épreuve enregistrée avec succès !");
+      // Réinitialiser les champs
+      setNom("");
+      setLieu("");
+      setDate("");
+      setDistance("");
+      setDenivele("");
+      setDeniveleMoins("");
+      setCoteITRA("");
       setImageFile(null);
     }
   };
 
   return (
-    <div className="p-4 max-w-xl mx-auto">
-      <h1 className="text-xl font-bold mb-4">🎯 Ajouter une épreuve</h1>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {[
-          ["nom", "Nom de la course"],
-          ["lieu", "Lieu"],
-          ["date", "Date", "date"],
-          ["distance_km", "Distance (km)", "number"],
-          ["denivele_dplus", "D+ (m)", "number"],
-          ["denivele_dmoins", "D- (m)", "number"],
-          ["cote_itra", "Cote ITRA", "number"],
-        ].map(([name, label, type = "text"]) => (
-          <div key={name}>
-            <label className="block mb-1 font-medium">{label}</label>
-            <input
-              type={type}
-              name={name}
-              value={formData[name]}
-              onChange={handleChange}
-              required
-              className="w-full border p-2 rounded"
-            />
-          </div>
-        ))}
-
-        <div>
-          <label className="block mb-1 font-medium">Image</label>
-          <input
-            type="file"
-            accept="image/*"
-            onChange={handleFileChange}
-            className="w-full border p-2 rounded"
-          />
-        </div>
-
-        <button
-          type="submit"
-          className="bg-black text-white px-4 py-2 rounded hover:bg-gray-800"
-        >
-          ➕ Ajouter
-        </button>
+    <div>
+      <h1>Espace Organisateur</h1>
+      <p>Créez et gérez vos courses.</p>
+      <form onSubmit={handleSubmit}>
+        <input
+          type="text"
+          placeholder="Nom de la course"
+          value={nom}
+          onChange={(e) => setNom(e.target.value)}
+          required
+        />
+        <input
+          type="text"
+          placeholder="Lieu"
+          value={lieu}
+          onChange={(e) => setLieu(e.target.value)}
+          required
+        />
+        <input
+          type="date"
+          value={date}
+          onChange={(e) => setDate(e.target.value)}
+          required
+        />
+        <input
+          type="number"
+          placeholder="Distance (km)"
+          value={distance}
+          onChange={(e) => setDistance(e.target.value)}
+          required
+        />
+        <input
+          type="number"
+          placeholder="D+ (m)"
+          value={denivele}
+          onChange={(e) => setDenivele(e.target.value)}
+          required
+        />
+        <input
+          type="number"
+          placeholder="D- (m)"
+          value={deniveleMoins}
+          onChange={(e) => setDeniveleMoins(e.target.value)}
+          required
+        />
+        <input
+          type="number"
+          placeholder="Côte ITRA"
+          value={coteITRA}
+          onChange={(e) => setCoteITRA(e.target.value)}
+          required
+        />
+        <input
+          type="file"
+          accept="image/*"
+          onChange={(e) => setImageFile(e.target.files[0])}
+        />
+        <button type="submit">Enregistrer</button>
       </form>
-      {status && <p className="mt-4">{status}</p>}
+      <p>{message}</p>
     </div>
   );
 }
