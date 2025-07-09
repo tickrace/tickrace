@@ -1,82 +1,78 @@
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 
-export default function Organisateur() {
+const Organisateur = () => {
   const [nom, setNom] = useState("");
   const [lieu, setLieu] = useState("");
   const [date, setDate] = useState("");
   const [distance, setDistance] = useState("");
-  const [denivele, setDenivele] = useState("");
-  const [deniveleMoins, setDeniveleMoins] = useState("");
-  const [coteITRA, setCoteITRA] = useState("");
-  const [imageFile, setImageFile] = useState(null);
-  const [message, setMessage] = useState("");
-
-  const handleImageUpload = async () => {
-    if (!imageFile) return null;
-
-    const fileName = `${Date.now()}.jpg`;
-    const { data, error } = await supabase.storage
-      .from("courses")
-      .upload(`courses/${fileName}`, imageFile);
-
-    if (error) {
-      console.error("Erreur upload image :", error.message);
-      setMessage("❌ Erreur lors de l'upload de l'image.");
-      return null;
-    }
-
-    const { data: publicUrlData } = supabase.storage
-      .from("courses")
-      .getPublicUrl(`courses/${fileName}`);
-
-    return publicUrlData.publicUrl;
-  };
+  const [deniveleDplus, setDeniveleDplus] = useState("");
+  const [deniveleDmoins, setDeniveleDmoins] = useState("");
+  const [coteItra, setCoteItra] = useState("");
+  const [image, setImage] = useState(null);
+  const [etat, setEtat] = useState("");
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMessage("⏳ Enregistrement...");
+    setEtat("⏳ Enregistrement...");
 
-    const imageUrl = await handleImageUpload();
+    // 1. Upload image
+    let imageUrl = "";
+    if (image) {
+      const fileName = Date.now() + "-" + image.name;
+      const { error: uploadError } = await supabase.storage
+        .from("courses")
+        .upload("courses/" + fileName, image);
 
+      if (uploadError) {
+        setEtat("❌ Erreur lors de l'upload de l'image.");
+        return;
+      }
+
+      const { data } = supabase.storage
+        .from("courses")
+        .getPublicUrl("courses/" + fileName);
+
+      imageUrl = data.publicUrl;
+    }
+
+    // 2. Enregistrement dans Supabase
     const { error } = await supabase.from("courses").insert([
       {
         nom,
         lieu,
         date,
-        distance_km: parseFloat(distance),
-        denivele_dplus: parseFloat(denivele),
-        denivele_dmoins: parseFloat(deniveleMoins),
-        cote_itra: parseFloat(coteITRA),
+        distance_km: distance,
+        denivele_dplus: deniveleDplus,
+        denivele_dmoins: deniveleDmoins,
+        cote_itra: coteItra,
         image_url: imageUrl,
       },
     ]);
 
     if (error) {
-      console.error("Erreur insertion :", error.message);
-      setMessage("❌ Erreur lors de l'enregistrement.");
+      setEtat("❌ Erreur lors de l'enregistrement.");
     } else {
-      setMessage("✅ Épreuve enregistrée avec succès !");
-      // Réinitialiser les champs
+      setEtat("✅ Enregistrement réussi !");
       setNom("");
       setLieu("");
       setDate("");
       setDistance("");
-      setDenivele("");
-      setDeniveleMoins("");
-      setCoteITRA("");
-      setImageFile(null);
+      setDeniveleDplus("");
+      setDeniveleDmoins("");
+      setCoteItra("");
+      setImage(null);
     }
   };
 
   return (
-    <div>
+    <div style={{ padding: "1rem" }}>
       <h1>Espace Organisateur</h1>
       <p>Créez et gérez vos courses.</p>
       <form onSubmit={handleSubmit}>
         <input
           type="text"
-          placeholder="Nom de la course"
+          placeholder="Nom"
           value={nom}
           onChange={(e) => setNom(e.target.value)}
           required
@@ -90,6 +86,7 @@ export default function Organisateur() {
         />
         <input
           type="date"
+          placeholder="Date"
           value={date}
           onChange={(e) => setDate(e.target.value)}
           required
@@ -103,33 +100,34 @@ export default function Organisateur() {
         />
         <input
           type="number"
-          placeholder="D+ (m)"
-          value={denivele}
-          onChange={(e) => setDenivele(e.target.value)}
+          placeholder="D+"
+          value={deniveleDplus}
+          onChange={(e) => setDeniveleDplus(e.target.value)}
           required
         />
         <input
           type="number"
-          placeholder="D- (m)"
-          value={deniveleMoins}
-          onChange={(e) => setDeniveleMoins(e.target.value)}
+          placeholder="D-"
+          value={deniveleDmoins}
+          onChange={(e) => setDeniveleDmoins(e.target.value)}
           required
         />
         <input
           type="number"
-          placeholder="Côte ITRA"
-          value={coteITRA}
-          onChange={(e) => setCoteITRA(e.target.value)}
-          required
+          placeholder="Cote ITRA"
+          value={coteItra}
+          onChange={(e) => setCoteItra(e.target.value)}
         />
         <input
           type="file"
           accept="image/*"
-          onChange={(e) => setImageFile(e.target.files[0])}
+          onChange={(e) => setImage(e.target.files[0])}
         />
-        <button type="submit">Enregistrer</button>
+        <button type="submit">Envoyer</button>
       </form>
-      <p>{message}</p>
+      {etat && <p>{etat}</p>}
     </div>
   );
-}
+};
+
+export default Organisateur;
