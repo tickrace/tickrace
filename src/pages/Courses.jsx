@@ -1,56 +1,68 @@
+// Page des événements avec formats associés
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-const Courses = () => {
-  const [courses, setCourses] = useState([]);
+export default function Courses() {
+  const [events, setEvents] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchCourses = async () => {
+    const fetchEvents = async () => {
       const { data, error } = await supabase
-        .from("courses")
-        .select("*")
+        .from("events")
+        .select(`*, formats(*)`)
         .order("date", { ascending: true });
 
       if (error) {
-        console.error("Erreur lors de la récupération des courses :", error);
+        console.error("Erreur de chargement :", error);
       } else {
-        setCourses(data);
+        setEvents(data);
       }
+
+      setLoading(false);
     };
 
-    fetchCourses();
+    fetchEvents();
   }, []);
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Toutes les épreuves</h1>
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {courses.map((course) => (
-          <div
-            key={course.id}
-            className="border rounded-lg p-4 shadow bg-white"
-          >
-            {course.image_url && (
+    <div className="p-6 max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Toutes les épreuves</h1>
+
+      {loading ? (
+        <p>Chargement...</p>
+      ) : (
+        events.map((event) => (
+          <div key={event.id} className="mb-8 border-b pb-6">
+            <h2 className="text-xl font-semibold">{event.nom}</h2>
+            {event.sous_nom && <p className="italic text-sm text-gray-600">{event.sous_nom}</p>}
+            <p className="text-sm text-gray-700">📍 {event.lieu} - 📅 {event.date}</p>
+            {event.image_url && (
               <img
-                src={course.image_url}
-                alt={course.nom}
-                className="w-full h-48 object-cover rounded mb-2"
+                src={event.image_url}
+                alt={event.nom}
+                className="w-full h-64 object-cover my-3 rounded"
               />
             )}
-            <h2 className="text-xl font-semibold">{course.nom}</h2>
-            <p>{course.lieu}</p>
-            <p>
-              📅 {new Date(course.date).toLocaleDateString("fr-FR")}
-            </p>
-            <p>📏 {course.distance_km} km</p>
-            <p>📈 D+ : {course.denivele_dplus} m</p>
-            <p>📉 D- : {course.denivele_dmoins} m</p>
-            {course.cote_itra && <p>🏁 Cote ITRA : {course.cote_itra}</p>}
+            {event.description && <p className="mb-3">{event.description}</p>}
+
+            {event.formats && event.formats.length > 0 && (
+              <div>
+                <h3 className="font-semibold mt-3">Formats :</h3>
+                <ul className="list-disc ml-5">
+                  {event.formats.map((format) => (
+                    <li key={format.id} className="mt-1">
+                      <span className="font-bold">{format.nom}</span> - {format.distance_km} km, {format.denivele_dplus} D+, {format.denivele_dmoins} D-, {format.prix} €
+                      {format.heure_depart && ` - départ à ${format.heure_depart}`}
+                      {format.cote_itra && ` - ITRA ${format.cote_itra}`}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
-        ))}
-      </div>
+        ))
+      )}
     </div>
   );
-};
-
-export default Courses;
+}
