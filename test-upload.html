@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <title>Test Upload Supabase</title>
+</head>
+<body>
+  <h1>Test Upload vers Supabase Storage</h1>
+  <input type="file" id="fileInput" />
+
+  <script type="module">
+    import { createClient } from "https://cdn.jsdelivr.net/npm/@supabase/supabase-js/+esm";
+
+    const supabase = createClient(
+      "https://pecotcxpcqfkwvyylvjv.supabase.co",
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InBlY290Y3hwY3Fma3d2eXlsdmp2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTIwNjc1NDQsImV4cCI6MjA2NzY0MzU0NH0.DYbgJHjSuyJ-a6Iy_2w8uhUcXu_p9k6BZV0_DGyIG04" // remplace ici par TA CLÉ anon complète
+    );
+
+    document.getElementById("fileInput").addEventListener("change", async (e) => {
+      const file = e.target.files[0];
+      const { data, error } = await supabase.storage
+        .from("courses")
+        .upload(`courses/${Date.now()}_${file.name}`, file, {
+          cacheControl: "3600",
+          upsert: false,
+        });
+
+      if (error) {
+        console.error("❌ Upload failed:", error);
+        alert("❌ Upload échoué : " + error.message);
+      } else {
+        console.log("✅ Upload success:", data);
+        alert("✅ Upload réussi !");
+      }
+    });
+  </script>
+</body>
+</html>

@@ -1,3 +1,6 @@
+import SignupOrganisateur from "./pages/SignupOrganisateur";
+
+<Route path="/signup-organisateur" element={<SignupOrganisateur />} />
 import React from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Home from "./pages/Home";
@@ -23,4 +26,6 @@ export default function App() {
     </BrowserRouter>
   );
 }
+git config --global user.name "Nicolas Izard"
+git config --global user.email "tickrace.contact@gmail.com"
 
