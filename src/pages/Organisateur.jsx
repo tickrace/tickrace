@@ -17,6 +17,55 @@ export default function Organisateur() {
   
   // ... le reste du code
 }
+// extrait de Organisateur.jsx
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setMessage(null);
+
+  // Récupérer l'utilisateur connecté
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser();
+
+  if (userError || !user) {
+    setMessage("Impossible de récupérer l'utilisateur.");
+    return;
+  }
+
+  // Upload image
+  const file = image;
+  const fileName = `${Date.now()}_${file.name}`;
+  const { data: imageData, error: imageError } = await supabase.storage
+    .from("courses")
+    .upload(fileName, file);
+
+  if (imageError) {
+    setMessage("Erreur lors de l’upload de l’image.");
+    return;
+  }
+
+  // Insertion dans Supabase
+  const { error } = await supabase.from("courses").insert({
+    nom,
+    lieu,
+    date,
+    distance_km,
+    denivele_dplus,
+    denivele_dmoins,
+    cote_itra,
+    image_url: imageData.path,
+    organisateur_id: user.id, // 👈 Liaison ici
+  });
+
+  if (error) {
+    setMessage("Erreur lors de l’enregistrement.");
+  } else {
+    setMessage("✅ Course enregistrée !");
+    // Optionnel : reset du formulaire
+  }
+};
+
 <button
   onClick={async () => {
     await supabase.auth.signOut();
