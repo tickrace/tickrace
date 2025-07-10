@@ -1,3 +1,57 @@
+import { useEffect } from "react";
+import { useNavigate } from "react-router-dom";
+import { supabase } from "../supabase";
+
+export default function Organisateur() {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const checkSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!data.session) {
+        navigate("/login-organisateur");
+      }
+    };
+    checkSession();
+  }, []);
+  
+  // ... le reste du code
+}
+<button
+  onClick={async () => {
+    await supabase.auth.signOut();
+    window.location.href = "/login-organisateur";
+  }}
+  className="bg-red-500 text-white px-4 py-2 rounded"
+>
+  Se déconnecter
+</button>
+import { supabase } from "../supabase";
+
+// ...dans la fonction handleSubmit
+
+const {
+  data: { user },
+  error: userError,
+} = await supabase.auth.getUser();
+
+if (userError || !user) {
+  console.error("Utilisateur non connecté");
+  return;
+}
+
+const { error: insertError } = await supabase
+  .from("courses")
+  .insert([
+    {
+      nom,
+      lieu,
+      date,
+      // autres champs...
+      organisateur_id: user.id,
+    },
+  ]);
+
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 
