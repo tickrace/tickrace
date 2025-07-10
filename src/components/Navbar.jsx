@@ -8,6 +8,7 @@ export default function Navbar() {
       <Link to="/courses" className="hover:underline">Épreuves</Link>
       <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
       <Link to="/organisateur" className="hover:underline">Organisateur</Link>
+      <Link to="/espaceorganisateur" className="hover:underline">Mon espace organisateur</Link>
       <Link to="/coureur" className="hover:underline">Coureur</Link>
       <Link to="/admin" className="hover:underline">Admin</Link>
     </nav>
