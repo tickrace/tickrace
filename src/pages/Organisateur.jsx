@@ -1,259 +1,147 @@
-import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
+// src/pages/Organisateur.jsx
+import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 
 export default function Organisateur() {
-  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
+  const [message, setMessage] = useState(null);
+  const [courses, setCourses] = useState([]);
 
-  useEffect(() => {
-    const checkSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      if (!data.session) {
-        navigate("/login-organisateur");
-      }
-    };
-    checkSession();
-  }, []);
-  
-  // ... le reste du code
-}
-// extrait de Organisateur.jsx
-const handleSubmit = async (e) => {
-  e.preventDefault();
-  setMessage(null);
-
-  // Récupérer l'utilisateur connecté
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser();
-
-  if (userError || !user) {
-    setMessage("Impossible de récupérer l'utilisateur.");
-    return;
-  }
-
-  // Upload image
-  const file = image;
-  const fileName = `${Date.now()}_${file.name}`;
-  const { data: imageData, error: imageError } = await supabase.storage
-    .from("courses")
-    .upload(fileName, file);
-
-  if (imageError) {
-    setMessage("Erreur lors de l’upload de l’image.");
-    return;
-  }
-
-  // Insertion dans Supabase
-  const { error } = await supabase.from("courses").insert({
-    nom,
-    lieu,
-    date,
-    distance_km,
-    denivele_dplus,
-    denivele_dmoins,
-    cote_itra,
-    image_url: imageData.path,
-    organisateur_id: user.id, // 👈 Liaison ici
-  });
-
-  if (error) {
-    setMessage("Erreur lors de l’enregistrement.");
-  } else {
-    setMessage("✅ Course enregistrée !");
-    // Optionnel : reset du formulaire
-  }
-};
-
-<button
-  onClick={async () => {
-    await supabase.auth.signOut();
-    window.location.href = "/login-organisateur";
-  }}
-  className="bg-red-500 text-white px-4 py-2 rounded"
->
-  Se déconnecter
-</button>
-import { supabase } from "../supabase";
-
-// ...dans la fonction handleSubmit
-
-const {
-  data: { user },
-  error: userError,
-} = await supabase.auth.getUser();
-
-if (userError || !user) {
-  console.error("Utilisateur non connecté");
-  return;
-}
-
-const { error: insertError } = await supabase
-  .from("courses")
-  .insert([
-    {
-      nom,
-      lieu,
-      date,
-      // autres champs...
-      organisateur_id: user.id,
-    },
-  ]);
-
-import React, { useState } from "react";
-import { supabase } from "../supabase";
-
-export default function Organisateur() {
-  const [data, setData] = useState({
+  const [formData, setFormData] = useState({
     nom: "",
     sous_nom: "",
     lieu: "",
+    type: "",
     date: "",
-    image: null,
+    distance_km: "",
+    denivele_dplus: "",
+    denivele_dmoins: "",
+    cote_itra: "",
+    prix: "",
     image_url: "",
-    description: "",
-    formats: [
-      {
-        nom: "",
-        distance_km: "",
-        denivele_dplus: "",
-        denivele_dmoins: "",
-        prix: "",
-        heure_depart: "",
-        cote_itra: "",
-      },
-    ],
   });
 
-  const [message, setMessage] = useState("");
+  // Charger l'utilisateur connecté
+  useEffect(() => {
+    const fetchUser = async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      setUser(user);
+      if (user) fetchCourses(user.id);
+    };
+    fetchUser();
+  }, []);
 
-  const handleInputChange = (e) => {
-    setData({ ...data, [e.target.name]: e.target.value });
+  // Récupérer les courses déjà créées
+  const fetchCourses = async (organisateurId) => {
+    const { data, error } = await supabase
+      .from("courses")
+      .select("*")
+      .eq("organisateur_id", organisateurId);
+    if (!error) {
+      setCourses(data);
+    }
   };
 
-  const handleFormatChange = (index, e) => {
-    const newFormats = [...data.formats];
-    newFormats[index][e.target.name] = e.target.value;
-    setData({ ...data, formats: newFormats });
-  };
+  // Upload image
+  const handleImageUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  const addFormat = () => {
-    setData({
-      ...data,
-      formats: [
-        ...data.formats,
-        {
-          nom: "",
-          distance_km: "",
-          denivele_dplus: "",
-          denivele_dmoins: "",
-          prix: "",
-          heure_depart: "",
-          cote_itra: "",
-        },
-      ],
-    });
-  };
-
-  const handleImageUpload = async () => {
-    if (!data.image) return null;
-
-    const file = data.image;
-    const filePath = `courses/${Date.now()}_${file.name}`;
-
-    const { data: uploadData, error: uploadError } = await supabase.storage
+    const filePath = `courses/${Date.now()}-${file.name}`;
+    const { data, error } = await supabase.storage
       .from("courses")
       .upload(filePath, file);
 
-    if (uploadError) {
-      console.error("❌ Erreur upload :", uploadError.message);
-      return null;
+    if (error) {
+      setMessage({ type: "error", text: "❌ Erreur lors de l'upload de l'image." });
+    } else {
+      const url = supabase.storage.from("courses").getPublicUrl(filePath).data.publicUrl;
+      setFormData({ ...formData, image_url: url });
+      setMessage({ type: "success", text: "✅ Upload réussi !" });
     }
-
-    const { data: urlData } = supabase.storage.from("courses").getPublicUrl(filePath);
-    return urlData.publicUrl;
   };
 
+  // Soumettre le formulaire
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMessage("⏳ Enregistrement...");
+    setMessage(null);
 
-    const uploadedImageUrl = await handleImageUpload();
-
-    const { data: insertedEvent, error: insertError } = await supabase
-      .from("events")
-      .insert([
-        {
-          nom: data.nom,
-          sous_nom: data.sous_nom,
-          lieu: data.lieu,
-          date: data.date,
-          description: data.description,
-          image_url: uploadedImageUrl || null,
-        },
-      ])
-      .select()
-      .single();
-
-    if (insertError) {
-      console.error("❌ Erreur insert event :", insertError.message);
-      setMessage("❌ Erreur lors de l'enregistrement.");
+    if (!user) {
+      setMessage({ type: "error", text: "Utilisateur non connecté." });
       return;
     }
 
-    const { error: formatsError } = await supabase.from("formats").insert(
-      data.formats.map((format) => ({
-        event_id: insertedEvent.id,
-        nom: format.nom || "",
-        distance_km: format.distance_km ? Number(format.distance_km) : null,
-        denivele_dplus: format.denivele_dplus ? parseInt(format.denivele_dplus) : null,
-        denivele_dmoins: format.denivele_dmoins ? parseInt(format.denivele_dmoins) : null,
-        cote_itra: format.cote_itra ? parseInt(format.cote_itra) : null,
-        heure_depart: format.heure_depart || null,
-        prix: format.prix ? Number(format.prix) : null,
-      }))
-    );
+    const { error } = await supabase.from("courses").insert({
+      ...formData,
+      organisateur_id: user.id,
+    });
 
-    if (formatsError) {
-      console.error("❌ Erreur insert formats :", formatsError.message);
-      setMessage("❌ Erreur lors de l'enregistrement des formats.");
+    if (error) {
+      setMessage({ type: "error", text: "❌ Erreur lors de l'enregistrement." });
     } else {
-      setMessage("✅ Épreuve enregistrée avec succès !");
+      setMessage({ type: "success", text: "✅ Course enregistrée avec succès." });
+      setFormData({
+        nom: "",
+        sous_nom: "",
+        lieu: "",
+        type: "",
+        date: "",
+        distance_km: "",
+        denivele_dplus: "",
+        denivele_dmoins: "",
+        cote_itra: "",
+        prix: "",
+        image_url: "",
+      });
+      fetchCourses(user.id);
     }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
   };
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Espace Organisateur</h1>
-      <p className="mb-4">Créez et gérez vos courses.</p>
+      {user && (
+        <button onClick={handleLogout} className="mb-4 text-sm text-blue-600 underline">
+          Déconnexion
+        </button>
+      )}
+      <p className="mb-6 text-gray-700">Créez et gérez vos courses.</p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <input name="nom" placeholder="Nom de l’épreuve" onChange={handleInputChange} className="w-full border p-2" />
-        <input name="sous_nom" placeholder="Sous-nom" onChange={handleInputChange} className="w-full border p-2" />
-        <input name="lieu" placeholder="Lieu" onChange={handleInputChange} className="w-full border p-2" />
-        <input type="date" name="date" onChange={handleInputChange} className="w-full border p-2" />
-        <textarea name="description" placeholder="Description" onChange={handleInputChange} className="w-full border p-2" />
-        <input type="file" accept="image/*" onChange={(e) => setData({ ...data, image: e.target.files[0] })} className="w-full" />
-
-        <h2 className="text-lg font-semibold mt-6">Formats</h2>
-        {data.formats.map((format, index) => (
-          <div key={index} className="border p-3 mb-3">
-            <input name="nom" placeholder="Nom du format" value={format.nom} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
-            <input name="distance_km" placeholder="Distance (km)" value={format.distance_km} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
-            <input name="denivele_dplus" placeholder="D+" value={format.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
-            <input name="denivele_dmoins" placeholder="D-" value={format.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
-            <input name="prix" placeholder="Prix (€)" value={format.prix} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
-            <input name="heure_depart" placeholder="Heure de départ (ex: 08:30)" value={format.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
-            <input name="cote_itra" placeholder="Côte ITRA" value={format.cote_itra} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2" />
-          </div>
-        ))}
-
-        <button type="button" onClick={addFormat} className="bg-gray-200 px-4 py-2 rounded">➕ Ajouter un format</button>
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">✅ Enregistrer</button>
+      <form onSubmit={handleSubmit} className="grid grid-cols-1 gap-4">
+        <input type="text" placeholder="Nom de l’épreuve" value={formData.nom} onChange={(e) => setFormData({ ...formData, nom: e.target.value })} required />
+        <input type="text" placeholder="Sous-nom ou édition" value={formData.sous_nom} onChange={(e) => setFormData({ ...formData, sous_nom: e.target.value })} />
+        <input type="text" placeholder="Lieu" value={formData.lieu} onChange={(e) => setFormData({ ...formData, lieu: e.target.value })} required />
+        <input type="text" placeholder="Type (ex: trail, skyrace…)" value={formData.type} onChange={(e) => setFormData({ ...formData, type: e.target.value })} />
+        <input type="date" value={formData.date} onChange={(e) => setFormData({ ...formData, date: e.target.value })} required />
+        <input type="number" placeholder="Distance (km)" value={formData.distance_km} onChange={(e) => setFormData({ ...formData, distance_km: e.target.value })} />
+        <input type="number" placeholder="Dénivelé positif (m)" value={formData.denivele_dplus} onChange={(e) => setFormData({ ...formData, denivele_dplus: e.target.value })} />
+        <input type="number" placeholder="Dénivelé négatif (m)" value={formData.denivele_dmoins} onChange={(e) => setFormData({ ...formData, denivele_dmoins: e.target.value })} />
+        <input type="number" placeholder="Cote ITRA" value={formData.cote_itra} onChange={(e) => setFormData({ ...formData, cote_itra: e.target.value })} />
+        <input type="number" placeholder="Prix (€)" value={formData.prix} onChange={(e) => setFormData({ ...formData, prix: e.target.value })} />
+        <input type="file" accept="image/*" onChange={handleImageUpload} />
+        <button type="submit" className="bg-black text-white px-4 py-2 rounded">Enregistrer</button>
+        {message && <p className={`${message.type === "error" ? "text-red-600" : "text-green-600"}`}>{message.text}</p>}
       </form>
 
-      {message && <p className="mt-4">{message}</p>}
+      {courses.length > 0 && (
+        <div className="mt-10">
+          <h2 className="text-xl font-bold mb-2">Mes épreuves</h2>
+          <ul className="space-y-2">
+            {courses.map((course) => (
+              <li key={course.id} className="border p-3 rounded">
+                <strong>{course.nom}</strong> - {course.date} - {course.lieu}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
     </div>
   );
 }
