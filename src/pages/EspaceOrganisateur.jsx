@@ -9,16 +9,21 @@ export default function EspaceOrganisateur() {
     const fetchCourses = async () => {
       const {
         data: { user },
+        error: userError,
       } = await supabase.auth.getUser();
 
-      if (!user) return;
+      if (userError || !user) return;
 
       const { data, error } = await supabase
         .from("courses")
         .select("*")
-        .eq("organisateur_id", user.id);
+        .eq("organisateur_id", user.id)
+        .order("date", { ascending: true });
 
-      if (!error) setCourses(data);
+      if (!error) {
+        setCourses(data);
+      }
+
       setLoading(false);
     };
 
@@ -26,15 +31,19 @@ export default function EspaceOrganisateur() {
   }, []);
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
+    <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Mes courses</h1>
       {loading ? (
-        <p>Chargement...</p>
+        <p>Chargement…</p>
+      ) : courses.length === 0 ? (
+        <p>Aucune course pour l’instant.</p>
       ) : (
-        <ul>
+        <ul className="space-y-4">
           {courses.map((course) => (
-            <li key={course.id} className="border-b py-2">
-              {course.nom} - {course.date}
+            <li key={course.id} className="border p-4 rounded">
+              <h2 className="font-bold text-lg">{course.nom}</h2>
+              <p>{course.lieu} — {course.date}</p>
+              <p>D+ {course.denivele_dplus} m — {course.distance_km} km</p>
             </li>
           ))}
         </ul>
