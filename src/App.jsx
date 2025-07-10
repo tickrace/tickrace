@@ -6,7 +6,6 @@ import Courses from "./pages/Courses";
 import Organisateur from "./pages/Organisateur";
 import SignupOrganisateur from "./pages/SignupOrganisateur";
 import EspaceOrganisateur from "./pages/EspaceOrganisateur";
-import NouvelleCourse from "./pages/NouvelleCourse";
 import Coureur from "./pages/Coureur";
 import Admin from "./pages/Admin";
 
@@ -20,7 +19,6 @@ export default function App() {
         <Route path="/organisateur" element={<Organisateur />} />
         <Route path="/organisateur/signup" element={<SignupOrganisateur />} />
         <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
-        <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
         <Route path="/coureur" element={<Coureur />} />
         <Route path="/admin" element={<Admin />} />
       </Routes>
