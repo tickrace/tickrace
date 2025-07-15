@@ -10,6 +10,7 @@ export default function Navbar() {
       <Link to="/organisateur" className="hover:underline">+ Nouvelle course</Link>
 <Link to="/organisateur/login" className="hover:underline">Connexion</Link>
 
+
     </nav>
   );
 }

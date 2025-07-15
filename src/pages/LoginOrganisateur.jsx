@@ -1,3 +1,4 @@
+// src/pages/LoginOrganisateur.jsx
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 import { useNavigate } from "react-router-dom";
@@ -14,7 +15,10 @@ export default function LoginOrganisateur() {
     setLoading(true);
     setMessage(null);
 
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({
+      email,
+      password,
+    });
 
     if (error) {
       setMessage({ type: "error", text: error.message });
@@ -54,13 +58,13 @@ export default function LoginOrganisateur() {
         </div>
         <button
           type="submit"
-          className="bg-black text-white px-4 py-2 rounded"
           disabled={loading}
+          className="bg-black text-white px-4 py-2 rounded"
         >
           {loading ? "Connexion..." : "Se connecter"}
         </button>
         {message && (
-          <p className={`mt-2 text-sm ${message.type === "error" ? "text-red-600" : "text-green-600"}`}>
+          <p className={`text-sm mt-2 ${message.type === "error" ? "text-red-500" : "text-green-600"}`}>
             {message.text}
           </p>
         )}
