@@ -5,6 +5,9 @@ import Home from "./pages/Home";
 import Courses from "./pages/Courses"; // ✅ Ajout de l'import
 import Organisateur from "./pages/Organisateur";
 import LoginOrganisateur from "./pages/LoginOrganisateur";
+import SignupOrganisateur from "./pages/SignupOrganisateur";
+
+
 
 export default function App() {
   return (
@@ -16,9 +19,9 @@ export default function App() {
 <Route path="/organisateur" element={<Organisateur />} />
 
 <Route path="/organisateur/login" element={<LoginOrganisateur />} />
+<Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
 
-
-      </Routes>
+<Route path="/organisateur/signup" element={<SignupOrganisateur />} />      </Routes>
     </Router>
   );
 }
