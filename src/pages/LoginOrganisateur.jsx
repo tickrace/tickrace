@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function LoginOrganisateur() {
@@ -6,6 +7,7 @@ export default function LoginOrganisateur() {
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleLogin = async (e) => {
     e.preventDefault();
@@ -20,7 +22,10 @@ export default function LoginOrganisateur() {
     if (error) {
       setMessage({ type: "error", text: error.message });
     } else {
-      setMessage({ type: "success", text: "Connexion réussie." });
+      setMessage({ type: "success", text: "Connexion réussie. Redirection..." });
+      setTimeout(() => {
+        navigate("/organisateur/espace");
+      }, 1000); // délai pour laisser apparaître le message
     }
 
     setLoading(false);
