@@ -1,124 +1,142 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { supabase } from "../supabase";
 
 export default function Organisateur() {
-  const [nom, setNom] = useState("");
-  const [sousNom, setSousNom] = useState("");
-  const [lieu, setLieu] = useState("");
-  const [date, setDate] = useState("");
-  const [type, setType] = useState("");
-  const [imageFile, setImageFile] = useState(null);
+  const [course, setCourse] = useState({
+    nom: "",
+    sous_nom: "",
+    lieu: "",
+    date: "",
+    type: "",
+    image_url: "",
+  });
+
   const [formats, setFormats] = useState([
-    { nom: "", distance_km: "", denivele_dplus: "", denivele_dmoins: "", cote_itra: "", heure_depart: "", prix: "", gpx_url: "" },
+    {
+      nom: "",
+      distance_km: "",
+      denivele_dplus: "",
+      denivele_dmoins: "",
+      cote_itra: "",
+      heure_depart: "",
+      prix: "",
+      gpx_url: ""
+    }
   ]);
-  const [message, setMessage] = useState("");
-  const [userId, setUserId] = useState(null);
 
-  useEffect(() => {
-    supabase.auth.getUser().then(({ data: { user } }) => {
-      if (user) {
-        setUserId(user.id);
-      }
-    });
-  }, []);
+  const [message, setMessage] = useState(null);
+  const [uploading, setUploading] = useState(false);
 
-  const handleFormatChange = (index, field, value) => {
+  const handleCourseChange = (e) => {
+    setCourse({ ...course, [e.target.name]: e.target.value });
+  };
+
+  const handleFormatChange = (index, e) => {
     const newFormats = [...formats];
-    newFormats[index][field] = value;
+    newFormats[index][e.target.name] = e.target.value;
     setFormats(newFormats);
   };
 
   const addFormat = () => {
-    setFormats([...formats, { nom: "", distance_km: "", denivele_dplus: "", denivele_dmoins: "", cote_itra: "", heure_depart: "", prix: "", gpx_url: "" }]);
+    setFormats([
+      ...formats,
+      {
+        nom: "",
+        distance_km: "",
+        denivele_dplus: "",
+        denivele_dmoins: "",
+        cote_itra: "",
+        heure_depart: "",
+        prix: "",
+        gpx_url: ""
+      }
+    ]);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setMessage("⏳ Enregistrement...");
+    setMessage(null);
 
-    let imageUrl = "";
-    if (imageFile) {
-      const fileExt = imageFile.name.split(".").pop();
-      const filePath = `courses/${Date.now()}.${fileExt}`;
-      const { error: uploadError } = await supabase.storage
-        .from("courses")
-        .upload(filePath, imageFile);
-
-      if (uploadError) {
-        setMessage("❌ Erreur lors de l'upload de l'image.");
-        return;
-      }
-
-      const { data: urlData } = supabase.storage.from("courses").getPublicUrl(filePath);
-      imageUrl = urlData.publicUrl;
-    }
-
-    const { data: eventData, error: insertError } = await supabase
+    // Insertion de la course
+    const { data: courseData, error: courseError } = await supabase
       .from("courses")
-      .insert([
-        {
-          nom,
-          sous_nom: sousNom,
-          lieu,
-          date,
-          type,
-          image_url: imageUrl,
-          organisateur_id: userId,
-        },
-      ])
+      .insert([course])
       .select()
       .single();
 
-    if (insertError) {
-      setMessage("❌ Erreur lors de l'enregistrement.");
+    if (courseError) {
+      setMessage({ type: "error", text: "Erreur lors de l’enregistrement de la course." });
       return;
     }
 
-    // Enregistrer les formats liés
-    const formatsToInsert = formats.map((f) => ({
+    // Insertion des formats liés
+    const formatsWithEventId = formats.map((f) => ({
       ...f,
-      event_id: eventData.id,
+      event_id: courseData.id,
     }));
 
-    const { error: formatError } = await supabase.from("formats").insert(formatsToInsert);
+    const { error: formatError } = await supabase
+      .from("formats")
+      .insert(formatsWithEventId);
+
     if (formatError) {
-      setMessage("❌ Erreur lors de l'ajout des formats.");
+      setMessage({ type: "error", text: "Erreur lors de l’enregistrement des formats." });
       return;
     }
 
-    setMessage("✅ Course et formats enregistrés !");
+    setMessage({ type: "success", text: "Épreuve créée avec succès !" });
+    setCourse({ nom: "", sous_nom: "", lieu: "", date: "", type: "", image_url: "" });
+    setFormats([formats[0]]);
   };
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Espace Organisateur</h1>
-      <p className="mb-6">Créez et gérez vos courses.</p>
+      <h1 className="text-2xl font-bold mb-4">Créer une nouvelle épreuve</h1>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <div>
+          <label className="block">Nom de l’épreuve</label>
+          <input type="text" name="nom" value={course.nom} onChange={handleCourseChange} className="w-full border p-2" required />
+        </div>
+        <div>
+          <label className="block">Sous-titre / nom complémentaire</label>
+          <input type="text" name="sous_nom" value={course.sous_nom} onChange={handleCourseChange} className="w-full border p-2" />
+        </div>
+        <div>
+          <label className="block">Lieu</label>
+          <input type="text" name="lieu" value={course.lieu} onChange={handleCourseChange} className="w-full border p-2" required />
+        </div>
+        <div>
+          <label className="block">Date</label>
+          <input type="date" name="date" value={course.date} onChange={handleCourseChange} className="w-full border p-2" required />
+        </div>
+        <div>
+          <label className="block">Type d’épreuve</label>
+          <input type="text" name="type" value={course.type} onChange={handleCourseChange} className="w-full border p-2" />
+        </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <input type="text" placeholder="Nom de l'épreuve" value={nom} onChange={(e) => setNom(e.target.value)} className="w-full border px-3 py-2 rounded" required />
-        <input type="text" placeholder="Sous-titre (ex: édition 2025, trail nocturne…)" value={sousNom} onChange={(e) => setSousNom(e.target.value)} className="w-full border px-3 py-2 rounded" />
-        <input type="text" placeholder="Lieu" value={lieu} onChange={(e) => setLieu(e.target.value)} className="w-full border px-3 py-2 rounded" required />
-        <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full border px-3 py-2 rounded" required />
-        <input type="text" placeholder="Type d'épreuve (trail, KV, etc.)" value={type} onChange={(e) => setType(e.target.value)} className="w-full border px-3 py-2 rounded" />
-        <input type="file" onChange={(e) => setImageFile(e.target.files[0])} className="w-full" />
-
-        <h2 className="text-lg font-semibold mt-6">Formats proposés</h2>
+        <h2 className="text-xl font-semibold mt-6">Formats de course</h2>
         {formats.map((format, index) => (
-          <div key={index} className="border p-4 rounded mb-4">
-            <input type="text" placeholder="Nom du format (ex: Trail 32 km)" value={format.nom} onChange={(e) => handleFormatChange(index, "nom", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
-            <input type="number" placeholder="Distance (km)" value={format.distance_km} onChange={(e) => handleFormatChange(index, "distance_km", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
-            <input type="number" placeholder="D+ (m)" value={format.denivele_dplus} onChange={(e) => handleFormatChange(index, "denivele_dplus", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
-            <input type="number" placeholder="D- (m)" value={format.denivele_dmoins} onChange={(e) => handleFormatChange(index, "denivele_dmoins", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
-            <input type="number" placeholder="Cote ITRA (optionnelle)" value={format.cote_itra} onChange={(e) => handleFormatChange(index, "cote_itra", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
-            <input type="text" placeholder="Heure de départ" value={format.heure_depart} onChange={(e) => handleFormatChange(index, "heure_depart", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
-            <input type="number" placeholder="Prix (€)" value={format.prix} onChange={(e) => handleFormatChange(index, "prix", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
-            <input type="text" placeholder="Lien GPX (optionnel)" value={format.gpx_url} onChange={(e) => handleFormatChange(index, "gpx_url", e.target.value)} className="w-full mb-2 border px-2 py-1 rounded" />
+          <div key={index} className="border p-4 mb-4">
+            <input type="text" name="nom" placeholder="Nom du format" value={format.nom} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
+            <input type="number" step="0.1" name="distance_km" placeholder="Distance (km)" value={format.distance_km} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
+            <input type="number" name="denivele_dplus" placeholder="D+ (m)" value={format.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
+            <input type="number" name="denivele_dmoins" placeholder="D- (m)" value={format.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
+            <input type="number" name="cote_itra" placeholder="Cote ITRA" value={format.cote_itra} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
+            <input type="time" name="heure_depart" placeholder="Heure de départ" value={format.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
+            <input type="number" step="0.1" name="prix" placeholder="Prix (€)" value={format.prix} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2 mb-2" />
+            <input type="text" name="gpx_url" placeholder="Lien GPX" value={format.gpx_url} onChange={(e) => handleFormatChange(index, e)} className="w-full border p-2" />
           </div>
         ))}
         <button type="button" onClick={addFormat} className="bg-gray-200 px-3 py-1 rounded">+ Ajouter un format</button>
 
-        <button type="submit" className="bg-black text-white px-4 py-2 rounded">Enregistrer</button>
-        {message && <p className="mt-2">{message}</p>}
+        <button type="submit" className="bg-black text-white px-4 py-2 rounded">
+          Créer l’épreuve
+        </button>
+        {message && (
+          <p className={`mt-2 ${message.type === "error" ? "text-red-500" : "text-green-600"}`}>
+            {message.text}
+          </p>
+        )}
       </form>
     </div>
   );
