@@ -3,56 +3,88 @@ import { supabase } from "../supabase";
 
 export default function Courses() {
   const [courses, setCourses] = useState([]);
+  const [formatsByCourse, setFormatsByCourse] = useState({});
   const [loading, setLoading] = useState(true);
-  const [erreur, setErreur] = useState(null);
 
   useEffect(() => {
-    const fetchCourses = async () => {
+    const fetchCoursesAndFormats = async () => {
       setLoading(true);
-      const { data, error } = await supabase
-        .from("courses")
-        .select("nom, sous_nom, lieu, date, type_epreuve, image_url")
-        .order("date", { ascending: true });
 
-      if (error) {
-        console.error("Erreur de chargement des courses :", error);
-        setErreur("Erreur de chargement des courses");
-      } else {
-        setCourses(data);
+      const { data: coursesData, error: coursesError } = await supabase
+        .from("courses")
+        .select("*");
+
+      if (coursesError) {
+        console.error("Erreur de chargement des courses :", coursesError.message);
+        setLoading(false);
+        return;
       }
+
+      const { data: formatsData, error: formatsError } = await supabase
+        .from("formats")
+        .select("*");
+
+      if (formatsError) {
+        console.error("Erreur de chargement des formats :", formatsError.message);
+        setLoading(false);
+        return;
+      }
+
+      const groupedFormats = {};
+      formatsData.forEach((format) => {
+        if (!groupedFormats[format.event_id]) {
+          groupedFormats[format.event_id] = [];
+        }
+        groupedFormats[format.event_id].push(format);
+      });
+
+      setCourses(coursesData);
+      setFormatsByCourse(groupedFormats);
       setLoading(false);
     };
 
-    fetchCourses();
+    fetchCoursesAndFormats();
   }, []);
 
+  if (loading) return <p className="p-6">Chargement...</p>;
+
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-3xl font-bold mb-6">Toutes les épreuves</h1>
-
-      {loading && <p>Chargement...</p>}
-      {erreur && <p className="text-red-500">{erreur}</p>}
-
-      <div className="grid gap-6 grid-cols-1 sm:grid-cols-2">
-        {courses.map((course) => (
-          <div key={course.nom + course.date} className="border rounded shadow p-4 bg-white">
-            {course.image_url && (
-              <img
-                src={course.image_url}
-                alt={course.nom}
-                className="w-full h-48 object-cover rounded mb-4"
-              />
-            )}
-            <h2 className="text-xl font-bold">{course.nom}</h2>
-            {course.sous_nom && <p className="italic text-gray-600">{course.sous_nom}</p>}
-            <p className="mt-2 text-sm text-gray-700">
-              📍 {course.lieu} <br />
-              🏁 {new Date(course.date).toLocaleDateString()} <br />
-              🏷️ {course.type_epreuve}
-            </p>
-          </div>
-        ))}
-      </div>
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-6">Toutes les épreuves</h1>
+      {courses.length === 0 ? (
+        <p>Aucune course disponible.</p>
+      ) : (
+        <ul className="space-y-4">
+          {courses.map((course) => (
+            <li key={course.id} className="border p-4 rounded shadow-sm">
+              <h2 className="text-xl font-semibold">{course.nom}</h2>
+              {course.sous_nom && <p className="text-gray-600">{course.sous_nom}</p>}
+              <p className="text-sm mb-2">{course.lieu} – {course.date}</p>
+              {course.image_url && (
+                <img
+                  src={course.image_url}
+                  alt={course.nom}
+                  className="w-full max-w-xs mb-4"
+                />
+              )}
+              {formatsByCourse[course.id] ? (
+                <div className="mt-2">
+                  <h3 className="font-bold mb-1">Formats :</h3>
+                  <ul className="list-disc list-inside">
+                    {formatsByCourse[course.id].map((format) => (
+                      <li key={format.id}>
+                        {format.nom} – {format.distance_km} km, {format.denivele_dplus} m D+
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : (
+                <p className="text-sm text-gray-500">Aucun format renseigné.</p>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
