@@ -6,7 +6,9 @@ import Courses from "./pages/Courses";
 import Organisateur from "./pages/Organisateur";
 import LoginOrganisateur from "./pages/LoginOrganisateur";
 import SignupOrganisateur from "./pages/SignupOrganisateur";
-import EspaceOrganisateur from "./pages/EspaceOrganisateur"; // ✅ Import ajouté
+import EspaceOrganisateur from "./pages/EspaceOrganisateur";
+import NouvelleCourse from "./pages/NouvelleCourse";
+import FormatsCourse from "./pages/FormatsCourse";
 
 export default function App() {
   return (
@@ -19,6 +21,8 @@ export default function App() {
         <Route path="/organisateur/login" element={<LoginOrganisateur />} />
         <Route path="/organisateur/signup" element={<SignupOrganisateur />} />
         <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
+        <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
+        <Route path="/organisateur/formats" element={<FormatsCourse />} />
       </Routes>
     </Router>
   );
