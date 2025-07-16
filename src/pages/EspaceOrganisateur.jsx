@@ -57,7 +57,7 @@ export default function EspaceOrganisateur() {
       {courses.length === 0 ? (
         <p className="mt-4">Aucune course enregistrée.</p>
       ) : (
-        <ul className="mt-4 space-y-2">
+        <ul className="mt-4 space-y-4">
           {courses.map((course) => (
             <li key={course.id} className="border p-4 rounded shadow-sm">
               <p className="font-semibold text-lg">{course.nom}</p>
@@ -65,6 +65,12 @@ export default function EspaceOrganisateur() {
                 <p className="text-sm text-gray-600">{course.sous_nom}</p>
               )}
               <p className="text-sm">{course.lieu} – {course.date}</p>
+              <Link
+                to={`/organisateur/modifier-course/${course.id}`}
+                className="inline-block mt-2 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Modifier
+              </Link>
             </li>
           ))}
         </ul>
