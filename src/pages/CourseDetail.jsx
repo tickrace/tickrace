@@ -17,13 +17,10 @@ export default function CourseDetail() {
         .single();
 
       if (error) {
-        console.error("Erreur de chargement de la course :", error.message);
+        console.error("Erreur lors du chargement de la course :", error.message);
       } else {
         setCourse(data);
-        console.log("Image URL brute :", data.image_url);
       }
-
-      setLoading(false);
     };
 
     const fetchFormats = async () => {
@@ -33,10 +30,12 @@ export default function CourseDetail() {
         .eq("course_id", id);
 
       if (error) {
-        console.error("Erreur de chargement des formats :", error.message);
+        console.error("Erreur lors du chargement des formats :", error.message);
       } else {
         setFormats(data);
       }
+
+      setLoading(false);
     };
 
     fetchCourse();
@@ -44,48 +43,37 @@ export default function CourseDetail() {
   }, [id]);
 
   if (loading) return <p className="p-6">Chargement...</p>;
-  if (!course) return <p className="p-6">Course introuvable.</p>;
+  if (!course) return <p className="p-6">Épreuve introuvable.</p>;
+
+  const imageUrl = course.image_url
+    ? `https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`
+    : null;
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">{course.nom}</h1>
+    <div className="p-6 max-w-3xl mx-auto">
+      <h1 className="text-2xl font-bold mb-2">{course.nom}</h1>
+      {course.sous_nom && <h2 className="text-lg italic mb-4">{course.sous_nom}</h2>}
 
-      {course.image_url && (
+      {imageUrl && (
         <img
-          src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`}
+          src={imageUrl}
           alt="Affiche de l’épreuve"
-          className="w-full max-h-96 object-contain mb-6 border"
-          onError={(e) => {
-            console.error("Image non trouvée :", e.target.src);
-            e.target.onerror = null;
-            e.target.src = "/default.jpg"; // ou laisse vide
-          }}
+          className="w-full max-h-[400px] object-contain mb-6 rounded shadow"
         />
       )}
 
-      {course.sous_nom && <p className="text-lg italic mb-2">{course.sous_nom}</p>}
-
-      <p className="text-md mb-2">
-        <strong>Lieu :</strong> {course.lieu}
-      </p>
-      <p className="text-md mb-2">
-        <strong>Date :</strong> {course.date}
-      </p>
-      <p className="text-md mb-4">
-        <strong>Type :</strong> {course.type_epreuve}
-      </p>
+      <p><strong>Lieu :</strong> {course.lieu}</p>
+      <p><strong>Date :</strong> {course.date}</p>
+      <p><strong>Type :</strong> {course.type_epreuve}</p>
 
       {formats.length > 0 && (
         <div className="mt-6">
-          <h2 className="text-xl font-semibold mb-2">Formats disponibles</h2>
-          <ul className="space-y-2">
+          <h3 className="text-xl font-semibold mb-2">Formats proposés :</h3>
+          <ul className="list-disc pl-6 space-y-1">
             {formats.map((format) => (
-              <li key={format.id} className="border rounded p-4 shadow-sm">
-                <p className="font-semibold">{format.nom_format}</p>
-                <p>Distance : {format.distance_km} km</p>
-                <p>D+ : {format.denivele_dplus} m</p>
-                <p>D– : {format.denivele_dmoins} m</p>
-                {format.prix && <p>Prix : {format.prix} €</p>}
+              <li key={format.id}>
+                {format.nom_format} – {format.distance_km} km / {format.dplus} m D+
+                {format.prix && ` – ${format.prix} €`}
               </li>
             ))}
           </ul>
