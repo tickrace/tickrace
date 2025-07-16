@@ -8,7 +8,8 @@ import LoginOrganisateur from "./pages/LoginOrganisateur";
 import SignupOrganisateur from "./pages/SignupOrganisateur";
 import EspaceOrganisateur from "./pages/EspaceOrganisateur";
 import NouvelleCourse from "./pages/NouvelleCourse";
-import FormatsCourse from "./pages/FormatsCourse";
+
+import ListeFormats from "./pages/ListeFormats";
 
 export default function App() {
   return (
@@ -22,7 +23,8 @@ export default function App() {
         <Route path="/organisateur/signup" element={<SignupOrganisateur />} />
         <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
         <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
-        <Route path="/organisateur/formats" element={<FormatsCourse />} />
+        <Route path="/formats" element={<ListeFormats />} />
+
       </Routes>
     </Router>
   );
