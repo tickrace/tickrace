@@ -51,16 +51,19 @@ export default function CourseDetail() {
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-2">{course.nom}</h1>
-      {course.sous_nom && <h2 className="text-lg italic mb-4">{course.sous_nom}</h2>}
+     <h1 className="text-2xl font-bold mb-2">{course.nom}</h1>
+{course?.sous_nom && <p className="text-gray-600">{course.sous_nom}</p>}
 
-      {imageUrl && (
-        <img
-          src={imageUrl}
-          alt="Affiche de l’épreuve"
-          className="w-full max-h-[400px] object-contain mb-6 rounded shadow"
-        />
-      )}
+{course?.image_url ? (
+  <img
+    src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`}
+    alt={`Affiche de ${course.nom}`}
+    className="w-full max-w-md mx-auto rounded-lg shadow-md mb-4"
+  />
+) : (
+  <p className="text-gray-500 italic mb-4">Aucune image disponible</p>
+)}
+
 
       <p><strong>Lieu :</strong> {course.lieu}</p>
       <p><strong>Date :</strong> {course.date}</p>
