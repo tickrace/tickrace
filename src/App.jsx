@@ -12,7 +12,7 @@ import NouvelleCourse from "./pages/NouvelleCourse";
 import ListeFormats from "./pages/ListeFormats";
 import CoursePage from "./pages/CoursePage"; // en haut avec les autres imports
 import ModifierCourse from "./pages/ModifierCourse";
-
+import CourseDetail from "./pages/CourseDetail"; // 🔹 Ajout en haut
 
 
 export default function App() {
@@ -30,6 +30,7 @@ export default function App() {
         <Route path="/formats" element={<ListeFormats />} />
         <Route path="/course/:id" element={<CoursePage />} />
         <Route path="/organisateur/modifier-course/:id" element={<ModifierCourse />} />
+        <Route path="/courses/:id" element={<CourseDetail />} />
 
       </Routes>
     </Router>

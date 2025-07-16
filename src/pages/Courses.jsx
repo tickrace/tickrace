@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
+import { Link } from "react-router-dom";
 
 export default function Courses() {
   const [courses, setCourses] = useState([]);
@@ -57,24 +58,17 @@ export default function Courses() {
         <ul className="space-y-4">
           {courses.map((course) => (
             <li key={course.id} className="border p-4 rounded shadow-sm">
-              <h2 className="text-xl font-semibold">{course.nom}</h2>
-              {course.sous_nom && <p className="text-gray-600">{course.sous_nom}</p>}
-              <p className="text-sm mb-2">{course.lieu} – {course.date}</p>
-              {course.image_url && (
-                <img
-                  src={course.image_url}
-                  alt={course.nom}
-                  className="w-full max-w-xs mb-4"
-                />
-              )}
-              {formatsByCourse[course.id] ? (
-                <div className="mt-2">
-                  <h3 className="font-bold mb-1">Formats :</h3>
-                  <ul className="list-disc list-inside">
-                    {formatsByCourse[course.id].map((format) => (
-                      <li key={format.id}>
-                        {format.nom} – {format.distance_km} km, {format.denivele_dplus} m D+
-                      </li>
+  <Link to={`/courses/${course.id}`} className="block hover:underline">
+    <p className="font-semibold text-lg">{course.nom}</p>
+    {course.sous_nom && (
+      <p className="text-sm text-gray-600">{course.sous_nom}</p>
+    )}
+    <p className="text-sm">
+      {course.lieu} – {course.date}
+    </p>
+  </Link>
+</li>
+
                     ))}
                   </ul>
                 </div>
