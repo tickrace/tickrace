@@ -1,84 +1,68 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import { Link } from "react-router-dom";
 
 export default function Courses() {
-  const [courses, setCourses] = useState([]);
-  const [formats, setFormats] = useState([]);
-  const [loading, setLoading] = useState(true);
+const [courses, setCourses] = useState([]);
+const [loading, setLoading] = useState(true);
+const BASE_IMAGE_URL =
+"https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/";
 
-  useEffect(() => {
-    const fetchCourses = async () => {
-      const { data: coursesData, error: coursesError } = await supabase
-        .from("courses")
-        .select("*");
+useEffect(() => {
+const fetchCourses = async () => {
+const { data, error } = await supabase
+.from("courses")
+.select("id, nom, sous_nom, lieu, date, image_url");
 
-      const { data: formatsData, error: formatsError } = await supabase
-        .from("formats")
-        .select("*");
+  if (error) {
+    console.error("Erreur de chargement des courses :", error.message);
+  } else {
+    setCourses(data);
+  }
 
-      if (coursesError) {
-        console.error("Erreur chargement courses :", coursesError.message);
-      } else {
-        setCourses(coursesData || []);
-      }
+  setLoading(false);
+};
 
-      if (formatsError) {
-        console.error("Erreur chargement formats :", formatsError.message);
-      } else {
-        setFormats(formatsData || []);
-      }
+fetchCourses();
 
-      setLoading(false);
-    };
+}, []);
 
-    fetchCourses();
-  }, []);
+if (loading) return <p className="p-6">Chargement...</p>;
 
-  const getFormatsForCourse = (courseId) =>
-    formats.filter((f) => f.course_id === courseId);
-
-  if (loading) return <p className="p-6">Chargement...</p>;
-
-  return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-4">Toutes les épreuves</h1>
-      <ul className="space-y-6">
-        {courses.map((course) => (
-          <li key={course.id} className="border p-4 rounded shadow-sm">
-            <div className="flex gap-4 items-center">
-              {course.image_url && (
-                <img
-                  src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`}
-                  alt={course.nom}
-                  className="w-28 h-20 object-cover rounded"
-                />
-              )}
-              <div className="flex-1">
-                <Link
-                  to={`/courses/${course.id}`}
-                  className="text-xl font-semibold hover:underline"
-                >
-                  {course.nom}
-                </Link>
-                {course.sous_nom && (
-                  <p className="text-gray-600 text-sm">{course.sous_nom}</p>
-                )}
-                <p className="text-sm">
-                  📍 {course.lieu} — 📅 {course.date}
-                </p>
-                <ul className="text-sm mt-2 space-y-1">
-                  {getFormatsForCourse(course.id).map((format, i) => (
-                    <li key={i} className="ml-2 list-disc">
-                      {format.nom_format} : {format.distance_km} km / {format.dplus} m D+
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            </div>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
+return (
+<div className="p-6">
+<h2 className="text-2xl font-bold mb-4">Toutes les courses</h2>
+{courses.length === 0 ? (
+<p>Aucune course enregistrée.</p>
+) : (
+<ul className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+{courses.map((course) => (
+<li key={course.id} className="border p-4 rounded shadow hover:shadow-md transition" >
+{course.image_url ? (
+<img
+src={${BASE_IMAGE_URL}${course.image_url}}
+alt={Visuel de ${course.nom}}
+className="w-full h-40 object-cover rounded mb-4"
+onError={(e) => {
+e.target.onerror = null;
+e.target.src = "/default-thumbnail.jpg"; // Image fallback si non chargée
+}}
+/>
+) : (
+<div className="w-full h-40 bg-gray-200 rounded flex items-center justify-center text-gray-500 mb-4">
+Aucune image
+</div>
+)}
+<p className="font-semibold text-lg">{course.nom}</p>
+{course.sous_nom && (
+<p className="text-sm text-gray-600">{course.sous_nom}</p>
+)}
+<p className="text-sm text-gray-700">
+{course.lieu} – {course.date}
+</p>
+</li>
+))}
+</ul>
+)}
+</div>
+);
 }
