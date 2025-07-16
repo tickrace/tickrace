@@ -1,11 +1,13 @@
 import React, { useState } from "react";
 import { supabase } from "../supabase";
+import { useNavigate } from "react-router-dom";
 
 export default function SignupOrganisateur() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
+  const navigate = useNavigate();
 
   const handleSignup = async (e) => {
     e.preventDefault();
@@ -22,8 +24,13 @@ export default function SignupOrganisateur() {
     } else {
       setMessage({
         type: "success",
-        text: "✅ Compte créé ! Vérifiez vos emails pour confirmer votre inscription.",
+        text: "Compte créé. Vérifiez vos emails pour confirmer l’inscription.",
       });
+
+      // Attendre 2 secondes puis rediriger
+      setTimeout(() => {
+        navigate("/organisateur/login");
+      }, 2000);
     }
 
     setLoading(false);
@@ -46,7 +53,6 @@ export default function SignupOrganisateur() {
             required
           />
         </div>
-
         <div>
           <label htmlFor="password" className="block text-sm font-medium">
             Mot de passe
@@ -60,21 +66,17 @@ export default function SignupOrganisateur() {
             required
           />
         </div>
-
         <button
           type="submit"
           disabled={loading}
           className="bg-black text-white px-4 py-2 rounded"
         >
-          {loading ? "Chargement..." : "Créer mon compte"}
+          {loading ? "Création..." : "Créer mon compte"}
         </button>
-
         {message && (
           <p
             className={`text-sm mt-2 ${
-              message.type === "error"
-                ? "text-red-500"
-                : "text-green-600"
+              message.type === "error" ? "text-red-500" : "text-green-600"
             }`}
           >
             {message.text}
