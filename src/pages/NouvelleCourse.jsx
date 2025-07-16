@@ -1,203 +1,155 @@
-
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { useNavigate } from "react-router-dom";
 
 export default function NouvelleCourse() {
   const navigate = useNavigate();
-  const [formData, setFormData] = useState({
+
+  const [form, setForm] = useState({
     nom: "",
     sous_nom: "",
     lieu: "",
     date: "",
     type_epreuve: "",
-    image: null,
   });
 
-  const [formats, setFormats] = useState([]);
-  const [previewImage, setPreviewImage] = useState(null);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState(null);
+  const [formats, setFormats] = useState([
+    { nom: "", distance_km: "", denivele_dplus: "", denivele_dmoins: "", prix: "" },
+  ]);
 
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData({ ...formData, [name]: value });
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState(null);
+  const [userId, setUserId] = useState(null);
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        setUserId(data.user.id);
+      } else {
+        setMessage({ type: "error", text: "Veuillez vous connecter." });
+      }
+    });
+  }, []);
+
+  const handleFormChange = (e) => {
+    setForm({ ...form, [e.target.name]: e.target.value });
+  };
+
+  const handleFormatChange = (index, e) => {
+    const updated = [...formats];
+    updated[index][e.target.name] = e.target.value;
+    setFormats(updated);
+  };
+
+  const addFormat = () => {
+    setFormats([...formats, { nom: "", distance_km: "", denivele_dplus: "", denivele_dmoins: "", prix: "" }]);
   };
 
   const handleImageChange = (e) => {
     const file = e.target.files[0];
-    setFormData({ ...formData, image: file });
-    setPreviewImage(URL.createObjectURL(file));
-  };
-
-  const handleAddFormat = () => {
-    setFormats([...formats, {
-      nom: "",
-      distance_km: "",
-      denivele_dplus: "",
-      denivele_dmoins: "",
-      heure_depart: "",
-      prix: ""
-    }]);
-  };
-
-  const handleFormatChange = (index, e) => {
-    const { name, value } = e.target;
-    const updatedFormats = [...formats];
-    updatedFormats[index][name] = value;
-    setFormats(updatedFormats);
+    if (file) {
+      setImageFile(file);
+      setImagePreview(URL.createObjectURL(file));
+    }
   };
 
   const uploadImage = async () => {
-    const file = formData.image;
-    if (!file) return null;
-
-    const fileExt = file.name.split('.').pop();
-    const fileName = `${Date.now()}.${fileExt}`;
-    const { data, error } = await supabase.storage
-      .from("course-images")
-      .upload(fileName, file);
-
-    if (error) {
-      setError("Erreur lors de l'upload de l'image.");
-      return null;
-    }
-
-    const { data: publicUrl } = supabase
-      .storage
-      .from("course-images")
-      .getPublicUrl(fileName);
-
-    return publicUrl.publicUrl;
+    if (!imageFile) return null;
+    const fileName = `courses/${Date.now()}-${imageFile.name}`;
+    const { data, error } = await supabase.storage.from("tickrace").upload(fileName, imageFile);
+    if (error) throw error;
+    const { data: urlData } = supabase.storage.from("tickrace").getPublicUrl(fileName);
+    return urlData.publicUrl;
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    setUploading(true);
-    setError(null);
+    setLoading(true);
+    setMessage(null);
 
-    const {
-      nom, sous_nom, lieu, date, type_epreuve, image
-    } = formData;
+    try {
+      const image_url = await uploadImage();
 
-    const session = await supabase.auth.getSession();
-    const user = session.data.session?.user;
+      const { data: courseData, error: courseError } = await supabase
+        .from("courses")
+        .insert([
+          {
+            ...form,
+            organisateur_id: userId,
+            image_url,
+          },
+        ])
+        .select()
+        .single();
 
-    if (!user) {
-      setError("Veuillez vous connecter.");
-      return;
-    }
+      if (courseError) throw courseError;
 
-    let image_url = null;
-    if (image) {
-      image_url = await uploadImage();
-    }
-
-    const { data: course, error: courseError } = await supabase
-      .from("courses")
-      .insert([{
-        nom, sous_nom, lieu, date,
-        type_epreuve,
-        image_url,
-        organisateur_id: user.id,
-      }])
-      .select()
-      .single();
-
-    if (courseError) {
-      setError("Erreur lors de l'enregistrement de la course.");
-      setUploading(false);
-      return;
-    }
-
-    for (let format of formats) {
-      const formatData = {
-        ...format,
-        event_id: course.id,
-      };
-
-      const { error: formatError } = await supabase
-        .from("formats")
-        .insert([formatData]);
-
-      if (formatError) {
-        setError("Erreur lors de l'enregistrement des formats.");
-        break;
+      for (const format of formats) {
+        const { error: formatError } = await supabase.from("formats").insert([
+          {
+            ...format,
+            event_id: courseData.id,
+          },
+        ]);
+        if (formatError) throw formatError;
       }
+
+      setMessage({ type: "success", text: "Course créée avec succès." });
+      navigate("/organisateur/espace");
+    } catch (err) {
+      console.error(err);
+      setMessage({ type: "error", text: "Erreur lors de la création." });
     }
 
-    setUploading(false);
-    navigate("/organisateur/espace");
+    setLoading(false);
   };
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Nouvelle course</h1>
-      {error && <p className="text-red-500 mb-4">{error}</p>}
+    <div className="max-w-3xl mx-auto p-6">
+      <h1 className="text-2xl font-bold mb-4">Nouvelle course</h1>
       <form onSubmit={handleSubmit} className="space-y-4">
+        <input type="text" name="nom" placeholder="Nom de l’épreuve" className="w-full border px-3 py-2 rounded" value={form.nom} onChange={handleFormChange} required />
+        <input type="text" name="sous_nom" placeholder="Sous-nom" className="w-full border px-3 py-2 rounded" value={form.sous_nom} onChange={handleFormChange} />
+        <input type="text" name="lieu" placeholder="Lieu" className="w-full border px-3 py-2 rounded" value={form.lieu} onChange={handleFormChange} required />
+        <input type="date" name="date" className="w-full border px-3 py-2 rounded" value={form.date} onChange={handleFormChange} required />
+        <select name="type_epreuve" className="w-full border px-3 py-2 rounded" value={form.type_epreuve} onChange={handleFormChange} required>
+          <option value="">Type d’épreuve</option>
+          <option value="trail">Trail</option>
+          <option value="ultra">Ultra</option>
+          <option value="vertical">Vertical</option>
+        </select>
+
         <div>
-          <label className="block">Nom de l’épreuve</label>
-          <input name="nom" value={formData.nom} onChange={handleInputChange} className="border px-3 py-2 w-full rounded" required />
-        </div>
-        <div>
-          <label className="block">Sous-nom</label>
-          <input name="sous_nom" value={formData.sous_nom} onChange={handleInputChange} className="border px-3 py-2 w-full rounded" />
-        </div>
-        <div>
-          <label className="block">Lieu</label>
-          <input name="lieu" value={formData.lieu} onChange={handleInputChange} className="border px-3 py-2 w-full rounded" required />
-        </div>
-        <div>
-          <label className="block">Date</label>
-          <input type="date" name="date" value={formData.date} onChange={handleInputChange} className="border px-3 py-2 w-full rounded" required />
-        </div>
-        <div>
-          <label className="block">Type d’épreuve</label>
-          <input name="type_epreuve" value={formData.type_epreuve} onChange={handleInputChange} className="border px-3 py-2 w-full rounded" />
-        </div>
-        <div>
-          <label className="block">Image (JPG/PNG)</label>
-          <input type="file" accept="image/*" onChange={handleImageChange} className="border px-3 py-2 w-full rounded" />
-          {previewImage && <img src={previewImage} alt="Prévisualisation" className="mt-2 w-48" />}
+          <label className="block mb-1 font-medium">Image (JPG/PNG)</label>
+          <input type="file" accept="image/*" onChange={handleImageChange} className="mb-2" />
+          {imagePreview && <img src={imagePreview} alt="Prévisualisation" className="w-48 mt-2 rounded shadow" />}
         </div>
 
-        <h2 className="text-xl font-bold mt-6 mb-2">Formats</h2>
+        <h2 className="text-lg font-semibold mt-6">Formats</h2>
         {formats.map((format, index) => (
-          <div key={index} className="border p-4 rounded space-y-2 mb-4 bg-gray-50">
-            <div>
-              <label className="block">Nom</label>
-              <input name="nom" value={format.nom} onChange={(e) => handleFormatChange(index, e)} className="border px-3 py-2 w-full rounded" />
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block">Distance (km)</label>
-                <input name="distance_km" value={format.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border px-3 py-2 w-full rounded" />
-              </div>
-              <div>
-                <label className="block">D+ (m)</label>
-                <input name="denivele_dplus" value={format.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border px-3 py-2 w-full rounded" />
-              </div>
-              <div>
-                <label className="block">D- (m)</label>
-                <input name="denivele_dmoins" value={format.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="border px-3 py-2 w-full rounded" />
-              </div>
-              <div>
-                <label className="block">Heure de départ</label>
-                <input name="heure_depart" value={format.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border px-3 py-2 w-full rounded" />
-              </div>
-              <div>
-                <label className="block">Prix (€)</label>
-                <input name="prix" value={format.prix} onChange={(e) => handleFormatChange(index, e)} className="border px-3 py-2 w-full rounded" />
-              </div>
-            </div>
+          <div key={index} className="grid grid-cols-2 md:grid-cols-5 gap-2 border p-2 rounded mb-2">
+            <input name="nom" placeholder="Nom format" value={format.nom} onChange={(e) => handleFormatChange(index, e)} className="border px-2 py-1 rounded" required />
+            <input name="distance_km" placeholder="Distance (km)" type="number" value={format.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border px-2 py-1 rounded" />
+            <input name="denivele_dplus" placeholder="D+" type="number" value={format.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border px-2 py-1 rounded" />
+            <input name="denivele_dmoins" placeholder="D-" type="number" value={format.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="border px-2 py-1 rounded" />
+            <input name="prix" placeholder="Prix (€)" type="number" value={format.prix} onChange={(e) => handleFormatChange(index, e)} className="border px-2 py-1 rounded" />
           </div>
         ))}
-        <button type="button" onClick={handleAddFormat} className="bg-gray-200 px-4 py-2 rounded">+ Ajouter un format</button>
-        <div>
-          <button type="submit" disabled={uploading} className="bg-black text-white px-4 py-2 rounded mt-4">
-            {uploading ? "Enregistrement..." : "Créer l’épreuve"}
-          </button>
-        </div>
+        <button type="button" onClick={addFormat} className="text-blue-600 underline">
+          + Ajouter un format
+        </button>
+
+        <button type="submit" disabled={loading} className="bg-black text-white px-4 py-2 rounded">
+          {loading ? "Chargement..." : "Créer la course"}
+        </button>
+
+        {message && (
+          <p className={`mt-2 text-sm ${message.type === "error" ? "text-red-500" : "text-green-600"}`}>
+            {message.text}
+          </p>
+        )}
       </form>
     </div>
   );
