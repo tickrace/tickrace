@@ -17,67 +17,80 @@ export default function CourseDetail() {
         .single();
 
       if (error) {
-        console.error("Erreur chargement course :", error.message);
+        console.error("Erreur de chargement de la course :", error.message);
       } else {
         setCourse(data);
-        if (data.id) {
-          const { data: formatsData, error: formatsError } = await supabase
-            .from("formats")
-            .select("*")
-            .eq("course_id", data.id);
-
-          if (formatsError) {
-            console.error("Erreur chargement formats :", formatsError.message);
-          } else {
-            setFormats(formatsData);
-          }
-        }
+        console.log("Image URL brute :", data.image_url);
       }
 
       setLoading(false);
     };
 
+    const fetchFormats = async () => {
+      const { data, error } = await supabase
+        .from("formats")
+        .select("*")
+        .eq("course_id", id);
+
+      if (error) {
+        console.error("Erreur de chargement des formats :", error.message);
+      } else {
+        setFormats(data);
+      }
+    };
+
     fetchCourse();
+    fetchFormats();
   }, [id]);
 
   if (loading) return <p className="p-6">Chargement...</p>;
-  if (!course) return <p className="p-6">Course non trouvée.</p>;
+  if (!course) return <p className="p-6">Course introuvable.</p>;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold mb-2">{course.nom}</h2>
-      {course.sous_nom && <p className="text-lg text-gray-600 mb-4">{course.sous_nom}</p>}
-      
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">{course.nom}</h1>
+
       {course.image_url && (
         <img
           src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`}
           alt="Affiche de l’épreuve"
           className="w-full max-h-96 object-contain mb-6 border"
+          onError={(e) => {
+            console.error("Image non trouvée :", e.target.src);
+            e.target.onerror = null;
+            e.target.src = "/default.jpg"; // ou laisse vide
+          }}
         />
       )}
 
-      <p><strong>Lieu :</strong> {course.lieu}</p>
-      <p><strong>Date :</strong> {course.date}</p>
-      <p><strong>Type :</strong> {course.type_epreuve}</p>
+      {course.sous_nom && <p className="text-lg italic mb-2">{course.sous_nom}</p>}
 
-      <div className="mt-6">
-        <h3 className="text-xl font-semibold mb-2">Formats proposés :</h3>
-        {formats.length === 0 ? (
-          <p>Aucun format enregistré.</p>
-        ) : (
+      <p className="text-md mb-2">
+        <strong>Lieu :</strong> {course.lieu}
+      </p>
+      <p className="text-md mb-2">
+        <strong>Date :</strong> {course.date}
+      </p>
+      <p className="text-md mb-4">
+        <strong>Type :</strong> {course.type_epreuve}
+      </p>
+
+      {formats.length > 0 && (
+        <div className="mt-6">
+          <h2 className="text-xl font-semibold mb-2">Formats disponibles</h2>
           <ul className="space-y-2">
             {formats.map((format) => (
-              <li key={format.id} className="border p-4 rounded">
-                <p className="font-semibold">{format.nom}</p>
-                {format.distance_km && <p>Distance : {format.distance_km} km</p>}
-                {format.denivele_dplus && <p>D+ : {format.denivele_dplus} m</p>}
-                {format.denivele_dmoins && <p>D- : {format.denivele_dmoins} m</p>}
+              <li key={format.id} className="border rounded p-4 shadow-sm">
+                <p className="font-semibold">{format.nom_format}</p>
+                <p>Distance : {format.distance_km} km</p>
+                <p>D+ : {format.denivele_dplus} m</p>
+                <p>D– : {format.denivele_dmoins} m</p>
                 {format.prix && <p>Prix : {format.prix} €</p>}
               </li>
             ))}
           </ul>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }
