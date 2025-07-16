@@ -10,78 +10,76 @@ export default function CourseDetail() {
 
   useEffect(() => {
     const fetchCourse = async () => {
-      const { data, error } = await supabase
+      // Chargement des infos de la course
+      const { data: courseData, error: courseError } = await supabase
         .from("courses")
         .select("*")
         .eq("id", id)
         .single();
 
-      if (error) {
-        console.error("Erreur lors du chargement de la course :", error.message);
+      if (courseError) {
+        console.error("Erreur chargement course :", courseError.message);
       } else {
-        setCourse(data);
+        setCourse(courseData);
       }
-    };
 
-    const fetchFormats = async () => {
-      const { data, error } = await supabase
+      // Chargement des formats liés
+      const { data: formatsData, error: formatsError } = await supabase
         .from("formats")
         .select("*")
         .eq("course_id", id);
 
-      if (error) {
-        console.error("Erreur lors du chargement des formats :", error.message);
+      if (formatsError) {
+        console.error("Erreur chargement formats :", formatsError.message);
       } else {
-        setFormats(data);
+        setFormats(formatsData);
       }
 
       setLoading(false);
     };
 
     fetchCourse();
-    fetchFormats();
   }, [id]);
 
   if (loading) return <p className="p-6">Chargement...</p>;
-  if (!course) return <p className="p-6">Épreuve introuvable.</p>;
-
-  const imageUrl = course.image_url
-    ? `https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`
-    : null;
+  if (!course) return <p className="p-6 text-red-600">Course non trouvée.</p>;
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-     <h1 className="text-2xl font-bold mb-2">{course.nom}</h1>
-{course?.sous_nom && <p className="text-gray-600">{course.sous_nom}</p>}
+      <h1 className="text-2xl font-bold mb-2">{course.nom}</h1>
+      {course.sous_nom && <h2 className="text-lg text-gray-600 mb-4">{course.sous_nom}</h2>}
+      <p className="text-sm text-gray-500 mb-4">
+        {course.lieu} – {course.date}
+      </p>
 
-{course?.image_url ? (
-  <img
-    src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`}
-    alt={`Affiche de ${course.nom}`}
-    className="w-full max-w-md mx-auto rounded-lg shadow-md mb-4"
-  />
-) : (
-  <p className="text-gray-500 italic mb-4">Aucune image disponible</p>
-)}
-
-
-      <p><strong>Lieu :</strong> {course.lieu}</p>
-      <p><strong>Date :</strong> {course.date}</p>
-      <p><strong>Type :</strong> {course.type_epreuve}</p>
+      {course.image_url && (
+        <img
+          src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`}
+          alt="Affiche de l’épreuve"
+          className="w-full max-w-xl mb-6 rounded"
+        />
+      )}
 
       {formats.length > 0 && (
-        <div className="mt-6">
-          <h3 className="text-xl font-semibold mb-2">Formats proposés :</h3>
-          <ul className="list-disc pl-6 space-y-1">
+        <div className="mb-6">
+          <h3 className="text-xl font-semibold mb-2">Formats disponibles</h3>
+          <ul className="space-y-3">
             {formats.map((format) => (
-              <li key={format.id}>
-                {format.nom_format} – {format.distance_km} km / {format.dplus} m D+
-                {format.prix && ` – ${format.prix} €`}
+              <li key={format.id} className="border p-4 rounded shadow">
+                <p className="font-bold">{format.nom_format}</p>
+                <p>
+                  {format.distance_km} km – {format.denivele_dplus} m D+
+                </p>
+                {format.prix && <p className="text-green-600 font-semibold">Prix : {format.prix} €</p>}
               </li>
             ))}
           </ul>
         </div>
       )}
+
+      <button className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded">
+        S'inscrire
+      </button>
     </div>
   );
 }
