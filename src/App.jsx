@@ -10,7 +10,7 @@ import EspaceOrganisateur from "./pages/EspaceOrganisateur";
 import NouvelleCourse from "./pages/NouvelleCourse";
 
 import ListeFormats from "./pages/ListeFormats";
-
+import CoursePage from "./pages/CoursePage"; // en haut avec les autres imports
 export default function App() {
   return (
     <Router>
@@ -24,7 +24,7 @@ export default function App() {
         <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
         <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
         <Route path="/formats" element={<ListeFormats />} />
-
+        <Route path="/course/:id" element={<CoursePage />} />
       </Routes>
     </Router>
   );
