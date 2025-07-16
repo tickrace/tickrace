@@ -10,7 +10,7 @@ export default function Courses() {
     const fetchCourses = async () => {
       const { data, error } = await supabase
         .from("courses")
-        .select("*, formats(*)") // récupération des formats associés
+        .select("*, formats(*)")
         .order("date", { ascending: true });
 
       if (error) {
@@ -35,33 +35,43 @@ export default function Courses() {
       ) : (
         <ul className="space-y-4">
           {courses.map((course) => (
-            <li key={course.id} className="border p-4 rounded shadow-sm">
-              <Link
-                to={`/courses/${course.id}`}
-                className="text-lg font-semibold text-blue-600 underline"
-              >
-                {course.nom}
-              </Link>
-              {course.sous_nom && (
-                <p className="text-sm text-gray-600">{course.sous_nom}</p>
+            <li key={course.id} className="border p-4 rounded shadow-sm flex gap-4">
+              {course.image_url && (
+                <img
+                  src={`https://pecotcxpcqfkwvyylvjv.supabase.co/storage/v1/object/public/courses/${course.image_url}`}
+                  alt={course.nom}
+                  className="w-32 h-20 object-cover rounded"
+                />
               )}
-              <p className="text-sm">
-                {course.lieu} – {course.date}
-              </p>
 
-              {course.formats && course.formats.length > 0 && (
-                <div className="mt-2">
-                  <p className="font-semibold text-sm mb-1">Formats :</p>
-                  <ul className="list-disc list-inside text-sm">
-                    {course.formats.map((format) => (
-                      <li key={format.id}>
-                        {format.nom_format} – {format.distance_km} km,{" "}
-                        {format.denivele_dplus} D+
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              )}
+              <div>
+                <Link
+                  to={`/courses/${course.id}`}
+                  className="text-lg font-semibold text-blue-600 underline"
+                >
+                  {course.nom}
+                </Link>
+                {course.sous_nom && (
+                  <p className="text-sm text-gray-600">{course.sous_nom}</p>
+                )}
+                <p className="text-sm">
+                  {course.lieu} – {course.date}
+                </p>
+
+                {course.formats && course.formats.length > 0 && (
+                  <div className="mt-2">
+                    <p className="font-semibold text-sm mb-1">Formats :</p>
+                    <ul className="list-disc list-inside text-sm">
+                      {course.formats.map((format) => (
+                        <li key={format.id}>
+                          {format.nom_format} – {format.distance_km} km,{" "}
+                          {format.denivele_dplus} D+
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </li>
           ))}
         </ul>
