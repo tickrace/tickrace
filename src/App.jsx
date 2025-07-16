@@ -11,6 +11,10 @@ import NouvelleCourse from "./pages/NouvelleCourse";
 
 import ListeFormats from "./pages/ListeFormats";
 import CoursePage from "./pages/CoursePage"; // en haut avec les autres imports
+import ModifierCourse from "./pages/ModifierCourse";
+
+
+
 export default function App() {
   return (
     <Router>
@@ -25,6 +29,8 @@ export default function App() {
         <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
         <Route path="/formats" element={<ListeFormats />} />
         <Route path="/course/:id" element={<CoursePage />} />
+        <Route path="/organisateur/modifier-course/:id" element={<ModifierCourse />} />
+
       </Routes>
     </Router>
   );
