@@ -7,18 +7,30 @@ export default function Navbar() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchUser = async () => {
+    const getCurrentUser = async () => {
       const { data } = await supabase.auth.getUser();
       setUser(data.user);
     };
 
-    fetchUser();
+    getCurrentUser();
+
+    // Écoute les changements de connexion (login / logout)
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+      } else {
+        setUser(null);
+      }
+    });
+
+    return () => {
+      listener.subscription.unsubscribe();
+    };
   }, []);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
-    navigate("/"); // redirection vers l'accueil
+    navigate("/");
   };
 
   return (
