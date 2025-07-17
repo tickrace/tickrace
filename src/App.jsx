@@ -13,7 +13,7 @@ import ProfilCoureur from "./pages/ProfilCoureur";
 import ListeFormats from "./pages/ListeFormats";
 import Admin from "./pages/Admin";
 import Login from "./pages/Login";
-import { UserProvider } from "./UserContext";
+import { UserProvider } from "./contexts/UserContext";
 
 export default function App() {
   return (
