@@ -1,41 +1,42 @@
+// src/App.jsx
 import React from "react";
-import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
-import Home from "./pages/Home";
 import Courses from "./pages/Courses";
-import Organisateur from "./pages/Organisateur";
-import EspaceOrganisateur from "./pages/EspaceOrganisateur";
-import NouvelleCourse from "./pages/NouvelleCourse";
-import Signup from "./pages/Signup";
 import CourseDetail from "./pages/CourseDetail";
+import NouvelleCourse from "./pages/NouvelleCourse";
+import EspaceOrganisateur from "./pages/EspaceOrganisateur";
+import ModifierCourse from "./pages/ModifierCourse";
+import ListeFormats from "./pages/ListeFormats";
 import InscriptionCourse from "./pages/InscriptionCourse";
 import ProfilCoureur from "./pages/ProfilCoureur";
-import ListeFormats from "./pages/ListeFormats";
-import Admin from "./pages/Admin";
 import Login from "./pages/Login";
+import Signup from "./pages/Signup";
+import Admin from "./pages/Admin";
 import { UserProvider } from "./contexts/UserContext";
 
 export default function App() {
   return (
     <UserProvider>
-      <Router>
+      <BrowserRouter>
         <Navbar />
         <Routes>
-          <Route path="/" element={<Home />} />
+          <Route path="/" element={<Courses />} />
           <Route path="/courses" element={<Courses />} />
           <Route path="/courses/:id" element={<CourseDetail />} />
-          <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
-          <Route path="/organisateur" element={<Organisateur />} />
-         
           <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
           <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
-          <Route path="/signup" element={<Signup />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/profil" element={<ProfilCoureur />} />
+          <Route path="/organisateur/modifier-course/:id" element={<ModifierCourse />} />
+          <Route path="/organisateur/login" element={<Login />} />
+          <Route path="/organisateur/signup" element={<Signup />} />
           <Route path="/formats" element={<ListeFormats />} />
+          <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
+          <Route path="/coureur" element={<ProfilCoureur />} />
           <Route path="/admin" element={<Admin />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
         </Routes>
-      </Router>
+      </BrowserRouter>
     </UserProvider>
   );
 }
