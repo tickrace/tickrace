@@ -8,11 +8,10 @@ export default function Signup() {
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
   const [roles, setRoles] = useState([]);
-  const [error, setError] = useState(null);
-
+  const [message, setMessage] = useState("");
   const navigate = useNavigate();
 
-  const handleRoleChange = (e) => {
+  const handleCheckboxChange = (e) => {
     const { value, checked } = e.target;
     if (checked) {
       setRoles((prev) => [...prev, value]);
@@ -21,17 +20,12 @@ export default function Signup() {
     }
   };
 
-  const handleSignup = async (e) => {
+  const handleSubmit = async (e) => {
     e.preventDefault();
-    setError(null);
+    setMessage("");
 
-    if (!email || !password || !nom || !prenom || roles.length === 0) {
-      setError("Tous les champs sont obligatoires, y compris le rôle.");
-      return;
-    }
-
-    if (roles.includes("admin")) {
-      setError("Le rôle 'admin' ne peut pas être sélectionné.");
+    if (roles.length === 0) {
+      setMessage("Veuillez sélectionner au moins un rôle.");
       return;
     }
 
@@ -41,22 +35,20 @@ export default function Signup() {
     });
 
     if (signUpError) {
-      console.error("Erreur création compte :", signUpError.message);
-      setError("Erreur lors de la création du compte.");
+      setMessage("Erreur création compte : " + signUpError.message);
       return;
     }
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = sessionData?.session?.user?.id;
-
+    const userId = signUpData.user?.id;
     if (!userId) {
-      setError("Utilisateur non connecté après inscription.");
+      setMessage("Erreur : Utilisateur non récupéré.");
       return;
     }
 
-    const insertData = roles.map((r) => ({
+    // Insertion des rôles dans la table profils_utilisateurs
+    const insertData = roles.map((role) => ({
       user_id: userId,
-      role: r,
+      role,
       nom,
       prenom,
     }));
@@ -66,85 +58,52 @@ export default function Signup() {
       .insert(insertData);
 
     if (insertError) {
-      console.error("Erreur insertion profils_utilisateurs :", insertError.message);
-      setError("Erreur lors de l’enregistrement des rôles.");
-      return;
+      setMessage("Erreur enregistrement rôles : " + insertError.message);
+    } else {
+      setMessage("Compte créé avec succès !");
+      navigate("/login");
     }
-
-    alert("Compte créé avec succès !");
-    navigate("/login");
   };
 
   return (
-    <div className="max-w-md mx-auto p-6">
+    <div className="max-w-xl mx-auto p-6">
       <h1 className="text-2xl font-bold mb-4">Créer un compte</h1>
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div>
+          <label className="block">Email *</label>
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} required className="border w-full p-2 rounded" />
+        </div>
+        <div>
+          <label className="block">Mot de passe *</label>
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} required className="border w-full p-2 rounded" />
+        </div>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block">Nom *</label>
+            <input type="text" value={nom} onChange={(e) => setNom(e.target.value)} required className="border w-full p-2 rounded" />
+          </div>
+          <div>
+            <label className="block">Prénom *</label>
+            <input type="text" value={prenom} onChange={(e) => setPrenom(e.target.value)} required className="border w-full p-2 rounded" />
+          </div>
+        </div>
+        <div>
+          <label className="block mb-1">Rôle(s) *</label>
+          <div className="flex gap-4">
+            <label>
+              <input type="checkbox" value="coureur" onChange={handleCheckboxChange} /> Coureur
+            </label>
+            <label>
+              <input type="checkbox" value="organisateur" onChange={handleCheckboxChange} /> Organisateur
+            </label>
+          </div>
+        </div>
 
-      {error && <p className="text-red-600 mb-4">{error}</p>}
-
-      <form onSubmit={handleSignup} className="space-y-4">
-        <input
-          type="text"
-          placeholder="Nom"
-          value={nom}
-          onChange={(e) => setNom(e.target.value)}
-          className="w-full border p-2 rounded"
-          required
-        />
-        <input
-          type="text"
-          placeholder="Prénom"
-          value={prenom}
-          onChange={(e) => setPrenom(e.target.value)}
-          className="w-full border p-2 rounded"
-          required
-        />
-        <input
-          type="email"
-          placeholder="Adresse email"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="w-full border p-2 rounded"
-          required
-        />
-        <input
-          type="password"
-          placeholder="Mot de passe"
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          className="w-full border p-2 rounded"
-          required
-        />
-
-        <fieldset className="border p-3 rounded">
-          <legend className="font-semibold mb-2">Rôle(s)</legend>
-          <label className="block">
-            <input
-              type="checkbox"
-              value="coureur"
-              checked={roles.includes("coureur")}
-              onChange={handleRoleChange}
-              className="mr-2"
-            />
-            Coureur
-          </label>
-          <label className="block">
-            <input
-              type="checkbox"
-              value="organisateur"
-              checked={roles.includes("organisateur")}
-              onChange={handleRoleChange}
-              className="mr-2"
-            />
-            Organisateur
-          </label>
-        </fieldset>
-
-        <button
-          type="submit"
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          Créer mon compte
+        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+          Créer le compte
         </button>
+
+        {message && <p className="text-red-600 mt-2">{message}</p>}
       </form>
     </div>
   );
