@@ -4,7 +4,6 @@ import Navbar from "./components/Navbar";
 import Home from "./pages/Home";
 import Courses from "./pages/Courses";
 import Organisateur from "./pages/Organisateur";
-import LoginOrganisateur from "./pages/LoginOrganisateur";
 import EspaceOrganisateur from "./pages/EspaceOrganisateur";
 import NouvelleCourse from "./pages/NouvelleCourse";
 import Signup from "./pages/Signup";
@@ -27,7 +26,7 @@ export default function App() {
           <Route path="/courses/:id" element={<CourseDetail />} />
           <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
           <Route path="/organisateur" element={<Organisateur />} />
-          <Route path="/organisateur/login" element={<LoginOrganisateur />} />
+         
           <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
           <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
           <Route path="/signup" element={<Signup />} />
