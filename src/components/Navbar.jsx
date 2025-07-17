@@ -12,6 +12,7 @@ export default function Navbar() {
       <Link to="/organisateur/signup" className="hover:underline">Créer un compte</Link>
       <Link to="/formats" className="hover:underline">Formats</Link>
       <Link to="/coureur" className="hover:underline">Coureur</Link>
+      <Link to="/profil" className="hover:underline">Mon profil</Link> {/* ✅ Lien ajouté */}
       <Link to="/admin" className="hover:underline">Admin</Link>
     </nav>
   );
