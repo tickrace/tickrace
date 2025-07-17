@@ -1,52 +1,39 @@
-// src/components/Navbar.jsx
 import React from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { useUser } from "../contexts/UserContext";
-import { supabase } from "../supabase";
+import { Link } from "react-router-dom";
+import { useUserContext } from "../UserContext";
 
 export default function Navbar() {
-  const { user, role } = useUser();
-  const navigate = useNavigate();
-
-  const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/");
-  };
+  const { user, logout, roles } = useUserContext();
 
   return (
     <nav className="bg-gray-800 text-white p-4 flex flex-wrap gap-4">
       <Link to="/" className="hover:underline">Accueil</Link>
       <Link to="/courses" className="hover:underline">Épreuves</Link>
 
-      {role === "organisateur" && (
+      {roles.includes("organisateur") && (
         <>
           <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
           <Link to="/organisateur/espace" className="hover:underline">Espace Organisateur</Link>
         </>
       )}
 
-      {role === "coureur" && (
-        <Link to="/coureur" className="hover:underline">Profil Coureur</Link>
-      )}
-
-      {role === "admin" && (
-        <Link to="/admin" className="hover:underline">Admin</Link>
-      )}
-
-      {!user && (
+      {roles.includes("coureur") && (
         <>
-          <Link to="/organisateur/login" className="hover:underline">Connexion</Link>
-          <Link to="/organisateur/signup" className="hover:underline">Créer un compte</Link>
+          <Link to="/profil" className="hover:underline">Mon profil</Link>
         </>
       )}
 
-      {user && (
-        <button
-          onClick={handleLogout}
-          className="ml-auto text-sm bg-red-500 hover:bg-red-600 px-3 py-1 rounded"
-        >
-          Se déconnecter
-        </button>
+      {roles.includes("admin") && (
+        <Link to="/admin" className="hover:underline">Admin</Link>
+      )}
+
+      {!user ? (
+        <>
+          <Link to="/login" className="hover:underline">Connexion</Link>
+          <Link to="/signup" className="hover:underline">Créer un compte</Link>
+        </>
+      ) : (
+        <button onClick={logout} className="hover:underline">Se déconnecter</button>
       )}
     </nav>
   );
