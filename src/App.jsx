@@ -13,7 +13,9 @@ import ProfilCoureur from "./pages/ProfilCoureur";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Admin from "./pages/Admin";
+
 import { UserProvider } from "./contexts/UserContext";
+
 
 export default function App() {
   return (

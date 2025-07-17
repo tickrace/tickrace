@@ -1,60 +1,45 @@
-// src/contexts/UserContext.jsx
-import React, { createContext, useContext, useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-const UserContext = createContext();
+export const UserContext = createContext();
 
 export function UserProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [role, setRole] = useState(null);
+  const [roles, setRoles] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchUserAndRole = async () => {
+    const fetchSessionAndRoles = async () => {
       const {
         data: { user },
       } = await supabase.auth.getUser();
 
+      setUser(user);
+
       if (user) {
-        setUser(user);
-        const { data: profil, error } = await supabase
+        const { data: rolesData } = await supabase
           .from("profils_utilisateurs")
           .select("role")
-          .eq("user_id", user.id)
-          .single();
+          .eq("id", user.id);
 
-        if (error) {
-          console.error("Erreur de chargement du rôle :", error.message);
-        } else {
-          setRole(profil?.role);
+        if (rolesData) {
+          setRoles(rolesData.map((r) => r.role));
         }
       }
 
       setLoading(false);
     };
 
-    fetchUserAndRole();
+    fetchSessionAndRoles();
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      (event, session) => {
-        if (session?.user) {
-          setUser(session.user);
-          supabase
-            .from("profils_utilisateurs")
-            .select("role")
-            .eq("user_id", session.user.id)
-            .single()
-            .then(({ data, error }) => {
-              if (!error) {
-                setRole(data.role);
-              }
-            });
-        } else {
-          setUser(null);
-          setRole(null);
-        }
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUser(session.user);
+      } else {
+        setUser(null);
+        setRoles([]);
       }
-    );
+    });
 
     return () => {
       listener.subscription.unsubscribe();
@@ -62,7 +47,7 @@ export function UserProvider({ children }) {
   }, []);
 
   return (
-    <UserContext.Provider value={{ user, role, loading }}>
+    <UserContext.Provider value={{ user, roles, loading }}>
       {children}
     </UserContext.Provider>
   );
