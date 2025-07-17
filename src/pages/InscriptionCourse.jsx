@@ -4,178 +4,100 @@ import { supabase } from "../supabase";
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
-  const [profil, setProfil] = useState({});
-  const [formData, setFormData] = useState({});
-  const [loading, setLoading] = useState(true);
+  const [course, setCourse] = useState(null);
+  const [profile, setProfile] = useState(null);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
-    const fetchProfil = async () => {
+    const fetchCourseAndProfile = async () => {
+      const { data: courseData, error: courseError } = await supabase
+        .from("courses")
+        .select("*")
+        .eq("id", courseId)
+        .single();
+
       const {
         data: { user },
-        error: userError,
       } = await supabase.auth.getUser();
 
-      if (userError || !user) {
-        setMessage("Erreur : utilisateur non connecté.");
-        setLoading(false);
+      if (!user) {
+        setMessage("Vous devez être connecté pour vous inscrire.");
         return;
       }
 
-      const { data, error } = await supabase
+      const { data: profileData, error: profileError } = await supabase
         .from("profils_coureurs")
         .select("*")
         .eq("user_id", user.id)
         .single();
 
-      if (error) {
-        console.error("Erreur chargement profil", error.message);
-        setMessage("Impossible de charger le profil.");
-        setLoading(false);
-      } else {
-        setProfil(data);
-        setFormData(data);
-        setLoading(false);
+      if (courseError || profileError) {
+        console.error("Erreur :", courseError || profileError);
+        return;
       }
+
+      setCourse(courseData);
+      setProfile(profileData);
     };
 
-    fetchProfil();
-  }, []);
+    fetchCourseAndProfile();
+  }, [courseId]);
 
-  const handleChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setFormData((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
-  };
+  const handleInscription = async () => {
+    if (!course || !profile) return;
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-
-    const { error } = await supabase.from("inscriptions").insert([
+    const { data, error } = await supabase.from("inscriptions").insert([
       {
-        user_id: user.id,
-        course_id: courseId,
-        ...formData,
+        course_id: course.id,
+        user_id: profile.user_id,
+        nom: profile.nom,
+        prenom: profile.prenom,
+        genre: profile.genre,
+        date_naissance: profile.date_naissance,
+        nationalite: profile.nationalite,
+        email: profile.email,
+        telephone: profile.telephone,
+        adresse: profile.adresse,
+        code_postal: profile.code_postal,
+        ville: profile.ville,
+        pays: profile.pays,
+        club: profile.club,
+        justificatif: profile.justificatif,
+        contact_urgence_nom: profile.contact_urgence_nom,
+        contact_urgence_tel: profile.contact_urgence_tel,
+        apparaitre_resultats: profile.apparaitre_resultats,
       },
     ]);
 
     if (error) {
-      console.error("Erreur d'inscription :", error.message);
-      setMessage("Erreur lors de l'inscription.");
+      console.error("Erreur inscription :", error.message);
+      setMessage("Une erreur est survenue lors de l'inscription.");
     } else {
       setMessage("Inscription réussie !");
     }
   };
 
-  if (loading) return <p className="p-6">Chargement...</p>;
+  if (!course) return <p className="p-6">Chargement...</p>;
 
   return (
-    <div className="max-w-2xl mx-auto p-6">
-      <h2 className="text-2xl font-bold mb-4">Inscription à l'épreuve</h2>
-      {message && <p className="mb-4 text-red-600">{message}</p>}
+    <div className="p-6 max-w-2xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Inscription à {course.nom}</h1>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Informations personnelles */}
-        <div>
-          <label>Nom *</label>
-          <input name="nom" value={formData.nom || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Prénom *</label>
-          <input name="prenom" value={formData.prenom || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Genre *</label>
-          <select name="genre" value={formData.genre || ""} onChange={handleChange} required className="input">
-            <option value="">Choisir</option>
-            <option value="H">Homme</option>
-            <option value="F">Femme</option>
-            <option value="Autre">Autre</option>
-          </select>
-        </div>
-        <div>
-          <label>Date de naissance *</label>
-          <input name="date_naissance" type="date" value={formData.date_naissance || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Nationalité *</label>
-          <input name="nationalite" value={formData.nationalite || ""} onChange={handleChange} required className="input" />
-        </div>
+      {profile ? (
+        <>
+          <p className="mb-4">Vous êtes sur le point de vous inscrire à cette course avec les informations de votre profil.</p>
+          <button
+            onClick={handleInscription}
+            className="px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Confirmer mon inscription
+          </button>
+        </>
+      ) : (
+        <p>Veuillez compléter votre profil coureur avant de vous inscrire.</p>
+      )}
 
-        {/* Coordonnées */}
-        <div>
-          <label>Email *</label>
-          <input type="email" name="email" value={formData.email || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Confirmer votre email *</label>
-          <input type="email" required className="input" />
-        </div>
-        <div>
-          <label>Téléphone *</label>
-          <input name="telephone" value={formData.telephone || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Adresse *</label>
-          <input name="adresse" value={formData.adresse || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Complément d’adresse</label>
-          <input name="adresse_complement" value={formData.adresse_complement || ""} onChange={handleChange} className="input" />
-        </div>
-        <div>
-          <label>Code postal *</label>
-          <input name="code_postal" value={formData.code_postal || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Ville *</label>
-          <input name="ville" value={formData.ville || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Pays *</label>
-          <input name="pays" value={formData.pays || ""} onChange={handleChange} required className="input" />
-        </div>
-
-        {/* Résultats */}
-        <div>
-          <label>Apparaître dans les résultats *</label>
-          <select name="apparaitre_resultats" value={formData.apparaitre_resultats || ""} onChange={handleChange} required className="input">
-            <option value="">Choisir</option>
-            <option value="oui">Oui</option>
-            <option value="non">Non</option>
-          </select>
-        </div>
-        <div>
-          <label>Club / Team / Association</label>
-          <input name="club" value={formData.club || ""} onChange={handleChange} className="input" />
-        </div>
-
-        {/* Justificatif */}
-        <div>
-          <label>Votre situation *</label>
-          <textarea name="justificatif" value={formData.justificatif || ""} onChange={handleChange} required className="input" />
-        </div>
-
-        {/* Contact urgence */}
-        <div>
-          <label>Contact d’urgence – Nom Prénom *</label>
-          <input name="contact_urgence_nom" value={formData.contact_urgence_nom || ""} onChange={handleChange} required className="input" />
-        </div>
-        <div>
-          <label>Téléphone urgence *</label>
-          <input name="contact_urgence_telephone" value={formData.contact_urgence_telephone || ""} onChange={handleChange} required className="input" />
-        </div>
-
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
-          Valider mon inscription
-        </button>
-      </form>
+      {message && <p className="mt-4 text-sm text-green-600">{message}</p>}
     </div>
   );
 }
