@@ -1,61 +1,57 @@
-import React, { useState } from "react";
-import { supabase } from "../supabase";
+import React, { useState, useContext } from "react";
 import { useNavigate } from "react-router-dom";
+import { supabase } from "../supabase";
+import { UserContext } from "../contexts/UserContext";
 
 export default function Login() {
   const navigate = useNavigate();
+  const { setUser, setRoles } = useContext(UserContext);
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setError("");
+    setErrorMsg("");
 
-    const { data, error: loginError } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
 
-    if (loginError) {
-      setError("Échec de la connexion : " + loginError.message);
+    if (error) {
+      setErrorMsg("Échec de la connexion : " + error.message);
       return;
     }
 
     const user = data.user;
+    const roles = user.user_metadata?.roles || [];
 
-    // On récupère les rôles depuis la table profils_utilisateurs
-    const { data: profils, error: profilsError } = await supabase
-      .from("profils_utilisateurs")
-      .select("role")
-      .eq("id", user.id);
+    setUser(user);
+    setRoles(roles);
 
-    if (profilsError || !profils || profils.length === 0) {
-      setError("Aucun rôle trouvé pour cet utilisateur.");
-      return;
-    }
-
-    const roles = profils.map((p) => p.role);
-
-    // Redirection en fonction du ou des rôles
-    if (roles.includes("organisateur")) {
-      navigate("/organisateur/espace");
+    // Redirection conditionnelle selon les rôles
+    if (roles.includes("admin")) {
+      navigate("/admin");
+    } else if (roles.includes("organisateur")) {
+      navigate("/monprofilorganisateur");
     } else if (roles.includes("coureur")) {
-      navigate("/coureur");
+      navigate("/monprofilcoureur");
     } else {
-      setError("Aucun rôle reconnu. Veuillez contacter l'administrateur.");
+      navigate("/");
     }
   };
 
   return (
     <div className="max-w-md mx-auto p-6">
-      <h2 className="text-2xl font-bold mb-4">Connexion</h2>
+      <h1 className="text-2xl font-bold mb-4">Connexion</h1>
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
-          <label className="block mb-1">Email</label>
+          <label>Email</label>
           <input
             type="email"
-            className="w-full border p-2 rounded"
+            className="w-full border rounded p-2"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
             required
@@ -63,19 +59,22 @@ export default function Login() {
         </div>
 
         <div>
-          <label className="block mb-1">Mot de passe</label>
+          <label>Mot de passe</label>
           <input
             type="password"
-            className="w-full border p-2 rounded"
+            className="w-full border rounded p-2"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             required
           />
         </div>
 
-        {error && <p className="text-red-600">{error}</p>}
+        {errorMsg && <p className="text-red-600">{errorMsg}</p>}
 
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">
+        <button
+          type="submit"
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
           Se connecter
         </button>
       </form>
