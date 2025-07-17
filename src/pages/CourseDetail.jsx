@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function CourseDetail() {
@@ -70,13 +70,12 @@ export default function CourseDetail() {
         </ul>
       )}
 
-     <Link
-  to={`/inscription/${course.id}`}
-  className="inline-block mt-6 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
->
-  S'inscrire à cette épreuve
-</Link>
-
+      <Link
+        to={`/courses/${id}/inscription`}
+        className="inline-block mt-8 px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
+      >
+        S’inscrire
+      </Link>
     </div>
   );
 }
