@@ -1,6 +1,6 @@
 import React from "react";
 import { Link } from "react-router-dom";
-import { useUserContext } from "../UserContext";
+import { useUserContext } from "../contexts/UserContext";
 
 export default function Navbar() {
   const { user, logout, roles } = useUserContext();
