@@ -70,9 +70,13 @@ export default function CourseDetail() {
         </ul>
       )}
 
-      <button className="mt-8 px-6 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">
-        S’inscrire
-      </button>
+     <Link
+  to={`/inscription/${course.id}`}
+  className="inline-block mt-6 px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
+>
+  S'inscrire à cette épreuve
+</Link>
+
     </div>
   );
 }
