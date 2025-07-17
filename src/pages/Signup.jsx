@@ -60,15 +60,7 @@ export default function Signup() {
       prenom,
     }));
 
-    const { error: insertError } = await supabase
-      .from("profils_utilisateurs")
-      .insert(inserts);
-
-    if (insertError) {
-      setError("Erreur lors de l’enregistrement des rôles : " + insertError.message);
-      setLoading(false);
-      return;
-    }
+   
 
     setLoading(false);
     navigate("/");
