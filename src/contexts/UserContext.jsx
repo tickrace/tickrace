@@ -1,44 +1,39 @@
+// src/contexts/UserContext.jsx
 import { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
 export const UserContext = createContext();
 
-export function UserProvider({ children }) {
-  const [user, setUser] = useState(null);
-  const [roles, setRoles] = useState([]);
+export const UserProvider = ({ children }) => {
+  const [session, setSession] = useState(null);
+  const [roles, setRoles] = useState([]); // <== tableau de rôles
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchSessionAndRoles = async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
+    const init = async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      setSession(session);
 
-      setUser(user);
-
-      if (user) {
-        const { data: rolesData } = await supabase
+      if (session?.user?.id) {
+        const { data, error } = await supabase
           .from("profils_utilisateurs")
           .select("role")
-          .eq("id", user.id);
+          .eq("user_id", session.user.id);
 
-        if (rolesData) {
-          setRoles(rolesData.map((r) => r.role));
+        if (!error) {
+          const fetchedRoles = data.map((item) => item.role);
+          setRoles(fetchedRoles); // ['coureur', 'organisateur']
         }
       }
 
       setLoading(false);
     };
 
-    fetchSessionAndRoles();
+    init();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
-      if (session?.user) {
-        setUser(session.user);
-      } else {
-        setUser(null);
-        setRoles([]);
-      }
+      setSession(session);
+      // tu peux relancer init() ici si besoin
     });
 
     return () => {
@@ -47,12 +42,10 @@ export function UserProvider({ children }) {
   }, []);
 
   return (
-    <UserContext.Provider value={{ user, roles, loading }}>
+    <UserContext.Provider value={{ session, roles, loading }}>
       {children}
     </UserContext.Provider>
   );
-}
+};
 
-export function useUser() {
-  return useContext(UserContext);
-}
+export const useUser = () => useContext(UserContext);
