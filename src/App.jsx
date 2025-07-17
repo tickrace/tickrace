@@ -14,6 +14,7 @@ import CoursePage from "./pages/CoursePage"; // en haut avec les autres imports
 import ModifierCourse from "./pages/ModifierCourse";
 import CourseDetail from "./pages/CourseDetail"; // 🔹 Ajout en haut
 import InscriptionCourse from "./pages/InscriptionCourse";
+import ProfilCoureur from "./pages/ProfilCoureur";
 
 export default function App() {
   return (
@@ -32,7 +33,9 @@ export default function App() {
         <Route path="/organisateur/modifier-course/:id" element={<ModifierCourse />} />
         <Route path="/courses/:id" element={<CourseDetail />} />
       //  <Route path="/courses/:id/inscription" element={<InscriptionCourse />} />
-       <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
+        <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
+        <Route path="/profil" element={<ProfilCoureur />} />
+
       </Routes>
     </Router>
   );
