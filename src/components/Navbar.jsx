@@ -1,39 +1,49 @@
 import React, { useContext } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { UserContext } from "../contexts/UserContext";
 import { supabase } from "../supabase";
+import { UserContext } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { user, setUser } = useContext(UserContext);
+  const { user, roles, setUser, setRoles } = useContext(UserContext);
   const navigate = useNavigate();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
-    navigate("/login");
+    setRoles([]);
+    navigate("/");
   };
 
   return (
     <nav className="bg-gray-800 text-white p-4 flex flex-wrap gap-4">
       <Link to="/" className="hover:underline">Accueil</Link>
       <Link to="/courses" className="hover:underline">Épreuves</Link>
-      <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
-      <Link to="/organisateur/espace" className="hover:underline">Espace Organisateur</Link>
-      <Link to="/formats" className="hover:underline">Formats</Link>
-      <Link to="/coureur" className="hover:underline">Coureur</Link>
-      <Link to="/admin" className="hover:underline">Admin</Link>
-      <Link to="/coureur/profil" className="hover:underline">Profil</Link>
 
-      {!user ? (
+      {!user && (
         <>
           <Link to="/login" className="hover:underline">Connexion</Link>
           <Link to="/signup" className="hover:underline">Créer un compte</Link>
         </>
-      ) : (
-        <button
-          onClick={handleLogout}
-          className="hover:underline text-red-300"
-        >
+      )}
+
+      {user && roles.includes("coureur") && (
+        <Link to="/mon-profil-coureur" className="hover:underline">Mon profil coureur</Link>
+      )}
+
+      {user && roles.includes("organisateur") && (
+        <>
+          <Link to="/mon-profil-organisateur" className="hover:underline">Mon profil organisateur</Link>
+          <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
+          <Link to="/organisateur/espace" className="hover:underline">Espace Organisateur</Link>
+        </>
+      )}
+
+      {user && roles.includes("admin") && (
+        <Link to="/admin" className="hover:underline">Admin</Link>
+      )}
+
+      {user && (
+        <button onClick={handleLogout} className="hover:underline text-red-400 ml-auto">
           Se déconnecter
         </button>
       )}
