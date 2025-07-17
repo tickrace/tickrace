@@ -31,8 +31,8 @@ export default function App() {
         <Route path="/course/:id" element={<CoursePage />} />
         <Route path="/organisateur/modifier-course/:id" element={<ModifierCourse />} />
         <Route path="/courses/:id" element={<CourseDetail />} />
-        <Route path="/courses/:id/inscription" element={<InscriptionCourse />} />
-
+      //  <Route path="/courses/:id/inscription" element={<InscriptionCourse />} />
+       <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
       </Routes>
     </Router>
   );
