@@ -4,13 +4,14 @@ import { supabase } from "../supabase";
 import { UserContext } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { user, roles, setUser, setRoles } = useContext(UserContext);
+  const { user, setUser } = useContext(UserContext);
   const navigate = useNavigate();
+
+  const role = user?.session?.user?.user_metadata?.role;
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     setUser(null);
-    setRoles([]);
     navigate("/");
   };
 
@@ -19,6 +20,23 @@ export default function Navbar() {
       <Link to="/" className="hover:underline">Accueil</Link>
       <Link to="/courses" className="hover:underline">Épreuves</Link>
 
+      {role === "organisateur" && (
+        <>
+          <Link to="/organisateur/espace" className="hover:underline">Espace Organisateur</Link>
+          <Link to="/monprofilorganisateur" className="hover:underline">Mon Profil Organisateur</Link>
+        </>
+      )}
+
+      {role === "coureur" && (
+        <>
+          <Link to="/monprofilcoureur" className="hover:underline">Mon Profil Coureur</Link>
+        </>
+      )}
+
+      {role === "admin" && (
+        <Link to="/admin" className="hover:underline">Admin</Link>
+      )}
+
       {!user && (
         <>
           <Link to="/login" className="hover:underline">Connexion</Link>
@@ -26,24 +44,11 @@ export default function Navbar() {
         </>
       )}
 
-      {user && roles.includes("coureur") && (
-        <Link to="/mon-profil-coureur" className="hover:underline">Mon profil coureur</Link>
-      )}
-
-      {user && roles.includes("organisateur") && (
-        <>
-          <Link to="/mon-profil-organisateur" className="hover:underline">Mon profil organisateur</Link>
-          <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
-          <Link to="/organisateur/espace" className="hover:underline">Espace Organisateur</Link>
-        </>
-      )}
-
-      {user && roles.includes("admin") && (
-        <Link to="/admin" className="hover:underline">Admin</Link>
-      )}
-
       {user && (
-        <button onClick={handleLogout} className="hover:underline text-red-400 ml-auto">
+        <button
+          onClick={handleLogout}
+          className="hover:underline text-red-300 ml-auto"
+        >
           Se déconnecter
         </button>
       )}
