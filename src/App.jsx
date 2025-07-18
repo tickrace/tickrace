@@ -13,7 +13,8 @@ import ProfilCoureur from "./pages/ProfilCoureur";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Admin from "./pages/Admin";
-
+import MonProfilCoureur from "./pages/MonProfilCoureur";
+import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import { UserProvider } from "./contexts/UserContext";
 
 
@@ -37,6 +38,10 @@ export default function App() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+
+<Route path="/monprofilcoureur" element={<MonProfilCoureur />} />
+<Route path="/monprofilorganisateur" element={<MonProfilOrganisateur />} />
+
         </Routes>
       </BrowserRouter>
     </UserProvider>
