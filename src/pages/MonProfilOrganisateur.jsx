@@ -1,90 +1,157 @@
 // src/pages/MonProfilOrganisateur.jsx
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import { useUser } from "../contexts/UserContext";
 
 export default function MonProfilOrganisateur() {
-  const { session } = useUser();
-  const [profil, setProfil] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [profil, setProfil] = useState({});
   const [message, setMessage] = useState("");
+
+  const pays = ["France", "Belgique", "Suisse", "Espagne", "Italie", "Portugal", "Autre"];
 
   useEffect(() => {
     const fetchProfil = async () => {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
+      if (!user) return;
+
       const { data, error } = await supabase
-        .from("profils_utilisateurs")
+        .from("profils_organisateurs")
         .select("*")
-        .eq("user_id", session?.user.id)
-        .eq("role", "organisateur")
+        .eq("id", user.id)
         .single();
 
-      if (error) {
-        console.error("Erreur récupération profil :", error.message);
-      } else {
+      if (!error && data) {
         setProfil(data);
       }
-      setLoading(false);
     };
 
-    if (session?.user.id) fetchProfil();
-  }, [session]);
+    fetchProfil();
+  }, []);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setProfil((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSave = async () => {
-    const { error } = await supabase
-      .from("profils_utilisateurs")
-      .update({
-        nom: profil.nom,
-        prenom: profil.prenom,
-      })
-      .eq("user_id", session.user.id)
-      .eq("role", "organisateur");
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    const { data: sessionData } = await supabase.auth.getSession();
+    const user = sessionData?.session?.user;
+    if (!user) return;
 
-    if (error) {
-      setMessage("Erreur lors de la sauvegarde.");
-      console.error(error.message);
-    } else {
-      setMessage("✅ Profil mis à jour avec succès.");
-    }
+    const { error } = await supabase
+      .from("profils_organisateurs")
+      .upsert({ ...profil, id: user.id });
+
+    setMessage(error ? "Erreur lors de la mise à jour." : "Profil mis à jour !");
   };
 
-  if (loading) return <p className="p-4">Chargement...</p>;
-  if (!profil) return <p className="p-4">Profil introuvable.</p>;
-
   return (
-    <div className="p-6 max-w-xl mx-auto">
+    <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Mon profil organisateur</h1>
 
-      <label className="block mb-2">Nom</label>
-      <input
-        type="text"
-        name="nom"
-        value={profil.nom || ""}
-        onChange={handleChange}
-        className="w-full p-2 border mb-4"
-      />
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="flex gap-4">
+          <input
+            type="text"
+            name="nom"
+            placeholder="Nom"
+            value={profil.nom || ""}
+            onChange={handleChange}
+            className="border p-2 w-1/2"
+          />
+          <input
+            type="text"
+            name="prenom"
+            placeholder="Prénom"
+            value={profil.prenom || ""}
+            onChange={handleChange}
+            className="border p-2 w-1/2"
+          />
+        </div>
 
-      <label className="block mb-2">Prénom</label>
-      <input
-        type="text"
-        name="prenom"
-        value={profil.prenom || ""}
-        onChange={handleChange}
-        className="w-full p-2 border mb-4"
-      />
+        <input
+          type="text"
+          name="structure"
+          placeholder="Structure / association / société"
+          value={profil.structure || ""}
+          onChange={handleChange}
+          className="border p-2 w-full"
+        />
 
-      <button
-        onClick={handleSave}
-        className="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700"
-      >
-        Enregistrer
-      </button>
+        <input
+          type="email"
+          name="email"
+          placeholder="Email"
+          value={profil.email || ""}
+          onChange={handleChange}
+          className="border p-2 w-full"
+        />
 
-      {message && <p className="mt-4 text-green-600">{message}</p>}
+        <input
+          type="text"
+          name="telephone"
+          placeholder="Téléphone"
+          value={profil.telephone || ""}
+          onChange={handleChange}
+          className="border p-2 w-full"
+        />
+
+        <input
+          type="text"
+          name="adresse"
+          placeholder="Adresse"
+          value={profil.adresse || ""}
+          onChange={handleChange}
+          className="border p-2 w-full"
+        />
+
+        <div className="flex gap-4">
+          <input
+            type="text"
+            name="code_postal"
+            placeholder="Code postal"
+            value={profil.code_postal || ""}
+            onChange={handleChange}
+            className="border p-2 w-1/2"
+          />
+          <input
+            type="text"
+            name="ville"
+            placeholder="Ville"
+            value={profil.ville || ""}
+            onChange={handleChange}
+            className="border p-2 w-1/2"
+          />
+        </div>
+
+        <select
+          name="pays"
+          value={profil.pays || ""}
+          onChange={handleChange}
+          className="border p-2 w-full"
+        >
+          <option value="">-- Choisir un pays --</option>
+          {pays.map((p) => (
+            <option key={p} value={p}>{p}</option>
+          ))}
+        </select>
+
+        <input
+          type="text"
+          name="site_web"
+          placeholder="Site web (optionnel)"
+          value={profil.site_web || ""}
+          onChange={handleChange}
+          className="border p-2 w-full"
+        />
+
+        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">
+          Sauvegarder
+        </button>
+
+        {message && <p className="text-sm text-green-700 mt-2">{message}</p>}
+      </form>
     </div>
   );
 }
