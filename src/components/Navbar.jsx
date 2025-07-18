@@ -27,15 +27,11 @@ export default function Navbar() {
       )}
 
       {roles.includes("coureur") && (
-        <>
-          <Link to="/monprofilcoureur" className="hover:underline">Mon profil coureur</Link>
-        </>
+        <Link to="/monprofilcoureur" className="hover:underline">Mon profil coureur</Link>
       )}
 
       {roles.includes("admin") && (
-        <>
-          <Link to="/admin" className="hover:underline">Admin</Link>
-        </>
+        <Link to="/admin" className="hover:underline">Admin</Link>
       )}
 
       {!session ? (
