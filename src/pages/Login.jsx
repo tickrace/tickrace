@@ -21,8 +21,14 @@ export default function Login() {
     });
 
     if (error) {
-      setErrorMsg("Échec de la connexion : " + error.message);
-      return;
+      setMessage("Échec de la connexion : " + error.message);
+    } else {
+      setMessage("Connexion réussie !");
+      navigate("/"); // ✅ Redirection vers la page d'accueil
+    }
+  };
+
+  return;
     }
 
     const user = data.user;
