@@ -1,87 +1,74 @@
-import React, { useState, useContext } from "react";
+import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
-import { UserContext } from "../contexts/UserContext";
 
 export default function Login() {
   const navigate = useNavigate();
-  const { setUser, setRoles } = useContext(UserContext);
-
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
+  const [motDePasse, setMotDePasse] = useState("");
+  const [erreur, setErreur] = useState("");
+  const [chargement, setChargement] = useState(false);
 
   const handleLogin = async (e) => {
     e.preventDefault();
-    setErrorMsg("");
+    setErreur("");
+    setChargement(true);
 
-    const { data, error } = await supabase.auth.signInWithPassword({
+    const { error } = await supabase.auth.signInWithPassword({
       email,
-      password,
+      password: motDePasse,
     });
 
     if (error) {
-      setMessage("Échec de la connexion : " + error.message);
+      setErreur("Échec de la connexion : " + error.message);
     } else {
-      setMessage("Connexion réussie !");
-      navigate("/"); // ✅ Redirection vers la page d'accueil
-    }
-  };
-
-  return;
+      navigate("/"); // ✅ redirection vers l'accueil
     }
 
-    const user = data.user;
-    const roles = user.user_metadata?.roles || [];
-
-    setUser(user);
-    setRoles(roles);
-
-    // Redirection conditionnelle selon les rôles
-    if (roles.includes("admin")) {
-      navigate("/admin");
-    } else if (roles.includes("organisateur")) {
-      navigate("/monprofilorganisateur");
-    } else if (roles.includes("coureur")) {
-      navigate("/monprofilcoureur");
-    } else {
-      navigate("/");
-    }
+    setChargement(false);
   };
 
   return (
-    <div className="max-w-md mx-auto p-6">
-      <h1 className="text-2xl font-bold mb-4">Connexion</h1>
+    <div className="max-w-md mx-auto mt-10 p-6 bg-white rounded shadow">
+      <h2 className="text-2xl font-bold mb-6">Connexion</h2>
+
       <form onSubmit={handleLogin} className="space-y-4">
         <div>
-          <label>Email</label>
+          <label htmlFor="email" className="block font-medium">
+            Adresse email
+          </label>
           <input
             type="email"
-            className="w-full border rounded p-2"
+            id="email"
+            required
+            className="w-full border border-gray-300 rounded px-3 py-2 mt-1"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            required
           />
         </div>
 
         <div>
-          <label>Mot de passe</label>
+          <label htmlFor="password" className="block font-medium">
+            Mot de passe
+          </label>
           <input
             type="password"
-            className="w-full border rounded p-2"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
+            id="password"
             required
+            className="w-full border border-gray-300 rounded px-3 py-2 mt-1"
+            value={motDePasse}
+            onChange={(e) => setMotDePasse(e.target.value)}
           />
         </div>
 
-        {errorMsg && <p className="text-red-600">{errorMsg}</p>}
+        {erreur && <p className="text-red-600">{erreur}</p>}
 
         <button
           type="submit"
+          disabled={chargement}
           className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
         >
-          Se connecter
+          {chargement ? "Connexion..." : "Se connecter"}
         </button>
       </form>
     </div>
