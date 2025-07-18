@@ -6,12 +6,20 @@ import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
   const navigate = useNavigate();
-  const { session, roles } = useUser();
+  const { session, roles, loading } = useUser();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/");
   };
+
+  if (loading) {
+    return (
+      <nav className="bg-gray-800 text-white p-4">
+        Chargement...
+      </nav>
+    );
+  }
 
   return (
     <nav className="bg-gray-800 text-white p-4 flex flex-wrap gap-4">
