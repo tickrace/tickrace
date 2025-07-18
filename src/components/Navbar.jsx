@@ -1,17 +1,15 @@
-import React, { useContext } from "react";
+// src/components/Navbar.jsx
+import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
-import { UserContext } from "../contexts/UserContext";
+import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { user, setUser } = useContext(UserContext);
   const navigate = useNavigate();
-
-  const role = user?.session?.user?.user_metadata?.role;
+  const { session, roles } = useUser();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    setUser(null);
     navigate("/");
   };
 
@@ -20,37 +18,33 @@ export default function Navbar() {
       <Link to="/" className="hover:underline">Accueil</Link>
       <Link to="/courses" className="hover:underline">Épreuves</Link>
 
-      {role === "organisateur" && (
+      {roles.includes("organisateur") && (
         <>
+          <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
           <Link to="/organisateur/espace" className="hover:underline">Espace Organisateur</Link>
-          <Link to="/monprofilorganisateur" className="hover:underline">Mon Profil Organisateur</Link>
+          <Link to="/monprofilorganisateur" className="hover:underline">Mon profil organisateur</Link>
         </>
       )}
 
-      {role === "coureur" && (
+      {roles.includes("coureur") && (
         <>
-          <Link to="/monprofilcoureur" className="hover:underline">Mon Profil Coureur</Link>
+          <Link to="/monprofilcoureur" className="hover:underline">Mon profil coureur</Link>
         </>
       )}
 
-      {role === "admin" && (
-        <Link to="/admin" className="hover:underline">Admin</Link>
+      {roles.includes("admin") && (
+        <>
+          <Link to="/admin" className="hover:underline">Admin</Link>
+        </>
       )}
 
-      {!user && (
+      {!session ? (
         <>
           <Link to="/login" className="hover:underline">Connexion</Link>
           <Link to="/signup" className="hover:underline">Créer un compte</Link>
         </>
-      )}
-
-      {user && (
-        <button
-          onClick={handleLogout}
-          className="hover:underline text-red-300 ml-auto"
-        >
-          Se déconnecter
-        </button>
+      ) : (
+        <button onClick={handleLogout} className="hover:underline">Se déconnecter</button>
       )}
     </nav>
   );
