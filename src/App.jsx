@@ -5,7 +5,7 @@ import Navbar from "./components/Navbar";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
 import NouvelleCourse from "./pages/NouvelleCourse";
-import EspaceOrganisateur from "./pages/EspaceOrganisateur";
+
 import ModifierCourse from "./pages/ModifierCourse";
 import ListeFormats from "./pages/ListeFormats";
 import InscriptionCourse from "./pages/InscriptionCourse";
@@ -16,6 +16,7 @@ import Admin from "./pages/Admin";
 import MonProfilCoureur from "./pages/MonProfilCoureur";
 import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import { UserProvider } from "./contexts/UserContext";
+import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
 
 export default function App() {
   return (
@@ -27,7 +28,7 @@ export default function App() {
           <Route path="/courses" element={<Courses />} />
           <Route path="/courses/:id" element={<CourseDetail />} />
           <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
-          <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
+          
           <Route path="/organisateur/modifier-course/:id" element={<ModifierCourse />} />
           <Route path="/formats" element={<ListeFormats />} />
           <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
@@ -37,6 +38,7 @@ export default function App() {
           <Route path="/admin" element={<Admin />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
+<Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
         </Routes>
       </BrowserRouter>
     </UserProvider>

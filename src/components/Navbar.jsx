@@ -28,7 +28,8 @@ export default function Navbar() {
 
       {roles.includes("organisateur") && (
         <>
-          <Link to="/organisateur/espace" className="hover:underline">🎽 Mon espace</Link>
+          <Link to="/organisateur/mon-espace" className="hover:underline">Mon espace organisateur</Link>
+
           <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
           <Link to="/monprofilorganisateur" className="hover:underline">Mon profil</Link>
         </>
