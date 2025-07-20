@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -96,7 +95,7 @@ export default function InscriptionCourse() {
 
     // Appel de l'email via Edge Function
     try {
-      await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/send-inscription-email", {
+      await fetch("https://<TON-PROJET>.functions.supabase.co/send-inscription-email", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
