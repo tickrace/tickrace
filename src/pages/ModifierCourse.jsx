@@ -136,6 +136,67 @@ export default function ModifierCourse() {
     ]);
   };
 
+  const handleSubmit = async () => {
+    let imageCourseUrl = course.image_url;
+    if (course.imageFile) {
+      const { data, error } = await supabase.storage
+        .from("courses")
+        .upload(`course-${Date.now()}.jpg`, course.imageFile);
+      if (!error) {
+        imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
+      }
+    }
+
+    const { error: updateError } = await supabase
+      .from("courses")
+      .update({
+        nom: course.nom,
+        lieu: course.lieu,
+        departement: course.departement,
+        presentation: course.presentation,
+        image_url: imageCourseUrl,
+      })
+      .eq("id", id);
+
+    if (updateError) return alert("Erreur mise à jour course");
+
+    for (const f of formats) {
+      const formatToSave = { ...f };
+
+      if (f.imageFile) {
+        const { data, error } = await supabase.storage
+          .from("formats")
+          .upload(`format-${Date.now()}-${f.nom}.jpg`, f.imageFile);
+        if (!error) formatToSave.image_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+      }
+
+      if (f.fichier_gpx) {
+        const { data, error } = await supabase.storage
+          .from("formats")
+          .upload(`gpx-${Date.now()}-${f.nom}.gpx`, f.fichier_gpx);
+        if (!error) formatToSave.gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+      }
+
+      if (f.fichier_reglement) {
+        const { data, error } = await supabase.storage
+          .from("reglements")
+          .upload(`reglement-${Date.now()}-${f.nom}.pdf`, f.fichier_reglement);
+        if (!error) formatToSave.reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
+      }
+
+      formatToSave.course_id = id;
+
+      if (f.id && typeof f.id === "string" && f.id.length > 20) {
+        await supabase.from("formats").update(formatToSave).eq("id", f.id);
+      } else {
+        await supabase.from("formats").insert(formatToSave);
+      }
+    }
+
+    alert("Modifications enregistrées !");
+    navigate("/organisateur/espace");
+  };
+
   if (isLoading) return <p>Chargement...</p>;
 
   return (
@@ -179,7 +240,7 @@ export default function ModifierCourse() {
         ))}
 
         <button type="button" onClick={addFormat} className="bg-blue-600 text-white px-4 py-2 rounded">+ Ajouter un format</button>
-        <button type="button" className="bg-green-600 text-white px-4 py-2 rounded">💾 Sauvegarder les modifications</button>
+        <button type="button" onClick={handleSubmit} className="bg-green-600 text-white px-4 py-2 rounded">💾 Sauvegarder les modifications</button>
       </form>
     </div>
   );
