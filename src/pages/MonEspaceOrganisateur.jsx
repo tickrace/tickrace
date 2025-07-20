@@ -1,130 +1,151 @@
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
-import {
-  Pencil,
-  Eye,
-  Copy,
-  Trash2,
-  CopyCheck,
-  CopyPlus
-} from "lucide-react";
+import { Pencil, Eye, PlusCircle, Trash2, Clipboard } from "lucide-react";
 
 export default function MonEspaceOrganisateur() {
-  const [courses, setCourses] = useState([]);
   const { session } = useUser();
+  const [courses, setCourses] = useState([]);
   const navigate = useNavigate();
 
   useEffect(() => {
-    const fetchCourses = async () => {
-      const userId = session?.user?.id;
-      if (!userId) return;
-
-      const { data, error } = await supabase
-        .from("courses")
-        .select("*")
-        .eq("organisateur_id", userId)
-        .order("created_at", { ascending: false });
-
-      if (error) {
-        console.error("Erreur chargement des épreuves", error);
-      } else {
-        setCourses(data);
-      }
-    };
-
-    fetchCourses();
+    if (session) fetchCourses();
   }, [session]);
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Supprimer cette épreuve ?")) return;
-    const { error } = await supabase.from("courses").delete().eq("id", id);
-    if (error) {
-      alert("Erreur suppression");
-    } else {
-      setCourses((prev) => prev.filter((c) => c.id !== id));
-    }
+  const fetchCourses = async () => {
+    const { data, error } = await supabase
+      .from("courses")
+      .select("*")
+      .eq("organisateur_id", session.user.id)
+      .order("created_at", { ascending: false });
+
+    if (!error) setCourses(data);
   };
 
-  const handleDuplicate = async (id) => {
-    const original = courses.find((c) => c.id === id);
-    if (!original) return;
+  const handleDelete = async (id) => {
+    const confirmed = window.confirm("Voulez-vous vraiment supprimer cette épreuve ?");
+    if (!confirmed) return;
 
-    const { data, error } = await supabase.from("courses").insert({
-      ...original,
-      nom: original.nom + " (copie)",
-      created_at: new Date().toISOString(),
-    });
+    const { error } = await supabase.from("courses").delete().eq("id", id);
     if (!error) {
-      alert("Épreuve dupliquée");
+      alert("Épreuve supprimée.");
+      fetchCourses();
     }
   };
 
   const handleCopyLink = (id) => {
     const url = `${window.location.origin}/courses/${id}`;
     navigator.clipboard.writeText(url);
-    alert("Lien copié dans le presse-papiers");
+    alert("Lien copié !");
+  };
+
+  const handleDuplicate = async (course) => {
+    const { data: duplicatedCourse, error: duplicateError } = await supabase
+      .from("courses")
+      .insert({
+        nom: course.nom + " (copie)",
+        lieu: course.lieu,
+        departement: course.departement,
+        presentation: course.presentation,
+        image_url: course.image_url,
+        organisateur_id: course.organisateur_id,
+      })
+      .select()
+      .single();
+
+    if (duplicateError) {
+      alert("Erreur duplication.");
+      return;
+    }
+
+    const { data: formats, error: formatsError } = await supabase
+      .from("formats")
+      .select("*")
+      .eq("course_id", course.id);
+
+    if (!formatsError && formats.length > 0) {
+      const newFormats = formats.map((f) => ({
+        ...f,
+        course_id: duplicatedCourse.id,
+        id: undefined,
+        created_at: undefined,
+      }));
+      await supabase.from("formats").insert(newFormats);
+    }
+
+    alert("Épreuve dupliquée !");
+    fetchCourses();
   };
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Mes épreuves organisées</h1>
+      <h1 className="text-3xl font-bold mb-6">Mes épreuves organisées</h1>
+
       {courses.length === 0 ? (
-        <p>Aucune épreuve créée pour le moment.</p>
+        <p className="text-gray-600">Aucune course créée pour l’instant.</p>
       ) : (
-        <ul className="space-y-4">
+        <div className="space-y-6">
           {courses.map((course) => (
-            <li key={course.id} className="border rounded p-4 bg-white shadow">
-              <h2 className="text-xl font-semibold mb-2">{course.nom}</h2>
-              <p className="text-sm text-gray-600">{course.lieu} ({course.departement})</p>
-              <p className="mt-2 text-sm">{course.presentation}</p>
-              <div className="flex flex-wrap gap-3 mt-4 text-sm">
-                <Link
-                  to={`/organisateur/modifier-course/${course.id}`}
-                  className="flex items-center gap-1 text-blue-600 hover:underline"
-                >
-                  <Pencil size={16} />
-                  Modifier
-                </Link>
+            <div
+              key={course.id}
+              className="border border-gray-200 rounded-xl p-4 bg-white shadow hover:shadow-md transition"
+            >
+              <div className="flex items-center justify-between mb-2">
+                <h2 className="text-xl font-semibold text-gray-800">
+                  {course.nom}
+                  {course.nom.includes("(copie)") && (
+                    <span className="ml-2 text-sm bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full">
+                      Copie
+                    </span>
+                  )}
+                </h2>
+              </div>
 
-                <Link
-                  to={`/courses/${course.id}`}
-                  className="flex items-center gap-1 text-green-600 hover:underline"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <Eye size={16} />
-                  Voir publique
-                </Link>
+              <p className="text-sm text-gray-600 mb-4">
+                📍 {course.lieu} ({course.departement})
+              </p>
 
+              <div className="flex flex-wrap gap-4 text-sm">
                 <button
-                  onClick={() => handleDuplicate(course.id)}
-                  className="flex items-center gap-1 text-yellow-600 hover:underline"
+                  onClick={() => navigate(`/organisateur/modifier-course/${course.id}`)}
+                  className="text-blue-600 hover:underline flex items-center gap-1"
                 >
-                  <CopyPlus size={16} />
+                  <Pencil className="w-4 h-4" />
+                  Modifier
+                </button>
+                <button
+                  onClick={() => navigate(`/courses/${course.id}`)}
+                  className="text-green-600 hover:underline flex items-center gap-1"
+                >
+                  <Eye className="w-4 h-4" />
+                  Voir la page publique
+                </button>
+                <button
+                  onClick={() => handleDuplicate(course)}
+                  className="text-purple-600 hover:underline flex items-center gap-1"
+                >
+                  <PlusCircle className="w-4 h-4" />
                   Dupliquer
                 </button>
-
                 <button
                   onClick={() => handleDelete(course.id)}
-                  className="flex items-center gap-1 text-red-600 hover:underline"
+                  className="text-red-600 hover:underline flex items-center gap-1"
                 >
-                  <Trash2 size={16} />
+                  <Trash2 className="w-4 h-4" />
                   Supprimer
                 </button>
-
                 <button
                   onClick={() => handleCopyLink(course.id)}
-                  className="flex items-center gap-1 text-purple-600 hover:underline"
+                  className="text-gray-600 hover:underline flex items-center gap-1"
                 >
-                  <CopyCheck size={16} />
+                  <Clipboard className="w-4 h-4" />
                   Copier le lien
                 </button>
               </div>
-            </li>
+            </div>
           ))}
-        </ul>
+        </div>
       )}
     </div>
   );
