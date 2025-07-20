@@ -92,7 +92,7 @@ export default function InscriptionCourse() {
           name="format_id"
           value={selectedFormat}
           onChange={(e) => setSelectedFormat(e.target.value)}
-          className="border p-2 w-full"
+          className="border p-2 w-full rounded"
         >
           <option value="">-- Choisir un format --</option>
           {formats.map((f) => (
@@ -102,18 +102,18 @@ export default function InscriptionCourse() {
           ))}
         </select>
 
-        <input type="text" name="nom" placeholder="Nom" value={formData.nom || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="prenom" placeholder="Prénom" value={formData.prenom || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="date" name="date_naissance" value={formData.date_naissance || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="nationalite" placeholder="Nationalité" value={formData.nationalite || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="email" name="email" placeholder="Email" value={formData.email || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="telephone" placeholder="Téléphone" value={formData.telephone || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="adresse" placeholder="Adresse" value={formData.adresse || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="adresse_complement" placeholder="Complément d'adresse" value={formData.adresse_complement || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="code_postal" placeholder="Code postal" value={formData.code_postal || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="ville" placeholder="Ville" value={formData.ville || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="pays" placeholder="Pays" value={formData.pays || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="club" placeholder="Club" value={formData.club || ""} onChange={handleChange} className="border p-2 w-full" />
+        <input type="text" name="nom" placeholder="Nom" value={formData.nom || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="prenom" placeholder="Prénom" value={formData.prenom || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="date" name="date_naissance" value={formData.date_naissance || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="nationalite" placeholder="Nationalité" value={formData.nationalite || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="email" name="email" placeholder="Email" value={formData.email || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="telephone" placeholder="Téléphone" value={formData.telephone || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="adresse" placeholder="Adresse" value={formData.adresse || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="adresse_complement" placeholder="Complément d'adresse" value={formData.adresse_complement || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="code_postal" placeholder="Code postal" value={formData.code_postal || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="ville" placeholder="Ville" value={formData.ville || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="pays" placeholder="Pays" value={formData.pays || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="club" placeholder="Club" value={formData.club || ""} onChange={handleChange} className="border p-2 w-full rounded" />
 
         <div>
           <p className="font-semibold mb-1">Résultats :</p>
@@ -135,10 +135,14 @@ export default function InscriptionCourse() {
           </label>
         </div>
 
-        <input type="text" name="contact_urgence_nom" placeholder="Nom du contact d'urgence" value={formData.contact_urgence_nom || ""} onChange={handleChange} className="border p-2 w-full" />
-        <input type="text" name="contact_urgence_telephone" placeholder="Téléphone du contact d'urgence" value={formData.contact_urgence_telephone || ""} onChange={handleChange} className="border p-2 w-full" />
+        {formData.justificatif_type === "licence" && (
+          <input type="text" name="numero_licence" placeholder="N° de licence" value={formData.numero_licence || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        )}
 
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">Valider l'inscription</button>
+        <input type="text" name="contact_urgence_nom" placeholder="Nom du contact d'urgence" value={formData.contact_urgence_nom || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+        <input type="text" name="contact_urgence_telephone" placeholder="Téléphone du contact d'urgence" value={formData.contact_urgence_telephone || ""} onChange={handleChange} className="border p-2 w-full rounded" />
+
+        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700">Valider l'inscription</button>
         {message && <p className="mt-2 text-green-600 font-semibold">{message}</p>}
       </form>
     </div>
