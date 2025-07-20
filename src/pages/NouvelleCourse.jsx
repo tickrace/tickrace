@@ -99,7 +99,7 @@ export default function NouvelleCourse() {
     if (course.imageFile) {
       const { data, error } = await supabase.storage
         .from("courses")
-        .upload(`course-${Date.now()}.jpg`, course.imageFile);
+        .upload(course-${Date.now()}.jpg, course.imageFile);
       if (error) return alert("Erreur upload image course");
       imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
     }
@@ -127,7 +127,7 @@ export default function NouvelleCourse() {
       if (format.imageFile) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
+          .upload(format-${Date.now()}-${format.nom}.jpg, format.imageFile);
         if (!error) {
           imageFormatUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
@@ -136,7 +136,7 @@ export default function NouvelleCourse() {
       if (format.fichier_gpx) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+          .upload(gpx-${Date.now()}-${format.nom}.gpx, format.fichier_gpx);
         if (!error) {
           gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
@@ -145,7 +145,7 @@ export default function NouvelleCourse() {
       if (format.fichier_reglement) {
         const { data, error } = await supabase.storage
           .from("reglements")
-          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
+          .upload(reglement-${Date.now()}-${format.nom}.pdf, format.fichier_reglement);
         if (!error) {
           reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
         }
