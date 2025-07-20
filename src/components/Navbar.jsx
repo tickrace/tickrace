@@ -22,15 +22,15 @@ export default function Navbar() {
   }
 
   return (
-    <nav className="bg-gray-800 text-white p-4 flex flex-wrap gap-4">
+    <nav className="bg-gray-800 text-white p-4 flex flex-wrap gap-4 items-center">
       <Link to="/" className="hover:underline">Accueil</Link>
       <Link to="/courses" className="hover:underline">Épreuves</Link>
 
       {roles.includes("organisateur") && (
         <>
+          <Link to="/organisateur/espace" className="hover:underline">🎽 Mon espace</Link>
           <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
-          <Link to="/organisateur/espace" className="hover:underline">Espace Organisateur</Link>
-          <Link to="/monprofilorganisateur" className="hover:underline">Mon profil organisateur</Link>
+          <Link to="/monprofilorganisateur" className="hover:underline">Mon profil</Link>
         </>
       )}
 
