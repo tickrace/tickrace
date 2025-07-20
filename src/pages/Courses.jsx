@@ -1,93 +1,76 @@
 import React, { useEffect, useState } from "react";
-import { supabase } from "../supabase";
 import { Link } from "react-router-dom";
+import { supabase } from "../supabase";
 
 export default function Courses() {
   const [courses, setCourses] = useState([]);
-  const [formats, setFormats] = useState([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: coursesData, error: coursesError } = await supabase
+    const fetchCourses = async () => {
+      const { data: coursesData, error } = await supabase
         .from("courses")
-        .select("*")
-        .order("date", { ascending: true });
+        .select("*, formats(*)");
 
-      const { data: formatsData, error: formatsError } = await supabase
-        .from("formats")
-        .select("*");
-
-      if (coursesError) {
-        console.error("Erreur de chargement des courses :", coursesError.message);
-      } else {
+      if (!error) {
         setCourses(coursesData);
       }
 
-      if (formatsError) {
-        console.error("Erreur de chargement des formats :", formatsError.message);
-      } else {
-        setFormats(formatsData);
-      }
+      setLoading(false);
     };
 
-    fetchData();
+    fetchCourses();
   }, []);
 
-  const getFormatsForCourse = (courseId) => {
-    return formats.filter((format) => format.event_id === courseId);
-  };
+  if (loading) {
+    return <div className="p-4">Chargement des épreuves...</div>;
+  }
 
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold mb-6">Toutes les épreuves</h1>
-      {courses.length === 0 ? (
-        <p>Aucune course disponible.</p>
-      ) : (
-        <ul className="grid gap-6 md:grid-cols-2">
-          {courses.map((course) => (
-            <li key={course.id} className="border rounded p-4 shadow">
-              {course.image_url && (
-                <img
-                  src={course.image_url}
-                  alt={`Affiche ${course.nom}`}
-                  className="mb-4 rounded w-full object-cover h-48"
-                />
-              )}
-              <h2 className="text-xl font-bold">{course.nom}</h2>
-              {course.sous_nom && (
-                <p className="text-gray-600 text-sm mb-1">{course.sous_nom}</p>
-              )}
-              <p className="text-sm">
-                📍 {course.lieu} — 🗓 {new Date(course.date).toLocaleDateString()}
+    <div className="max-w-6xl mx-auto px-4 py-8">
+      <h1 className="text-3xl font-bold mb-6">Toutes les épreuves</h1>
+
+      <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3">
+        {courses.map((course) => (
+          <Link
+            to={`/courses/${course.id}`}
+            key={course.id}
+            className="block border rounded-xl shadow-md overflow-hidden hover:shadow-lg transition"
+          >
+            {course.image_url ? (
+              <img
+                src={course.image_url}
+                alt={course.nom}
+                className="w-full h-48 object-cover"
+              />
+            ) : (
+              <div className="w-full h-48 bg-gray-200 flex items-center justify-center text-gray-500">
+                Pas d’image
+              </div>
+            )}
+
+            <div className="p-4 space-y-2">
+              <h2 className="text-xl font-semibold">{course.nom}</h2>
+              <p className="text-sm text-gray-600">
+                {course.lieu} ({course.departement})
               </p>
 
-              <div className="mt-4">
-                {getFormatsForCourse(course.id).map((format) => (
-                  <div key={format.id} className="border-t pt-2 mt-2">
-                    <p className="text-sm font-semibold">{format.nom}</p>
-                    <p className="text-sm">
-                      {format.distance_km} km / {format.denivele_dplus} D+
-                    </p>
-                    {format.heure_depart && (
-                      <p className="text-sm">⏰ Départ : {format.heure_depart}</p>
-                    )}
-                    {format.prix && (
-                      <p className="text-sm">💶 Prix : {format.prix} €</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <Link
-                to={`/courses/${course.id}`}
-                className="inline-block mt-4 px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                En savoir plus
-              </Link>
-            </li>
-          ))}
-        </ul>
-      )}
+              {course.formats?.length > 0 && (
+                <div className="text-sm text-gray-700 mt-2 space-y-1">
+                  {course.formats.map((format) => (
+                    <div key={format.id} className="flex justify-between text-sm border-t pt-1">
+                      <span>{format.nom}</span>
+                      <span>
+                        {format.distance_km ?? "?"} km / {format.denivele_dplus ?? "?"} D+
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </Link>
+        ))}
+      </div>
     </div>
   );
 }
