@@ -17,7 +17,6 @@ import MonProfilCoureur from "./pages/MonProfilCoureur";
 import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import { UserProvider } from "./contexts/UserContext";
 
-
 export default function App() {
   return (
     <UserProvider>
@@ -30,18 +29,14 @@ export default function App() {
           <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
           <Route path="/organisateur/espace" element={<EspaceOrganisateur />} />
           <Route path="/organisateur/modifier-course/:id" element={<ModifierCourse />} />
-          <Route path="/organisateur/login" element={<Login />} />
-          <Route path="/organisateur/signup" element={<Signup />} />
           <Route path="/formats" element={<ListeFormats />} />
           <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
           <Route path="/coureur" element={<ProfilCoureur />} />
+          <Route path="/monprofilcoureur" element={<MonProfilCoureur />} />
+          <Route path="/monprofilorganisateur" element={<MonProfilOrganisateur />} />
           <Route path="/admin" element={<Admin />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-
-<Route path="/monprofilcoureur" element={<MonProfilCoureur />} />
-<Route path="/monprofilorganisateur" element={<MonProfilOrganisateur />} />
-
         </Routes>
       </BrowserRouter>
     </UserProvider>
