@@ -1,3 +1,4 @@
+// src/pages/InscriptionCourse.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -20,7 +21,6 @@ export default function InscriptionCourse() {
 
       if (error || !data) return;
 
-      // Pour chaque format, on récupère le nombre d'inscriptions
       const formatsWithCount = await Promise.all(
         (data.formats || []).map(async (f) => {
           const { count, error: countError } = await supabase
@@ -73,9 +73,21 @@ export default function InscriptionCourse() {
 
     const selectedFormat = formats.find(f => f.id === selectedFormatId);
 
-    // Vérification du quota
     if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
       alert("Ce format est complet. Aucune inscription possible.");
+      return;
+    }
+
+    // ✅ Vérification si déjà inscrit à ce format
+    const { data: existing } = await supabase
+      .from("inscriptions")
+      .select("id")
+      .eq("coureur_id", user.id)
+      .eq("format_id", selectedFormatId)
+      .single();
+
+    if (existing) {
+      alert("Vous êtes déjà inscrit à ce format.");
       return;
     }
 
