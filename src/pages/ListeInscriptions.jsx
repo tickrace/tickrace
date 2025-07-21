@@ -3,8 +3,10 @@ import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function ListeInscriptions() {
-  const { formatId } = useParams();
+  const { format_id: formatId } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statutFilter, setStatutFilter] = useState("");
 
   useEffect(() => {
     if (formatId) {
@@ -16,81 +18,114 @@ export default function ListeInscriptions() {
     const { data, error } = await supabase
       .from("inscriptions")
       .select("*")
-      .eq("format_id", formatId);
+      .eq("format_id", formatId)
+      .order("created_at", { ascending: true });
 
     if (!error) setInscriptions(data);
-    else console.error("Erreur de chargement des inscriptions :", error);
+    else console.error("Erreur récupération inscriptions", error);
   };
 
-  const handleDossardChange = async (id, newDossard) => {
+  const handleChangeDossard = async (id, newDossard) => {
     const { error } = await supabase
       .from("inscriptions")
-      .update({ dossard: parseInt(newDossard) })
+      .update({ dossard: newDossard })
       .eq("id", id);
 
     if (error) {
-      console.error("Erreur de mise à jour du dossard :", error);
-      alert("Erreur lors de la mise à jour du dossard.");
+      alert("Erreur mise à jour du dossard");
+      console.error(error);
     } else {
-      const updated = inscriptions.map((i) =>
-        i.id === id ? { ...i, dossard: parseInt(newDossard) } : i
-      );
-      setInscriptions(updated);
+      fetchInscriptions();
     }
   };
 
-  if (!formatId) return <p>Format non défini.</p>;
+  const filtered = inscriptions
+    .filter((i) =>
+      `${i.nom} ${i.prenom} ${i.email} ${i.ville}`
+        .toLowerCase()
+        .includes(searchTerm.toLowerCase())
+    )
+    .filter((i) => (statutFilter ? i.statut === statutFilter : true));
 
   return (
-    <div className="p-4">
-      <h2 className="text-xl font-bold mb-4">Liste des inscrits</h2>
+    <div className="p-6 max-w-7xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">Liste des inscrits</h1>
+
+      <div className="flex flex-wrap gap-4 mb-4">
+        <input
+          type="text"
+          placeholder="Recherche..."
+          className="border p-2 flex-1"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <select
+          className="border p-2"
+          value={statutFilter}
+          onChange={(e) => setStatutFilter(e.target.value)}
+        >
+          <option value="">Tous les statuts</option>
+          <option value="en attente">En attente</option>
+          <option value="validé">Validé</option>
+          <option value="refusé">Refusé</option>
+        </select>
+      </div>
+
       <div className="overflow-x-auto">
-        <table className="min-w-full bg-white border border-gray-300">
+        <table className="min-w-full border text-sm">
           <thead>
             <tr className="bg-gray-100">
-              <th className="p-2 border">Nom</th>
-              <th className="p-2 border">Prénom</th>
-              <th className="p-2 border">Email</th>
-              <th className="p-2 border">Téléphone</th>
-              <th className="p-2 border">Date Naissance</th>
-              <th className="p-2 border">Nationalité</th>
-              <th className="p-2 border">Ville</th>
-              <th className="p-2 border">Club</th>
-              <th className="p-2 border">Justificatif</th>
-              <th className="p-2 border">Statut</th>
-              <th className="p-2 border">Dossard</th>
-              <th className="p-2 border">Urgence</th>
-              <th className="p-2 border">Créé le</th>
+              <th className="border p-2">Dossard</th>
+              <th className="border p-2">Nom</th>
+              <th className="border p-2">Prénom</th>
+              <th className="border p-2">Genre</th>
+              <th className="border p-2">Date naissance</th>
+              <th className="border p-2">Nationalité</th>
+              <th className="border p-2">Email</th>
+              <th className="border p-2">Téléphone</th>
+              <th className="border p-2">Adresse</th>
+              <th className="border p-2">Code postal</th>
+              <th className="border p-2">Ville</th>
+              <th className="border p-2">Pays</th>
+              <th className="border p-2">Club</th>
+              <th className="border p-2">Justificatif</th>
+              <th className="border p-2">Licence</th>
+              <th className="border p-2">Contact urgence</th>
+              <th className="border p-2">Statut</th>
+              <th className="border p-2">Date inscription</th>
             </tr>
           </thead>
           <tbody>
-            {inscriptions.map((inscription) => (
-              <tr key={inscription.id} className="border-t">
-                <td className="p-2 border">{inscription.nom}</td>
-                <td className="p-2 border">{inscription.prenom}</td>
-                <td className="p-2 border">{inscription.email}</td>
-                <td className="p-2 border">{inscription.telephone}</td>
-                <td className="p-2 border">{inscription.date_naissance}</td>
-                <td className="p-2 border">{inscription.nationalite}</td>
-                <td className="p-2 border">{inscription.ville}</td>
-                <td className="p-2 border">{inscription.club}</td>
-                <td className="p-2 border">{inscription.justificatif_type}</td>
-                <td className="p-2 border">{inscription.statut}</td>
-                <td className="p-2 border">
+            {filtered.map((i) => (
+              <tr key={i.id} className="hover:bg-gray-50">
+                <td className="border p-2">
                   <input
                     type="number"
-                    value={inscription.dossard || ""}
-                    onChange={(e) =>
-                      handleDossardChange(inscription.id, e.target.value)
-                    }
-                    className="border p-1 rounded w-20"
+                    className="border w-16 p-1"
+                    value={i.dossard || ""}
+                    onChange={(e) => handleChangeDossard(i.id, e.target.value)}
                   />
                 </td>
-                <td className="p-2 border">
-                  {inscription.contact_urgence_nom} - {inscription.contact_urgence_telephone}
+                <td className="border p-2">{i.nom}</td>
+                <td className="border p-2">{i.prenom}</td>
+                <td className="border p-2">{i.genre}</td>
+                <td className="border p-2">{i.date_naissance}</td>
+                <td className="border p-2">{i.nationalite}</td>
+                <td className="border p-2">{i.email}</td>
+                <td className="border p-2">{i.telephone}</td>
+                <td className="border p-2">{i.adresse}</td>
+                <td className="border p-2">{i.code_postal}</td>
+                <td className="border p-2">{i.ville}</td>
+                <td className="border p-2">{i.pays}</td>
+                <td className="border p-2">{i.club}</td>
+                <td className="border p-2">{i.justificatif_type}</td>
+                <td className="border p-2">{i.numero_licence}</td>
+                <td className="border p-2">
+                  {i.contact_urgence_nom} ({i.contact_urgence_telephone})
                 </td>
-                <td className="p-2 border">
-                  {new Date(inscription.created_at).toLocaleString()}
+                <td className="border p-2">{i.statut}</td>
+                <td className="border p-2">
+                  {new Date(i.created_at).toLocaleString()}
                 </td>
               </tr>
             ))}
