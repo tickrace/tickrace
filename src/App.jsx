@@ -17,6 +17,7 @@ import MonProfilCoureur from "./pages/MonProfilCoureur";
 import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import { UserProvider } from "./contexts/UserContext";
 import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
+import ListeInscriptions from "./pages/ListeInscriptions";
 
 export default function App() {
   return (
@@ -39,6 +40,8 @@ export default function App() {
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
 <Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
+<Route path="/organisateur/inscriptions/:format_id" element={<ListeInscriptions />} />
+
         </Routes>
       </BrowserRouter>
     </UserProvider>

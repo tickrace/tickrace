@@ -1,3 +1,4 @@
+// src/pages/MonEspaceOrganisateur.jsx
 import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -124,7 +125,13 @@ export default function MonEspaceOrganisateur() {
                     return (
                       <div key={f.id} className="text-sm text-gray-800 bg-gray-50 p-2 rounded">
                         🏁 <strong>{f.nom}</strong> – {f.date} – {f.distance_km} km / {f.denivele_dplus} m D+<br />
-                        👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}
+                        👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}<br />
+                        <Link
+                          to={`/organisateur/inscriptions/${f.id}`}
+                          className="text-blue-600 underline text-sm"
+                        >
+                          👥 Voir les inscrits
+                        </Link>
                       </div>
                     );
                   })}
