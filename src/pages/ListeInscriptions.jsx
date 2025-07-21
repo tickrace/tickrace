@@ -1,17 +1,14 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
-import { Save } from "lucide-react";
-import * as XLSX from "xlsx";
-import { saveAs } from "file-saver";
 
 export default function ListeInscriptions() {
   const { courseId } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
   const [search, setSearch] = useState("");
-  const [statutFilter, setStatutFilter] = useState("");
-  const [sortField, setSortField] = useState(null);
-  const [sortAsc, setSortAsc] = useState(true);
+  const [filterStatut, setFilterStatut] = useState("");
+  const [sortKey, setSortKey] = useState("created_at");
+  const [sortOrder, setSortOrder] = useState("asc");
 
   useEffect(() => {
     fetchInscriptions();
@@ -22,136 +19,134 @@ export default function ListeInscriptions() {
       .from("inscriptions")
       .select("*")
       .eq("course_id", courseId);
-
-    if (!error && data) {
-      setInscriptions(data);
-    }
+    if (!error) setInscriptions(data);
   };
 
-  const handleDossardChange = async (id, numero_dossard) => {
-    await supabase.from("inscriptions").update({ numero_dossard }).eq("id", id);
+  const updateDossard = async (id, dossard) => {
+    await supabase.from("inscriptions").update({ numero_dossard: dossard }).eq("id", id);
     fetchInscriptions();
   };
 
-  const handleValidation = async (id) => {
-    await supabase.from("inscriptions").update({ statut: "valide" }).eq("id", id);
+  const toggleValidation = async (id, statut) => {
+    const newStatut = statut === "valide" ? "en attente" : "valide";
+    await supabase.from("inscriptions").update({ statut: newStatut }).eq("id", id);
     fetchInscriptions();
   };
 
-  const exportCSV = () => {
-    const data = inscriptions.map(({ created_at, ...rest }) => rest);
-    const worksheet = XLSX.utils.json_to_sheet(data);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, "Inscriptions");
-    const blob = new Blob([
-      XLSX.write(workbook, { bookType: "xlsx", type: "array" })
-    ]);
-    saveAs(blob, "liste_inscriptions.xlsx");
-  };
-
-  const filteredInscriptions = inscriptions
+  const filtered = inscriptions
     .filter((i) =>
-      search === "" ||
-      Object.values(i).some((v) => v && v.toString().toLowerCase().includes(search.toLowerCase()))
+      `${i.nom} ${i.prenom} ${i.email}`.toLowerCase().includes(search.toLowerCase())
     )
-    .filter((i) =>
-      statutFilter === "" || i.statut === statutFilter
-    )
+    .filter((i) => (filterStatut ? i.statut === filterStatut : true))
     .sort((a, b) => {
-      if (!sortField) return 0;
-      const valA = a[sortField] || "";
-      const valB = b[sortField] || "";
-      return sortAsc ? valA.localeCompare(valB) : valB.localeCompare(valA);
+      if (!a[sortKey] || !b[sortKey]) return 0;
+      return sortOrder === "asc"
+        ? a[sortKey].localeCompare(b[sortKey])
+        : b[sortKey].localeCompare(a[sortKey]);
     });
 
-  const handleSort = (field) => {
-    if (sortField === field) {
-      setSortAsc(!sortAsc);
+  const handleSort = (key) => {
+    if (sortKey === key) {
+      setSortOrder(sortOrder === "asc" ? "desc" : "asc");
     } else {
-      setSortField(field);
-      setSortAsc(true);
+      setSortKey(key);
+      setSortOrder("asc");
     }
   };
 
   return (
-    <div className="p-6">
+    <div className="p-4 max-w-6xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Liste des inscrits</h1>
 
-      <div className="flex gap-4 mb-4">
+      <div className="flex flex-col md:flex-row gap-4 mb-4">
         <input
           type="text"
           placeholder="Recherche..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border px-2 py-1 rounded w-64"
+          className="border p-2 flex-1"
         />
-
         <select
-          value={statutFilter}
-          onChange={(e) => setStatutFilter(e.target.value)}
-          className="border px-2 py-1 rounded"
+          value={filterStatut}
+          onChange={(e) => setFilterStatut(e.target.value)}
+          className="border p-2"
         >
           <option value="">Tous les statuts</option>
-          <option value="valide">Valide</option>
+          <option value="valide">Validé</option>
           <option value="en attente">En attente</option>
         </select>
-
-        <button
-          onClick={exportCSV}
-          className="bg-blue-600 text-white px-4 py-2 rounded flex items-center"
-        >
-          <Save className="w-4 h-4 mr-2" /> Export Excel
-        </button>
       </div>
 
-      <div className="overflow-auto">
-        <table className="w-full text-sm border">
+      <div className="overflow-x-auto">
+        <table className="w-full border text-sm">
           <thead>
             <tr>
               {[
-                "prenom", "nom", "genre", "date_naissance", "email", "telephone", "ville", "club", "statut", "numero_dossard"
-              ].map((field) => (
+                "nom",
+                "prenom",
+                "email",
+                "genre",
+                "date_naissance",
+                "nationalite",
+                "telephone",
+                "adresse",
+                "ville",
+                "pays",
+                "club",
+                "justificatif_type",
+                "numero_licence",
+                "contact_urgence_nom",
+                "contact_urgence_telephone",
+                "statut",
+                "numero_dossard",
+                "created_at",
+              ].map((key) => (
                 <th
-                  key={field}
-                  onClick={() => handleSort(field)}
-                  className="p-2 border cursor-pointer"
+                  key={key}
+                  className="border p-1 cursor-pointer hover:bg-gray-100"
+                  onClick={() => handleSort(key)}
                 >
-                  {field}
-                  {sortField === field ? (sortAsc ? " ↑" : " ↓") : ""}
+                  {key.replace(/_/g, " ")} {sortKey === key ? (sortOrder === "asc" ? "▲" : "▼") : ""}
                 </th>
               ))}
-              <th className="p-2 border">Valider</th>
+              <th className="border p-1">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filteredInscriptions.map((i) => (
+            {filtered.map((i) => (
               <tr key={i.id} className="border-t">
-                <td className="p-2 border">{i.prenom}</td>
-                <td className="p-2 border">{i.nom}</td>
-                <td className="p-2 border">{i.genre}</td>
-                <td className="p-2 border">{i.date_naissance}</td>
-                <td className="p-2 border">{i.email}</td>
-                <td className="p-2 border">{i.telephone}</td>
-                <td className="p-2 border">{i.ville}</td>
-                <td className="p-2 border">{i.club}</td>
-                <td className="p-2 border">{i.statut}</td>
-                <td className="p-2 border">
+                <td className="border px-2 py-1">{i.nom}</td>
+                <td className="border px-2 py-1">{i.prenom}</td>
+                <td className="border px-2 py-1">{i.email}</td>
+                <td className="border px-2 py-1">{i.genre}</td>
+                <td className="border px-2 py-1">{i.date_naissance}</td>
+                <td className="border px-2 py-1">{i.nationalite}</td>
+                <td className="border px-2 py-1">{i.telephone}</td>
+                <td className="border px-2 py-1">{i.adresse}</td>
+                <td className="border px-2 py-1">{i.ville}</td>
+                <td className="border px-2 py-1">{i.pays}</td>
+                <td className="border px-2 py-1">{i.club}</td>
+                <td className="border px-2 py-1">{i.justificatif_type}</td>
+                <td className="border px-2 py-1">{i.numero_licence}</td>
+                <td className="border px-2 py-1">{i.contact_urgence_nom}</td>
+                <td className="border px-2 py-1">{i.contact_urgence_telephone}</td>
+                <td className="border px-2 py-1">{i.statut}</td>
+                <td className="border px-2 py-1">
                   <input
                     type="text"
                     defaultValue={i.numero_dossard || ""}
-                    onBlur={(e) => handleDossardChange(i.id, e.target.value)}
-                    className="border px-2 py-1 rounded w-20"
+                    onBlur={(e) => updateDossard(i.id, e.target.value)}
+                    className="border p-1 w-20"
                   />
                 </td>
-                <td className="p-2 border">
-                  {i.statut !== "valide" && (
-                    <button
-                      onClick={() => handleValidation(i.id)}
-                      className="bg-green-600 text-white px-2 py-1 rounded"
-                    >
-                      Valider
-                    </button>
-                  )}
+                <td className="border px-2 py-1 text-xs">{i.created_at?.slice(0, 16)}</td>
+                <td className="border px-2 py-1">
+                  <button
+                    onClick={() => toggleValidation(i.id, i.statut)}
+                    className="text-xs bg-blue-600 text-white px-2 py-1 rounded"
+                  >
+                    {i.statut === "valide" ? "Invalider" : "Valider"}
+                  </button>
                 </td>
               </tr>
             ))}
