@@ -9,21 +9,32 @@ export default function Navbar() {
   const { session, roles, loading } = useUser();
 
   const handleLogout = async () => {
-    const {
-      data: { session },
-    } = await supabase.auth.getSession();
+    try {
+      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
 
-    if (!session) {
-      console.warn("Aucune session à déconnecter.");
-      navigate("/");
-      return;
-    }
+      if (sessionError) {
+        console.error("Erreur lors de la récupération de la session :", sessionError.message);
+      }
 
-    const { error } = await supabase.auth.signOut();
-    if (error) {
-      console.error("Erreur de déconnexion :", error.message);
-    } else {
-      navigate("/");
+      if (!sessionData?.session) {
+        console.warn("Aucune session active trouvée. Nettoyage local.");
+        localStorage.clear();
+        navigate("/login");
+        return;
+      }
+
+      const { error } = await supabase.auth.signOut();
+
+      if (error) {
+        console.error("Erreur lors de la déconnexion :", error.message);
+        alert("La déconnexion a échoué. Essayez de recharger la page.");
+      } else {
+        localStorage.clear();
+        navigate("/");
+      }
+    } catch (err) {
+      console.error("Erreur inattendue :", err.message);
+      alert("Erreur de déconnexion. Essayez de recharger.");
     }
   };
 
@@ -59,11 +70,4 @@ export default function Navbar() {
       {!session ? (
         <>
           <Link to="/login" className="hover:underline">Connexion</Link>
-          <Link to="/signup" className="hover:underline">Créer un compte</Link>
-        </>
-      ) : (
-        <button onClick={handleLogout} className="hover:underline">Se déconnecter</button>
-      )}
-    </nav>
-  );
-}
+          <Link to=
