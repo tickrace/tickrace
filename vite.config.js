@@ -7,9 +7,5 @@ export default defineConfig({
   optimizeDeps: {
     include: ['uuid'],
   },
-  build: {
-    rollupOptions: {
-      external: ['xlsx', 'file-saver', 'jspdf', 'jspdf-autotable'],
-    },
-  },
+  // ❌ SUPPRIMER build.rollupOptions.external
 });
