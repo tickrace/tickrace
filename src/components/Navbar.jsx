@@ -70,4 +70,11 @@ export default function Navbar() {
       {!session ? (
         <>
           <Link to="/login" className="hover:underline">Connexion</Link>
-          <Link to=
+          <Link to="/signup" className="hover:underline">Créer un compte</Link>
+        </>
+      ) : (
+        <button onClick={handleLogout} className="hover:underline">Se déconnecter</button>
+      )}
+    </nav>
+  );
+}
