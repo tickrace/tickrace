@@ -1,4 +1,3 @@
-// src/pages/ModifierCourse.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -8,82 +7,52 @@ export default function ModifierCourse() {
   const { id } = useParams();
   const navigate = useNavigate();
 
-  const [isLoading, setIsLoading] = useState(true);
   const [course, setCourse] = useState({
     nom: "",
     lieu: "",
     departement: "",
     presentation: "",
-    imageFile: null,
     image_url: "",
+    imageFile: null,
   });
 
   const [formats, setFormats] = useState([]);
 
   useEffect(() => {
-    const fetchCourse = async () => {
-      if (!id) return;
-
-      const { data, error } = await supabase
+    const fetchData = async () => {
+      const { data: courseData, error: courseError } = await supabase
         .from("courses")
-        .select(`
-          *,
-          formats(
-            id,
-            nom,
-            image_url,
-            date,
-            heure_depart,
-            presentation_parcours,
-            gpx_url,
-            type_epreuve,
-            distance_km,
-            denivele_dplus,
-            denivele_dmoins,
-            adresse_depart,
-            adresse_arrivee,
-            prix,
-            ravitaillements,
-            remise_dossards,
-            dotation,
-            reglement_pdf_url,
-            nb_max_coureurs,
-            age_minimum,
-            hebergements
-          )
-        `)
+        .select("*")
         .eq("id", id)
         .single();
 
-      if (error) {
-        console.error("Erreur chargement course:", error);
-        setIsLoading(false);
+      if (courseError || !courseData) {
+        alert("Erreur chargement de l'épreuve");
         return;
       }
 
       setCourse({
-        nom: data.nom || "",
-        lieu: data.lieu || "",
-        departement: data.departement || "",
-        presentation: data.presentation || "",
+        ...courseData,
         imageFile: null,
-        image_url: data.image_url || "",
       });
 
+      const { data: formatsData } = await supabase
+        .from("formats")
+        .select("*")
+        .eq("course_id", id);
+
       setFormats(
-        (data.formats || []).map((f) => ({
+        formatsData.map((f) => ({
           ...f,
-          id: f.id || uuidv4(),
           imageFile: null,
           fichier_gpx: null,
           fichier_reglement: null,
+          tempId: uuidv4(),
         }))
       );
-
-      setIsLoading(false);
     };
 
-    fetchCourse();
+    fetchData();
   }, [id]);
 
   const handleCourseChange = (e) => {
@@ -108,14 +77,12 @@ export default function ModifierCourse() {
     setFormats((prev) => [
       ...prev,
       {
-        id: uuidv4(),
+        tempId: uuidv4(),
         nom: "",
-        image_url: null,
         imageFile: null,
         date: "",
         heure_depart: "",
         presentation_parcours: "",
-        gpx_url: null,
         fichier_gpx: null,
         type_epreuve: "",
         distance_km: "",
@@ -127,7 +94,6 @@ export default function ModifierCourse() {
         ravitaillements: "",
         remise_dossards: "",
         dotation: "",
-        reglement_pdf_url: null,
         fichier_reglement: null,
         nb_max_coureurs: "",
         age_minimum: "",
@@ -136,14 +102,18 @@ export default function ModifierCourse() {
     ]);
   };
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
     let imageCourseUrl = course.image_url;
     if (course.imageFile) {
       const { data, error } = await supabase.storage
         .from("courses")
         .upload(`course-${Date.now()}.jpg`, course.imageFile);
       if (!error) {
-        imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
+        imageCourseUrl = supabase.storage
+          .from("courses")
+          .getPublicUrl(data.path).data.publicUrl;
       }
     }
 
@@ -158,89 +128,146 @@ export default function ModifierCourse() {
       })
       .eq("id", id);
 
-    if (updateError) return alert("Erreur mise à jour course");
+    if (updateError) return alert("Erreur mise à jour de l’épreuve");
 
-    for (const f of formats) {
-      const formatToSave = { ...f };
+    for (const format of formats) {
+      let imageFormatUrl = format.image_url || null;
+      let gpxUrl = format.gpx_url || null;
+      let reglementUrl = format.reglement_pdf_url || null;
 
-      if (f.imageFile) {
+      if (format.imageFile) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`format-${Date.now()}-${f.nom}.jpg`, f.imageFile);
-        if (!error) formatToSave.image_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+          .upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
+        if (!error) {
+          imageFormatUrl = supabase.storage
+            .from("formats")
+            .getPublicUrl(data.path).data.publicUrl;
+        }
       }
 
-      if (f.fichier_gpx) {
+      if (format.fichier_gpx) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${f.nom}.gpx`, f.fichier_gpx);
-        if (!error) formatToSave.gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+        if (!error) {
+          gpxUrl = supabase.storage
+            .from("formats")
+            .getPublicUrl(data.path).data.publicUrl;
+        }
       }
 
-      if (f.fichier_reglement) {
+      if (format.fichier_reglement) {
         const { data, error } = await supabase.storage
           .from("reglements")
-          .upload(`reglement-${Date.now()}-${f.nom}.pdf`, f.fichier_reglement);
-        if (!error) formatToSave.reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
+          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
+        if (!error) {
+          reglementUrl = supabase.storage
+            .from("reglements")
+            .getPublicUrl(data.path).data.publicUrl;
+        }
       }
 
-      formatToSave.course_id = id;
-
-      if (f.id && typeof f.id === "string" && f.id.length > 20) {
-        await supabase.from("formats").update(formatToSave).eq("id", f.id);
+      if (format.id) {
+        await supabase.from("formats").update({
+          nom: format.nom,
+          image_url: imageFormatUrl,
+          date: format.date,
+          heure_depart: format.heure_depart,
+          presentation_parcours: format.presentation_parcours,
+          gpx_url: gpxUrl,
+          type_epreuve: format.type_epreuve,
+          distance_km: format.distance_km,
+          denivele_dplus: format.denivele_dplus,
+          denivele_dmoins: format.denivele_dmoins,
+          adresse_depart: format.adresse_depart,
+          adresse_arrivee: format.adresse_arrivee,
+          prix: format.prix,
+          ravitaillements: format.ravitaillements,
+          remise_dossards: format.remise_dossards,
+          dotation: format.dotation,
+          reglement_pdf_url: reglementUrl,
+          nb_max_coureurs: format.nb_max_coureurs,
+          age_minimum: format.age_minimum,
+          hebergements: format.hebergements,
+        }).eq("id", format.id);
       } else {
-        await supabase.from("formats").insert(formatToSave);
+        await supabase.from("formats").insert({
+          course_id: id,
+          nom: format.nom,
+          image_url: imageFormatUrl,
+          date: format.date,
+          heure_depart: format.heure_depart,
+          presentation_parcours: format.presentation_parcours,
+          gpx_url: gpxUrl,
+          type_epreuve: format.type_epreuve,
+          distance_km: format.distance_km,
+          denivele_dplus: format.denivele_dplus,
+          denivele_dmoins: format.denivele_dmoins,
+          adresse_depart: format.adresse_depart,
+          adresse_arrivee: format.adresse_arrivee,
+          prix: format.prix,
+          ravitaillements: format.ravitaillements,
+          remise_dossards: format.remise_dossards,
+          dotation: format.dotation,
+          reglement_pdf_url: reglementUrl,
+          nb_max_coureurs: format.nb_max_coureurs,
+          age_minimum: format.age_minimum,
+          hebergements: format.hebergements,
+        });
       }
     }
 
-    alert("Modifications enregistrées !");
-    navigate("/organisateur/espace");
+    alert("Épreuve mise à jour !");
+    navigate("/organisateur/mon-espace");
   };
-
-  if (isLoading) return <p>Chargement...</p>;
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Modifier une épreuve</h1>
-      <form className="space-y-6">
-        <input name="nom" value={course.nom} placeholder="Nom de l'épreuve" onChange={handleCourseChange} className="border p-2 w-full" />
-        <input name="lieu" value={course.lieu} placeholder="Lieu" onChange={handleCourseChange} className="border p-2 w-full" />
-        <input name="departement" value={course.departement} placeholder="Département" onChange={handleCourseChange} className="border p-2 w-full" />
-        <textarea name="presentation" value={course.presentation} placeholder="Présentation" onChange={handleCourseChange} className="border p-2 w-full" />
+      <h1 className="text-2xl font-bold mb-4">Modifier l’épreuve</h1>
+      <form onSubmit={handleSubmit} className="space-y-6">
+        <input name="nom" value={course.nom} onChange={handleCourseChange} placeholder="Nom" className="border p-2 w-full" />
+        <input name="lieu" value={course.lieu} onChange={handleCourseChange} placeholder="Lieu" className="border p-2 w-full" />
+        <input name="departement" value={course.departement} onChange={handleCourseChange} placeholder="Département" className="border p-2 w-full" />
+        <textarea name="presentation" value={course.presentation} onChange={handleCourseChange} placeholder="Présentation" className="border p-2 w-full" />
         <label className="block">
-          Image actuelle : {course.image_url ? <img src={course.image_url} alt="Aperçu" className="w-64 h-auto" /> : "Aucune"}<br />
-          Modifier l’image :
+          Nouvelle image de l’épreuve :
           <input type="file" name="image" accept="image/*" onChange={handleCourseChange} />
         </label>
 
-        <h2 className="text-xl font-semibold mt-6">Formats de course</h2>
+        <h2 className="text-xl font-semibold mt-6">Formats</h2>
         {formats.map((f, index) => (
-          <div key={f.id} className="border p-4 my-4 space-y-2 bg-gray-50 rounded">
-            <input name="nom" placeholder="Nom du format" value={f.nom} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+          <div key={f.tempId} className="border p-4 my-4 space-y-2 bg-gray-100 rounded">
+            <input name="nom" placeholder="Nom" value={f.nom} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input type="file" name="imageFile" onChange={(e) => handleFormatChange(index, e)} />
             <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <textarea name="presentation_parcours" placeholder="Présentation du parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <textarea name="presentation_parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} placeholder="Parcours" className="border p-2 w-full" />
             <input type="file" name="fichier_gpx" onChange={(e) => handleFormatChange(index, e)} />
-            <input name="type_epreuve" placeholder="Type d'épreuve (trail, rando...)" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="distance_km" placeholder="Distance (km)" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="denivele_dplus" placeholder="D+" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="denivele_dmoins" placeholder="D-" value={f.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="adresse_depart" placeholder="Adresse de départ" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="type_epreuve" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} placeholder="Type" className="border p-2 w-full" />
+            <input name="distance_km" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} placeholder="Distance (km)" className="border p-2 w-full" />
+            <input name="denivele_dplus" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} placeholder="D+" className="border p-2 w-full" />
+            <input name="denivele_dmoins" value={f.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} placeholder="D-" className="border p-2 w-full" />
+            <input name="adresse_depart" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} placeholder="Départ" className="border p-2 w-full" />
+            <input name="adresse_arrivee" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} placeholder="Arrivée" className="border p-2 w-full" />
+            <input name="prix" value={f.prix} onChange={(e) => handleFormatChange(index, e)} placeholder="Prix" className="border p-2 w-full" />
+            <input name="ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} placeholder="Ravitaillements" className="border p-2 w-full" />
+            <input name="remise_dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} placeholder="Remise dossards" className="border p-2 w-full" />
+            <input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} placeholder="Dotation" className="border p-2 w-full" />
             <input type="file" name="fichier_reglement" onChange={(e) => handleFormatChange(index, e)} />
-            <input name="nb_max_coureurs" placeholder="Nombre max de coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="age_minimum" placeholder="Âge minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <textarea name="hebergements" placeholder="Hébergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="nb_max_coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} placeholder="Max coureurs" className="border p-2 w-full" />
+            <input name="age_minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} placeholder="Âge minimum" className="border p-2 w-full" />
+            <textarea name="hebergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} placeholder="Hébergements" className="border p-2 w-full" />
           </div>
         ))}
 
-        <button type="button" onClick={addFormat} className="bg-blue-600 text-white px-4 py-2 rounded">+ Ajouter un format</button>
-        <button type="button" onClick={handleSubmit} className="bg-green-600 text-white px-4 py-2 rounded">💾 Sauvegarder les modifications</button>
+        <button type="button" onClick={addFormat} className="bg-blue-600 text-white px-4 py-2 rounded">
+          + Ajouter un format
+        </button>
+
+        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
+          ✅ Enregistrer les modifications
+        </button>
       </form>
     </div>
   );
