@@ -14,6 +14,7 @@ export default function ListeInscriptions() {
   const [sortField, setSortField] = useState("created_at");
   const [sortAsc, setSortAsc] = useState(false);
 
+
   useEffect(() => {
     fetchInscriptions();
   }, [formatId]);
