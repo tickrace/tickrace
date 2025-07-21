@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 
+
 export default function ListeInscriptions() {
   const { formatId } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
