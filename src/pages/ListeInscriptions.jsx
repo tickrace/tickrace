@@ -4,6 +4,7 @@ import { supabase } from "../supabase";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 
+
 export default function ListeInscriptions() {
   const { formatId } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
