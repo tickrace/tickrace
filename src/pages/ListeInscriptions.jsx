@@ -9,11 +9,19 @@ import "jspdf-autotable";
 export default function ListeInscriptions() {
   const { format_id } = useParams();
   const [inscrits, setInscrits] = useState([]);
+  const [filtered, setFiltered] = useState([]);
   const [formatNom, setFormatNom] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statutFilter, setStatutFilter] = useState("tous");
+  const [sortConfig, setSortConfig] = useState({ key: null, direction: "asc" });
 
   useEffect(() => {
     fetchData();
   }, [format_id]);
+
+  useEffect(() => {
+    applyFilters();
+  }, [searchTerm, statutFilter, inscrits, sortConfig]);
 
   const fetchData = async () => {
     const { data: format } = await supabase
@@ -24,13 +32,52 @@ export default function ListeInscriptions() {
 
     setFormatNom(format?.nom || "");
 
-    const { data: inscriptions } = await supabase
+    const { data } = await supabase
       .from("inscriptions")
       .select("*")
       .eq("format_id", format_id)
       .order("created_at", { ascending: true });
 
-    setInscrits(inscriptions || []);
+    setInscrits(data || []);
+  };
+
+  const applyFilters = () => {
+    let filteredData = [...inscrits];
+
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filteredData = filteredData.filter(
+        (i) =>
+          i.nom?.toLowerCase().includes(term) ||
+          i.prenom?.toLowerCase().includes(term) ||
+          i.email?.toLowerCase().includes(term) ||
+          i.club?.toLowerCase().includes(term)
+      );
+    }
+
+    if (statutFilter !== "tous") {
+      filteredData = filteredData.filter((i) => i.statut === statutFilter);
+    }
+
+    if (sortConfig.key) {
+      filteredData.sort((a, b) => {
+        const aVal = a[sortConfig.key] || "";
+        const bVal = b[sortConfig.key] || "";
+        return sortConfig.direction === "asc"
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
+      });
+    }
+
+    setFiltered(filteredData);
+  };
+
+  const requestSort = (key) => {
+    setSortConfig((prev) => ({
+      key,
+      direction:
+        prev.key === key && prev.direction === "asc" ? "desc" : "asc",
+    }));
   };
 
   const handleValidate = async (id) => {
@@ -44,7 +91,7 @@ export default function ListeInscriptions() {
   };
 
   const exportToExcel = () => {
-    const worksheet = XLSX.utils.json_to_sheet(inscrits);
+    const worksheet = XLSX.utils.json_to_sheet(filtered);
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, worksheet, "Inscriptions");
     const excelBuffer = XLSX.write(workbook, { bookType: "xlsx", type: "array" });
@@ -53,7 +100,7 @@ export default function ListeInscriptions() {
   };
 
   const exportToCSV = () => {
-    const worksheet = XLSX.utils.json_to_sheet(inscrits);
+    const worksheet = XLSX.utils.json_to_sheet(filtered);
     const csv = XLSX.utils.sheet_to_csv(worksheet);
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     saveAs(blob, `inscriptions_${formatNom}.csv`);
@@ -61,8 +108,8 @@ export default function ListeInscriptions() {
 
   const exportToPDF = () => {
     const doc = new jsPDF();
-    const tableColumn = Object.keys(inscrits[0] || {});
-    const tableRows = inscrits.map((i) => tableColumn.map((col) => i[col] || ""));
+    const tableColumn = Object.keys(filtered[0] || {});
+    const tableRows = filtered.map((i) => tableColumn.map((col) => i[col] || ""));
     doc.text(`Liste des inscrits – ${formatNom}`, 10, 10);
     doc.autoTable({
       head: [tableColumn],
@@ -85,46 +132,59 @@ export default function ListeInscriptions() {
   };
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
+    <div className="p-6 max-w-[95%] mx-auto">
       <h1 className="text-2xl font-bold mb-4">Inscriptions – {formatNom}</h1>
 
-      <div className="flex gap-3 mb-4">
-        <button onClick={exportToCSV} className="bg-blue-500 text-white px-3 py-1 rounded">📄 Export CSV</button>
-        <button onClick={exportToExcel} className="bg-green-600 text-white px-3 py-1 rounded">📊 Export Excel</button>
-        <button onClick={exportToPDF} className="bg-red-600 text-white px-3 py-1 rounded">📄 Export PDF</button>
+      <div className="flex flex-wrap gap-4 mb-4 items-center">
+        <input
+          type="text"
+          placeholder="🔍 Rechercher par nom, prénom, email, club..."
+          className="border px-3 py-2 rounded w-72"
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+        />
+        <select
+          className="border px-3 py-2 rounded"
+          value={statutFilter}
+          onChange={(e) => setStatutFilter(e.target.value)}
+        >
+          <option value="tous">🎯 Tous les statuts</option>
+          <option value="en attente">🕒 En attente</option>
+          <option value="validé">✅ Validé</option>
+        </select>
+
+        <button onClick={exportToCSV} className="bg-blue-500 text-white px-3 py-1 rounded">📄 CSV</button>
+        <button onClick={exportToExcel} className="bg-green-600 text-white px-3 py-1 rounded">📊 Excel</button>
+        <button onClick={exportToPDF} className="bg-red-600 text-white px-3 py-1 rounded">📄 PDF</button>
         <button onClick={printTable} className="bg-gray-600 text-white px-3 py-1 rounded">🖨️ Imprimer</button>
       </div>
 
-      {inscrits.length === 0 ? (
-        <p>Aucune inscription pour ce format.</p>
+      {filtered.length === 0 ? (
+        <p>Aucune inscription trouvée.</p>
       ) : (
         <div className="overflow-auto">
           <table id="table-inscriptions" className="min-w-[1200px] border border-gray-300 text-sm">
             <thead className="bg-gray-100">
               <tr>
-                <th className="border p-1">Nom</th>
-                <th className="border p-1">Prénom</th>
-                <th className="border p-1">Genre</th>
-                <th className="border p-1">Naissance</th>
-                <th className="border p-1">Nationalité</th>
-                <th className="border p-1">Email</th>
-                <th className="border p-1">Téléphone</th>
-                <th className="border p-1">Adresse</th>
-                <th className="border p-1">Code postal</th>
-                <th className="border p-1">Ville</th>
-                <th className="border p-1">Pays</th>
-                <th className="border p-1">Club</th>
-                <th className="border p-1">Justificatif</th>
-                <th className="border p-1">Contact urgence</th>
-                <th className="border p-1">Apparaitre</th>
-                <th className="border p-1">Dossard</th>
-                <th className="border p-1">Statut</th>
-                <th className="border p-1">Créé le</th>
-                <th className="border p-1">Action</th>
+                {[
+                  "nom", "prenom", "genre", "date_naissance", "nationalite",
+                  "email", "telephone", "adresse", "code_postal", "ville", "pays",
+                  "club", "justificatif_type", "contact_urgence_nom", "contact_urgence_telephone",
+                  "apparaitre_resultats", "dossard", "statut", "created_at"
+                ].map((col) => (
+                  <th
+                    key={col}
+                    className="border p-1 cursor-pointer"
+                    onClick={() => requestSort(col)}
+                  >
+                    {col.replaceAll("_", " ").toUpperCase()} {sortConfig.key === col ? (sortConfig.direction === "asc" ? "▲" : "▼") : ""}
+                  </th>
+                ))}
+                <th className="border p-1">ACTION</th>
               </tr>
             </thead>
             <tbody>
-              {inscrits.map((i) => (
+              {filtered.map((i) => (
                 <tr key={i.id}>
                   <td className="border p-1">{i.nom}</td>
                   <td className="border p-1">{i.prenom}</td>
@@ -139,9 +199,8 @@ export default function ListeInscriptions() {
                   <td className="border p-1">{i.pays}</td>
                   <td className="border p-1">{i.club}</td>
                   <td className="border p-1">{i.justificatif_type}</td>
-                  <td className="border p-1">
-                    {i.contact_urgence_nom} - {i.contact_urgence_telephone}
-                  </td>
+                  <td className="border p-1">{i.contact_urgence_nom}</td>
+                  <td className="border p-1">{i.contact_urgence_telephone}</td>
                   <td className="border p-1">{i.apparaitre_resultats ? "✅" : "❌"}</td>
                   <td className="border p-1">
                     <input
