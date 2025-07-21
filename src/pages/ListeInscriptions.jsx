@@ -6,6 +6,7 @@ import { saveAs } from "file-saver";
 import jsPDF from "jspdf";
 import "jspdf-autotable";
 
+
 export default function ListeInscriptions() {
   const { format_id } = useParams();
   const [inscrits, setInscrits] = useState([]);
