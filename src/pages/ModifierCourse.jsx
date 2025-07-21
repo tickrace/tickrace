@@ -13,66 +13,94 @@ export default function ModifierCourse() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: courseData } = await supabase.from("courses").select("*").eq("id", id).single();
-      const { data: formatsData } = await supabase.from("formats").select("*").eq("course_id", id);
+      const { data: courseData } = await supabase
+        .from("courses")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      const { data: formatsData } = await supabase
+        .from("formats")
+        .select("*")
+        .eq("course_id", id);
+
+      const formatsWithInscrits = await Promise.all(
+        formatsData.map(async (format) => {
+          const { count } = await supabase
+            .from("inscriptions")
+            .select("*", { count: "exact", head: true })
+            .eq("format_id", format.id);
+
+          return { ...format, nb_inscrits: count || 0, localId: uuidv4() };
+        })
+      );
+
       setCourse(courseData);
-      setFormats(formatsData.map(f => ({ ...f, localId: uuidv4() })));
+      setFormats(formatsWithInscrits);
     };
+
     fetchData();
   }, [id]);
 
   const handleCourseChange = (e) => {
     const { name, value, files } = e.target;
     if (files) setNewImageFile(files[0]);
-    else setCourse(prev => ({ ...prev, [name]: value }));
+    else setCourse((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleFormatChange = (index, e) => {
     const { name, value, files } = e.target;
-    setFormats(prev => {
+    setFormats((prev) => {
       const updated = [...prev];
-      updated[index] = { ...updated[index], [name]: files ? files[0] : value };
+      updated[index] = {
+        ...updated[index],
+        [name]: files ? files[0] : value,
+      };
       return updated;
     });
   };
 
   const addFormat = () => {
-    setFormats(prev => [...prev, {
-      localId: uuidv4(),
-      nom: "",
-      date: "",
-      heure_depart: "",
-      presentation_parcours: "",
-      fichier_gpx: null,
-      gpx_url: "",
-      type_epreuve: "",
-      distance_km: "",
-      denivele_dplus: "",
-      denivele_dmoins: "",
-      adresse_depart: "",
-      adresse_arrivee: "",
-      prix: "",
-      ravitaillements: "",
-      remise_dossards: "",
-      dotation: "",
-      fichier_reglement: null,
-      reglement_pdf_url: "",
-      nb_max_coureurs: "",
-      age_minimum: "",
-      hebergements: "",
-      imageFile: null,
-      image_url: "",
-    }]);
+    setFormats((prev) => [
+      ...prev,
+      {
+        localId: uuidv4(),
+        nom: "",
+        date: "",
+        heure_depart: "",
+        presentation_parcours: "",
+        fichier_gpx: null,
+        gpx_url: "",
+        type_epreuve: "",
+        distance_km: "",
+        denivele_dplus: "",
+        denivele_dmoins: "",
+        adresse_depart: "",
+        adresse_arrivee: "",
+        prix: "",
+        ravitaillements: "",
+        remise_dossards: "",
+        dotation: "",
+        fichier_reglement: null,
+        reglement_pdf_url: "",
+        nb_max_coureurs: "",
+        age_minimum: "",
+        hebergements: "",
+        imageFile: null,
+        image_url: "",
+        nb_inscrits: 0,
+      },
+    ]);
   };
 
   const duplicateFormat = (index) => {
     const original = formats[index];
     const duplicated = { ...original, localId: uuidv4(), id: undefined };
-    setFormats(prev => [...prev, duplicated]);
+    setFormats((prev) => [...prev, duplicated]);
   };
 
   const removeFormat = (index) => {
-    setFormats(prev => prev.filter((_, i) => i !== index));
+    setFormats((prev) => prev.filter((_, i) => i !== index));
   };
 
   const handleSubmit = async (e) => {
@@ -80,19 +108,26 @@ export default function ModifierCourse() {
 
     let imageCourseUrl = course.image_url;
     if (newImageFile) {
-      const { data, error } = await supabase.storage.from("courses").upload(`course-${Date.now()}.jpg`, newImageFile);
+      const { data, error } = await supabase.storage
+        .from("courses")
+        .upload(`course-${Date.now()}.jpg`, newImageFile);
       if (!error) {
-        imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
+        imageCourseUrl = supabase.storage
+          .from("courses")
+          .getPublicUrl(data.path).data.publicUrl;
       }
     }
 
-    await supabase.from("courses").update({
-      nom: course.nom,
-      lieu: course.lieu,
-      departement: course.departement,
-      presentation: course.presentation,
-      image_url: imageCourseUrl,
-    }).eq("id", id);
+    await supabase
+      .from("courses")
+      .update({
+        nom: course.nom,
+        lieu: course.lieu,
+        departement: course.departement,
+        presentation: course.presentation,
+        image_url: imageCourseUrl,
+      })
+      .eq("id", id);
 
     for (const format of formats) {
       let image_url = format.image_url;
@@ -100,44 +135,51 @@ export default function ModifierCourse() {
       let reglement_pdf_url = format.reglement_pdf_url;
 
       if (format.imageFile) {
-        const { data } = await supabase.storage.from("formats").upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
-        image_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+        const { data } = await supabase.storage
+          .from("formats")
+          .upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
+        image_url = supabase.storage
+          .from("formats")
+          .getPublicUrl(data.path).data.publicUrl;
       }
       if (format.fichier_gpx) {
-        const { data } = await supabase.storage.from("formats").upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
-        gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+        const { data } = await supabase.storage
+          .from("formats")
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+        gpx_url = supabase.storage
+          .from("formats")
+          .getPublicUrl(data.path).data.publicUrl;
       }
       if (format.fichier_reglement) {
-        const { data } = await supabase.storage.from("reglements").upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
-        reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
+        const { data } = await supabase.storage
+          .from("reglements")
+          .upload(
+            `reglement-${Date.now()}-${format.nom}.pdf`,
+            format.fichier_reglement
+          );
+        reglement_pdf_url = supabase.storage
+          .from("reglements")
+          .getPublicUrl(data.path).data.publicUrl;
       }
 
+      const formatData = {
+        ...format,
+        course_id: id,
+        image_url,
+        gpx_url,
+        reglement_pdf_url,
+      };
+
+      delete formatData.localId;
+      delete formatData.nb_inscrits;
+      delete formatData.imageFile;
+      delete formatData.fichier_gpx;
+      delete formatData.fichier_reglement;
+
       if (format.id) {
-        await supabase.from("formats").update({ ...format, image_url, gpx_url, reglement_pdf_url }).eq("id", format.id);
+        await supabase.from("formats").update(formatData).eq("id", format.id);
       } else {
-        await supabase.from("formats").insert({
-          course_id: id,
-          nom: format.nom,
-          image_url,
-          date: format.date,
-          heure_depart: format.heure_depart,
-          presentation_parcours: format.presentation_parcours,
-          gpx_url,
-          type_epreuve: format.type_epreuve,
-          distance_km: format.distance_km,
-          denivele_dplus: format.denivele_dplus,
-          denivele_dmoins: format.denivele_dmoins,
-          adresse_depart: format.adresse_depart,
-          adresse_arrivee: format.adresse_arrivee,
-          prix: format.prix,
-          ravitaillements: format.ravitaillements,
-          remise_dossards: format.remise_dossards,
-          dotation: format.dotation,
-          reglement_pdf_url,
-          nb_max_coureurs: format.nb_max_coureurs,
-          age_minimum: format.age_minimum,
-          hebergements: format.hebergements,
-        });
+        await supabase.from("formats").insert(formatData);
       }
     }
 
@@ -178,9 +220,14 @@ export default function ModifierCourse() {
             <input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Dotation" />
             <input type="file" name="fichier_reglement" onChange={(e) => handleFormatChange(index, e)} />
             <input name="nb_max_coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre max de coureurs" />
+            <p className="text-sm text-gray-700">
+              Inscriptions : {f.nb_inscrits} / {f.nb_max_coureurs || "non défini"}
+              {f.nb_max_coureurs && f.nb_inscrits >= parseInt(f.nb_max_coureurs) && (
+                <span className="text-red-600 font-bold"> — Limite atteinte</span>
+              )}
+            </p>
             <input name="age_minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Âge minimum" />
             <textarea name="hebergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Hébergements" />
-
             <div className="flex gap-4">
               <button type="button" onClick={() => duplicateFormat(index)} className="bg-blue-500 text-white px-3 py-1 rounded">Dupliquer</button>
               <button type="button" onClick={() => removeFormat(index)} className="bg-red-500 text-white px-3 py-1 rounded">Supprimer</button>
