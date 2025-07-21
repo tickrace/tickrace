@@ -3,163 +3,140 @@ import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function ListeInscriptions() {
-  const { courseId } = useParams();
+  const { formatId } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
-  const [sortKey, setSortKey] = useState("");
-  const [sortOrder, setSortOrder] = useState("asc");
+  const [statutFilter, setStatutFilter] = useState("");
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState("asc");
 
   useEffect(() => {
-    if (!courseId) return;
+    if (!formatId) return;
 
     const fetchInscriptions = async () => {
       const { data, error } = await supabase
         .from("inscriptions")
         .select("*")
-        .eq("course_id", courseId);
+        .eq("format_id", formatId);
 
-      if (!error) setInscriptions(data);
-      else console.error("Erreur récupération inscriptions", error);
+      if (!error) {
+        setInscriptions(data);
+      } else {
+        console.error("Erreur récupération inscriptions", error);
+      }
     };
 
     fetchInscriptions();
-  }, [courseId]);
+  }, [formatId]);
 
-  const handleDossardChange = async (id, value) => {
-    const { error } = await supabase
-      .from("inscriptions")
-      .update({ numero_dossard: value })
-      .eq("id", id);
-
-    if (error) {
-      alert("Erreur lors de l’attribution du dossard");
-    } else {
-      setInscriptions((prev) =>
-        prev.map((i) =>
-          i.id === id ? { ...i, numero_dossard: value } : i
-        )
-      );
-    }
+  const handleSort = (field) => {
+    const direction = sortField === field && sortDirection === "asc" ? "desc" : "asc";
+    setSortField(field);
+    setSortDirection(direction);
   };
 
-  const handleValidation = async (id) => {
-    const { error } = await supabase
-      .from("inscriptions")
-      .update({ statut: "validée" })
-      .eq("id", id);
-
-    if (error) {
-      alert("Erreur lors de la validation");
-    } else {
-      setInscriptions((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, statut: "validée" } : i))
-      );
-    }
-  };
-
-  const filtered = inscriptions
-    .filter((i) => {
-      const full = `${i.nom} ${i.prenom} ${i.email}`.toLowerCase();
-      return full.includes(search.toLowerCase());
-    })
-    .filter((i) => !statusFilter || i.statut === statusFilter)
+  const sortedFilteredInscriptions = inscriptions
+    .filter((inscription) =>
+      (inscription.nom?.toLowerCase().includes(search.toLowerCase()) ||
+        inscription.prenom?.toLowerCase().includes(search.toLowerCase())) &&
+      (statutFilter ? inscription.statut === statutFilter : true)
+    )
     .sort((a, b) => {
-      if (!sortKey) return 0;
-      const aVal = a[sortKey] || "";
-      const bVal = b[sortKey] || "";
-      return sortOrder === "asc"
-        ? String(aVal).localeCompare(String(bVal))
-        : String(bVal).localeCompare(String(aVal));
+      if (!sortField) return 0;
+      if (a[sortField] < b[sortField]) return sortDirection === "asc" ? -1 : 1;
+      if (a[sortField] > b[sortField]) return sortDirection === "asc" ? 1 : -1;
+      return 0;
     });
 
-  if (!courseId) return <div className="p-6">Course ID non défini</div>;
+  if (!formatId) return <div className="p-4">Format non défini.</div>;
 
   return (
     <div className="p-6">
       <h1 className="text-2xl font-bold mb-4">Liste des inscrits</h1>
 
-      <div className="flex flex-wrap gap-4 mb-4">
+      <div className="flex flex-col md:flex-row md:items-center gap-4 mb-4">
         <input
           type="text"
-          placeholder="Recherche par nom, prénom, email..."
+          placeholder="Recherche nom ou prénom"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="border p-2 flex-1 min-w-[200px]"
+          className="border px-3 py-2 rounded w-full md:w-1/3"
         />
         <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="border p-2"
+          value={statutFilter}
+          onChange={(e) => setStatutFilter(e.target.value)}
+          className="border px-3 py-2 rounded w-full md:w-1/4"
         >
           <option value="">Tous les statuts</option>
           <option value="en attente">En attente</option>
-          <option value="validée">Validée</option>
+          <option value="valide">Validé</option>
         </select>
       </div>
 
-      <div className="overflow-auto">
-        <table className="min-w-[1200px] w-full text-sm border">
+      <div className="overflow-x-auto">
+        <table className="min-w-full text-sm">
           <thead>
-            <tr className="bg-gray-100">
-              {[
-                "prenom", "nom", "genre", "date_naissance", "nationalite",
-                "email", "telephone", "adresse", "code_postal", "ville", "pays",
-                "club", "justificatif_type", "numero_licence",
-                "contact_urgence_nom", "contact_urgence_telephone",
-                "statut", "numero_dossard", "created_at"
-              ].map((key) => (
-                <th
-                  key={key}
-                  className="border p-2 cursor-pointer whitespace-nowrap"
-                  onClick={() =>
-                    setSortKey(key) ||
-                    setSortOrder(sortKey === key && sortOrder === "asc" ? "desc" : "asc")
-                  }
-                >
-                  {key}
-                  {sortKey === key && (sortOrder === "asc" ? " ↑" : " ↓")}
-                </th>
-              ))}
-              <th className="border p-2">Actions</th>
+            <tr>
+              <th className="cursor-pointer" onClick={() => handleSort("nom")}>Nom</th>
+              <th className="cursor-pointer" onClick={() => handleSort("prenom")}>Prénom</th>
+              <th>Genre</th>
+              <th>Naissance</th>
+              <th>Nationalité</th>
+              <th>Email</th>
+              <th>Téléphone</th>
+              <th>Club</th>
+              <th>Justificatif</th>
+              <th>Contact urgence</th>
+              <th>Statut</th>
+              <th>Dossard</th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map((i) => (
-              <tr key={i.id} className="hover:bg-gray-50">
-                <td className="border p-2">{i.prenom}</td>
-                <td className="border p-2">{i.nom}</td>
-                <td className="border p-2">{i.genre}</td>
-                <td className="border p-2">{i.date_naissance}</td>
-                <td className="border p-2">{i.nationalite}</td>
-                <td className="border p-2">{i.email}</td>
-                <td className="border p-2">{i.telephone}</td>
-                <td className="border p-2">{i.adresse}</td>
-                <td className="border p-2">{i.code_postal}</td>
-                <td className="border p-2">{i.ville}</td>
-                <td className="border p-2">{i.pays}</td>
-                <td className="border p-2">{i.club}</td>
-                <td className="border p-2">{i.justificatif_type}</td>
-                <td className="border p-2">{i.numero_licence}</td>
-                <td className="border p-2">{i.contact_urgence_nom}</td>
-                <td className="border p-2">{i.contact_urgence_telephone}</td>
-                <td className="border p-2">{i.statut}</td>
-                <td className="border p-2">
+            {sortedFilteredInscriptions.map((i) => (
+              <tr key={i.id} className="border-t">
+                <td>{i.nom}</td>
+                <td>{i.prenom}</td>
+                <td>{i.genre}</td>
+                <td>{i.date_naissance}</td>
+                <td>{i.nationalite}</td>
+                <td>{i.email}</td>
+                <td>{i.telephone}</td>
+                <td>{i.club}</td>
+                <td>{i.justificatif_type}</td>
+                <td>{i.contact_urgence_nom} ({i.contact_urgence_telephone})</td>
+                <td>{i.statut}</td>
+                <td>
                   <input
                     type="text"
-                    value={i.numero_dossard || ""}
-                    onChange={(e) =>
-                      handleDossardChange(i.id, e.target.value)
-                    }
-                    className="border px-2 py-1 w-20"
+                    defaultValue={i.numero_dossard || ""}
+                    onBlur={async (e) => {
+                      const { error } = await supabase
+                        .from("inscriptions")
+                        .update({ numero_dossard: e.target.value })
+                        .eq("id", i.id);
+                      if (error) alert("Erreur mise à jour dossard");
+                    }}
+                    className="border px-1 py-0.5 w-20"
                   />
                 </td>
-                <td className="border p-2">{new Date(i.created_at).toLocaleString()}</td>
-                <td className="border p-2">
-                  {i.statut !== "validée" && (
+                <td>
+                  {i.statut !== "valide" && (
                     <button
+                      onClick={async () => {
+                        const { error } = await supabase
+                          .from("inscriptions")
+                          .update({ statut: "valide" })
+                          .eq("id", i.id);
+                        if (!error) {
+                          setInscriptions((prev) =>
+                            prev.map((ins) =>
+                              ins.id === i.id ? { ...ins, statut: "valide" } : ins
+                            )
+                          );
+                        }
+                      }}
                       className="bg-green-600 text-white px-2 py-1 rounded"
-                      onClick={() => handleValidation(i.id)}
                     >
                       Valider
                     </button>
