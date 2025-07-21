@@ -8,21 +8,42 @@ export default function MonEspaceOrganisateur() {
   const { session } = useUser();
   const [courses, setCourses] = useState([]);
   const [copiedId, setCopiedId] = useState(null);
+  const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
   const navigate = useNavigate();
 
   useEffect(() => {
     if (session) {
-      fetchCourses();
+      fetchCoursesAndFormats();
     }
   }, [session]);
 
-  const fetchCourses = async () => {
-    const { data, error } = await supabase
+  const fetchCoursesAndFormats = async () => {
+    const { data: coursesData, error } = await supabase
       .from("courses")
-      .select("*")
+      .select("*, formats(*)")
       .eq("organisateur_id", session.user.id);
 
-    if (!error) setCourses(data);
+    if (!error) {
+      setCourses(coursesData);
+
+      const allFormatIds = coursesData.flatMap(c =>
+        (c.formats || []).map(f => f.id)
+      );
+
+      if (allFormatIds.length > 0) {
+        const { data: inscriptions, error: errIns } = await supabase
+          .from("inscriptions")
+          .select("format_id");
+
+        if (!errIns && inscriptions) {
+          const counts = {};
+          inscriptions.forEach((i) => {
+            counts[i.format_id] = (counts[i.format_id] || 0) + 1;
+          });
+          setInscriptionsParFormat(counts);
+        }
+      }
+    }
   };
 
   const handleDelete = async (id) => {
@@ -74,7 +95,7 @@ export default function MonEspaceOrganisateur() {
       }
     }
 
-    fetchCourses();
+    fetchCoursesAndFormats();
   };
 
   return (
@@ -88,9 +109,28 @@ export default function MonEspaceOrganisateur() {
             <div key={course.id} className="border rounded-lg p-4 bg-white shadow">
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-xl font-semibold">{course.nom}</h2>
-                <span className="text-sm text-gray-600">{course.lieu} ({course.departement})</span>
+                <span className="text-sm text-gray-600">
+                  {course.lieu} ({course.departement})
+                </span>
               </div>
               <p className="text-gray-700 mb-3">{course.presentation}</p>
+
+              {/* Affichage des formats avec inscrits / max */}
+              {course.formats && course.formats.length > 0 && (
+                <div className="space-y-2 mb-3">
+                  {course.formats.map((f) => {
+                    const inscrits = inscriptionsParFormat[f.id] || 0;
+                    const max = f.nb_max_coureurs;
+                    return (
+                      <div key={f.id} className="text-sm text-gray-800 bg-gray-50 p-2 rounded">
+                        🏁 <strong>{f.nom}</strong> – {f.date} – {f.distance_km} km / {f.denivele_dplus} m D+<br />
+                        👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="flex flex-wrap gap-2">
                 <Link
                   to={`/organisateur/modifier-course/${course.id}`}

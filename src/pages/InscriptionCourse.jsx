@@ -18,10 +18,25 @@ export default function InscriptionCourse() {
         .eq("id", courseId)
         .single();
 
-      if (!error && data) {
-        setCourse(data);
-        setFormats(data.formats || []);
-      }
+      if (error || !data) return;
+
+      // Pour chaque format, on récupère le nombre d'inscriptions
+      const formatsWithCount = await Promise.all(
+        (data.formats || []).map(async (f) => {
+          const { count, error: countError } = await supabase
+            .from("inscriptions")
+            .select("*", { count: "exact", head: true })
+            .eq("format_id", f.id);
+
+          return {
+            ...f,
+            inscrits: countError ? 0 : count,
+          };
+        })
+      );
+
+      setCourse(data);
+      setFormats(formatsWithCount);
     };
 
     const fetchProfil = async () => {
@@ -58,6 +73,12 @@ export default function InscriptionCourse() {
 
     const selectedFormat = formats.find(f => f.id === selectedFormatId);
 
+    // Vérification du quota
+    if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
+      alert("Ce format est complet. Aucune inscription possible.");
+      return;
+    }
+
     const inscription = {
       coureur_id: user.id,
       course_id: courseId,
@@ -93,24 +114,22 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // Appel de l'email via Edge Function
     try {
       await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/send-inscription-email", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
-  },
-  body: JSON.stringify({
-    email: profil.email,
-    prenom: profil.prenom,
-    nom: profil.nom,
-    format_nom: selectedFormat.nom,
-    course_nom: course.nom,
-    date: selectedFormat.date,
-  }),
-});
-
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+        },
+        body: JSON.stringify({
+          email: profil.email,
+          prenom: profil.prenom,
+          nom: profil.nom,
+          format_nom: selectedFormat.nom,
+          course_nom: course.nom,
+          date: selectedFormat.date,
+        }),
+      });
     } catch (e) {
       console.error("Erreur envoi email :", e);
     }
@@ -135,8 +154,14 @@ export default function InscriptionCourse() {
           >
             <option value="">-- Sélectionnez un format --</option>
             {formats.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+
+              <option
+                key={f.id}
+                value={f.id}
+                disabled={f.inscrits >= f.nb_max_coureurs}
+              >
+                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ 
+                ({f.inscrits}/{f.nb_max_coureurs} inscrits)
+                {f.inscrits >= f.nb_max_coureurs ? " - COMPLET" : ""}
               </option>
             ))}
           </select>
