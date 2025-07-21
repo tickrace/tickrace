@@ -4,7 +4,8 @@ import { supabase } from "../supabase";
 
 
 export default function ListeInscriptions() {
-  const { formatId } = useParams();
+  const { format_id: formatId } = useParams();
+
   const [inscriptions, setInscriptions] = useState([]);
   const [search, setSearch] = useState("");
   const [statutFilter, setStatutFilter] = useState("");
