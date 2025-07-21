@@ -1,3 +1,4 @@
+// src/pages/NouvelleCourse.jsx
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 import { useNavigate } from "react-router-dom";
@@ -13,8 +14,13 @@ export default function NouvelleCourse() {
   });
 
   const [formats, setFormats] = useState([
-    {
-      id: uuidv4(),
+    { id: uuidv4(), ...formatTemplate() },
+  ]);
+
+  const navigate = useNavigate();
+
+  function formatTemplate() {
+    return {
       nom: "",
       imageFile: null,
       date: "",
@@ -35,58 +41,26 @@ export default function NouvelleCourse() {
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
-    },
-  ]);
-
-  const navigate = useNavigate();
+    };
+  }
 
   const handleCourseChange = (e) => {
     const { name, value, files } = e.target;
-    if (files) {
-      setCourse((prev) => ({ ...prev, [name + "File"]: files[0] }));
-    } else {
-      setCourse((prev) => ({ ...prev, [name]: value }));
-    }
+    setCourse((prev) => ({
+      ...prev,
+      [name + (files ? "File" : "")]: files ? files[0] : value,
+    }));
   };
 
   const handleFormatChange = (index, e) => {
     const { name, value, files } = e.target;
-    setFormats((prevFormats) => {
-      const updatedFormats = [...prevFormats];
-      const format = { ...updatedFormats[index] };
-      format[name] = files ? files[0] : value;
-      updatedFormats[index] = format;
-      return updatedFormats;
-    });
+    const updatedFormats = [...formats];
+    updatedFormats[index][name + (files ? "File" : "")] = files ? files[0] : value;
+    setFormats(updatedFormats);
   };
 
   const addFormat = () => {
-    setFormats((prev) => [
-      ...prev,
-      {
-        id: uuidv4(),
-        nom: "",
-        imageFile: null,
-        date: "",
-        heure_depart: "",
-        presentation_parcours: "",
-        fichier_gpx: null,
-        type_epreuve: "",
-        distance_km: "",
-        denivele_dplus: "",
-        denivele_dmoins: "",
-        adresse_depart: "",
-        adresse_arrivee: "",
-        prix: "",
-        ravitaillements: "",
-        remise_dossards: "",
-        dotation: "",
-        fichier_reglement: null,
-        nb_max_coureurs: "",
-        age_minimum: "",
-        hebergements: "",
-      },
-    ]);
+    setFormats((prev) => [...prev, { id: uuidv4(), ...formatTemplate() }]);
   };
 
   const handleSubmit = async (e) => {
@@ -214,11 +188,12 @@ export default function NouvelleCourse() {
             <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input type="file" name="fichier_reglement" onChange={(e) => handleFormatChange(index, e)} />
-            <input name="nb_max_coureurs" placeholder="Nombre max" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="nb_max_coureurs" placeholder="Nombre max de coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="age_minimum" placeholder="Âge minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <textarea name="hebergements" placeholder="Hébergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
           </div>
         ))}
+
         <button type="button" onClick={addFormat} className="bg-blue-600 text-white px-4 py-2 rounded">+ Ajouter un format</button>
         <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">✅ Créer l’épreuve</button>
       </form>
