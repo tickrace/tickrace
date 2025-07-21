@@ -9,8 +9,13 @@ export default function Navbar() {
   const { session, roles, loading } = useUser();
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
-    navigate("/");
+    const { error } = await supabase.auth.signOut();
+    if (error) {
+      console.error("Erreur de déconnexion :", error.message);
+      alert("Déconnexion impossible !");
+    } else {
+      navigate("/"); // ou window.location.href = "/" si besoin
+    }
   };
 
   if (loading) {
@@ -29,7 +34,6 @@ export default function Navbar() {
       {roles.includes("organisateur") && (
         <>
           <Link to="/organisateur/mon-espace" className="hover:underline">Mon espace organisateur</Link>
-
           <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
           <Link to="/monprofilorganisateur" className="hover:underline">Mon profil</Link>
         </>
@@ -49,7 +53,12 @@ export default function Navbar() {
           <Link to="/signup" className="hover:underline">Créer un compte</Link>
         </>
       ) : (
-        <button onClick={handleLogout} className="hover:underline">Se déconnecter</button>
+        <button
+          onClick={handleLogout}
+          className="hover:underline text-red-300"
+        >
+          Se déconnecter
+        </button>
       )}
     </nav>
   );
