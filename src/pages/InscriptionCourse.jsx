@@ -1,4 +1,3 @@
-// src/pages/InscriptionCourse.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -8,6 +7,7 @@ export default function InscriptionCourse() {
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
   const [selectedFormatId, setSelectedFormatId] = useState("");
+  const [selectedFormat, setSelectedFormat] = useState(null);
   const [profil, setProfil] = useState({});
   const [message, setMessage] = useState("");
   const [nombreRepas, setNombreRepas] = useState(0);
@@ -24,15 +24,11 @@ export default function InscriptionCourse() {
 
       const formatsWithCount = await Promise.all(
         (data.formats || []).map(async (f) => {
-          const { count, error: countError } = await supabase
+          const { count } = await supabase
             .from("inscriptions")
             .select("*", { count: "exact", head: true })
             .eq("format_id", f.id);
-
-          return {
-            ...f,
-            inscrits: countError ? 0 : count,
-          };
+          return { ...f, inscrits: count || 0 };
         })
       );
 
@@ -51,14 +47,19 @@ export default function InscriptionCourse() {
         .eq("id", user.id)
         .single();
 
-      if (!error && data) {
-        setProfil(data);
-      }
+      if (!error && data) setProfil(data);
     };
 
     fetchCourseAndFormats();
     fetchProfil();
   }, [courseId]);
+
+  const handleFormatChange = (id) => {
+    setSelectedFormatId(id);
+    const format = formats.find((f) => f.id === id);
+    setSelectedFormat(format);
+    setNombreRepas(0); // reset
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -72,10 +73,9 @@ export default function InscriptionCourse() {
     const user = session.data?.session?.user;
     if (!user) return;
 
-    const selectedFormat = formats.find(f => f.id === selectedFormatId);
-
-    if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
-      alert("Ce format est complet. Aucune inscription possible.");
+    const f = formats.find((f) => f.id === selectedFormatId);
+    if (f.inscrits >= f.nb_max_coureurs) {
+      alert("Ce format est complet.");
       return;
     }
 
@@ -91,8 +91,9 @@ export default function InscriptionCourse() {
       return;
     }
 
-    const prixUnitaireRepas = selectedFormat.prix_repas || 0;
-    const prixTotalRepas = prixUnitaireRepas * nombreRepas;
+    const prix_total_repas = f.repas_proposes
+      ? nombreRepas * parseFloat(f.prix_repas || 0)
+      : null;
 
     const inscription = {
       coureur_id: user.id,
@@ -115,17 +116,14 @@ export default function InscriptionCourse() {
       justificatif_type: profil.justificatif_type,
       contact_urgence_nom: profil.contact_urgence_nom,
       contact_urgence_telephone: profil.contact_urgence_telephone,
-      prix_total_repas: prixTotalRepas,
+      numero_licence: profil.numero_licence || null,
+      prix_total_repas,
     };
-
-    if (profil.justificatif_type === "licence" && profil.numero_licence) {
-      inscription.numero_licence = profil.numero_licence;
-    }
 
     const { error } = await supabase.from("inscriptions").insert([inscription]);
 
     if (error) {
-      console.error("Erreur lors de l'inscription :", error);
+      console.error("Erreur inscription :", error);
       alert("Erreur lors de l'inscription");
       return;
     }
@@ -135,7 +133,7 @@ export default function InscriptionCourse() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+          Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
         },
         body: JSON.stringify({
           email: profil.email,
@@ -150,12 +148,8 @@ export default function InscriptionCourse() {
       console.error("Erreur envoi email :", e);
     }
 
-    setMessage("Inscription enregistrée ! Vous recevrez un email de confirmation.");
+    setMessage("Inscription enregistrée !");
   };
-
-  const selectedFormat = formats.find(f => f.id === selectedFormatId);
-  const prixUnitaireRepas = selectedFormat?.prix_repas || 0;
-  const prixTotalRepas = prixUnitaireRepas * nombreRepas;
 
   if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
 
@@ -169,10 +163,7 @@ export default function InscriptionCourse() {
           <select
             className="border p-2 w-full"
             value={selectedFormatId}
-            onChange={(e) => {
-              setSelectedFormatId(e.target.value);
-              setNombreRepas(0);
-            }}
+            onChange={(e) => handleFormatChange(e.target.value)}
             required
           >
             <option value="">-- Sélectionnez un format --</option>
@@ -182,7 +173,7 @@ export default function InscriptionCourse() {
                 value={f.id}
                 disabled={f.inscrits >= f.nb_max_coureurs}
               >
-                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+
+                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ 
                 ({f.inscrits}/{f.nb_max_coureurs} inscrits)
                 {f.inscrits >= f.nb_max_coureurs ? " - COMPLET" : ""}
               </option>
@@ -190,19 +181,18 @@ export default function InscriptionCourse() {
           </select>
         </div>
 
-        {selectedFormat?.propose_repas && (
+        {selectedFormat?.repas_proposes && (
           <div>
             <label className="font-semibold">Nombre de repas souhaités :</label>
             <input
               type="number"
               min="0"
-              max="20"
               value={nombreRepas}
-              onChange={(e) => setNombreRepas(parseInt(e.target.value))}
+              onChange={(e) => setNombreRepas(Number(e.target.value))}
               className="border p-2 w-full"
             />
-            <p className="text-sm text-gray-600">
-              Prix unitaire : {prixUnitaireRepas} € — Total : {prixTotalRepas} €
+            <p className="text-sm text-gray-700">
+              Prix unitaire : {selectedFormat.prix_repas} € — Total repas : {(nombreRepas * selectedFormat.prix_repas).toFixed(2)} €
             </p>
           </div>
         )}
