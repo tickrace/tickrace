@@ -14,7 +14,9 @@ export default function Signup() {
   const handleSignup = async (e) => {
     e.preventDefault();
 
-    // Création du compte utilisateur
+    setMessage(null);
+
+    // Étape 1 : création du compte
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
@@ -26,29 +28,30 @@ export default function Signup() {
       return;
     }
 
-    const userId = signUpData.user?.id;
+    const userId = signUpData?.user?.id;
+
     if (!userId) {
-      setMessage("Erreur lors de la récupération de l'ID utilisateur.");
+      setMessage("Erreur : identifiant utilisateur non disponible.");
       return;
     }
 
-    // Insertion du profil utilisateur
-    const { error: profileError } = await supabase.from("profils_utilisateurs").insert([
+    // Étape 2 : insertion dans profils_utilisateurs
+    const { error: insertError } = await supabase.from("profils_utilisateurs").insert([
       {
         user_id: userId,
         nom,
         prenom,
-        role: "coureur", // rôle par défaut
+        role: null, // pas de rôle défini à l’inscription
       },
     ]);
 
-    if (profileError) {
-      console.error("Erreur insertion profil :", profileError.message);
-      setMessage("Erreur lors de l'enregistrement du profil.");
+    if (insertError) {
+      console.error("Erreur insertion profil :", insertError.message);
+      setMessage("Erreur lors de la création du profil utilisateur.");
       return;
     }
 
-    setMessage("Compte créé avec succès. Veuillez confirmer votre email avant de vous connecter.");
+    setMessage("Compte créé. Vérifiez votre email pour confirmer votre inscription.");
     setTimeout(() => navigate("/login"), 3000);
   };
 
@@ -108,7 +111,7 @@ export default function Signup() {
         </button>
       </form>
 
-      {message && <p className="mt-4 text-center text-sm">{message}</p>}
+      {message && <p className="mt-4 text-center text-sm text-red-600">{message}</p>}
     </div>
   );
 }
