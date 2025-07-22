@@ -1,80 +1,70 @@
 // src/components/Navbar.jsx
 import React from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
+import { supabase } from "../supabase";
 
 export default function Navbar() {
+  const { session, roles, activeRole, setActiveRole, nom, prenom } = useUser();
   const navigate = useNavigate();
-  const { session, roles, loading } = useUser();
 
   const handleLogout = async () => {
-    try {
-      const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-
-      if (sessionError) {
-        console.error("Erreur lors de la récupération de la session :", sessionError.message);
-      }
-
-      if (!sessionData?.session) {
-        console.warn("Aucune session active trouvée. Nettoyage local.");
-        localStorage.clear();
-        navigate("/login");
-        return;
-      }
-
-      const { error } = await supabase.auth.signOut();
-
-      if (error) {
-        console.error("Erreur lors de la déconnexion :", error.message);
-        alert("La déconnexion a échoué. Essayez de recharger la page.");
-      } else {
-        localStorage.clear();
-        navigate("/");
-      }
-    } catch (err) {
-      console.error("Erreur inattendue :", err.message);
-      alert("Erreur de déconnexion. Essayez de recharger.");
-    }
+    await supabase.auth.signOut();
+    navigate("/login");
   };
 
-  if (loading) {
-    return (
-      <nav className="bg-gray-800 text-white p-4">
-        Chargement...
-      </nav>
-    );
-  }
+  const handleRoleChange = (e) => {
+    setActiveRole(e.target.value);
+  };
 
   return (
-    <nav className="bg-gray-800 text-white p-4 flex flex-wrap gap-4 items-center">
-      <Link to="/" className="hover:underline">Accueil</Link>
-      <Link to="/courses" className="hover:underline">Épreuves</Link>
+    <nav className="bg-gray-800 text-white p-4 flex justify-between items-center">
+      <Link to="/" className="text-lg font-bold">Tickrace</Link>
 
-      {roles.includes("organisateur") && (
-        <>
-          <Link to="/organisateur/mon-espace" className="hover:underline">Mon espace organisateur</Link>
-          <Link to="/organisateur/nouvelle-course" className="hover:underline">+ Nouvelle course</Link>
-          <Link to="/monprofilorganisateur" className="hover:underline">Mon profil</Link>
-        </>
-      )}
+      <div className="flex items-center gap-4">
+        {session ? (
+          <>
+            <span className="hidden sm:block">{prenom} {nom}</span>
 
-      {roles.includes("coureur") && (
-        <Link to="/monprofilcoureur" className="hover:underline">Mon profil coureur</Link>
-      )}
+            {roles.length > 1 && (
+              <select
+                value={activeRole}
+                onChange={handleRoleChange}
+                className="bg-gray-700 text-white px-2 py-1 rounded"
+              >
+                {roles.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            )}
 
-      {roles.includes("admin") && (
-        <Link to="/admin" className="hover:underline">Admin</Link>
-      )}
+            {activeRole === "organisateur" && (
+              <Link to="/organisateur/mon-espace" className="hover:underline">Mon espace</Link>
+            )}
+            {activeRole === "coureur" && (
+              <Link to="/profil" className="hover:underline">Mon profil</Link>
+            )}
+            {activeRole === "admin" && (
+              <Link to="/admin/dashboard" className="hover:underline">Admin</Link>
+            )}
+            {activeRole === "benevole" && (
+              <Link to="/benevole/mes-missions" className="hover:underline">Bénévole</Link>
+            )}
 
-      {!session ? (
-        <>
-          <Link to="/login" className="hover:underline">Connexion</Link>
-          <Link to="/signup" className="hover:underline">Créer un compte</Link>
-        </>
-      ) : (
-        <button onClick={handleLogout} className="hover:underline">Se déconnecter</button>
-      )}
+            <button
+              onClick={handleLogout}
+              className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded"
+            >
+              Déconnexion
+            </button>
+          </>
+        ) : (
+          <>
+            <Link to="/login" className="hover:underline">Connexion</Link>
+            <Link to="/signup" className="hover:underline">Créer un compte</Link>
+          </>
+        )}
+      </div>
     </nav>
   );
 }

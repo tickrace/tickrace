@@ -1,86 +1,62 @@
-import { createContext, useContext, useEffect, useState } from "react";
+// src/contexts/UserContext.jsx
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-export const UserContext = createContext();
+const UserContext = createContext();
 
-export const UserProvider = ({ children }) => {
+export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
   const [roles, setRoles] = useState([]);
-  const [profilCoureur, setProfilCoureur] = useState(null);
-  const [profilOrganisateur, setProfilOrganisateur] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [activeRole, setActiveRole] = useState(null);
+  const [nom, setNom] = useState("");
+  const [prenom, setPrenom] = useState("");
 
   useEffect(() => {
-    const init = async () => {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      setSession(session);
-
-      if (session?.user?.id) {
-        const { data: rolesData, error: rolesError } = await supabase
-          .from("profils_utilisateurs")
-          .select("role")
-          .eq("user_id", session.user.id);
-
-        if (!rolesError && rolesData) {
-          const fetchedRoles = rolesData.map((item) => item.role);
-          setRoles(fetchedRoles);
-
-          // Charger le profil coureur si applicable
-          if (fetchedRoles.includes("coureur")) {
-            const { data: coureur, error: errC } = await supabase
-              .from("profils_coureurs")
-              .select("*")
-              .eq("id", session.user.id)
-              .single();
-
-            if (!errC && coureur) setProfilCoureur(coureur);
-          }
-
-          // Charger le profil organisateur si applicable
-          if (fetchedRoles.includes("organisateur")) {
-            const { data: orga, error: errO } = await supabase
-              .from("profils_organisateurs")
-              .select("*")
-              .eq("id", session.user.id)
-              .single();
-
-            if (!errO && orga) setProfilOrganisateur(orga);
-          }
-        }
-      }
-
-      setLoading(false);
+    const getSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      setSession(data.session);
     };
 
-    init();
+    getSession();
 
-    const {
-      data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
       setSession(session);
-      init(); // relancer la récupération des rôles et profils
     });
 
     return () => {
-      subscription.unsubscribe();
+      listener.subscription.unsubscribe();
     };
   }, []);
 
+  useEffect(() => {
+    const fetchRoles = async () => {
+      if (!session) return;
+
+      const { data, error } = await supabase
+        .from("profils_utilisateurs")
+        .select("role, nom, prenom")
+        .eq("user_id", session.user.id);
+
+      if (data) {
+        setRoles(data.map((r) => r.role));
+        setActiveRole(data[0]?.role || null);
+        setNom(data[0]?.nom || "");
+        setPrenom(data[0]?.prenom || "");
+      }
+    };
+
+    fetchRoles();
+  }, [session]);
+
   return (
     <UserContext.Provider
-      value={{
-        session,
-        roles,
-        profilCoureur,
-        profilOrganisateur,
-        loading,
-      }}
+      value={{ session, roles, activeRole, setActiveRole, nom, prenom }}
     >
       {children}
     </UserContext.Provider>
   );
-};
+}
 
-export const useUser = () => useContext(UserContext);
+export function useUser() {
+  return useContext(UserContext);
+}

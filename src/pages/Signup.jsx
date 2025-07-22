@@ -13,41 +13,25 @@ export default function Signup() {
 
   const handleSignup = async (e) => {
     e.preventDefault();
-    setMessage(null);
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          nom,
+          prenom,
+        },
+      },
     });
 
     if (error) {
       console.error("Erreur création compte :", error.message);
       setMessage("Erreur : " + error.message);
-      return;
+    } else {
+      setMessage("Compte créé avec succès. Veuillez confirmer votre email.");
+      setTimeout(() => navigate("/login"), 4000);
     }
-
-    const user = data.user;
-    if (!user) {
-      setMessage("Erreur : utilisateur non trouvé.");
-      return;
-    }
-
-    const { error: insertError } = await supabase.from("profils_utilisateurs").insert({
-      user_id: user.id,
-      nom,
-      prenom,
-      email,
-      roles: ['coureur'],
-    });
-
-    if (insertError) {
-      console.error("Erreur insertion profil :", insertError.message);
-      setMessage("Erreur profil : " + insertError.message);
-      return;
-    }
-
-    setMessage("Compte créé. Veuillez confirmer votre email.");
-    setTimeout(() => navigate("/login"), 3000);
   };
 
   return (
@@ -100,7 +84,7 @@ export default function Signup() {
 
         <button
           type="submit"
-          className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700"
+          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
         >
           Créer le compte
         </button>
