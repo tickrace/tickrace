@@ -21,7 +21,7 @@ export default function ModifierCourse() {
 
       const { data: formatsData } = await supabase
         .from("formats")
-        .select("*")
+        .select("*, id")
         .eq("course_id", id);
 
       const formatsWithInscrits = await Promise.all(
@@ -179,6 +179,7 @@ export default function ModifierCourse() {
         prix_repas: format.propose_repas ? prix_repas : null,
         prix_total_repas: prix_repas,
         prix_total_inscription,
+        stock_repas: format.propose_repas ? parseInt(format.stock_repas || 0) : 0,
       };
 
       delete formatData.localId;
