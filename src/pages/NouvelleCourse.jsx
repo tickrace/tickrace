@@ -34,7 +34,7 @@ export default function NouvelleCourse() {
       adresse_depart: "",
       adresse_arrivee: "",
       prix: "",
-      propose_repas: false,
+      nombre_repas: "",
       prix_repas: "",
       ravitaillements: "",
       remise_dossards: "",
@@ -129,7 +129,7 @@ export default function NouvelleCourse() {
       }
 
       const prix = parseFloat(format.prix || 0);
-      const prix_repas = format.propose_repas ? parseFloat(format.prix_repas || 0) : 0;
+      const prix_repas = parseFloat(format.prix_repas || 0);
       const prix_total_inscription = prix + prix_repas;
 
       await supabase.from("formats").insert({
@@ -147,6 +147,7 @@ export default function NouvelleCourse() {
         adresse_depart: format.adresse_depart,
         adresse_arrivee: format.adresse_arrivee,
         prix: prix,
+        nombre_repas: format.nombre_repas,
         prix_repas: prix_repas,
         prix_total_inscription: prix_total_inscription,
         ravitaillements: format.ravitaillements,
@@ -193,21 +194,9 @@ export default function NouvelleCourse() {
             <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
 
-            <label className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                checked={!!f.propose_repas}
-                onChange={(e) => {
-                  const updated = [...formats];
-                  updated[index].propose_repas = e.target.checked;
-                  if (!e.target.checked) updated[index].prix_repas = "";
-                  setFormats(updated);
-                }}
-              />
-              <span>Proposez-vous des repas à ce format ?</span>
-            </label>
+            <input name="nombre_repas" placeholder="Nombre total de repas" value={f.nombre_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
 
-            {f.propose_repas && (
+            {f.nombre_repas && (
               <input
                 name="prix_repas"
                 placeholder="Prix d’un repas (€)"
