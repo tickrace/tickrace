@@ -96,7 +96,7 @@ export default function ModifierCourse() {
         nb_inscrits: 0,
         propose_repas: false,
         prix_repas: "",
-        nombre_repas: "",
+        stock_repas: "",
       },
     ]);
   };
@@ -233,7 +233,7 @@ export default function ModifierCourse() {
             </label>
             {f.propose_repas && (
               <>
-                <input name="nombre_repas" value={f.nombre_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre total de repas disponibles" />
+                <input name="stock_repas" value={f.stock_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre total de repas disponibles" />
                 <input name="prix_repas" value={f.prix_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix d’un repas (€)" />
               </>
             )}

@@ -34,7 +34,7 @@ export default function NouvelleCourse() {
       adresse_depart: "",
       adresse_arrivee: "",
       prix: "",
-      nombre_repas: "",
+      stock_repas: "",
       prix_repas: "",
       ravitaillements: "",
       remise_dossards: "",
@@ -147,7 +147,7 @@ export default function NouvelleCourse() {
         adresse_depart: format.adresse_depart,
         adresse_arrivee: format.adresse_arrivee,
         prix: prix,
-        nombre_repas: parseInt(format.nombre_repas || 0),
+        stock_repas: parseInt(format.stock_repas || 0),
         prix_repas: prix_repas,
         prix_total_inscription: prix_total_inscription,
         ravitaillements: format.ravitaillements,
@@ -195,14 +195,14 @@ export default function NouvelleCourse() {
             <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
 
             <input
-              name="nombre_repas"
+              name="stock_repas"
               placeholder="Nombre total de repas, mettre 0 si pas de repas"
-              value={f.nombre_repas}
+              value={f.stock_repas}
               onChange={(e) => handleFormatChange(index, e)}
               className="border p-2 w-full"
             />
 
-            {parseInt(f.nombre_repas) > 0 && (
+            {parseInt(f.stock_repas) > 0 && (
               <input
                 name="prix_repas"
                 placeholder="Prix d’un repas (€)"

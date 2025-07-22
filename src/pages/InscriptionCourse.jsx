@@ -117,6 +117,8 @@ export default function InscriptionCourse() {
       numero_licence: profil.numero_licence,
       nombre_repas: nombreRepas,
       prix_total_repas,
+ 
+
     };
 
     const { error } = await supabase.from("inscriptions").insert([inscription]);
@@ -179,13 +181,13 @@ export default function InscriptionCourse() {
           </select>
         </div>
 
-        {Number(selectedFormat?.nombre_repas) > 0 && (
+        {Number(selectedFormat?.stock_repas) > 0 && (
           <div>
             <label className="font-semibold">Souhaitez-vous des repas ?</label>
             <input
               type="number"
               min="0"
-              max={selectedFormat.nombre_repas}
+              max={selectedFormat.stock_repas}
               value={nombreRepas}
               onChange={(e) => setNombreRepas(Number(e.target.value))}
               className="border p-2 w-full mt-1"
