@@ -10,6 +10,7 @@ export default function InscriptionCourse() {
   const [selectedFormatId, setSelectedFormatId] = useState("");
   const [profil, setProfil] = useState({});
   const [message, setMessage] = useState("");
+  const [nombreRepas, setNombreRepas] = useState(0);
 
   useEffect(() => {
     const fetchCourseAndFormats = async () => {
@@ -78,7 +79,6 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // ✅ Vérification si déjà inscrit à ce format
     const { data: existing } = await supabase
       .from("inscriptions")
       .select("id")
@@ -90,6 +90,9 @@ export default function InscriptionCourse() {
       alert("Vous êtes déjà inscrit à ce format.");
       return;
     }
+
+    const prixUnitaireRepas = selectedFormat.prix_repas || 0;
+    const prixTotalRepas = prixUnitaireRepas * nombreRepas;
 
     const inscription = {
       coureur_id: user.id,
@@ -112,6 +115,7 @@ export default function InscriptionCourse() {
       justificatif_type: profil.justificatif_type,
       contact_urgence_nom: profil.contact_urgence_nom,
       contact_urgence_telephone: profil.contact_urgence_telephone,
+      prix_total_repas: prixTotalRepas,
     };
 
     if (profil.justificatif_type === "licence" && profil.numero_licence) {
@@ -149,6 +153,10 @@ export default function InscriptionCourse() {
     setMessage("Inscription enregistrée ! Vous recevrez un email de confirmation.");
   };
 
+  const selectedFormat = formats.find(f => f.id === selectedFormatId);
+  const prixUnitaireRepas = selectedFormat?.prix_repas || 0;
+  const prixTotalRepas = prixUnitaireRepas * nombreRepas;
+
   if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
 
   return (
@@ -161,7 +169,10 @@ export default function InscriptionCourse() {
           <select
             className="border p-2 w-full"
             value={selectedFormatId}
-            onChange={(e) => setSelectedFormatId(e.target.value)}
+            onChange={(e) => {
+              setSelectedFormatId(e.target.value);
+              setNombreRepas(0);
+            }}
             required
           >
             <option value="">-- Sélectionnez un format --</option>
@@ -171,13 +182,30 @@ export default function InscriptionCourse() {
                 value={f.id}
                 disabled={f.inscrits >= f.nb_max_coureurs}
               >
-                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ 
+                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+
                 ({f.inscrits}/{f.nb_max_coureurs} inscrits)
                 {f.inscrits >= f.nb_max_coureurs ? " - COMPLET" : ""}
               </option>
             ))}
           </select>
         </div>
+
+        {selectedFormat?.propose_repas && (
+          <div>
+            <label className="font-semibold">Nombre de repas souhaités :</label>
+            <input
+              type="number"
+              min="0"
+              max="20"
+              value={nombreRepas}
+              onChange={(e) => setNombreRepas(parseInt(e.target.value))}
+              className="border p-2 w-full"
+            />
+            <p className="text-sm text-gray-600">
+              Prix unitaire : {prixUnitaireRepas} € — Total : {prixTotalRepas} €
+            </p>
+          </div>
+        )}
 
         <h2 className="text-xl font-bold mt-6">Récapitulatif</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm text-gray-800">
