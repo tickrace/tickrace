@@ -1,4 +1,4 @@
-""// src/pages/InscriptionCourse.jsx
+// src/pages/InscriptionCourse.jsx
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -8,16 +8,15 @@ export default function InscriptionCourse() {
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
   const [selectedFormatId, setSelectedFormatId] = useState("");
-  const [selectedFormat, setSelectedFormat] = useState(null);
   const [profil, setProfil] = useState({});
-  const [message, setMessage] = useState("");
   const [nombreRepas, setNombreRepas] = useState(0);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     const fetchCourseAndFormats = async () => {
       const { data, error } = await supabase
         .from("courses")
-        .select("*, formats(id, nom, date, distance_km, denivele_dplus, nb_max_coureurs, repas_disponible, prix_repas)")
+        .select("*, formats(id,nom,date,distance_km,denivele_dplus,nb_max_coureurs,nombre_repas,prix_repas)")
         .eq("id", courseId)
         .single();
 
@@ -25,14 +24,14 @@ export default function InscriptionCourse() {
 
       const formatsWithCount = await Promise.all(
         (data.formats || []).map(async (f) => {
-          const { count } = await supabase
+          const { count, error: countError } = await supabase
             .from("inscriptions")
             .select("*", { count: "exact", head: true })
             .eq("format_id", f.id);
 
           return {
             ...f,
-            inscrits: count || 0,
+            inscrits: countError ? 0 : count,
           };
         })
       );
@@ -61,12 +60,6 @@ export default function InscriptionCourse() {
     fetchProfil();
   }, [courseId]);
 
-  useEffect(() => {
-    const f = formats.find((f) => f.id === selectedFormatId);
-    setSelectedFormat(f || null);
-    setNombreRepas(0);
-  }, [selectedFormatId]);
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -78,6 +71,9 @@ export default function InscriptionCourse() {
     const session = await supabase.auth.getSession();
     const user = session.data?.session?.user;
     if (!user) return;
+
+    const selectedFormat = formats.find(f => f.id === selectedFormatId);
+    if (!selectedFormat) return;
 
     if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
       alert("Ce format est complet. Aucune inscription possible.");
@@ -96,9 +92,9 @@ export default function InscriptionCourse() {
       return;
     }
 
-    const prix_total_repas = selectedFormat.repas_disponible && selectedFormat.prix_repas && nombreRepas > 0
-      ? nombreRepas * selectedFormat.prix_repas
-      : 0;
+    const prixTotalRepas = selectedFormat.prix_repas && nombreRepas > 0
+      ? parseFloat(selectedFormat.prix_repas) * parseInt(nombreRepas)
+      : null;
 
     const inscription = {
       coureur_id: user.id,
@@ -121,7 +117,7 @@ export default function InscriptionCourse() {
       justificatif_type: profil.justificatif_type,
       contact_urgence_nom: profil.contact_urgence_nom,
       contact_urgence_telephone: profil.contact_urgence_telephone,
-      prix_total_repas,
+      prix_total_repas: prixTotalRepas,
     };
 
     if (profil.justificatif_type === "licence" && profil.numero_licence) {
@@ -129,7 +125,6 @@ export default function InscriptionCourse() {
     }
 
     const { error } = await supabase.from("inscriptions").insert([inscription]);
-
     if (error) {
       console.error("Erreur lors de l'inscription :", error);
       alert("Erreur lors de l'inscription");
@@ -159,11 +154,12 @@ export default function InscriptionCourse() {
     setMessage("Inscription enregistrée ! Vous recevrez un email de confirmation.");
   };
 
-  if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
+  const selectedFormat = formats.find(f => f.id === selectedFormatId);
+  const showRepas = selectedFormat && selectedFormat.prix_repas;
 
   return (
     <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Inscription à : {course.nom}</h1>
+      <h1 className="text-2xl font-bold mb-4">Inscription à : {course?.nom}</h1>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -171,7 +167,10 @@ export default function InscriptionCourse() {
           <select
             className="border p-2 w-full"
             value={selectedFormatId}
-            onChange={(e) => setSelectedFormatId(e.target.value)}
+            onChange={(e) => {
+              setSelectedFormatId(e.target.value);
+              setNombreRepas(0); // reset repas au changement
+            }}
             required
           >
             <option value="">-- Sélectionnez un format --</option>
@@ -189,19 +188,18 @@ export default function InscriptionCourse() {
           </select>
         </div>
 
-        {selectedFormat && selectedFormat.repas_disponible && (
+        {showRepas && (
           <div>
-            <label className="font-semibold">Souhaitez-vous réserver un ou plusieurs repas ?</label>
+            <label className="font-semibold">
+              Souhaitez-vous des repas ? (Prix : {selectedFormat.prix_repas} € / repas)
+            </label>
             <input
               type="number"
               min="0"
               value={nombreRepas}
-              onChange={(e) => setNombreRepas(parseInt(e.target.value) || 0)}
-              className="border p-2 w-full"
+              onChange={(e) => setNombreRepas(e.target.value)}
+              className="border p-2 w-full mt-1"
             />
-            <p className="text-sm text-gray-600">
-              Prix par repas : {selectedFormat.prix_repas} € — Total : {nombreRepas * selectedFormat.prix_repas} €
-            </p>
           </div>
         )}
 
