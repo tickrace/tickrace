@@ -1,7 +1,15 @@
-// ... imports (inchangés)
+// src/pages/ModifierCourse.jsx
+import React, { useEffect, useState } from "react";
+import { useParams, useNavigate } from "react-router-dom";
+import { supabase } from "../supabase";
+import { v4 as uuidv4 } from "uuid";
 
 export default function ModifierCourse() {
-  // ... state init (inchangé)
+  const { id } = useParams();
+  const navigate = useNavigate();
+  const [course, setCourse] = useState(null);
+  const [formats, setFormats] = useState([]);
+  const [newImageFile, setNewImageFile] = useState(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -27,6 +35,7 @@ export default function ModifierCourse() {
             ...format,
             nb_inscrits: count || 0,
             localId: uuidv4(),
+            propose_repas: !!format.prix_repas,
           };
         })
       );
@@ -74,8 +83,6 @@ export default function ModifierCourse() {
         adresse_depart: "",
         adresse_arrivee: "",
         prix: "",
-        nombre_repas: "0",
-        prix_repas: "",
         ravitaillements: "",
         remise_dossards: "",
         dotation: "",
@@ -87,6 +94,9 @@ export default function ModifierCourse() {
         imageFile: null,
         image_url: "",
         nb_inscrits: 0,
+        propose_repas: false,
+        prix_repas: "",
+        nombre_repas: "",
       },
     ]);
   };
@@ -153,9 +163,10 @@ export default function ModifierCourse() {
         reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
       }
 
-      const prix = parseFloat(format.prix || 0);
-      const prix_repas = parseFloat(format.prix_repas || 0);
-      const prix_total_inscription = prix + prix_repas;
+      const prix_repas = format.propose_repas ? parseFloat(format.prix_repas || 0) : 0;
+      const nombre_repas = format.propose_repas ? parseInt(format.nombre_repas || 0) : 0;
+      const prix_total_repas = prix_repas * nombre_repas;
+      const prix_total_inscription = (parseFloat(format.prix) || 0) + prix_total_repas;
 
       const formatData = {
         ...format,
@@ -163,10 +174,10 @@ export default function ModifierCourse() {
         image_url,
         gpx_url,
         reglement_pdf_url,
-        prix,
-        prix_repas,
+        prix_repas: format.propose_repas ? prix_repas : null,
+        nombre_repas: format.propose_repas ? nombre_repas : 0,
+        prix_total_repas,
         prix_total_inscription,
-        nombre_repas: format.nombre_repas,
       };
 
       delete formatData.localId;
@@ -174,6 +185,7 @@ export default function ModifierCourse() {
       delete formatData.imageFile;
       delete formatData.fichier_gpx;
       delete formatData.fichier_reglement;
+      delete formatData.propose_repas;
 
       if (format.id) {
         await supabase.from("formats").update(formatData).eq("id", format.id);
@@ -202,13 +214,44 @@ export default function ModifierCourse() {
         {formats.map((f, index) => (
           <div key={f.localId} className="border p-4 space-y-2 bg-gray-50">
             <input name="nom" value={f.nom} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nom du format" />
-            {/* ... autres champs inchangés ... */}
+            <input type="file" name="imageFile" onChange={(e) => handleFormatChange(index, e)} />
+            <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <textarea name="presentation_parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Présentation du parcours" />
+            <input type="file" name="fichier_gpx" onChange={(e) => handleFormatChange(index, e)} />
+            <input name="type_epreuve" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Type d’épreuve" />
+            <input name="distance_km" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Distance (km)" />
+            <input name="denivele_dplus" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="D+" />
+            <input name="denivele_dmoins" value={f.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="D-" />
+            <input name="adresse_depart" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse de départ" />
+            <input name="adresse_arrivee" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse d’arrivée" />
             <input name="prix" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix (€)" />
-            <input name="nombre_repas" type="number" value={f.nombre_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre total de repas, mettre 0 si pas de repas" />
-            {parseInt(f.nombre_repas || 0) > 0 && (
-              <input name="prix_repas" value={f.prix_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix d’un repas (€)" />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="propose_repas" checked={f.propose_repas || false} onChange={(e) => handleFormatChange(index, e)} /> Proposez-vous des repas ?
+            </label>
+            {f.propose_repas && (
+              <>
+                <input name="nombre_repas" value={f.nombre_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre total de repas (mettre 0 si aucun)" />
+                <input name="prix_repas" value={f.prix_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix d’un repas (€)" />
+              </>
             )}
-            {/* ... autres champs inchangés ... */}
+            <input name="ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Ravitaillements" />
+            <input name="remise_dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Remise des dossards" />
+            <input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Dotation" />
+            <input type="file" name="fichier_reglement" onChange={(e) => handleFormatChange(index, e)} />
+            <input name="nb_max_coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre max de coureurs" />
+            <p className="text-sm text-gray-700">
+              Inscriptions : {f.nb_inscrits} / {f.nb_max_coureurs || "non défini"}
+              {f.nb_max_coureurs && f.nb_inscrits >= parseInt(f.nb_max_coureurs) && (
+                <span className="text-red-600 font-bold"> — Limite atteinte</span>
+              )}
+            </p>
+            <input name="age_minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Âge minimum" />
+            <textarea name="hebergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Hébergements" />
+            <div className="flex gap-4">
+              <button type="button" onClick={() => duplicateFormat(index)} className="bg-blue-500 text-white px-3 py-1 rounded">Dupliquer</button>
+              <button type="button" onClick={() => removeFormat(index)} className="bg-red-500 text-white px-3 py-1 rounded">Supprimer</button>
+            </div>
           </div>
         ))}
 
