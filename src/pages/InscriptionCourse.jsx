@@ -221,4 +221,4 @@ export default function InscriptionCourse() {
           <p><strong>Club :</strong> {profil.club}</p>
           <p><strong>Justificatif :</strong> {profil.justificatif_type}</p>
           {profil.justificatif_type === "licence" && (
-            <p><strong>Licence :</strong> {profil.numero_licence}</p>_
+            <p><strong>Licence :</strong> {profil.numero_licence}</p>
