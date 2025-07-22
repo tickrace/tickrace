@@ -222,3 +222,19 @@ export default function InscriptionCourse() {
           <p><strong>Justificatif :</strong> {profil.justificatif_type}</p>
           {profil.justificatif_type === "licence" && (
             <p><strong>Licence :</strong> {profil.numero_licence}</p>
+          )}
+          <p><strong>Contact urgence :</strong> {profil.contact_urgence_nom} - {profil.contact_urgence_telephone}</p>
+        </div>
+
+        <button
+          type="submit"
+          className="bg-green-600 text-white px-6 py-2 rounded mt-4"
+        >
+          Confirmer mon inscription
+        </button>
+
+        {message && <p className="text-green-700 mt-4">{message}</p>}
+      </form>
+    </div>
+  );
+}
