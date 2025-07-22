@@ -1,10 +1,10 @@
-// src/pages/Signup.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function Signup() {
   const navigate = useNavigate();
+
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [nom, setNom] = useState("");
@@ -14,24 +14,42 @@ export default function Signup() {
   const handleSignup = async (e) => {
     e.preventDefault();
 
-    const { data, error } = await supabase.auth.signUp({
+    // Création du compte utilisateur
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          nom,
-          prenom,
-        },
-      },
     });
 
-    if (error) {
-      console.error("Erreur création compte :", error.message);
-      setMessage("Erreur : " + error.message);
-    } else {
-      setMessage("Compte créé avec succès. Veuillez confirmer votre email.");
-      setTimeout(() => navigate("/login"), 4000);
+    if (signUpError) {
+      console.error("Erreur création compte :", signUpError.message);
+      setMessage("Erreur : " + signUpError.message);
+      return;
     }
+
+    const userId = signUpData.user?.id;
+    if (!userId) {
+      setMessage("Erreur lors de la récupération de l'ID utilisateur.");
+      return;
+    }
+
+    // Insertion du profil utilisateur
+    const { error: profileError } = await supabase.from("profils_utilisateurs").insert([
+      {
+        user_id: userId,
+        nom,
+        prenom,
+        role: "coureur", // rôle par défaut
+      },
+    ]);
+
+    if (profileError) {
+      console.error("Erreur insertion profil :", profileError.message);
+      setMessage("Erreur lors de l'enregistrement du profil.");
+      return;
+    }
+
+    setMessage("Compte créé avec succès. Veuillez confirmer votre email avant de vous connecter.");
+    setTimeout(() => navigate("/login"), 3000);
   };
 
   return (
