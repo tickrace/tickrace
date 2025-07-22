@@ -6,57 +6,49 @@ const UserContext = createContext();
 
 export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
-  const [roles, setRoles] = useState([]);
-  const [activeRole, setActiveRole] = useState(null);
-  const [nom, setNom] = useState("");
-  const [prenom, setPrenom] = useState("");
+  const [profil, setProfil] = useState(null);
+  const [currentRole, setCurrentRole] = useState(null);
 
   useEffect(() => {
-    const getSession = async () => {
-      const { data } = await supabase.auth.getSession();
-      setSession(data.session);
-    };
-
-    getSession();
-
-    const { data: listener } = supabase.auth.onAuthStateChange((event, session) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
+      if (session) fetchProfil(session.user.id);
     });
 
-    return () => {
-      listener.subscription.unsubscribe();
-    };
+    const { data: listener } = supabase.auth.onAuthStateChange(
+      async (_event, session) => {
+        setSession(session);
+        if (session) fetchProfil(session.user.id);
+        else {
+          setProfil(null);
+          setCurrentRole(null);
+        }
+      }
+    );
+
+    return () => listener.subscription.unsubscribe();
   }, []);
 
-  useEffect(() => {
-    const fetchRoles = async () => {
-      if (!session) return;
+  const fetchProfil = async (userId) => {
+    const { data, error } = await supabase
+      .from("profils_utilisateurs")
+      .select("*")
+      .eq("user_id", userId);
 
-      const { data, error } = await supabase
-        .from("profils_utilisateurs")
-        .select("role, nom, prenom")
-        .eq("user_id", session.user.id);
+    if (!error && data) {
+      setProfil(data);
+      // Définir un rôle par défaut (ex : le premier de la liste)
+      if (data.length > 0) setCurrentRole(data[0].role);
+    }
+  };
 
-      if (data) {
-        setRoles(data.map((r) => r.role));
-        setActiveRole(data[0]?.role || null);
-        setNom(data[0]?.nom || "");
-        setPrenom(data[0]?.prenom || "");
-      }
-    };
-
-    fetchRoles();
-  }, [session]);
+  const switchRole = (role) => setCurrentRole(role);
 
   return (
-    <UserContext.Provider
-      value={{ session, roles, activeRole, setActiveRole, nom, prenom }}
-    >
+    <UserContext.Provider value={{ session, profil, currentRole, switchRole }}>
       {children}
     </UserContext.Provider>
   );
 }
 
-export function useUser() {
-  return useContext(UserContext);
-}
+export const useUser = () => useContext(UserContext);
