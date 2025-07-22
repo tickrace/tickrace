@@ -1,4 +1,4 @@
-// src/pages/NouvelleCourse.jsx
+""// src/pages/NouvelleCourse.jsx
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 import { useNavigate } from "react-router-dom";
@@ -41,6 +41,8 @@ export default function NouvelleCourse() {
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
+      nombre_repas: "",
+      prix_repas: "",
     };
   }
 
@@ -126,6 +128,9 @@ export default function NouvelleCourse() {
         }
       }
 
+      const prix_total_repas = parseFloat(format.nombre_repas || 0) * parseFloat(format.prix_repas || 0);
+      const prix_total_inscription = parseFloat(format.prix || 0) + prix_total_repas;
+
       await supabase.from("formats").insert({
         course_id: courseInserted.id,
         nom: format.nom,
@@ -148,6 +153,10 @@ export default function NouvelleCourse() {
         nb_max_coureurs: format.nb_max_coureurs,
         age_minimum: format.age_minimum,
         hebergements: format.hebergements,
+        nombre_repas: format.nombre_repas,
+        prix_repas: format.prix_repas,
+        prix_total_repas,
+        prix_total_inscription,
       });
     }
 
@@ -184,6 +193,8 @@ export default function NouvelleCourse() {
             <input name="adresse_depart" placeholder="Adresse de départ" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="nombre_repas" placeholder="Nombre de repas" value={f.nombre_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="prix_repas" placeholder="Prix d'un repas (€)" value={f.prix_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
