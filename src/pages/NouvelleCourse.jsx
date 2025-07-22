@@ -1,4 +1,4 @@
-""// src/pages/NouvelleCourse.jsx
+// src/pages/NouvelleCourse.jsx
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 import { useNavigate } from "react-router-dom";
@@ -34,6 +34,8 @@ export default function NouvelleCourse() {
       adresse_depart: "",
       adresse_arrivee: "",
       prix: "",
+      nombre_repas: "",
+      prix_repas: "",
       ravitaillements: "",
       remise_dossards: "",
       dotation: "",
@@ -41,8 +43,6 @@ export default function NouvelleCourse() {
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
-      nombre_repas: "",
-      prix_repas: "",
     };
   }
 
@@ -128,8 +128,11 @@ export default function NouvelleCourse() {
         }
       }
 
-      const prix_total_repas = parseFloat(format.nombre_repas || 0) * parseFloat(format.prix_repas || 0);
-      const prix_total_inscription = parseFloat(format.prix || 0) + prix_total_repas;
+      const prix = parseFloat(format.prix || 0);
+      const nombre_repas = parseInt(format.nombre_repas || 0);
+      const prix_repas = parseFloat(format.prix_repas || 0);
+      const prix_total_repas = nombre_repas * prix_repas;
+      const prix_total_inscription = prix + prix_total_repas;
 
       await supabase.from("formats").insert({
         course_id: courseInserted.id,
@@ -145,7 +148,11 @@ export default function NouvelleCourse() {
         denivele_dmoins: format.denivele_dmoins,
         adresse_depart: format.adresse_depart,
         adresse_arrivee: format.adresse_arrivee,
-        prix: format.prix,
+        prix,
+        nombre_repas,
+        prix_repas,
+        prix_total_repas,
+        prix_total_inscription,
         ravitaillements: format.ravitaillements,
         remise_dossards: format.remise_dossards,
         dotation: format.dotation,
@@ -153,10 +160,6 @@ export default function NouvelleCourse() {
         nb_max_coureurs: format.nb_max_coureurs,
         age_minimum: format.age_minimum,
         hebergements: format.hebergements,
-        nombre_repas: format.nombre_repas,
-        prix_repas: format.prix_repas,
-        prix_total_repas,
-        prix_total_inscription,
       });
     }
 
@@ -168,15 +171,16 @@ export default function NouvelleCourse() {
     <div className="p-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Créer une nouvelle épreuve</h1>
       <form onSubmit={handleSubmit} className="space-y-6">
+        {/* Champs épreuve */}
         <input name="nom" placeholder="Nom de l'épreuve" onChange={handleCourseChange} className="border p-2 w-full" />
         <input name="lieu" placeholder="Lieu" onChange={handleCourseChange} className="border p-2 w-full" />
         <input name="departement" placeholder="Département" onChange={handleCourseChange} className="border p-2 w-full" />
         <textarea name="presentation" placeholder="Présentation" onChange={handleCourseChange} className="border p-2 w-full" />
-        <label className="block">
-          Image de l’épreuve :
+        <label className="block">Image de l’épreuve :
           <input type="file" name="image" accept="image/*" onChange={handleCourseChange} />
         </label>
 
+        {/* Formulaire formats */}
         <h2 className="text-xl font-semibold mt-6">Formats de course</h2>
         {formats.map((f, index) => (
           <div key={f.id} className="border p-4 my-4 space-y-2 bg-gray-50 rounded">
@@ -192,9 +196,9 @@ export default function NouvelleCourse() {
             <input name="denivele_dmoins" placeholder="D-" value={f.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="adresse_depart" placeholder="Adresse de départ" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="prix" placeholder="Prix d’inscription (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="nombre_repas" placeholder="Nombre de repas" value={f.nombre_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input name="prix_repas" placeholder="Prix d'un repas (€)" value={f.prix_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="prix_repas" placeholder="Prix unitaire repas (€)" value={f.prix_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
