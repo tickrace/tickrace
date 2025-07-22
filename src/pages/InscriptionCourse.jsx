@@ -20,8 +20,6 @@ export default function InscriptionCourse() {
         .eq("id", courseId)
         .single();
 
-      console.log("DATA COURSE:", data);
-
       if (error || !data) return;
 
       const formatsWithCount = await Promise.all(
@@ -53,9 +51,7 @@ export default function InscriptionCourse() {
         .eq("id", user.id)
         .single();
 
-      if (!error && data) {
-        setProfil(data);
-      }
+      if (!error && data) setProfil(data);
     };
 
     fetchCourseAndFormats();
@@ -74,10 +70,10 @@ export default function InscriptionCourse() {
     const user = session.data?.session?.user;
     if (!user) return;
 
-    const selectedFormat = formats.find(f => f.id === selectedFormatId);
+    const selectedFormat = formats.find((f) => f.id === selectedFormatId);
 
     if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
-      alert("Ce format est complet. Aucune inscription possible.");
+      alert("Ce format est complet.");
       return;
     }
 
@@ -119,13 +115,14 @@ export default function InscriptionCourse() {
       contact_urgence_nom: profil.contact_urgence_nom,
       contact_urgence_telephone: profil.contact_urgence_telephone,
       numero_licence: profil.numero_licence,
+      nombre_repas: nombreRepas,
       prix_total_repas,
     };
 
     const { error } = await supabase.from("inscriptions").insert([inscription]);
 
     if (error) {
-      console.error("Erreur lors de l'inscription :", error);
+      console.error("Erreur inscription :", error);
       alert("Erreur lors de l'inscription");
       return;
     }
@@ -147,14 +144,13 @@ export default function InscriptionCourse() {
         }),
       });
     } catch (e) {
-      console.error("Erreur envoi email :", e);
+      console.error("Erreur email :", e);
     }
 
     setMessage("Inscription enregistrée ! Vous recevrez un email de confirmation.");
   };
 
-  const selectedFormat = formats.find(f => f.id === selectedFormatId);
-  console.log("Selected format:", selectedFormat);
+  const selectedFormat = formats.find((f) => f.id === selectedFormatId);
 
   if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
 
@@ -176,14 +172,8 @@ export default function InscriptionCourse() {
           >
             <option value="">-- Sélectionnez un format --</option>
             {formats.map((f) => (
-              <option
-                key={f.id}
-                value={f.id}
-                disabled={f.inscrits >= f.nb_max_coureurs}
-              >
-                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+
-                ({f.inscrits}/{f.nb_max_coureurs} inscrits)
-                {f.inscrits >= f.nb_max_coureurs ? " - COMPLET" : ""}
+              <option key={f.id} value={f.id} disabled={f.inscrits >= f.nb_max_coureurs}>
+                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ ({f.inscrits}/{f.nb_max_coureurs})
               </option>
             ))}
           </select>
@@ -201,7 +191,7 @@ export default function InscriptionCourse() {
               className="border p-2 w-full mt-1"
             />
             <p className="text-sm text-gray-600">
-              Prix unitaire : {selectedFormat.prix_repas} € — Total : {nombreRepas * selectedFormat.prix_repas} €
+              Prix unitaire : {selectedFormat.prix_repas} € — Total : {(nombreRepas * selectedFormat.prix_repas).toFixed(2)} €
             </p>
           </div>
         )}
@@ -226,10 +216,7 @@ export default function InscriptionCourse() {
           <p><strong>Contact urgence :</strong> {profil.contact_urgence_nom} - {profil.contact_urgence_telephone}</p>
         </div>
 
-        <button
-          type="submit"
-          className="bg-green-600 text-white px-6 py-2 rounded mt-4"
-        >
+        <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded mt-4">
           Confirmer mon inscription
         </button>
 
