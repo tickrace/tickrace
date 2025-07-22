@@ -1,46 +1,53 @@
+// src/pages/Signup.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function Signup() {
   const navigate = useNavigate();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
-  const [selectedRole, setSelectedRole] = useState(""); // "coureur" ou "organisateur"
   const [message, setMessage] = useState(null);
 
   const handleSignup = async (e) => {
     e.preventDefault();
-
-    if (!selectedRole) {
-      setMessage("Veuillez choisir un rôle.");
-      return;
-    }
+    setMessage(null);
 
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: {
-        data: {
-          role: selectedRole,
-          nom,
-          prenom,
-        },
-      },
     });
 
     if (error) {
       console.error("Erreur création compte :", error.message);
       setMessage("Erreur : " + error.message);
-    } else {
-      setMessage(
-        "Compte créé avec succès. Veuillez confirmer votre email avant de vous connecter."
-      );
-      setTimeout(() => navigate("/login"), 3000);
+      return;
     }
+
+    const user = data.user;
+    if (!user) {
+      setMessage("Erreur : utilisateur non trouvé.");
+      return;
+    }
+
+    const { error: insertError } = await supabase.from("profils_utilisateurs").insert({
+      user_id: user.id,
+      nom,
+      prenom,
+      email,
+      roles: ['coureur'],
+    });
+
+    if (insertError) {
+      console.error("Erreur insertion profil :", insertError.message);
+      setMessage("Erreur profil : " + insertError.message);
+      return;
+    }
+
+    setMessage("Compte créé. Veuillez confirmer votre email.");
+    setTimeout(() => navigate("/login"), 3000);
   };
 
   return (
@@ -91,23 +98,9 @@ export default function Signup() {
           />
         </div>
 
-        <div>
-          <label className="block">Choisissez votre rôle :</label>
-          <select
-            value={selectedRole}
-            onChange={(e) => setSelectedRole(e.target.value)}
-            required
-            className="w-full border rounded px-3 py-2"
-          >
-            <option value="">-- Sélectionner --</option>
-            <option value="coureur">Coureur</option>
-            <option value="organisateur">Organisateur</option>
-          </select>
-        </div>
-
         <button
           type="submit"
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
+          className="w-full bg-green-600 text-white py-2 rounded hover:bg-green-700"
         >
           Créer le compte
         </button>
