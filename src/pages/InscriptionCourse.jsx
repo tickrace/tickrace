@@ -16,7 +16,7 @@ export default function InscriptionCourse() {
     const fetchCourseAndFormats = async () => {
       const { data, error } = await supabase
         .from("courses")
-        .select("*, formats(id, nom, date, distance_km, denivele_dplus, nb_max_coureurs, nombre_repas, prix_repas)")
+        .select("*, formats(id, nom, date, distance_km, denivele_dplus, nb_max_coureurs, stock_repas, prix_repas)")
         .eq("id", courseId)
         .single();
 
@@ -117,8 +117,6 @@ export default function InscriptionCourse() {
       numero_licence: profil.numero_licence,
       nombre_repas: nombreRepas,
       prix_total_repas,
- 
-
     };
 
     const { error } = await supabase.from("inscriptions").insert([inscription]);
