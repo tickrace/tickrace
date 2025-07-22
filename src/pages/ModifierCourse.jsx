@@ -35,7 +35,7 @@ export default function ModifierCourse() {
             ...format,
             nb_inscrits: count || 0,
             localId: uuidv4(),
-            propose_repas: !!format.prix_repas,
+            propose_repas: format.prix_repas ? true : false,
           };
         })
       );
@@ -107,6 +107,8 @@ export default function ModifierCourse() {
       ...original,
       localId: uuidv4(),
       id: undefined,
+      nb_inscrits: 0,
+      propose_repas: !!original.prix_repas,
     };
     setFormats((prev) => [...prev, duplicated]);
   };
@@ -163,10 +165,9 @@ export default function ModifierCourse() {
         reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
       }
 
+      const prix = parseFloat(format.prix || 0);
       const prix_repas = format.propose_repas ? parseFloat(format.prix_repas || 0) : 0;
-      const nombre_repas = format.propose_repas ? parseInt(format.nombre_repas || 0) : 0;
-      const prix_total_repas = prix_repas * nombre_repas;
-      const prix_total_inscription = (parseFloat(format.prix) || 0) + prix_total_repas;
+      const prix_total_inscription = prix + prix_repas;
 
       const formatData = {
         ...format,
@@ -174,9 +175,9 @@ export default function ModifierCourse() {
         image_url,
         gpx_url,
         reglement_pdf_url,
+        prix,
         prix_repas: format.propose_repas ? prix_repas : null,
-        nombre_repas: format.propose_repas ? nombre_repas : 0,
-        prix_total_repas,
+        prix_total_repas: prix_repas,
         prix_total_inscription,
       };
 
@@ -190,7 +191,8 @@ export default function ModifierCourse() {
       if (format.id) {
         await supabase.from("formats").update(formatData).eq("id", format.id);
       } else {
-        await supabase.from("formats").insert(formatData);
+        const { id: _, ...formatSansId } = formatData;
+        await supabase.from("formats").insert(formatSansId);
       }
     }
 
@@ -231,7 +233,7 @@ export default function ModifierCourse() {
             </label>
             {f.propose_repas && (
               <>
-                <input name="nombre_repas" value={f.nombre_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre total de repas (mettre 0 si aucun)" />
+                <input name="nombre_repas" value={f.nombre_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre total de repas disponibles" />
                 <input name="prix_repas" value={f.prix_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix d’un repas (€)" />
               </>
             )}
@@ -254,7 +256,6 @@ export default function ModifierCourse() {
             </div>
           </div>
         ))}
-
         <button type="button" onClick={addFormat} className="bg-blue-600 text-white px-4 py-2 rounded">+ Ajouter un format</button>
         <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">✅ Enregistrer les modifications</button>
       </form>
