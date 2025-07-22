@@ -6,8 +6,9 @@ const UserContext = createContext();
 
 export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
-  const [profil, setProfil] = useState(null);
+  const [profil, setProfil] = useState([]); // Tableau d'entrées profils_utilisateurs
   const [currentRole, setCurrentRole] = useState(null);
+  const [availableRoles, setAvailableRoles] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -20,8 +21,9 @@ export function UserProvider({ children }) {
         setSession(session);
         if (session) fetchProfil(session.user.id);
         else {
-          setProfil(null);
+          setProfil([]);
           setCurrentRole(null);
+          setAvailableRoles([]);
         }
       }
     );
@@ -37,15 +39,36 @@ export function UserProvider({ children }) {
 
     if (!error && data) {
       setProfil(data);
-      // Définir un rôle par défaut (ex : le premier de la liste)
-      if (data.length > 0) setCurrentRole(data[0].role);
+      const roles = data.map((entry) => entry.role);
+      setAvailableRoles(roles);
+      if (roles.length > 0) setCurrentRole(roles[0]); // rôle par défaut
     }
   };
 
-  const switchRole = (role) => setCurrentRole(role);
+  const switchRole = (role) => {
+    if (availableRoles.includes(role)) {
+      setCurrentRole(role);
+    }
+  };
+
+  const logout = () => {
+    setSession(null);
+    setProfil([]);
+    setCurrentRole(null);
+    setAvailableRoles([]);
+  };
 
   return (
-    <UserContext.Provider value={{ session, profil, currentRole, switchRole }}>
+    <UserContext.Provider
+      value={{
+        session,
+        profil,
+        currentRole,
+        availableRoles,
+        switchRole,
+        logout,
+      }}
+    >
       {children}
     </UserContext.Provider>
   );
