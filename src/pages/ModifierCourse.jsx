@@ -13,19 +13,37 @@ export default function ModifierCourse() {
 
   useEffect(() => {
     const fetchData = async () => {
-      const { data: courseData } = await supabase.from("courses").select("*").eq("id", id).single();
-      const { data: formatsData } = await supabase.from("formats").select("*").eq("course_id", id);
+      const { data: courseData } = await supabase
+        .from("courses")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      const { data: formatsData } = await supabase
+        .from("formats")
+        .select("*")
+        .eq("course_id", id);
 
       const formatsWithInscrits = await Promise.all(
         formatsData.map(async (format) => {
-          const { count } = await supabase.from("inscriptions").select("*", { count: "exact", head: true }).eq("format_id", format.id);
-          return { ...format, nb_inscrits: count || 0, localId: uuidv4() };
+          const { count } = await supabase
+            .from("inscriptions")
+            .select("*", { count: "exact", head: true })
+            .eq("format_id", format.id);
+
+          return {
+            ...format,
+            nb_inscrits: count || 0,
+            localId: uuidv4(),
+            propose_repas: !!format.propose_repas,
+          };
         })
       );
 
       setCourse(courseData);
       setFormats(formatsWithInscrits);
     };
+
     fetchData();
   }, [id]);
 
@@ -36,14 +54,14 @@ export default function ModifierCourse() {
   };
 
   const handleFormatChange = (index, e) => {
-    const { name, type, value, checked, files } = e.target;
-    const val = type === "checkbox" ? checked : files ? files[0] : value;
+    const { name, value, type, checked, files } = e.target;
     setFormats((prev) => {
       const updated = [...prev];
-      updated[index] = {
-        ...updated[index],
-        [name]: val,
-      };
+      if (type === "checkbox") {
+        updated[index][name] = checked;
+      } else {
+        updated[index][name + (files ? "File" : "")] = files ? files[0] : value;
+      }
       return updated;
     });
   };
@@ -100,19 +118,24 @@ export default function ModifierCourse() {
 
     let imageCourseUrl = course.image_url;
     if (newImageFile) {
-      const { data, error } = await supabase.storage.from("courses").upload(`course-${Date.now()}.jpg`, newImageFile);
+      const { data, error } = await supabase.storage
+        .from("courses")
+        .upload(`course-${Date.now()}.jpg`, newImageFile);
       if (!error) {
         imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
       }
     }
 
-    await supabase.from("courses").update({
-      nom: course.nom,
-      lieu: course.lieu,
-      departement: course.departement,
-      presentation: course.presentation,
-      image_url: imageCourseUrl,
-    }).eq("id", id);
+    await supabase
+      .from("courses")
+      .update({
+        nom: course.nom,
+        lieu: course.lieu,
+        departement: course.departement,
+        presentation: course.presentation,
+        image_url: imageCourseUrl,
+      })
+      .eq("id", id);
 
     for (const format of formats) {
       let image_url = format.image_url;
@@ -120,20 +143,23 @@ export default function ModifierCourse() {
       let reglement_pdf_url = format.reglement_pdf_url;
 
       if (format.imageFile) {
-        const { data } = await supabase.storage.from("formats").upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
+        const { data } = await supabase.storage
+          .from("formats")
+          .upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
         image_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
       }
       if (format.fichier_gpx) {
-        const { data } = await supabase.storage.from("formats").upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+        const { data } = await supabase.storage
+          .from("formats")
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
         gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
       }
       if (format.fichier_reglement) {
-        const { data } = await supabase.storage.from("reglements").upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
+        const { data } = await supabase.storage
+          .from("reglements")
+          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
         reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
       }
-
-      const prix_total_repas = format.propose_repas ? parseFloat(format.prix_repas || 0) * parseInt(format.nb_max_coureurs || 0) : 0;
-      const prix_total_inscription = parseFloat(format.prix || 0) + prix_total_repas;
 
       const formatData = {
         ...format,
@@ -141,9 +167,10 @@ export default function ModifierCourse() {
         image_url,
         gpx_url,
         reglement_pdf_url,
-        prix_total_repas,
-        prix_total_inscription,
       };
+
+      formatData.prix_total_repas = format.propose_repas && format.prix_repas ? parseFloat(format.prix_repas || 0) : 0;
+      formatData.prix_total_inscription = parseFloat(format.prix || 0) + parseFloat(formatData.prix_total_repas || 0);
 
       delete formatData.localId;
       delete formatData.nb_inscrits;
@@ -190,6 +217,23 @@ export default function ModifierCourse() {
             <input name="adresse_depart" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse de départ" />
             <input name="adresse_arrivee" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse d’arrivée" />
             <input name="prix" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix (€)" />
+
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="propose_repas" checked={!!f.propose_repas} onChange={(e) => handleFormatChange(index, e)} />
+              Proposer des repas aux coureurs ?
+            </label>
+
+            {f.propose_repas && (
+              <input
+                type="number"
+                name="prix_repas"
+                placeholder="Prix d’un repas (€)"
+                value={f.prix_repas}
+                onChange={(e) => handleFormatChange(index, e)}
+                className="border p-2 w-full"
+              />
+            )}
+
             <input name="ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Ravitaillements" />
             <input name="remise_dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Remise des dossards" />
             <input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Dotation" />
@@ -203,20 +247,6 @@ export default function ModifierCourse() {
             </p>
             <input name="age_minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Âge minimum" />
             <textarea name="hebergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Hébergements" />
-
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="propose_repas" checked={f.propose_repas || false} onChange={(e) => handleFormatChange(index, e)} /> Proposer un repas ?
-            </label>
-            {f.propose_repas && (
-              <input
-                name="prix_repas"
-                placeholder="Prix du repas (€)"
-                value={f.prix_repas || ""}
-                onChange={(e) => handleFormatChange(index, e)}
-                className="border p-2 w-full"
-              />
-            )}
-
             <div className="flex gap-4">
               <button type="button" onClick={() => duplicateFormat(index)} className="bg-blue-500 text-white px-3 py-1 rounded">Dupliquer</button>
               <button type="button" onClick={() => removeFormat(index)} className="bg-red-500 text-white px-3 py-1 rounded">Supprimer</button>
