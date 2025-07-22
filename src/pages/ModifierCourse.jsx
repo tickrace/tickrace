@@ -1,3 +1,4 @@
+// src/pages/ModifierCourse.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -34,8 +35,7 @@ export default function ModifierCourse() {
             ...format,
             nb_inscrits: count || 0,
             localId: uuidv4(),
-            propose_repas: !!format.propose_repas,
-            prix_repas: format.prix_repas || "",
+            propose_repas: format.prix_repas ? true : false,
           };
         })
       );
@@ -54,14 +54,12 @@ export default function ModifierCourse() {
   };
 
   const handleFormatChange = (index, e) => {
-    const { name, type, value, checked, files } = e.target;
-    const val = type === "checkbox" ? checked : files ? files[0] : value;
-
+    const { name, value, files, type, checked } = e.target;
     setFormats((prev) => {
       const updated = [...prev];
       updated[index] = {
         ...updated[index],
-        [name + (files ? "File" : "")]: val,
+        [name]: type === "checkbox" ? checked : files ? files[0] : value,
       };
       return updated;
     });
@@ -108,10 +106,6 @@ export default function ModifierCourse() {
       ...original,
       localId: uuidv4(),
       id: undefined,
-      imageFile: null,
-      fichier_gpx: null,
-      fichier_reglement: null,
-      nb_inscrits: 0,
     };
     setFormats((prev) => [...prev, duplicated]);
   };
@@ -129,9 +123,7 @@ export default function ModifierCourse() {
         .from("courses")
         .upload(`course-${Date.now()}.jpg`, newImageFile);
       if (!error) {
-        imageCourseUrl = supabase.storage
-          .from("courses")
-          .getPublicUrl(data.path).data.publicUrl;
+        imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
       }
     }
 
@@ -155,29 +147,24 @@ export default function ModifierCourse() {
         const { data } = await supabase.storage
           .from("formats")
           .upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
-        image_url = supabase.storage
-          .from("formats")
-          .getPublicUrl(data.path).data.publicUrl;
+        image_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
       }
       if (format.fichier_gpx) {
         const { data } = await supabase.storage
           .from("formats")
           .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
-        gpx_url = supabase.storage
-          .from("formats")
-          .getPublicUrl(data.path).data.publicUrl;
+        gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
       }
       if (format.fichier_reglement) {
         const { data } = await supabase.storage
           .from("reglements")
-          .upload(
-            `reglement-${Date.now()}-${format.nom}.pdf`,
-            format.fichier_reglement
-          );
-        reglement_pdf_url = supabase.storage
-          .from("reglements")
-          .getPublicUrl(data.path).data.publicUrl;
+          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
+        reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
       }
+
+      const prix_total_repas = format.propose_repas && format.prix_repas
+        ? parseFloat(format.prix_repas) * 1
+        : 0;
 
       const formatData = {
         ...format,
@@ -185,6 +172,10 @@ export default function ModifierCourse() {
         image_url,
         gpx_url,
         reglement_pdf_url,
+        prix_repas: format.propose_repas ? format.prix_repas : null,
+        prix_total_repas: prix_total_repas,
+        prix_total_inscription:
+          (parseFloat(format.prix) || 0) + prix_total_repas,
       };
 
       delete formatData.localId;
@@ -192,6 +183,7 @@ export default function ModifierCourse() {
       delete formatData.imageFile;
       delete formatData.fichier_gpx;
       delete formatData.fichier_reglement;
+      delete formatData.propose_repas;
 
       if (format.id) {
         await supabase.from("formats").update(formatData).eq("id", format.id);
@@ -232,6 +224,12 @@ export default function ModifierCourse() {
             <input name="adresse_depart" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse de départ" />
             <input name="adresse_arrivee" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse d’arrivée" />
             <input name="prix" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix (€)" />
+            <label className="flex items-center gap-2">
+              <input type="checkbox" name="propose_repas" checked={f.propose_repas || false} onChange={(e) => handleFormatChange(index, e)} /> Proposez-vous des repas ?
+            </label>
+            {f.propose_repas && (
+              <input name="prix_repas" value={f.prix_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix du repas (€)" />
+            )}
             <input name="ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Ravitaillements" />
             <input name="remise_dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Remise des dossards" />
             <input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Dotation" />
@@ -245,16 +243,7 @@ export default function ModifierCourse() {
             </p>
             <input name="age_minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Âge minimum" />
             <textarea name="hebergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Hébergements" />
-
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="propose_repas" checked={f.propose_repas} onChange={(e) => handleFormatChange(index, e)} />
-              Propose des repas
-            </label>
-            {f.propose_repas && (
-              <input name="prix_repas" value={f.prix_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix du repas (€)" />
-            )}
-
-            <div className="flex gap-4 mt-2">
+            <div className="flex gap-4">
               <button type="button" onClick={() => duplicateFormat(index)} className="bg-blue-500 text-white px-3 py-1 rounded">Dupliquer</button>
               <button type="button" onClick={() => removeFormat(index)} className="bg-red-500 text-white px-3 py-1 rounded">Supprimer</button>
             </div>
