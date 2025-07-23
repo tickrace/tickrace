@@ -1,3 +1,4 @@
+// src/components/Navbar.jsx
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -5,7 +6,7 @@ import toast from "react-hot-toast";
 import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { session, currentRole, switchRole, profil } = useUser();
+  const { session, role, setRole } = useUser();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -13,12 +14,6 @@ export default function Navbar() {
     await supabase.auth.signOut();
     toast.success("Déconnecté !");
     navigate("/login");
-  };
-
-  const handleRoleChange = (e) => {
-    const selectedRole = e.target.value;
-    switchRole(selectedRole);
-    toast.success(`Rôle changé : ${selectedRole}`);
   };
 
   return (
@@ -36,34 +31,32 @@ export default function Navbar() {
         <div className="mt-2 lg:mt-0 lg:flex lg:space-x-4">
           <Link to="/courses" className="block px-3 py-2 hover:bg-gray-800 rounded">Courses</Link>
 
-          {session && currentRole === "coureur" && (
+          {session && role === "coureur" && (
             <Link to="/monprofilcoureur" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon Profil</Link>
           )}
 
-          {session && currentRole === "organisateur" && (
+          {session && role === "organisateur" && (
             <>
               <Link to="/organisateur/mon-espace" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon espace</Link>
               <Link to="/organisateur/nouvelle-course" className="block px-3 py-2 hover:bg-gray-800 rounded">Créer une course</Link>
             </>
           )}
 
-          {session && currentRole === "admin" && (
+          {session && role === "admin" && (
             <Link to="/admin" className="block px-3 py-2 hover:bg-gray-800 rounded">Admin</Link>
           )}
         </div>
 
         <div className="mt-3 lg:mt-0 lg:ml-4 flex flex-col lg:flex-row lg:items-center lg:space-x-4">
-          {session && Array.isArray(profil) && profil.length > 0 && (
+          {session && (
             <select
-              onChange={handleRoleChange}
-              value={currentRole || ""}
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
               className="text-black px-2 py-1 rounded"
             >
-              {profil.map(({ role }) => (
-                <option key={role} value={role}>
-                  {role.charAt(0).toUpperCase() + role.slice(1)}
-                </option>
-              ))}
+              <option value="coureur">Coureur</option>
+              <option value="organisateur">Organisateur</option>
+              <option value="admin">Admin</option>
             </select>
           )}
 
@@ -75,7 +68,7 @@ export default function Navbar() {
           ) : (
             <button
               onClick={handleLogout}
-              className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded mt-2 lg:mt-0"
+              className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
             >
               Déconnexion
             </button>
