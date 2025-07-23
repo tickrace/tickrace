@@ -6,7 +6,7 @@ const UserContext = createContext();
 
 export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
-  const [profil, setProfil] = useState(null); // liste des rôles
+  const [availableRoles, setAvailableRoles] = useState([]); // tous les rôles disponibles
   const [currentRole, setCurrentRole] = useState(null);
 
   useEffect(() => {
@@ -39,27 +39,33 @@ export function UserProvider({ children }) {
       .eq("user_id", userId);
 
     if (!error) {
-      setProfil(data);
-      // Si un seul rôle, on le sélectionne automatiquement
-      if (data.length === 1) {
-        setCurrentRole(data[0].role);
+      const roles = data.map((item) => item.role).filter(Boolean); // retirer les null
+      setAvailableRoles(roles);
+      if (roles.length === 1) {
+        setCurrentRole(roles[0]);
+      } else if (roles.length > 1 && !currentRole) {
+        setCurrentRole(roles[0]); // valeur par défaut
       }
     } else {
       toast.error("Erreur lors du chargement des rôles");
     }
   };
 
-  const switchRole = (role) => {
+  const switchRole = async (role) => {
     setCurrentRole(role);
+    // Optionnel : tu peux aussi mettre à jour la BDD ici si besoin
+    // par exemple pour conserver le rôle actif
   };
 
   return (
     <UserContext.Provider
       value={{
         session,
-        profil,
+        availableRoles,
         currentRole,
+        setCurrentRole,
         switchRole,
+        fetchRoles,
       }}
     >
       {children}
