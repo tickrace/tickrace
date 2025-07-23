@@ -1,84 +1,100 @@
-// src/components/Navbar.jsx
-
-import React, { useContext, useState } from "react";
+import React, { useContext } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { UserContext } from "../contexts/UserContext";
+import toast from "react-hot-toast";
 
 export default function Navbar() {
+  const { session, currentRole, setCurrentRole, profils, setProfils } = useContext(UserContext);
   const navigate = useNavigate();
-  const { session, profil, currentRole, switchRole } = useContext(UserContext);
-  const [roleChoiceVisible, setRoleChoiceVisible] = useState(false);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/login");
   };
 
+  const handleRoleChange = async (e) => {
+    const newRole = e.target.value;
+
+    if (!session || !session.user) return;
+
+    const { error } = await supabase
+      .from("profils_utilisateurs")
+      .upsert({ user_id: session.user.id, role: newRole })
+      .eq("user_id", session.user.id);
+
+    if (error) {
+      toast.error("Erreur lors de la mise à jour du rôle.");
+      return;
+    }
+
+    setCurrentRole(newRole);
+    toast.success(`Rôle défini : ${newRole}`);
+  };
+
   return (
-    <nav className="bg-gray-800 text-white px-4 py-3 flex items-center justify-between">
+    <nav className="bg-gray-900 text-white p-4 flex items-center justify-between">
       <Link to="/" className="text-xl font-bold">
         Tickrace
       </Link>
 
       {session && (
         <div className="flex items-center space-x-4">
-          {/* Menu selon le rôle */}
+          {/* Menu dynamique en fonction du rôle */}
           {currentRole === "coureur" && (
             <>
-              <Link to="/monprofilcoureur" className="hover:underline">
-                Mon profil coureur
-              </Link>
-              <Link to="/courses" className="hover:underline">
-                Courses
-              </Link>
+              <Link to="/monprofilcoureur">Mon profil coureur</Link>
+              <Link to="/courses">Courses</Link>
             </>
           )}
 
           {currentRole === "organisateur" && (
             <>
-              <Link to="/organisateur/mon-espace" className="hover:underline">
-                Espace organisateur
-              </Link>
-              <Link to="/organisateur/nouvelle-course" className="hover:underline">
-                Nouvelle épreuve
-              </Link>
+              <Link to="/monprofilorganisateur">Mon profil organisateur</Link>
+              <Link to="/organisateur/mon-espace">Mes épreuves</Link>
             </>
           )}
 
-          {/* Sélecteur de rôle visible même si currentRole défini */}
-          {profil && (
+          {currentRole === "admin" && (
+            <>
+              <Link to="/admin">Admin</Link>
+            </>
+          )}
+
+          {/* Sélecteur si le rôle est NULL */}
+          {currentRole === null && (
             <select
-              value={currentRole || ""}
-              onChange={(e) => switchRole(e.target.value)}
-              className="text-black px-2 py-1 rounded"
+              onChange={handleRoleChange}
+              defaultValue=""
+              className="bg-white text-black rounded px-2 py-1"
             >
-              <option value="">Choisir un rôle</option>
-              {[...new Set(profil.map((p) => p.role))].map((role) => (
-                <option key={role} value={role}>
-                  {role}
-                </option>
-              ))}
+              <option value="" disabled>
+                Choisir un rôle
+              </option>
+              <option value="coureur">Coureur</option>
+              <option value="organisateur">Organisateur</option>
+            </select>
+          )}
+
+          {/* Sélecteur de rôle même après définition */}
+          {currentRole && (
+            <select
+              value={currentRole}
+              onChange={handleRoleChange}
+              className="bg-white text-black rounded px-2 py-1"
+            >
+              <option value="coureur">Coureur</option>
+              <option value="organisateur">Organisateur</option>
+              <option value="admin">Admin</option>
             </select>
           )}
 
           <button
             onClick={handleLogout}
-            className="bg-red-600 px-3 py-1 rounded hover:bg-red-700"
+            className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded"
           >
             Déconnexion
           </button>
-        </div>
-      )}
-
-      {!session && (
-        <div className="space-x-3">
-          <Link to="/login" className="hover:underline">
-            Connexion
-          </Link>
-          <Link to="/signup" className="hover:underline">
-            Inscription
-          </Link>
         </div>
       )}
     </nav>
