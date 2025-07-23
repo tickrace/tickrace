@@ -1,4 +1,3 @@
-// src/contexts/UserContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
@@ -6,7 +5,10 @@ const UserContext = createContext();
 
 export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
-  const [role, setRole] = useState("coureur"); // Valeur par défaut
+  const [currentRole, setCurrentRole] = useState(() => {
+    // Charger le rôle sauvegardé au premier chargement
+    return localStorage.getItem("tickrace_role") || "coureur";
+  });
 
   useEffect(() => {
     const getSession = async () => {
@@ -25,8 +27,19 @@ export function UserProvider({ children }) {
     };
   }, []);
 
+  const switchRole = (role) => {
+    setCurrentRole(role);
+    localStorage.setItem("tickrace_role", role); // Sauvegarde persistante
+  };
+
   return (
-    <UserContext.Provider value={{ session, role, setRole }}>
+    <UserContext.Provider
+      value={{
+        session,
+        currentRole,
+        switchRole,
+      }}
+    >
       {children}
     </UserContext.Provider>
   );
