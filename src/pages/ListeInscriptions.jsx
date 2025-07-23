@@ -13,7 +13,7 @@ export default function ListeInscriptions() {
       if (error) {
         console.error("Erreur Supabase :", error);
       } else {
-        console.log("Inscriptions avec formats :", data);
+        console.log("Inscriptions récupérées avec formats :", data);
         setInscriptions(data);
       }
     };
@@ -23,7 +23,7 @@ export default function ListeInscriptions() {
 
   return (
     <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Toutes les inscriptions (avec format)</h1>
+      <h1 className="text-2xl font-bold mb-4">Inscriptions (avec format)</h1>
 
       {inscriptions.length === 0 ? (
         <p>Aucune inscription chargée.</p>
