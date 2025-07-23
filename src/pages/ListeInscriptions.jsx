@@ -1,11 +1,22 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import { Download, Plus } from "lucide-react";
+import { Download, Plus, X } from "lucide-react";
 
 export default function ListeInscriptions() {
   const [inscriptions, setInscriptions] = useState([]);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [recherche, setRecherche] = useState("");
+  const [modalOuverte, setModalOuverte] = useState(false);
+  const [formatActif, setFormatActif] = useState(null);
+  const [nouveauCoureur, setNouveauCoureur] = useState({
+    nom: "",
+    prenom: "",
+    email: "",
+    format_id: "",
+  });
+
+  const [pageActuelle, setPageActuelle] = useState({}); // format_id => page
+  const pageTaille = 10;
 
   useEffect(() => {
     fetchInscriptions();
@@ -14,7 +25,7 @@ export default function ListeInscriptions() {
   const fetchInscriptions = async () => {
     const { data, error } = await supabase
       .from("inscriptions")
-      .select(`*, formats ( id, nom )`);
+      .select("*, formats(id, nom)");
 
     if (!error && data) {
       setInscriptions(data);
@@ -26,15 +37,28 @@ export default function ListeInscriptions() {
       .from("inscriptions")
       .update({ statut: nouveauStatut })
       .eq("id", id);
-
     if (!error) {
       setInscriptions((prev) =>
-        prev.map((i) =>
-          i.id === id ? { ...i, statut: nouveauStatut } : i
-        )
+        prev.map((i) => (i.id === id ? { ...i, statut: nouveauStatut } : i))
       );
     }
   };
+
+  const inscriptionsFiltrees = inscriptions.filter((i) =>
+    (filtreStatut ? i.statut === filtreStatut : true) &&
+    (recherche
+      ? `${i.nom} ${i.prenom} ${i.email} ${i.ville}`
+          .toLowerCase()
+          .includes(recherche.toLowerCase())
+      : true)
+  );
+
+  const formatsGroupes = inscriptionsFiltrees.reduce((acc, curr) => {
+    const formatNom = curr.formats?.nom || "Format inconnu";
+    if (!acc[formatNom]) acc[formatNom] = { id: curr.formats?.id, lignes: [] };
+    acc[formatNom].lignes.push(curr);
+    return acc;
+  }, {});
 
   const handleExportCSV = () => {
     const enTetes = [
@@ -84,19 +108,26 @@ export default function ListeInscriptions() {
     URL.revokeObjectURL(url);
   };
 
-  const inscriptionsFiltrees = inscriptions.filter((i) =>
-    (filtreStatut ? i.statut === filtreStatut : true) &&
-    (recherche
-      ? `${i.nom} ${i.prenom} ${i.email} ${i.ville}`.toLowerCase().includes(recherche.toLowerCase())
-      : true)
-  );
+  const ouvrirModal = (format_id) => {
+    setFormatActif(format_id);
+    setNouveauCoureur({ nom: "", prenom: "", email: "", format_id });
+    setModalOuverte(true);
+  };
 
-  const formatsGroupes = inscriptionsFiltrees.reduce((acc, curr) => {
-    const formatNom = curr.formats?.nom || "Format inconnu";
-    if (!acc[formatNom]) acc[formatNom] = [];
-    acc[formatNom].push(curr);
-    return acc;
-  }, {});
+  const ajouterCoureur = async () => {
+    const { error } = await supabase.from("inscriptions").insert([nouveauCoureur]);
+    if (!error) {
+      setModalOuverte(false);
+      fetchInscriptions();
+    }
+  };
+
+  const changerPage = (formatId, direction) => {
+    setPageActuelle((prev) => ({
+      ...prev,
+      [formatId]: Math.max(0, (prev[formatId] || 0) + direction),
+    }));
+  };
 
   return (
     <div className="p-4">
@@ -120,7 +151,6 @@ export default function ListeInscriptions() {
           <option value="validée">Validée</option>
           <option value="refusée">Refusée</option>
         </select>
-
         <button
           onClick={handleExportCSV}
           className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2"
@@ -129,65 +159,116 @@ export default function ListeInscriptions() {
         </button>
       </div>
 
-      {Object.entries(formatsGroupes).map(([formatNom, inscriptions]) => (
-        <div key={formatNom} className="mb-8">
-          <div className="flex items-center justify-between mb-2">
-            <h2 className="text-xl font-semibold">{formatNom}</h2>
-            <button className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded flex items-center gap-2">
-              <Plus size={16} /> Ajouter un coureur
+      {Object.entries(formatsGroupes).map(([formatNom, { id: formatId, lignes }]) => {
+        const page = pageActuelle[formatId] || 0;
+        const totalPages = Math.ceil(lignes.length / pageTaille);
+        const affichage = lignes.slice(page * pageTaille, (page + 1) * pageTaille);
+
+        return (
+          <div key={formatNom} className="mb-8">
+            <div className="flex items-center justify-between mb-2">
+              <h2 className="text-xl font-semibold">{formatNom}</h2>
+              <button
+                onClick={() => ouvrirModal(formatId)}
+                className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded flex items-center gap-2"
+              >
+                <Plus size={16} /> Ajouter un coureur
+              </button>
+            </div>
+
+            <div className="overflow-auto">
+              <table className="min-w-[1000px] w-full table-auto border-collapse border">
+                <thead className="bg-gray-200">
+                  <tr>
+                    <th className="border px-2 py-1">Nom</th>
+                    <th className="border px-2 py-1">Prénom</th>
+                    <th className="border px-2 py-1">Email</th>
+                    <th className="border px-2 py-1">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {affichage.map((i) => (
+                    <tr key={i.id} className="border-t">
+                      <td className="border px-2 py-1">{i.nom}</td>
+                      <td className="border px-2 py-1">{i.prenom}</td>
+                      <td className="border px-2 py-1">{i.email}</td>
+                      <td className="border px-2 py-1">
+                        <select
+                          value={i.statut}
+                          onChange={(e) => handleStatutChange(i.id, e.target.value)}
+                          className="border rounded px-1"
+                        >
+                          <option value="en attente">En attente</option>
+                          <option value="validée">Validée</option>
+                          <option value="refusée">Refusée</option>
+                        </select>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="flex justify-between mt-2 text-sm">
+                <button
+                  onClick={() => changerPage(formatId, -1)}
+                  disabled={page === 0}
+                  className="px-2 py-1 border rounded disabled:opacity-50"
+                >
+                  ◀ Précédent
+                </button>
+                <span>Page {page + 1} / {totalPages}</span>
+                <button
+                  onClick={() => changerPage(formatId, 1)}
+                  disabled={page + 1 >= totalPages}
+                  className="px-2 py-1 border rounded disabled:opacity-50"
+                >
+                  Suivant ▶
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+
+      {modalOuverte && (
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center z-50">
+          <div className="bg-white p-6 rounded-lg w-[400px] relative">
+            <button
+              onClick={() => setModalOuverte(false)}
+              className="absolute top-2 right-2 text-gray-500 hover:text-black"
+            >
+              <X />
+            </button>
+            <h3 className="text-lg font-semibold mb-4">Ajouter un coureur</h3>
+            <input
+              type="text"
+              placeholder="Nom"
+              value={nouveauCoureur.nom}
+              onChange={(e) => setNouveauCoureur({ ...nouveauCoureur, nom: e.target.value })}
+              className="border w-full mb-2 px-3 py-1 rounded"
+            />
+            <input
+              type="text"
+              placeholder="Prénom"
+              value={nouveauCoureur.prenom}
+              onChange={(e) => setNouveauCoureur({ ...nouveauCoureur, prenom: e.target.value })}
+              className="border w-full mb-2 px-3 py-1 rounded"
+            />
+            <input
+              type="email"
+              placeholder="Email"
+              value={nouveauCoureur.email}
+              onChange={(e) => setNouveauCoureur({ ...nouveauCoureur, email: e.target.value })}
+              className="border w-full mb-4 px-3 py-1 rounded"
+            />
+            <button
+              onClick={ajouterCoureur}
+              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full"
+            >
+              Ajouter
             </button>
           </div>
-
-          <div className="overflow-auto">
-            <table className="min-w-[1000px] w-full table-auto border-collapse border">
-              <thead className="bg-gray-200">
-                <tr>
-                  <th className="border px-2 py-1">Dossard</th>
-                  <th className="border px-2 py-1">Nom</th>
-                  <th className="border px-2 py-1">Prénom</th>
-                  <th className="border px-2 py-1">Genre</th>
-                  <th className="border px-2 py-1">Date naissance</th>
-                  <th className="border px-2 py-1">Nationalité</th>
-                  <th className="border px-2 py-1">Email</th>
-                  <th className="border px-2 py-1">Téléphone</th>
-                  <th className="border px-2 py-1">Ville</th>
-                  <th className="border px-2 py-1">Statut</th>
-                  <th className="border px-2 py-1">Repas</th>
-                  <th className="border px-2 py-1">Total repas</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inscriptions.map((i) => (
-                  <tr key={i.id} className="border-t">
-                    <td className="border px-2 py-1">{i.dossard || ""}</td>
-                    <td className="border px-2 py-1">{i.nom}</td>
-                    <td className="border px-2 py-1">{i.prenom}</td>
-                    <td className="border px-2 py-1">{i.genre}</td>
-                    <td className="border px-2 py-1">{i.date_naissance}</td>
-                    <td className="border px-2 py-1">{i.nationalite}</td>
-                    <td className="border px-2 py-1">{i.email}</td>
-                    <td className="border px-2 py-1">{i.telephone}</td>
-                    <td className="border px-2 py-1">{i.ville}</td>
-                    <td className="border px-2 py-1">
-                      <select
-                        value={i.statut}
-                        onChange={(e) => handleStatutChange(i.id, e.target.value)}
-                        className="border rounded px-1"
-                      >
-                        <option value="en attente">En attente</option>
-                        <option value="validée">Validée</option>
-                        <option value="refusée">Refusée</option>
-                      </select>
-                    </td>
-                    <td className="border px-2 py-1">{i.nombre_repas || 0}</td>
-                    <td className="border px-2 py-1">{i.prix_total_repas || 0} €</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
-      ))}
+      )}
     </div>
   );
 }
