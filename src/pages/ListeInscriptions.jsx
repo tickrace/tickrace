@@ -1,23 +1,24 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import { Download } from "lucide-react";
+import { Download, Plus } from "lucide-react";
 
-export default function ListeInscriptions({ formatId }) {
+export default function ListeInscriptions() {
   const [inscriptions, setInscriptions] = useState([]);
   const [filtreStatut, setFiltreStatut] = useState("");
   const [recherche, setRecherche] = useState("");
 
   useEffect(() => {
     fetchInscriptions();
-  }, [formatId]);
+  }, []);
 
   const fetchInscriptions = async () => {
     const { data, error } = await supabase
       .from("inscriptions")
-      .select(`*, formats ( nom )`)
-      .eq("format_id", formatId);
+      .select(`*, formats ( id, nom )`);
 
-    if (!error) setInscriptions(data);
+    if (!error && data) {
+      setInscriptions(data);
+    }
   };
 
   const handleStatutChange = async (id, nouveauStatut) => {
@@ -43,7 +44,7 @@ export default function ListeInscriptions({ formatId }) {
       "Date inscription", "Nb repas", "Total repas (€)"
     ];
 
-    const lignes = inscriptions.map((i) => [
+    const lignes = inscriptionsFiltrees.map((i) => [
       i.dossard || "",
       i.formats?.nom || "",
       i.nom || "",
@@ -83,15 +84,19 @@ export default function ListeInscriptions({ formatId }) {
     URL.revokeObjectURL(url);
   };
 
-  const inscriptionsFiltrees = inscriptions
-    .filter((i) =>
-      (filtreStatut ? i.statut === filtreStatut : true) &&
-      (recherche
-        ? `${i.nom} ${i.prenom} ${i.email} ${i.ville}`
-            .toLowerCase()
-            .includes(recherche.toLowerCase())
-        : true)
-    );
+  const inscriptionsFiltrees = inscriptions.filter((i) =>
+    (filtreStatut ? i.statut === filtreStatut : true) &&
+    (recherche
+      ? `${i.nom} ${i.prenom} ${i.email} ${i.ville}`.toLowerCase().includes(recherche.toLowerCase())
+      : true)
+  );
+
+  const formatsGroupes = inscriptionsFiltrees.reduce((acc, curr) => {
+    const formatNom = curr.formats?.nom || "Format inconnu";
+    if (!acc[formatNom]) acc[formatNom] = [];
+    acc[formatNom].push(curr);
+    return acc;
+  }, {});
 
   return (
     <div className="p-4">
@@ -105,7 +110,6 @@ export default function ListeInscriptions({ formatId }) {
           onChange={(e) => setRecherche(e.target.value)}
           className="border px-3 py-2 rounded w-full md:w-1/2"
         />
-
         <select
           value={filtreStatut}
           onChange={(e) => setFiltreStatut(e.target.value)}
@@ -125,76 +129,65 @@ export default function ListeInscriptions({ formatId }) {
         </button>
       </div>
 
-      <div className="overflow-auto">
-        <table className="min-w-[1000px] w-full table-auto border-collapse border">
-          <thead className="bg-gray-200">
-            <tr>
-              <th className="border px-2 py-1">Dossard</th>
-              <th className="border px-2 py-1">Format</th>
-              <th className="border px-2 py-1">Nom</th>
-              <th className="border px-2 py-1">Prénom</th>
-              <th className="border px-2 py-1">Genre</th>
-              <th className="border px-2 py-1">Date naissance</th>
-              <th className="border px-2 py-1">Nationalité</th>
-              <th className="border px-2 py-1">Email</th>
-              <th className="border px-2 py-1">Téléphone</th>
-              <th className="border px-2 py-1">Adresse</th>
-              <th className="border px-2 py-1">Code postal</th>
-              <th className="border px-2 py-1">Ville</th>
-              <th className="border px-2 py-1">Pays</th>
-              <th className="border px-2 py-1">Club</th>
-              <th className="border px-2 py-1">Justificatif</th>
-              <th className="border px-2 py-1">Licence</th>
-              <th className="border px-2 py-1">Contact urgence</th>
-              <th className="border px-2 py-1">Statut</th>
-              <th className="border px-2 py-1">Date inscription</th>
-              <th className="border px-2 py-1">Repas</th>
-              <th className="border px-2 py-1">Total repas</th>
-            </tr>
-          </thead>
-          <tbody>
-            {inscriptionsFiltrees.map((i) => (
-              <tr key={i.id} className="border-t">
-                <td className="border px-2 py-1">{i.dossard || ""}</td>
-                <td className="border px-2 py-1">{i.formats?.nom || ""}</td>
-                <td className="border px-2 py-1">{i.nom}</td>
-                <td className="border px-2 py-1">{i.prenom}</td>
-                <td className="border px-2 py-1">{i.genre}</td>
-                <td className="border px-2 py-1">{i.date_naissance}</td>
-                <td className="border px-2 py-1">{i.nationalite}</td>
-                <td className="border px-2 py-1">{i.email}</td>
-                <td className="border px-2 py-1">{i.telephone}</td>
-                <td className="border px-2 py-1">{i.adresse}</td>
-                <td className="border px-2 py-1">{i.code_postal}</td>
-                <td className="border px-2 py-1">{i.ville}</td>
-                <td className="border px-2 py-1">{i.pays}</td>
-                <td className="border px-2 py-1">{i.club}</td>
-                <td className="border px-2 py-1">{i.justificatif_type}</td>
-                <td className="border px-2 py-1">{i.numero_licence}</td>
-                <td className="border px-2 py-1">
-                  {i.contact_urgence_nom} ({i.contact_urgence_telephone})
-                </td>
-                <td className="border px-2 py-1">
-                  <select
-                    value={i.statut}
-                    onChange={(e) => handleStatutChange(i.id, e.target.value)}
-                    className="border rounded px-1"
-                  >
-                    <option value="en attente">En attente</option>
-                    <option value="validée">Validée</option>
-                    <option value="refusée">Refusée</option>
-                  </select>
-                </td>
-                <td className="border px-2 py-1">
-                  {i.created_at ? new Date(i.created_at).toLocaleString() : ""}
-                </td>
-                <td className="border px-2 py-1">{i.nombre_repas || 0}</td>
-                <td className="border px-2 py-1">{i.prix_total_repas || 0} €</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      {Object.entries(formatsGroupes).map(([formatNom, inscriptions]) => (
+        <div key={formatNom} className="mb-8">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="text-xl font-semibold">{formatNom}</h2>
+            <button className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded flex items-center gap-2">
+              <Plus size={16} /> Ajouter un coureur
+            </button>
+          </div>
+
+          <div className="overflow-auto">
+            <table className="min-w-[1000px] w-full table-auto border-collapse border">
+              <thead className="bg-gray-200">
+                <tr>
+                  <th className="border px-2 py-1">Dossard</th>
+                  <th className="border px-2 py-1">Nom</th>
+                  <th className="border px-2 py-1">Prénom</th>
+                  <th className="border px-2 py-1">Genre</th>
+                  <th className="border px-2 py-1">Date naissance</th>
+                  <th className="border px-2 py-1">Nationalité</th>
+                  <th className="border px-2 py-1">Email</th>
+                  <th className="border px-2 py-1">Téléphone</th>
+                  <th className="border px-2 py-1">Ville</th>
+                  <th className="border px-2 py-1">Statut</th>
+                  <th className="border px-2 py-1">Repas</th>
+                  <th className="border px-2 py-1">Total repas</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inscriptions.map((i) => (
+                  <tr key={i.id} className="border-t">
+                    <td className="border px-2 py-1">{i.dossard || ""}</td>
+                    <td className="border px-2 py-1">{i.nom}</td>
+                    <td className="border px-2 py-1">{i.prenom}</td>
+                    <td className="border px-2 py-1">{i.genre}</td>
+                    <td className="border px-2 py-1">{i.date_naissance}</td>
+                    <td className="border px-2 py-1">{i.nationalite}</td>
+                    <td className="border px-2 py-1">{i.email}</td>
+                    <td className="border px-2 py-1">{i.telephone}</td>
+                    <td className="border px-2 py-1">{i.ville}</td>
+                    <td className="border px-2 py-1">
+                      <select
+                        value={i.statut}
+                        onChange={(e) => handleStatutChange(i.id, e.target.value)}
+                        className="border rounded px-1"
+                      >
+                        <option value="en attente">En attente</option>
+                        <option value="validée">Validée</option>
+                        <option value="refusée">Refusée</option>
+                      </select>
+                    </td>
+                    <td className="border px-2 py-1">{i.nombre_repas || 0}</td>
+                    <td className="border px-2 py-1">{i.prix_total_repas || 0} €</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
