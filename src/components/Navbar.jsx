@@ -43,6 +43,7 @@ export default function Navbar() {
             <>
               <Link to="/organisateur/mon-espace" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon espace</Link>
               <Link to="/organisateur/nouvelle-course" className="block px-3 py-2 hover:bg-gray-800 rounded">Créer une course</Link>
+              <Link to="/monprofilorganisateur" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon Profil</Link>
             </>
           )}
 
