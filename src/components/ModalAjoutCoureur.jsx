@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { X } from "lucide-react";
 
+
 /**
  * Modal d’ajout manuel d’un coureur à un format.
  *
