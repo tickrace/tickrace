@@ -8,12 +8,12 @@ export default function ListeInscriptions() {
     const fetchInscriptions = async () => {
       const { data, error } = await supabase
         .from("inscriptions")
-        .select("*");
+        .select("*, formats(id, nom)");
 
       if (error) {
         console.error("Erreur Supabase :", error);
       } else {
-        console.log("Données récupérées :", data);
+        console.log("Inscriptions avec formats :", data);
         setInscriptions(data);
       }
     };
@@ -23,7 +23,7 @@ export default function ListeInscriptions() {
 
   return (
     <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Test : toutes les inscriptions</h1>
+      <h1 className="text-2xl font-bold mb-4">Toutes les inscriptions (avec format)</h1>
 
       {inscriptions.length === 0 ? (
         <p>Aucune inscription chargée.</p>
@@ -34,6 +34,7 @@ export default function ListeInscriptions() {
               <th className="border px-2 py-1">Nom</th>
               <th className="border px-2 py-1">Prénom</th>
               <th className="border px-2 py-1">Email</th>
+              <th className="border px-2 py-1">Format</th>
               <th className="border px-2 py-1">Statut</th>
             </tr>
           </thead>
@@ -43,6 +44,7 @@ export default function ListeInscriptions() {
                 <td className="border px-2 py-1">{i.nom}</td>
                 <td className="border px-2 py-1">{i.prenom}</td>
                 <td className="border px-2 py-1">{i.email}</td>
+                <td className="border px-2 py-1">{i.formats?.nom || "?"}</td>
                 <td className="border px-2 py-1">{i.statut}</td>
               </tr>
             ))}
