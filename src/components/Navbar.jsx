@@ -40,7 +40,7 @@ export default function Navbar() {
       <div
         className={`${
           isMenuOpen ? "block" : "hidden"
-        } absolute top-full left-0 w-full bg-black text-white md:static md:flex md:items-center md:space-x-4 md:w-auto md:bg-transparent`}
+        } absolute top-full left-0 w-full bg-black text-white md:static md:flex md:items-center md:space-x-4 md:w-auto md:bg-transparent z-50`}
       >
         {session && (
           <div className="flex flex-col md:flex-row md:items-center md:space-x-4 p-4 md:p-0">
