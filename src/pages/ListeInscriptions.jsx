@@ -7,6 +7,7 @@ export default function ListeInscriptions() {
   const [inscriptions, setInscriptions] = useState([]);
   const [formats, setFormats] = useState([]);
   const [modalExportOpen, setModalExportOpen] = useState(null);
+  const [modalAjoutOpen, setModalAjoutOpen] = useState(null);
 
   useEffect(() => {
     fetchData();
@@ -28,6 +29,7 @@ export default function ListeInscriptions() {
     { key: "nationalite", label: "Nationalité" },
     { key: "telephone", label: "Téléphone" },
     { key: "adresse", label: "Adresse" },
+    { key: "adresse_complement", label: "Adresse complément" },
     { key: "code_postal", label: "Code postal" },
     { key: "ville", label: "Ville" },
     { key: "pays", label: "Pays" },
@@ -56,6 +58,12 @@ export default function ListeInscriptions() {
                   className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
                 >
                   <Download size={16} /> Export CSV
+                </button>
+                <button
+                  onClick={() => setModalAjoutOpen(format.id)}
+                  className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
+                >
+                  <Plus size={16} /> Ajouter un coureur
                 </button>
               </div>
             </div>
