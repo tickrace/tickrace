@@ -1,103 +1,106 @@
 // src/components/Navbar.jsx
-import React, { useContext, useEffect, useState } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
-import { UserContext } from "../contexts/UserContext";
+import { useUser } from "../contexts/UserContext";
 import toast from "react-hot-toast";
 
 export default function Navbar() {
-  const { session, currentRole, setCurrentRole, roles, setRoles } = useContext(UserContext);
-  const [availableRoles, setAvailableRoles] = useState([]);
+  const { session, currentRole, roles, changeRole, logout } = useUser();
+  const [menuOpen, setMenuOpen] = useState(false);
   const navigate = useNavigate();
-
-  useEffect(() => {
-    if (session) {
-      fetchRoles();
-    }
-  }, [session]);
-
-  const fetchRoles = async () => {
-    const { data, error } = await supabase
-      .from("profils_utilisateurs")
-      .select("role")
-      .eq("user_id", session.user.id);
-
-    if (data) {
-      const roleList = data.map((r) => r.role);
-      setRoles(roleList);
-      setAvailableRoles(roleList);
-      if (!currentRole && roleList.length > 0) setCurrentRole(roleList[0]);
-    }
-  };
 
   const handleRoleChange = async (e) => {
     const newRole = e.target.value;
-    if (!roles.includes(newRole)) {
-      const { error } = await supabase.from("profils_utilisateurs").insert([
-        {
-          user_id: session.user.id,
-          role: newRole,
-        },
-      ]);
-      if (error) {
-        toast.error("Erreur lors de l'ajout du rôle");
-        return;
-      }
-      toast.success(`Rôle "${newRole}" ajouté avec succès`);
-      setRoles((prev) => [...prev, newRole]);
-    }
-    setCurrentRole(newRole);
+    await changeRole(newRole);
+    toast.success(`Rôle changé : ${newRole}`);
+    navigate("/"); // recharge une page adaptée si nécessaire
   };
 
   const handleLogout = async () => {
-    await supabase.auth.signOut();
+    await logout();
     navigate("/login");
   };
 
   return (
-    <nav className="flex justify-between items-center bg-black text-white px-4 py-3">
-      <Link to="/" className="text-xl font-bold">
-        Tickrace
-      </Link>
+    <nav className="bg-white shadow-md p-4 flex flex-col md:flex-row justify-between items-center">
+      <div className="flex justify-between w-full md:w-auto items-center">
+        <Link to="/" className="text-xl font-bold text-blue-600">
+          Tickrace
+        </Link>
+        <button
+          className="md:hidden text-gray-600"
+          onClick={() => setMenuOpen(!menuOpen)}
+        >
+          ☰
+        </button>
+      </div>
 
-      <div className="flex items-center space-x-4">
-        {currentRole === "coureur" && (
-          <Link to="/monprofilcoureur" className="hover:underline">
-            Mon profil coureur
-          </Link>
-        )}
-        {currentRole === "organisateur" && (
+      <div
+        className={`${
+          menuOpen ? "block" : "hidden"
+        } md:flex flex-col md:flex-row items-center w-full md:w-auto mt-2 md:mt-0`}
+      >
+        <Link to="/courses" className="md:mx-2 my-1 md:my-0">
+          Épreuves
+        </Link>
+
+        {session && currentRole === "coureur" && (
           <>
-            <Link to="/organisateur/mon-espace" className="hover:underline">
-              Espace Organisateur
-            </Link>
-            <Link to="/organisateur/nouvelle-course" className="hover:underline">
-              Nouvelle Course
+            <Link to="/monprofilcoureur" className="md:mx-2 my-1 md:my-0">
+              Mon profil coureur
             </Link>
           </>
         )}
 
-        {roles.length > 0 && (
-          <select
-            value={currentRole || ""}
-            onChange={handleRoleChange}
-            className="text-black px-2 py-1 rounded"
-          >
-            <option disabled>Choisir un rôle</option>
-            {["coureur", "organisateur"].map((role) => (
-              <option key={role} value={role}>
-                {role}
-              </option>
-            ))}
-          </select>
+        {session && currentRole === "organisateur" && (
+          <>
+            <Link to="/organisateur/mon-espace" className="md:mx-2 my-1 md:my-0">
+              Mon espace organisateur
+            </Link>
+            <Link to="/organisateur/nouvelle-course" className="md:mx-2 my-1 md:my-0">
+              Nouvelle course
+            </Link>
+          </>
         )}
 
-        <button
-          onClick={handleLogout}
-          className="bg-red-500 hover:bg-red-600 text-white px-3 py-1 rounded"
-        >
-          Déconnexion
-        </button>
+        {session && (
+          <>
+            {roles.length > 1 && (
+              <select
+                value={currentRole || ""}
+                onChange={handleRoleChange}
+                className="md:mx-2 my-1 md:my-0 border px-2 py-1 rounded"
+              >
+                <option value="" disabled>
+                  Sélectionner un rôle
+                </option>
+                {roles.map((role) => (
+                  <option key={role} value={role}>
+                    {role}
+                  </option>
+                ))}
+              </select>
+            )}
+            <button
+              onClick={handleLogout}
+              className="md:mx-2 my-1 md:my-0 text-red-600 hover:underline"
+            >
+              Déconnexion
+            </button>
+          </>
+        )}
+
+        {!session && (
+          <>
+            <Link to="/login" className="md:mx-2 my-1 md:my-0">
+              Connexion
+            </Link>
+            <Link to="/signup" className="md:mx-2 my-1 md:my-0">
+              Inscription
+            </Link>
+          </>
+        )}
       </div>
     </nav>
   );
