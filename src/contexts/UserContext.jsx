@@ -1,72 +1,72 @@
-// src/contexts/UserContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import { toast } from "react-hot-toast";
+import toast from "react-hot-toast";
 
 const UserContext = createContext();
-export { UserContext }; // ✅ Export nécessaire pour Navbar
 
 export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
-  const [profil, setProfil] = useState(null);
+  const [profil, setProfil] = useState(null); // liste des rôles
   const [currentRole, setCurrentRole] = useState(null);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    const getSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      setSession(data.session);
+    };
+
+    getSession();
+
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
-      if (session) fetchProfil(session.user.id);
     });
 
-    const { data: listener } = supabase.auth.onAuthStateChange(
-      async (_event, session) => {
-        setSession(session);
-        if (session) fetchProfil(session.user.id);
-        else {
-          setProfil(null);
-          setCurrentRole(null);
-        }
-      }
-    );
-
-    return () => listener.subscription.unsubscribe();
+    return () => {
+      listener?.subscription.unsubscribe();
+    };
   }, []);
 
-  const fetchProfil = async (userId) => {
+  useEffect(() => {
+    if (session?.user?.id) {
+      fetchRoles(session.user.id);
+    }
+  }, [session]);
+
+  const fetchRoles = async (userId) => {
     const { data, error } = await supabase
       .from("profils_utilisateurs")
-      .select("*")
+      .select("role")
       .eq("user_id", userId);
 
-    if (!error && data) {
+    if (!error) {
       setProfil(data);
-      if (data.length > 0 && data[0].role) {
+      // Si un seul rôle, on le sélectionne automatiquement
+      if (data.length === 1) {
         setCurrentRole(data[0].role);
-      } else {
-        setCurrentRole(null);
       }
+    } else {
+      toast.error("Erreur lors du chargement des rôles");
     }
   };
 
-  const switchRole = async (role) => {
+  const switchRole = (role) => {
     setCurrentRole(role);
-    if (session?.user) {
-      const { error } = await supabase
-        .from("profils_utilisateurs")
-        .update({ role })
-        .eq("user_id", session.user.id);
-      if (error) {
-        toast.error("Erreur lors du changement de rôle.");
-      } else {
-        toast.success(`Rôle défini sur ${role}`);
-      }
-    }
   };
 
   return (
-    <UserContext.Provider value={{ session, profil, currentRole, switchRole }}>
+    <UserContext.Provider
+      value={{
+        session,
+        profil,
+        currentRole,
+        switchRole,
+      }}
+    >
       {children}
     </UserContext.Provider>
   );
 }
 
-export const useUser = () => useContext(UserContext);
+export function useUser() {
+  return useContext(UserContext);
+}

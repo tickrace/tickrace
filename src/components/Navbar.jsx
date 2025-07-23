@@ -1,58 +1,58 @@
-import React, { useState, useEffect } from "react";
+// src/components/Navbar.jsx
+import React from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import toast from "react-hot-toast";
 
 export default function Navbar() {
-  const { session, currentRole, switchRole } = useUser();
-  const [_, setForceUpdate] = useState(0);
   const navigate = useNavigate();
-
-  // 🔄 Forcer le re-render quand currentRole change
-  useEffect(() => {
-    setForceUpdate(prev => prev + 1);
-  }, [currentRole]);
+  const { session, profil, currentRole, switchRole } = useUser();
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    toast.success("Déconnexion réussie");
     navigate("/login");
   };
 
+  const handleRoleSelect = (e) => {
+    const selectedRole = e.target.value;
+    switchRole(selectedRole);
+    toast.success(`Rôle sélectionné : ${selectedRole}`);
+  };
+
   return (
-    <nav style={{ padding: "1rem", borderBottom: "1px solid #ccc" }}>
-      <Link to="/" style={{ marginRight: "1rem" }}>Accueil</Link>
+    <nav style={{ padding: "10px", borderBottom: "1px solid #ccc" }}>
+      <Link to="/" style={{ marginRight: "15px" }}>🏃 Tickrace</Link>
 
-      {session && currentRole === "coureur" && (
+      {currentRole === "organisateur" && (
         <>
-          <Link to="/monprofilcoureur" style={{ marginRight: "1rem" }}>Mon profil coureur</Link>
+          <Link to="/organisateur/mon-espace" style={{ marginRight: "10px" }}>Mon espace organisateur</Link>
+          <Link to="/organisateur/nouvelle-course" style={{ marginRight: "10px" }}>Nouvelle course</Link>
         </>
       )}
 
-      {session && currentRole === "organisateur" && (
+      {currentRole === "coureur" && (
         <>
-          <Link to="/organisateur/mon-espace" style={{ marginRight: "1rem" }}>Mon espace organisateur</Link>
+          <Link to="/monprofilcoureur" style={{ marginRight: "10px" }}>Mon profil coureur</Link>
         </>
       )}
 
-      {session && currentRole === null && (
-        <>
-          <span style={{ marginRight: "1rem" }}>Choisissez votre rôle :</span>
-          <button onClick={() => switchRole("coureur")} style={{ marginRight: "0.5rem" }}>Coureur</button>
-          <button onClick={() => switchRole("organisateur")}>Organisateur</button>
-        </>
-      )}
-
-      {!session && (
-        <>
-          <Link to="/login" style={{ marginRight: "1rem" }}>Connexion</Link>
-          <Link to="/signup">Inscription</Link>
-        </>
+      {/* Si profil existe mais aucun rôle défini */}
+      {profil && !currentRole && (
+        <select onChange={handleRoleSelect} defaultValue="">
+          <option value="" disabled>Choisir un rôle</option>
+          {profil.map((p) => (
+            <option key={p.role} value={p.role}>
+              {p.role}
+            </option>
+          ))}
+        </select>
       )}
 
       {session && (
-        <button onClick={handleLogout} style={{ marginLeft: "1rem" }}>Déconnexion</button>
+        <button onClick={handleLogout} style={{ float: "right" }}>
+          Déconnexion
+        </button>
       )}
     </nav>
   );
