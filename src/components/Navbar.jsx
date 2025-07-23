@@ -1,74 +1,69 @@
-// src/components/Navbar.jsx
-import React from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { useUser } from "../contexts/UserContext";
 import { supabase } from "../supabase";
+import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { session, profil, currentRole, switchRole } = useUser();
   const navigate = useNavigate();
+  const { session, currentRole, switchRole } = useUser();
+  const [showRoleSelector, setShowRoleSelector] = useState(false);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
     navigate("/login");
   };
 
+  const handleRoleChange = (e) => {
+    const newRole = e.target.value;
+    if (newRole) switchRole(newRole);
+  };
+
   return (
-    <nav className="bg-gray-800 text-white px-6 py-4 flex justify-between items-center">
-      <Link to="/" className="text-xl font-bold">
-        Tickrace
-      </Link>
-
-      <div className="flex gap-4 items-center">
-        {/* Sélecteur de rôle si plusieurs rôles */}
-        {profil?.length > 1 && (
-          <select
-            value={currentRole}
-            onChange={(e) => switchRole(e.target.value)}
-            className="bg-gray-700 text-white px-2 py-1 rounded"
-          >
-            {profil.map((p) => (
-              <option key={p.role} value={p.role}>
-                {p.role}
-              </option>
-            ))}
-          </select>
-        )}
-
-        {/* Liens selon le rôle */}
-        {session && currentRole === "organisateur" && (
-          <>
-            <Link to="/organisateur/mon-espace" className="hover:underline">
-              Mon espace
-            </Link>
-            <Link to="/organisateur/nouvelle-course" className="hover:underline">
-              Nouvelle épreuve
-            </Link>
-            <button onClick={handleLogout} className="hover:underline">
-              Déconnexion
-            </button>
-          </>
-        )}
-
+    <nav className="bg-gray-800 text-white px-4 py-3 flex justify-between items-center">
+      <div className="flex gap-4">
+        <Link to="/" className="hover:underline">Accueil</Link>
         {session && currentRole === "coureur" && (
           <>
-            <Link to="/monprofilcoureur" className="hover:underline">
-              Mon profil
-            </Link>
-            <button onClick={handleLogout} className="hover:underline">
+            <Link to="/monprofilcoureur" className="hover:underline">Mon Profil</Link>
+          </>
+        )}
+        {session && currentRole === "organisateur" && (
+          <>
+            <Link to="/organisateur/mon-espace" className="hover:underline">Espace Organisateur</Link>
+            <Link to="/organisateur/nouvelle-course" className="hover:underline">Nouvelle Course</Link>
+          </>
+        )}
+      </div>
+
+      <div className="flex items-center gap-4">
+        {session ? (
+          <>
+            {currentRole ? (
+              <span className="text-sm bg-green-700 px-2 py-1 rounded">Rôle : {currentRole}</span>
+            ) : (
+              <>
+                <select
+                  onChange={handleRoleChange}
+                  defaultValue=""
+                  className="text-black text-sm px-2 py-1 rounded"
+                >
+                  <option value="">Choisir un rôle</option>
+                  <option value="coureur">Coureur</option>
+                  <option value="organisateur">Organisateur</option>
+                </select>
+              </>
+            )}
+            <button
+              onClick={handleLogout}
+              className="bg-red-600 px-3 py-1 rounded hover:bg-red-700"
+            >
               Déconnexion
             </button>
           </>
-        )}
-
-        {!session && (
+        ) : (
           <>
-            <Link to="/login" className="hover:underline">
-              Connexion
-            </Link>
-            <Link to="/signup" className="hover:underline">
-              Inscription
-            </Link>
+            <Link to="/login" className="hover:underline">Connexion</Link>
+            <Link to="/signup" className="hover:underline">Inscription</Link>
           </>
         )}
       </div>

@@ -1,4 +1,3 @@
-// src/contexts/UserContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
@@ -6,9 +5,8 @@ const UserContext = createContext();
 
 export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
-  const [profil, setProfil] = useState([]); // Tableau d'entrées profils_utilisateurs
+  const [profil, setProfil] = useState(null);
   const [currentRole, setCurrentRole] = useState(null);
-  const [availableRoles, setAvailableRoles] = useState([]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -21,9 +19,8 @@ export function UserProvider({ children }) {
         setSession(session);
         if (session) fetchProfil(session.user.id);
         else {
-          setProfil([]);
+          setProfil(null);
           setCurrentRole(null);
-          setAvailableRoles([]);
         }
       }
     );
@@ -37,38 +34,31 @@ export function UserProvider({ children }) {
       .select("*")
       .eq("user_id", userId);
 
-    if (!error && data) {
+    if (!error && data.length > 0) {
       setProfil(data);
-      const roles = data.map((entry) => entry.role);
-      setAvailableRoles(roles);
-      if (roles.length > 0) setCurrentRole(roles[0]); // rôle par défaut
+      if (data[0].role) {
+        setCurrentRole(data[0].role);
+      }
     }
   };
 
-  const switchRole = (role) => {
-    if (availableRoles.includes(role)) {
-      setCurrentRole(role);
-    }
-  };
+  const switchRole = async (newRole) => {
+    if (!session) return;
 
-  const logout = () => {
-    setSession(null);
-    setProfil([]);
-    setCurrentRole(null);
-    setAvailableRoles([]);
+    const { error } = await supabase
+      .from("profils_utilisateurs")
+      .update({ role: newRole })
+      .eq("user_id", session.user.id);
+
+    if (!error) {
+      setCurrentRole(newRole);
+      fetchProfil(session.user.id);
+      alert("Rôle mis à jour avec succès !");
+    }
   };
 
   return (
-    <UserContext.Provider
-      value={{
-        session,
-        profil,
-        currentRole,
-        availableRoles,
-        switchRole,
-        logout,
-      }}
-    >
+    <UserContext.Provider value={{ session, profil, currentRole, switchRole }}>
       {children}
     </UserContext.Provider>
   );
