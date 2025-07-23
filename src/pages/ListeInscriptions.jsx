@@ -1,24 +1,16 @@
+
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import ExportCSVModal from "../components/ExportCSVModal";
 import ModalAjoutCoureur from "../components/ModalAjoutCoureur";
-import { Download, PlusCircle } from "lucide-react";
+import ExportCSVModal from "../components/ExportCSVModal";
 
 export default function ListeInscriptions() {
   const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
+  const [modalOpen, setModalOpen] = useState(false);
+  const [modalFormatId, setModalFormatId] = useState(null);
   const [modalExportOpen, setModalExportOpen] = useState(false);
-  const [modalAjoutOpen, setModalAjoutOpen] = useState(false);
-  const [formatSelectionne, setFormatSelectionne] = useState(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filtreStatut, setFiltreStatut] = useState("tous");
-
-  const colonnesExport = [
-    "nom", "prenom", "genre", "date_naissance", "nationalite",
-    "email", "telephone", "adresse", "adresse_complement",
-    "code_postal", "ville", "pays", "apparaitre_resultats", "club",
-    "justificatif_type", "contact_urgence_nom", "contact_urgence_telephone",
-    "statut", "numero_licence", "dossard", "nombre_repas", "prix_total_repas"
-  ];
+  const [exportData, setExportData] = useState([]);
+  const [colonnes, setColonnes] = useState([]);
 
   useEffect(() => {
     fetchInscriptions();
@@ -31,186 +23,89 @@ export default function ListeInscriptions() {
       .order("created_at", { ascending: true });
 
     if (!error && data) {
-      const grouped = {};
-      data.forEach((inscription) => {
-        const formatId = inscription.format_id;
-        const formatNom = inscription.formats?.nom || "Sans nom";
-        if (!grouped[formatId]) {
-          grouped[formatId] = {
-            formatNom,
-            inscriptions: [],
-          };
-        }
-        grouped[formatId].inscriptions.push(inscription);
-      });
+      const grouped = data.reduce((acc, insc) => {
+        const formatId = insc.format_id;
+        if (!acc[formatId]) acc[formatId] = [];
+        acc[formatId].push(insc);
+        return acc;
+      }, {});
       setInscriptionsParFormat(grouped);
     }
   };
 
   const handleOpenModalAjout = (formatId) => {
-    setFormatSelectionne(formatId);
-    setModalAjoutOpen(true);
-  };
-
-  const handleChangeDossard = async (inscriptionId, nouveauDossard) => {
-    await supabase
-      .from("inscriptions")
-      .update({ dossard: nouveauDossard })
-      .eq("id", inscriptionId);
-    fetchInscriptions();
-  };
-
-  const handleStatutChange = async (inscriptionId, nouveauStatut) => {
-    await supabase
-      .from("inscriptions")
-      .update({ statut: nouveauStatut })
-      .eq("id", inscriptionId);
-    fetchInscriptions();
-  };
-
-  const filtrerInscriptions = (liste) => {
-    return liste.filter((i) => {
-      const matchStatut =
-        filtreStatut === "tous" || i.statut === filtreStatut;
-      const matchRecherche =
-        i.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        i.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        i.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        i.numero_licence?.toLowerCase().includes(searchTerm.toLowerCase());
-      return matchStatut && matchRecherche;
-    });
+    setModalFormatId(formatId);
+    setModalOpen(true);
   };
 
   return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Liste des Inscriptions</h1>
-
-      <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
-        <input
-          type="text"
-          placeholder="Recherche..."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-          className="border rounded p-2 w-full md:w-1/2"
-        />
-        <select
-          value={filtreStatut}
-          onChange={(e) => setFiltreStatut(e.target.value)}
-          className="border rounded p-2"
-        >
-          <option value="tous">Tous les statuts</option>
-          <option value="en attente">En attente</option>
-          <option value="validé">Validé</option>
-          <option value="refusé">Refusé</option>
-        </select>
-      </div>
-
-      {Object.entries(inscriptionsParFormat).map(([formatId, { formatNom, inscriptions }]) => {
-        const inscriptionsFiltrees = filtrerInscriptions(inscriptions);
-
-        return (
-          <div key={formatId} className="mb-10 border rounded-lg p-4 shadow">
-            <div className="flex justify-between items-center mb-2">
-              <h2 className="text-xl font-semibold">
-                Format : {formatNom} ({inscriptionsFiltrees.length} inscrits)
-              </h2>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    setFormatSelectionne(formatId);
-                    setModalExportOpen(true);
-                  }}
-                  className="flex items-center px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  <Download className="w-4 h-4 mr-2" />
-                  Export CSV
-                </button>
-                <button
-                  onClick={() => handleOpenModalAjout(formatId)}
-                  className="flex items-center px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-                >
-                  <PlusCircle className="w-4 h-4 mr-2" />
-                  Ajouter un coureur
-                </button>
-              </div>
-            </div>
-
-            <div className="overflow-auto">
-              <table className="min-w-full text-sm border">
-                <thead className="bg-gray-100">
-                  <tr>
-                    {colonnesExport.map((col) => (
-                      <th key={col} className="border px-2 py-1 text-left capitalize">
-                        {col.replace(/_/g, " ")}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {inscriptionsFiltrees.map((i) => (
-                    <tr key={i.id}>
-                      {colonnesExport.map((col) => (
-                        <td key={col} className="border px-2 py-1">
-                          {col === "dossard" ? (
-                            <input
-                              type="number"
-                              value={i.dossard || ""}
-                              onChange={(e) =>
-                                handleChangeDossard(i.id, Number(e.target.value))
-                              }
-                              className="w-20 border p-1 rounded"
-                            />
-                          ) : col === "statut" ? (
-                            <select
-                              value={i.statut || "en attente"}
-                              onChange={(e) =>
-                                handleStatutChange(i.id, e.target.value)
-                              }
-                              className="border rounded p-1"
-                            >
-                              <option value="en attente">En attente</option>
-                              <option value="validé">Validé</option>
-                              <option value="refusé">Refusé</option>
-                            </select>
-                          ) : typeof i[col] === "boolean" ? (
-                            i[col] ? "Oui" : "Non"
-                          ) : (
-                            i[col] || "-"
-                          )}
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+    <div className="p-6 space-y-8">
+      {Object.entries(inscriptionsParFormat).map(([formatId, inscriptions]) => (
+        <div key={formatId} className="border border-gray-300 p-4 rounded-md">
+          <div className="flex justify-between items-center mb-4">
+            <h2 className="text-xl font-bold">Format : {inscriptions[0]?.formats?.nom}</h2>
+            <div className="flex gap-4">
+              <button
+                onClick={() => handleOpenModalAjout(formatId)}
+                className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+              >
+                Ajouter un coureur
+              </button>
+              <button
+                onClick={() => {
+                  setExportData(inscriptions);
+                  setColonnes(["nom", "prenom", "dossard", "email", "club", "statut"]);
+                  setModalExportOpen(true);
+                }}
+                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Exporter CSV
+              </button>
             </div>
           </div>
-        );
-      })}
+          <div className="overflow-x-auto">
+            <table className="min-w-full table-auto border-collapse border border-gray-300">
+              <thead className="bg-gray-100">
+                <tr>
+                  <th className="border border-gray-300 px-2 py-1">Nom</th>
+                  <th className="border border-gray-300 px-2 py-1">Prénom</th>
+                  <th className="border border-gray-300 px-2 py-1">Dossard</th>
+                  <th className="border border-gray-300 px-2 py-1">Email</th>
+                  <th className="border border-gray-300 px-2 py-1">Club</th>
+                  <th className="border border-gray-300 px-2 py-1">Statut</th>
+                </tr>
+              </thead>
+              <tbody>
+                {inscriptions.map((insc) => (
+                  <tr key={insc.id}>
+                    <td className="border border-gray-300 px-2 py-1">{insc.nom}</td>
+                    <td className="border border-gray-300 px-2 py-1">{insc.prenom}</td>
+                    <td className="border border-gray-300 px-2 py-1">{insc.dossard}</td>
+                    <td className="border border-gray-300 px-2 py-1">{insc.email}</td>
+                    <td className="border border-gray-300 px-2 py-1">{insc.club}</td>
+                    <td className="border border-gray-300 px-2 py-1">{insc.statut}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      ))}
 
-      {/* Modal ajout coureur */}
-      {modalAjoutOpen && (
-        <ModalAjoutCoureur
-          formatId={formatSelectionne}
-          onClose={() => {
-            setModalAjoutOpen(false);
-            fetchInscriptions();
-          }}
-        />
-      )}
+      <ModalAjoutCoureur
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        formatId={modalFormatId}
+        onCoureurAjoute={fetchInscriptions}
+      />
 
-      {/* Modal export CSV */}
-      {modalExportOpen && (
-        <ExportCSVModal
-          isOpen={modalExportOpen}
-          onClose={() => setModalExportOpen(false)}
-          colonnes={colonnesExport}
-          donnees={
-            inscriptionsParFormat[formatSelectionne]?.inscriptions || []
-          }
-          nomFichier={`inscriptions_${inscriptionsParFormat[formatSelectionne]?.formatNom || "export"}.csv`}
-        />
-      )}
+      <ExportCSVModal
+        isOpen={modalExportOpen}
+        onClose={() => setModalExportOpen(false)}
+        colonnes={colonnes}
+        donnees={exportData}
+        nomFichier={`inscriptions_export.csv`}
+      />
     </div>
   );
 }
