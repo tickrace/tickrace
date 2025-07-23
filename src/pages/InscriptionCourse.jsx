@@ -46,9 +46,9 @@ export default function InscriptionCourse() {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from("profils_coureurs")
+        .from("profils_utilisateurs")
         .select("*")
-        .eq("id", user.id)
+        .eq("user_id", user.id)
         .single();
 
       if (!error && data) setProfil(data);
