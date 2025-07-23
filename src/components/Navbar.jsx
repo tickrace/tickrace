@@ -2,10 +2,10 @@ import React, { useContext, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import toast from "react-hot-toast";
-import { UserContext } from "../contexts/UserContext";
+import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { session, currentRole, switchRole } = useContext(UserContext);
+  const { session, currentRole, switchRole } = useContext(useUser);
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
