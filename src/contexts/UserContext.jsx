@@ -1,7 +1,10 @@
+// src/contexts/UserContext.jsx
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { supabase } from "../supabase";
+import { toast } from "react-hot-toast";
 
 const UserContext = createContext();
+export { UserContext }; // ✅ Export nécessaire pour Navbar
 
 export function UserProvider({ children }) {
   const [session, setSession] = useState(null);
@@ -34,26 +37,28 @@ export function UserProvider({ children }) {
       .select("*")
       .eq("user_id", userId);
 
-    if (!error && data.length > 0) {
+    if (!error && data) {
       setProfil(data);
-      if (data[0].role) {
+      if (data.length > 0 && data[0].role) {
         setCurrentRole(data[0].role);
+      } else {
+        setCurrentRole(null);
       }
     }
   };
 
-  const switchRole = async (newRole) => {
-    if (!session) return;
-
-    const { error } = await supabase
-      .from("profils_utilisateurs")
-      .update({ role: newRole })
-      .eq("user_id", session.user.id);
-
-    if (!error) {
-      setCurrentRole(newRole);
-      fetchProfil(session.user.id);
-      alert("Rôle mis à jour avec succès !");
+  const switchRole = async (role) => {
+    setCurrentRole(role);
+    if (session?.user) {
+      const { error } = await supabase
+        .from("profils_utilisateurs")
+        .update({ role })
+        .eq("user_id", session.user.id);
+      if (error) {
+        toast.error("Erreur lors du changement de rôle.");
+      } else {
+        toast.success(`Rôle défini sur ${role}`);
+      }
     }
   };
 
