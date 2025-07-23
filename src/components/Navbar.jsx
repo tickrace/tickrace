@@ -15,11 +15,9 @@ export default function Navbar() {
     navigate("/login");
   };
 
-  const handleRoleChange = async (e) => {
+  const handleRoleChange = (e) => {
     const selectedRole = e.target.value;
     switchRole(selectedRole);
-
-    // Optionnel : mettre à jour côté base si tu veux garder trace du rôle actuel
     toast.success(`Rôle changé : ${selectedRole}`);
   };
 
@@ -55,7 +53,7 @@ export default function Navbar() {
         </div>
 
         <div className="mt-3 lg:mt-0 lg:ml-4 flex flex-col lg:flex-row lg:items-center lg:space-x-4">
-          {session && profil?.length > 1 && (
+          {session && Array.isArray(profil) && profil.length > 0 && (
             <select
               onChange={handleRoleChange}
               value={currentRole || ""}
