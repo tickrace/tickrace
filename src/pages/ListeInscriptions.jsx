@@ -8,28 +8,35 @@ export default function ListeInscriptions() {
   const [recherche, setRecherche] = useState("");
   const [modalOuverte, setModalOuverte] = useState(false);
   const [formatActif, setFormatActif] = useState(null);
-  const [nouveauCoureur, setNouveauCoureur] = useState({
-    nom: "",
-    prenom: "",
-    email: "",
-    format_id: "",
-  });
-  const [pageActuelle, setPageActuelle] = useState({}); // format_id => page
+  const [formatsData, setFormatsData] = useState({});
+  const [nouveauCoureur, setNouveauCoureur] = useState({});
+  const [pageActuelle, setPageActuelle] = useState({});
   const pageTaille = 10;
 
   useEffect(() => {
     fetchInscriptions();
+    fetchFormats();
   }, []);
 
   const fetchInscriptions = async () => {
     const { data, error } = await supabase
       .from("inscriptions")
-      .select("*, formats(id, nom)");
+      .select("*, formats(id, nom, prix_repas)");
 
-    if (error) {
-      console.error("Erreur Supabase :", error);
-    } else {
-      setInscriptions(data);
+    if (!error) setInscriptions(data);
+  };
+
+  const fetchFormats = async () => {
+    const { data, error } = await supabase
+      .from("formats")
+      .select("id, nom, prix_repas");
+
+    if (!error) {
+      const map = {};
+      data.forEach((f) => {
+        map[f.id] = f;
+      });
+      setFormatsData(map);
     }
   };
 
@@ -42,6 +49,19 @@ export default function ListeInscriptions() {
     if (!error) {
       setInscriptions((prev) =>
         prev.map((i) => (i.id === id ? { ...i, statut: nouveauStatut } : i))
+      );
+    }
+  };
+
+  const handleDossardChange = async (id, dossard) => {
+    const { error } = await supabase
+      .from("inscriptions")
+      .update({ dossard })
+      .eq("id", id);
+
+    if (!error) {
+      setInscriptions((prev) =>
+        prev.map((i) => (i.id === id ? { ...i, dossard } : i))
       );
     }
   };
@@ -71,7 +91,31 @@ export default function ListeInscriptions() {
 
   const ouvrirModal = (formatId) => {
     setFormatActif(formatId);
-    setNouveauCoureur({ nom: "", prenom: "", email: "", format_id: formatId });
+    setNouveauCoureur({
+      nom: "",
+      prenom: "",
+      email: "",
+      genre: "",
+      date_naissance: "",
+      nationalite: "",
+      telephone: "",
+      adresse: "",
+      adresse_complement: "",
+      code_postal: "",
+      ville: "",
+      pays: "",
+      apparaitre_resultats: true,
+      club: "",
+      justificatif_type: "",
+      contact_urgence_nom: "",
+      contact_urgence_telephone: "",
+      statut: "en attente",
+      numero_licence: "",
+      dossard: null,
+      nombre_repas: 0,
+      prix_total_repas: 0,
+      format_id: formatId,
+    });
     setModalOuverte(true);
   };
 
@@ -91,10 +135,7 @@ export default function ListeInscriptions() {
   };
 
   const handleExportCSV = () => {
-    const enTetes = [
-      "Nom", "Prénom", "Email", "Format", "Statut",
-    ];
-
+    const enTetes = ["Nom", "Prénom", "Email", "Format", "Statut"];
     const lignes = inscriptionsFiltrees.map((i) => [
       i.nom || "",
       i.prenom || "",
@@ -164,12 +205,13 @@ export default function ListeInscriptions() {
             </div>
 
             <div className="overflow-auto">
-              <table className="min-w-[600px] w-full table-auto border-collapse border">
+              <table className="min-w-[800px] w-full table-auto border-collapse border">
                 <thead className="bg-gray-200">
                   <tr>
                     <th className="border px-2 py-1">Nom</th>
                     <th className="border px-2 py-1">Prénom</th>
                     <th className="border px-2 py-1">Email</th>
+                    <th className="border px-2 py-1">Dossard</th>
                     <th className="border px-2 py-1">Statut</th>
                   </tr>
                 </thead>
@@ -179,6 +221,16 @@ export default function ListeInscriptions() {
                       <td className="border px-2 py-1">{i.nom}</td>
                       <td className="border px-2 py-1">{i.prenom}</td>
                       <td className="border px-2 py-1">{i.email}</td>
+                      <td className="border px-2 py-1">
+                        <input
+                          type="number"
+                          value={i.dossard || ""}
+                          onChange={(e) =>
+                            handleDossardChange(i.id, parseInt(e.target.value) || null)
+                          }
+                          className="border rounded px-1 w-20"
+                        />
+                      </td>
                       <td className="border px-2 py-1">
                         <select
                           value={i.statut}
@@ -217,8 +269,8 @@ export default function ListeInscriptions() {
       })}
 
       {modalOuverte && (
-        <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center z-50">
-          <div className="bg-white p-6 rounded-lg w-[400px] relative">
+        <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center z-50 overflow-y-auto">
+          <div className="bg-white p-6 rounded-lg w-[600px] relative max-h-[90vh] overflow-y-auto">
             <button
               onClick={() => setModalOuverte(false)}
               className="absolute top-2 right-2 text-gray-500 hover:text-black"
@@ -226,27 +278,71 @@ export default function ListeInscriptions() {
               <X />
             </button>
             <h3 className="text-lg font-semibold mb-4">Ajouter un coureur</h3>
+
+            {[
+              { name: "nom", label: "Nom" },
+              { name: "prenom", label: "Prénom" },
+              { name: "email", label: "Email", type: "email" },
+              { name: "genre", label: "Genre" },
+              { name: "date_naissance", label: "Date de naissance", type: "date" },
+              { name: "nationalite", label: "Nationalité" },
+              { name: "telephone", label: "Téléphone" },
+              { name: "adresse", label: "Adresse" },
+              { name: "adresse_complement", label: "Complément" },
+              { name: "code_postal", label: "Code postal" },
+              { name: "ville", label: "Ville" },
+              { name: "pays", label: "Pays" },
+              { name: "club", label: "Club" },
+              { name: "justificatif_type", label: "Justificatif" },
+              { name: "contact_urgence_nom", label: "Contact urgence nom" },
+              { name: "contact_urgence_telephone", label: "Contact urgence téléphone" },
+              { name: "numero_licence", label: "N° Licence" },
+              { name: "dossard", label: "Dossard", type: "number" },
+            ].map(({ name, label, type }) => (
+              <input
+                key={name}
+                type={type || "text"}
+                placeholder={label}
+                value={nouveauCoureur[name] || ""}
+                onChange={(e) =>
+                  setNouveauCoureur({ ...nouveauCoureur, [name]: e.target.value })
+                }
+                className="border w-full mb-2 px-3 py-1 rounded"
+              />
+            ))}
+
+            <div className="flex items-center mb-2">
+              <input
+                type="checkbox"
+                checked={nouveauCoureur.apparaitre_resultats}
+                onChange={(e) =>
+                  setNouveauCoureur({ ...nouveauCoureur, apparaitre_resultats: e.target.checked })
+                }
+                className="mr-2"
+              />
+              <label>Apparaître dans les résultats</label>
+            </div>
+
             <input
-              type="text"
-              placeholder="Nom"
-              value={nouveauCoureur.nom}
-              onChange={(e) => setNouveauCoureur({ ...nouveauCoureur, nom: e.target.value })}
-              className="border w-full mb-2 px-3 py-1 rounded"
-            />
-            <input
-              type="text"
-              placeholder="Prénom"
-              value={nouveauCoureur.prenom}
-              onChange={(e) => setNouveauCoureur({ ...nouveauCoureur, prenom: e.target.value })}
-              className="border w-full mb-2 px-3 py-1 rounded"
-            />
-            <input
-              type="email"
-              placeholder="Email"
-              value={nouveauCoureur.email}
-              onChange={(e) => setNouveauCoureur({ ...nouveauCoureur, email: e.target.value })}
+              type="number"
+              placeholder="Nombre de repas"
+              value={nouveauCoureur.nombre_repas || 0}
+              onChange={(e) => {
+                const n = parseInt(e.target.value) || 0;
+                const prix = formatsData[formatActif]?.prix_repas || 0;
+                setNouveauCoureur({
+                  ...nouveauCoureur,
+                  nombre_repas: n,
+                  prix_total_repas: n * prix,
+                });
+              }}
               className="border w-full mb-4 px-3 py-1 rounded"
             />
+
+            <p className="text-sm mb-2">
+              Prix total repas : <strong>{nouveauCoureur.prix_total_repas} €</strong>
+            </p>
+
             <button
               onClick={ajouterCoureur}
               className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full"
