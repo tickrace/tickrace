@@ -1,101 +1,58 @@
-import React, { useContext } from "react";
+import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
-import { UserContext } from "../contexts/UserContext";
+import { useUser } from "../contexts/UserContext";
 import toast from "react-hot-toast";
 
 export default function Navbar() {
-  const { session, currentRole, setCurrentRole, profils, setProfils } = useContext(UserContext);
+  const { session, currentRole, switchRole } = useUser();
+  const [_, setForceUpdate] = useState(0);
   const navigate = useNavigate();
+
+  // 🔄 Forcer le re-render quand currentRole change
+  useEffect(() => {
+    setForceUpdate(prev => prev + 1);
+  }, [currentRole]);
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
+    toast.success("Déconnexion réussie");
     navigate("/login");
   };
 
-  const handleRoleChange = async (e) => {
-    const newRole = e.target.value;
-
-    if (!session || !session.user) return;
-
-    const { error } = await supabase
-      .from("profils_utilisateurs")
-      .upsert({ user_id: session.user.id, role: newRole })
-      .eq("user_id", session.user.id);
-
-    if (error) {
-      toast.error("Erreur lors de la mise à jour du rôle.");
-      return;
-    }
-
-    setCurrentRole(newRole);
-    toast.success(`Rôle défini : ${newRole}`);
-  };
-
   return (
-    <nav className="bg-gray-900 text-white p-4 flex items-center justify-between">
-      <Link to="/" className="text-xl font-bold">
-        Tickrace
-      </Link>
+    <nav style={{ padding: "1rem", borderBottom: "1px solid #ccc" }}>
+      <Link to="/" style={{ marginRight: "1rem" }}>Accueil</Link>
+
+      {session && currentRole === "coureur" && (
+        <>
+          <Link to="/monprofilcoureur" style={{ marginRight: "1rem" }}>Mon profil coureur</Link>
+        </>
+      )}
+
+      {session && currentRole === "organisateur" && (
+        <>
+          <Link to="/organisateur/mon-espace" style={{ marginRight: "1rem" }}>Mon espace organisateur</Link>
+        </>
+      )}
+
+      {session && currentRole === null && (
+        <>
+          <span style={{ marginRight: "1rem" }}>Choisissez votre rôle :</span>
+          <button onClick={() => switchRole("coureur")} style={{ marginRight: "0.5rem" }}>Coureur</button>
+          <button onClick={() => switchRole("organisateur")}>Organisateur</button>
+        </>
+      )}
+
+      {!session && (
+        <>
+          <Link to="/login" style={{ marginRight: "1rem" }}>Connexion</Link>
+          <Link to="/signup">Inscription</Link>
+        </>
+      )}
 
       {session && (
-        <div className="flex items-center space-x-4">
-          {/* Menu dynamique en fonction du rôle */}
-          {currentRole === "coureur" && (
-            <>
-              <Link to="/monprofilcoureur">Mon profil coureur</Link>
-              <Link to="/courses">Courses</Link>
-            </>
-          )}
-
-          {currentRole === "organisateur" && (
-            <>
-              <Link to="/monprofilorganisateur">Mon profil organisateur</Link>
-              <Link to="/organisateur/mon-espace">Mes épreuves</Link>
-            </>
-          )}
-
-          {currentRole === "admin" && (
-            <>
-              <Link to="/admin">Admin</Link>
-            </>
-          )}
-
-          {/* Sélecteur si le rôle est NULL */}
-          {currentRole === null && (
-            <select
-              onChange={handleRoleChange}
-              defaultValue=""
-              className="bg-white text-black rounded px-2 py-1"
-            >
-              <option value="" disabled>
-                Choisir un rôle
-              </option>
-              <option value="coureur">Coureur</option>
-              <option value="organisateur">Organisateur</option>
-            </select>
-          )}
-
-          {/* Sélecteur de rôle même après définition */}
-          {currentRole && (
-            <select
-              value={currentRole}
-              onChange={handleRoleChange}
-              className="bg-white text-black rounded px-2 py-1"
-            >
-              <option value="coureur">Coureur</option>
-              <option value="organisateur">Organisateur</option>
-              <option value="admin">Admin</option>
-            </select>
-          )}
-
-          <button
-            onClick={handleLogout}
-            className="bg-red-600 hover:bg-red-700 px-3 py-1 rounded"
-          >
-            Déconnexion
-          </button>
-        </div>
+        <button onClick={handleLogout} style={{ marginLeft: "1rem" }}>Déconnexion</button>
       )}
     </nav>
   );
