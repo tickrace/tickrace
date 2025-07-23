@@ -1,12 +1,11 @@
-// src/components/Navbar.jsx
-import React, { useState } from "react";
+import React, { useContext, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import toast from "react-hot-toast";
-import { useUser } from "../contexts/UserContext";
+import { UserContext } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { session, role, setRole } = useUser();
+  const { session, currentRole, switchRole } = useContext(UserContext);
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -14,6 +13,10 @@ export default function Navbar() {
     await supabase.auth.signOut();
     toast.success("Déconnecté !");
     navigate("/login");
+  };
+
+  const handleRoleChange = (e) => {
+    switchRole(e.target.value);
   };
 
   return (
@@ -31,34 +34,28 @@ export default function Navbar() {
         <div className="mt-2 lg:mt-0 lg:flex lg:space-x-4">
           <Link to="/courses" className="block px-3 py-2 hover:bg-gray-800 rounded">Courses</Link>
 
-          {session && role === "coureur" && (
+          {session && currentRole === "coureur" && (
             <Link to="/monprofilcoureur" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon Profil</Link>
           )}
 
-          {session && role === "organisateur" && (
+          {session && currentRole === "organisateur" && (
             <>
               <Link to="/organisateur/mon-espace" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon espace</Link>
               <Link to="/organisateur/nouvelle-course" className="block px-3 py-2 hover:bg-gray-800 rounded">Créer une course</Link>
             </>
           )}
-
-          {session && role === "admin" && (
-            <Link to="/admin" className="block px-3 py-2 hover:bg-gray-800 rounded">Admin</Link>
-          )}
         </div>
 
         <div className="mt-3 lg:mt-0 lg:ml-4 flex flex-col lg:flex-row lg:items-center lg:space-x-4">
-          {session && (
-            <select
-              value={role}
-              onChange={(e) => setRole(e.target.value)}
-              className="text-black px-2 py-1 rounded"
-            >
-              <option value="coureur">Coureur</option>
-              <option value="organisateur">Organisateur</option>
-              <option value="admin">Admin</option>
-            </select>
-          )}
+          <select
+            onChange={handleRoleChange}
+            value={currentRole || ""}
+            className="text-black px-2 py-1 rounded"
+          >
+            <option value="">Sélectionner un rôle</option>
+            <option value="coureur">Coureur</option>
+            <option value="organisateur">Organisateur</option>
+          </select>
 
           {!session ? (
             <>
