@@ -1,4 +1,3 @@
-
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import ModalAjoutCoureur from "../components/ModalAjoutCoureur";
@@ -92,12 +91,14 @@ export default function ListeInscriptions() {
         </div>
       ))}
 
-      <ModalAjoutCoureur
-        isOpen={modalOpen}
-        onClose={() => setModalOpen(false)}
-        formatId={modalFormatId}
-        onCoureurAjoute={fetchInscriptions}
-      />
+      {modalOpen && (
+        <ModalAjoutCoureur
+          isOpen={modalOpen}
+          onClose={() => setModalOpen(false)}
+          formatId={modalFormatId}
+          onCoureurAjoute={fetchInscriptions}
+        />
+      )}
 
       <ExportCSVModal
         isOpen={modalExportOpen}
