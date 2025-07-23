@@ -1,206 +1,80 @@
-import React, { useEffect, useState } from "react";
-import { supabase } from "../supabase";
-import { Download, Plus, X } from "lucide-react";
+// ... (imports et autres useState inchangés)
+const [colonnesExport, setColonnesExport] = useState({});
 
-export default function ListeInscriptions() {
-  const [inscriptions, setInscriptions] = useState([]);
-  const [filtreStatut, setFiltreStatut] = useState("");
-  const [recherche, setRecherche] = useState("");
-  const [modalOuverte, setModalOuverte] = useState(false);
-  const [formatActif, setFormatActif] = useState(null);
-  const [formatsData, setFormatsData] = useState({});
-  const [nouveauCoureur, setNouveauCoureur] = useState({});
-  const [pageActuelle, setPageActuelle] = useState({});
-  const pageTaille = 10;
+const colonnesDisponibles = [
+  { key: "nom", label: "Nom" },
+  { key: "prenom", label: "Prénom" },
+  { key: "genre", label: "Genre" },
+  { key: "date_naissance", label: "Date de naissance" },
+  { key: "nationalite", label: "Nationalité" },
+  { key: "email", label: "Email" },
+  { key: "telephone", label: "Téléphone" },
+  { key: "adresse", label: "Adresse" },
+  { key: "adresse_complement", label: "Complément" },
+  { key: "code_postal", label: "Code postal" },
+  { key: "ville", label: "Ville" },
+  { key: "pays", label: "Pays" },
+  { key: "apparaitre_resultats", label: "Résultats visibles" },
+  { key: "club", label: "Club" },
+  { key: "justificatif_type", label: "Justificatif" },
+  { key: "numero_licence", label: "N° Licence" },
+  { key: "contact_urgence_nom", label: "Contact urgence nom" },
+  { key: "contact_urgence_telephone", label: "Contact urgence tél" },
+  { key: "statut", label: "Statut" },
+  { key: "dossard", label: "Dossard" },
+  { key: "nombre_repas", label: "Nb repas" },
+  { key: "prix_total_repas", label: "Prix repas (€)" },
+];
 
-  useEffect(() => {
-    fetchInscriptions();
-    fetchFormats();
-  }, []);
+const handleToggleColonne = (formatId, key) => {
+  setColonnesExport((prev) => {
+    const actuelles = prev[formatId] || [];
+    return {
+      ...prev,
+      [formatId]: actuelles.includes(key)
+        ? actuelles.filter((k) => k !== key)
+        : [...actuelles, key],
+    };
+  });
+};
 
-  const fetchInscriptions = async () => {
-    const { data, error } = await supabase
-      .from("inscriptions")
-      .select("*, formats(id, nom, prix_repas)");
+const handleExportParFormat = (formatId, nomFormat, lignes) => {
+  const selectedKeys = colonnesExport[formatId] || [];
+  if (selectedKeys.length === 0) {
+    alert("Veuillez sélectionner au moins une colonne.");
+    return;
+  }
 
-    if (!error) setInscriptions(data);
-  };
-
-  const fetchFormats = async () => {
-    const { data, error } = await supabase
-      .from("formats")
-      .select("id, nom, prix_repas");
-
-    if (!error) {
-      const map = {};
-      data.forEach((f) => {
-        map[f.id] = f;
-      });
-      setFormatsData(map);
-    }
-  };
-
-  const handleStatutChange = async (id, nouveauStatut) => {
-    const { error } = await supabase
-      .from("inscriptions")
-      .update({ statut: nouveauStatut })
-      .eq("id", id);
-
-    if (!error) {
-      setInscriptions((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, statut: nouveauStatut } : i))
-      );
-    }
-  };
-
-  const handleDossardChange = async (id, dossard) => {
-    const { error } = await supabase
-      .from("inscriptions")
-      .update({ dossard })
-      .eq("id", id);
-
-    if (!error) {
-      setInscriptions((prev) =>
-        prev.map((i) => (i.id === id ? { ...i, dossard } : i))
-      );
-    }
-  };
-
-  const inscriptionsFiltrees = inscriptions.filter((i) =>
-    (filtreStatut ? i.statut === filtreStatut : true) &&
-    (recherche
-      ? `${i.nom} ${i.prenom} ${i.email} ${i.ville || ""}`
-          .toLowerCase()
-          .includes(recherche.toLowerCase())
-      : true)
+  const enTetes = selectedKeys.map(
+    (key) => colonnesDisponibles.find((col) => col.key === key)?.label || key
   );
 
-  const formatsGroupes = {};
+  const contenu = lignes.map((i) =>
+    selectedKeys.map((key) => {
+      if (key === "apparaitre_resultats") return i[key] ? "Oui" : "Non";
+      return i[key] || "";
+    })
+  );
 
-  inscriptionsFiltrees.forEach((i) => {
-    const formatId = i.format_id;
-    if (!formatId) return;
-    if (!formatsGroupes[formatId]) {
-      formatsGroupes[formatId] = {
-        nom: i.formats?.nom || `Format ${formatId}`,
-        lignes: [],
-      };
-    }
-    formatsGroupes[formatId].lignes.push(i);
-  });
+  const csvContent = [enTetes, ...contenu]
+    .map((e) => e.map((v) => `"${(v + "").replace(/"/g, '""')}"`).join(";"))
+    .join("\n");
 
-  const ouvrirModal = (formatId) => {
-    setFormatActif(formatId);
-    setNouveauCoureur({
-      nom: "",
-      prenom: "",
-      email: "",
-      genre: "",
-      date_naissance: "",
-      nationalite: "",
-      telephone: "",
-      adresse: "",
-      adresse_complement: "",
-      code_postal: "",
-      ville: "",
-      pays: "",
-      apparaitre_resultats: true,
-      club: "",
-      justificatif_type: "",
-      contact_urgence_nom: "",
-      contact_urgence_telephone: "",
-      statut: "en attente",
-      numero_licence: "",
-      dossard: null,
-      nombre_repas: 0,
-      prix_total_repas: 0,
-      format_id: formatId,
-    });
-    setModalOuverte(true);
-  };
-
-  const ajouterCoureur = async () => {
-    const { error } = await supabase.from("inscriptions").insert([nouveauCoureur]);
-    if (!error) {
-      setModalOuverte(false);
-      fetchInscriptions();
-    }
-  };
-
-  const changerPage = (formatId, direction) => {
-    setPageActuelle((prev) => ({
-      ...prev,
-      [formatId]: Math.max(0, (prev[formatId] || 0) + direction),
-    }));
-  };
-
-  const handleExportCSV = () => {
-    const enTetes = [
-      "Nom", "Prénom", "Genre", "Date naissance", "Nationalité", "Email", "Téléphone",
-      "Adresse", "Adresse complément", "Code postal", "Ville", "Pays",
-      "Apparaître résultats", "Club", "Justificatif", "N° Licence",
-      "Contact urgence nom", "Contact urgence téléphone", "Statut",
-      "Dossard", "Repas", "Prix repas (€)", "Format"
-    ];
-
-    const lignes = inscriptionsFiltrees.map((i) => [
-      i.nom, i.prenom, i.genre, i.date_naissance, i.nationalite, i.email, i.telephone,
-      i.adresse, i.adresse_complement, i.code_postal, i.ville, i.pays,
-      i.apparaitre_resultats ? "Oui" : "Non", i.club, i.justificatif_type, i.numero_licence,
-      i.contact_urgence_nom, i.contact_urgence_telephone, i.statut,
-      i.dossard, i.nombre_repas, i.prix_total_repas, i.formats?.nom
-    ]);
-
-    const csvContent = [enTetes, ...lignes]
-      .map((e) => e.map((v) => `"${(v || "").toString().replace(/"/g, '""')}"`).join(";"))
-      .join("\n");
-
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "inscriptions_completes.csv";
-    a.click();
-    URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Liste des inscriptions</h1>
-
-      <div className="flex flex-wrap gap-4 mb-4">
-        <input
-          type="text"
-          placeholder="Rechercher..."
-          value={recherche}
-          onChange={(e) => setRecherche(e.target.value)}
-          className="border px-3 py-2 rounded w-full md:w-1/2"
-        />
-        <select
-          value={filtreStatut}
-          onChange={(e) => setFiltreStatut(e.target.value)}
-          className="border px-3 py-2 rounded"
-        >
-          <option value="">Tous les statuts</option>
-          <option value="en attente">En attente</option>
-          <option value="validée">Validée</option>
-          <option value="refusée">Refusée</option>
-        </select>
-        <button
-          onClick={handleExportCSV}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center gap-2"
-        >
-          <Download size={16} /> Export CSV
-        </button>
-      </div>
-
+  const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `inscriptions_${nomFormat.replace(/\s+/g, "_")}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
+};
       {Object.entries(formatsGroupes).map(([formatId, { nom, lignes }]) => {
         const page = pageActuelle[formatId] || 0;
         const totalPages = Math.ceil(lignes.length / pageTaille);
         const affichage = lignes.slice(page * pageTaille, (page + 1) * pageTaille);
 
         return (
-          <div key={formatId} className="mb-10">
+          <div key={formatId} className="mb-12 border-t pt-6">
             <div className="flex items-center justify-between mb-2">
               <h2 className="text-xl font-semibold">{nom}</h2>
               <button
@@ -211,16 +85,33 @@ export default function ListeInscriptions() {
               </button>
             </div>
 
+            <div className="mb-3">
+              <p className="font-medium text-sm mb-1">Colonnes à exporter :</p>
+              <div className="flex flex-wrap gap-3">
+                {colonnesDisponibles.map(({ key, label }) => (
+                  <label key={key} className="text-sm flex items-center gap-1">
+                    <input
+                      type="checkbox"
+                      checked={colonnesExport[formatId]?.includes(key) || false}
+                      onChange={() => handleToggleColonne(formatId, key)}
+                    />
+                    {label}
+                  </label>
+                ))}
+              </div>
+              <button
+                onClick={() => handleExportParFormat(formatId, nom, lignes)}
+                className="mt-2 bg-green-600 hover:bg-green-700 text-white px-4 py-1 rounded text-sm"
+              >
+                Exporter ce format en CSV
+              </button>
+            </div>
+
             <div className="overflow-auto">
               <table className="min-w-[1600px] w-full table-auto border-collapse border text-sm">
                 <thead className="bg-gray-200">
                   <tr>
-                    {[
-                      "Nom", "Prénom", "Genre", "Date naissance", "Nationalité", "Email", "Téléphone",
-                      "Adresse", "Adresse complément", "Code postal", "Ville", "Pays",
-                      "Apparaître", "Club", "Justificatif", "Licence",
-                      "Urgence nom", "Urgence tél.", "Statut", "Dossard", "Repas", "Prix repas (€)"
-                    ].map((label) => (
+                    {colonnesDisponibles.map(({ label }) => (
                       <th key={label} className="border px-2 py-1">{label}</th>
                     ))}
                   </tr>
@@ -273,6 +164,7 @@ export default function ListeInscriptions() {
                   ))}
                 </tbody>
               </table>
+
               <div className="flex justify-between mt-2 text-sm">
                 <button
                   onClick={() => changerPage(formatId, -1)}
@@ -294,92 +186,6 @@ export default function ListeInscriptions() {
           </div>
         );
       })}
-
-      {/* Modal d'ajout manuel */}
-      {modalOuverte && (
-        <div className="fixed inset-0 bg-black bg-opacity-30 flex justify-center items-center z-50 overflow-y-auto">
-          <div className="bg-white p-6 rounded-lg w-[600px] relative max-h-[90vh] overflow-y-auto">
-            <button
-              onClick={() => setModalOuverte(false)}
-              className="absolute top-2 right-2 text-gray-500 hover:text-black"
-            >
-              <X />
-            </button>
-            <h3 className="text-lg font-semibold mb-4">Ajouter un coureur</h3>
-
-            {[
-              { name: "nom", label: "Nom" },
-              { name: "prenom", label: "Prénom" },
-              { name: "email", label: "Email", type: "email" },
-              { name: "genre", label: "Genre" },
-              { name: "date_naissance", label: "Date de naissance", type: "date" },
-              { name: "nationalite", label: "Nationalité" },
-              { name: "telephone", label: "Téléphone" },
-              { name: "adresse", label: "Adresse" },
-              { name: "adresse_complement", label: "Complément" },
-              { name: "code_postal", label: "Code postal" },
-              { name: "ville", label: "Ville" },
-              { name: "pays", label: "Pays" },
-              { name: "club", label: "Club" },
-              { name: "justificatif_type", label: "Justificatif" },
-              { name: "contact_urgence_nom", label: "Contact urgence nom" },
-              { name: "contact_urgence_telephone", label: "Contact urgence téléphone" },
-              { name: "numero_licence", label: "N° Licence" },
-              { name: "dossard", label: "Dossard", type: "number" },
-            ].map(({ name, label, type }) => (
-              <input
-                key={name}
-                type={type || "text"}
-                placeholder={label}
-                value={nouveauCoureur[name] || ""}
-                onChange={(e) =>
-                  setNouveauCoureur({ ...nouveauCoureur, [name]: e.target.value })
-                }
-                className="border w-full mb-2 px-3 py-1 rounded"
-              />
-            ))}
-
-            <div className="flex items-center mb-2">
-              <input
-                type="checkbox"
-                checked={nouveauCoureur.apparaitre_resultats}
-                onChange={(e) =>
-                  setNouveauCoureur({ ...nouveauCoureur, apparaitre_resultats: e.target.checked })
-                }
-                className="mr-2"
-              />
-              <label>Apparaître dans les résultats</label>
-            </div>
-
-            <input
-              type="number"
-              placeholder="Nombre de repas"
-              value={nouveauCoureur.nombre_repas || 0}
-              onChange={(e) => {
-                const n = parseInt(e.target.value) || 0;
-                const prix = formatsData[formatActif]?.prix_repas || 0;
-                setNouveauCoureur({
-                  ...nouveauCoureur,
-                  nombre_repas: n,
-                  prix_total_repas: n * prix,
-                });
-              }}
-              className="border w-full mb-4 px-3 py-1 rounded"
-            />
-
-            <p className="text-sm mb-2">
-              Prix total repas : <strong>{nouveauCoureur.prix_total_repas} €</strong>
-            </p>
-
-            <button
-              onClick={ajouterCoureur}
-              className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded w-full"
-            >
-              Ajouter
-            </button>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
