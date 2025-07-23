@@ -1,11 +1,11 @@
-import React, { useContext, useState } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import toast from "react-hot-toast";
 import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { session, currentRole, switchRole } = useContext(useUser);
+  const { session, currentRole, switchRole } = useUser();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -16,7 +16,8 @@ export default function Navbar() {
   };
 
   const handleRoleChange = (e) => {
-    switchRole(e.target.value);
+    const selectedRole = e.target.value;
+    switchRole(selectedRole);
   };
 
   return (
@@ -44,18 +45,24 @@ export default function Navbar() {
               <Link to="/organisateur/nouvelle-course" className="block px-3 py-2 hover:bg-gray-800 rounded">Créer une course</Link>
             </>
           )}
+
+          {session && currentRole === "admin" && (
+            <Link to="/admin" className="block px-3 py-2 hover:bg-gray-800 rounded">Admin</Link>
+          )}
         </div>
 
         <div className="mt-3 lg:mt-0 lg:ml-4 flex flex-col lg:flex-row lg:items-center lg:space-x-4">
-          <select
-            onChange={handleRoleChange}
-            value={currentRole || ""}
-            className="text-black px-2 py-1 rounded"
-          >
-            <option value="">Sélectionner un rôle</option>
-            <option value="coureur">Coureur</option>
-            <option value="organisateur">Organisateur</option>
-          </select>
+          {session && (
+            <select
+              onChange={handleRoleChange}
+              value={currentRole}
+              className="text-black px-2 py-1 rounded"
+            >
+              <option value="coureur">Coureur</option>
+              <option value="organisateur">Organisateur</option>
+              <option value="admin">Admin</option>
+            </select>
+          )}
 
           {!session ? (
             <>
