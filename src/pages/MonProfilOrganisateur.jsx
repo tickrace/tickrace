@@ -15,9 +15,9 @@ export default function MonProfilOrganisateur() {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from("profils_organisateurs")
+        .from("profils_utilisateurs")
         .select("*")
-        .eq("id", user.id)
+        .eq("user_id", user.id)
         .single();
 
       if (!error && data) {
@@ -40,8 +40,8 @@ export default function MonProfilOrganisateur() {
     if (!user) return;
 
     const { error } = await supabase
-      .from("profils_organisateurs")
-      .upsert({ ...profil, id: user.id });
+      .from("profils_utilisateurs")
+      .upsert({ ...profil, user_id: user.id });
 
     setMessage(error ? "Erreur lors de la mise à jour." : "Profil mis à jour !");
   };

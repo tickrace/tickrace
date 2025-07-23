@@ -12,9 +12,9 @@ export default function MonProfilCoureur() {
       if (!user) return;
 
       const { data, error } = await supabase
-        .from("profils_coureurs")
+        .from("profils_utilisateurs")
         .select("*")
-        .eq("id", user.id)
+        .eq("user_id", user.id)
         .single();
 
       if (!error && data) {
@@ -39,7 +39,7 @@ export default function MonProfilCoureur() {
     const user = session.data?.session?.user;
     if (!user) return;
 
-    const profilToSave = { ...profil, id: user.id };
+    const profilToSave = { ...profil, user_id: user.id };
 
     // Gestion du booléen proprement
     if (typeof profilToSave.apparaitre_resultats === "string") {
@@ -59,7 +59,7 @@ export default function MonProfilCoureur() {
     });
 
     const { error } = await supabase
-      .from("profils_coureurs")
+      .from("profils_utilisateurs")
       .upsert(profilToSave);
 
     setMessage(error ? "Erreur lors de la mise à jour." : "Profil mis à jour !");
