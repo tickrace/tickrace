@@ -1,114 +1,102 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import ModalAjoutCoureur from "../components/ModalAjoutCoureur";
 import ExportCSVModal from "../components/ExportCSVModal";
+import ModalAjoutCoureur from "../components/ModalAjoutCoureur";
+import { Download, PlusCircle } from "lucide-react";
 
 export default function ListeInscriptions() {
-  const [inscriptions, setInscriptions] = useState([]);
-  const [formats, setFormats] = useState([]);
-  const [modalOpen, setModalOpen] = useState(false);
-  const [formatSelectionne, setFormatSelectionne] = useState(null);
+  const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
   const [modalExportOpen, setModalExportOpen] = useState(false);
-  const [inscriptionsFiltrees, setInscriptionsFiltrees] = useState([]);
-  const [colonnes, setColonnes] = useState([]);
-  const [recherche, setRecherche] = useState("");
-  const [statutFiltre, setStatutFiltre] = useState("tous");
-  const [pageCourante, setPageCourante] = useState({});
+  const [modalAjoutOpen, setModalAjoutOpen] = useState(false);
+  const [formatSelectionne, setFormatSelectionne] = useState(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filtreStatut, setFiltreStatut] = useState("tous");
 
-  const lignesParPage = 10;
+  const colonnesExport = [
+    "nom", "prenom", "genre", "date_naissance", "nationalite",
+    "email", "telephone", "adresse", "adresse_complement",
+    "code_postal", "ville", "pays", "apparaitre_resultats", "club",
+    "justificatif_type", "contact_urgence_nom", "contact_urgence_telephone",
+    "statut", "numero_licence", "dossard", "nombre_repas", "prix_total_repas"
+  ];
 
   useEffect(() => {
-    fetchData();
+    fetchInscriptions();
   }, []);
 
-  useEffect(() => {
-    const colonnesPossibles = inscriptions.length > 0 ? Object.keys(inscriptions[0]) : [];
-    setColonnes(colonnesPossibles);
-  }, [inscriptions]);
-
-  const fetchData = async () => {
-    const { data: inscriptionsData, error: error1 } = await supabase
+  const fetchInscriptions = async () => {
+    const { data, error } = await supabase
       .from("inscriptions")
-      .select("*, formats (id, nom)")
-      .order("created_at", { ascending: false });
+      .select("*, formats(id, nom)")
+      .order("created_at", { ascending: true });
 
-    if (error1) {
-      console.error("Erreur chargement inscriptions :", error1);
-      return;
+    if (!error && data) {
+      const grouped = {};
+      data.forEach((inscription) => {
+        const formatId = inscription.format_id;
+        const formatNom = inscription.formats?.nom || "Sans nom";
+        if (!grouped[formatId]) {
+          grouped[formatId] = {
+            formatNom,
+            inscriptions: [],
+          };
+        }
+        grouped[formatId].inscriptions.push(inscription);
+      });
+      setInscriptionsParFormat(grouped);
     }
-
-    const { data: formatsData, error: error2 } = await supabase
-      .from("formats")
-      .select("id, nom");
-
-    if (error2) {
-      console.error("Erreur chargement formats :", error2);
-      return;
-    }
-
-    setInscriptions(inscriptionsData);
-    setFormats(formatsData);
   };
 
-  const handleAjoutCoureur = (format) => {
-    setFormatSelectionne(format);
-    setModalOpen(true);
+  const handleOpenModalAjout = (formatId) => {
+    setFormatSelectionne(formatId);
+    setModalAjoutOpen(true);
   };
 
-  const handleStatutChange = async (id, nouveauStatut) => {
-    await supabase
-      .from("inscriptions")
-      .update({ statut: nouveauStatut })
-      .eq("id", id);
-    fetchData();
-  };
-
-  const handleDossardChange = async (id, nouveauDossard) => {
+  const handleChangeDossard = async (inscriptionId, nouveauDossard) => {
     await supabase
       .from("inscriptions")
       .update({ dossard: nouveauDossard })
-      .eq("id", id);
-    fetchData();
+      .eq("id", inscriptionId);
+    fetchInscriptions();
   };
 
-  const filtrerEtPaginer = (inscriptionsFormat, formatId) => {
-    let data = inscriptionsFormat;
+  const handleStatutChange = async (inscriptionId, nouveauStatut) => {
+    await supabase
+      .from("inscriptions")
+      .update({ statut: nouveauStatut })
+      .eq("id", inscriptionId);
+    fetchInscriptions();
+  };
 
-    if (statutFiltre !== "tous") {
-      data = data.filter((i) => i.statut === statutFiltre);
-    }
-
-    if (recherche.trim() !== "") {
-      const lower = recherche.toLowerCase();
-      data = data.filter((i) =>
-        Object.values(i).some((val) =>
-          val?.toString().toLowerCase().includes(lower)
-        )
-      );
-    }
-
-    const page = pageCourante[formatId] || 1;
-    const startIndex = (page - 1) * lignesParPage;
-    const endIndex = startIndex + lignesParPage;
-    return data.slice(startIndex, endIndex);
+  const filtrerInscriptions = (liste) => {
+    return liste.filter((i) => {
+      const matchStatut =
+        filtreStatut === "tous" || i.statut === filtreStatut;
+      const matchRecherche =
+        i.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        i.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        i.email?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        i.numero_licence?.toLowerCase().includes(searchTerm.toLowerCase());
+      return matchStatut && matchRecherche;
+    });
   };
 
   return (
     <div className="p-4">
-      <h1 className="text-2xl font-bold mb-4">Liste des inscriptions</h1>
+      <h1 className="text-2xl font-bold mb-4">Liste des Inscriptions</h1>
 
-      <div className="flex flex-col md:flex-row gap-4 items-start md:items-center mb-4">
+      <div className="flex flex-col md:flex-row md:items-center gap-4 mb-6">
         <input
           type="text"
-          placeholder="Recherche globale..."
-          value={recherche}
-          onChange={(e) => setRecherche(e.target.value)}
-          className="border p-2 rounded w-full md:w-64"
+          placeholder="Recherche..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value)}
+          className="border rounded p-2 w-full md:w-1/2"
         />
         <select
-          value={statutFiltre}
-          onChange={(e) => setStatutFiltre(e.target.value)}
-          className="border p-2 rounded"
+          value={filtreStatut}
+          onChange={(e) => setFiltreStatut(e.target.value)}
+          className="border rounded p-2"
         >
           <option value="tous">Tous les statuts</option>
           <option value="en attente">En attente</option>
@@ -117,126 +105,112 @@ export default function ListeInscriptions() {
         </select>
       </div>
 
-      {formats.map((format) => {
-        const inscriptionsFormat = inscriptions.filter(
-          (i) => i.format_id === format.id
-        );
-        const totalPages = Math.ceil(inscriptionsFormat.length / lignesParPage);
-        const page = pageCourante[format.id] || 1;
-        const paginated = filtrerEtPaginer(inscriptionsFormat, format.id);
+      {Object.entries(inscriptionsParFormat).map(([formatId, { formatNom, inscriptions }]) => {
+        const inscriptionsFiltrees = filtrerInscriptions(inscriptions);
 
         return (
-          <div key={format.id} className="mb-12 border rounded-lg shadow p-4 bg-white">
+          <div key={formatId} className="mb-10 border rounded-lg p-4 shadow">
             <div className="flex justify-between items-center mb-2">
-              <h2 className="text-xl font-semibold">{format.nom}</h2>
+              <h2 className="text-xl font-semibold">
+                Format : {formatNom} ({inscriptionsFiltrees.length} inscrits)
+              </h2>
               <div className="flex gap-2">
                 <button
-                  className="bg-green-600 text-white px-3 py-1 rounded text-sm"
                   onClick={() => {
+                    setFormatSelectionne(formatId);
                     setModalExportOpen(true);
-                    setInscriptionsFiltrees(inscriptionsFormat);
                   }}
+                  className="flex items-center px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
                 >
+                  <Download className="w-4 h-4 mr-2" />
                   Export CSV
                 </button>
                 <button
-                  className="bg-blue-600 text-white px-3 py-1 rounded text-sm"
-                  onClick={() => handleAjoutCoureur(format)}
+                  onClick={() => handleOpenModalAjout(formatId)}
+                  className="flex items-center px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
                 >
+                  <PlusCircle className="w-4 h-4 mr-2" />
                   Ajouter un coureur
                 </button>
               </div>
             </div>
 
             <div className="overflow-auto">
-              <table className="table-auto w-full border-collapse text-sm">
+              <table className="min-w-full text-sm border">
                 <thead className="bg-gray-100">
                   <tr>
-                    {colonnes.map((col) => (
-                      <th key={col} className="border px-2 py-1 text-left">
-                        {col}
+                    {colonnesExport.map((col) => (
+                      <th key={col} className="border px-2 py-1 text-left capitalize">
+                        {col.replace(/_/g, " ")}
                       </th>
                     ))}
-                    <th className="border px-2 py-1">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginated.map((insc) => (
-                    <tr key={insc.id}>
-                      {colonnes.map((col) => (
+                  {inscriptionsFiltrees.map((i) => (
+                    <tr key={i.id}>
+                      {colonnesExport.map((col) => (
                         <td key={col} className="border px-2 py-1">
                           {col === "dossard" ? (
                             <input
                               type="number"
-                              value={insc.dossard || ""}
+                              value={i.dossard || ""}
                               onChange={(e) =>
-                                handleDossardChange(insc.id, Number(e.target.value))
+                                handleChangeDossard(i.id, Number(e.target.value))
                               }
-                              className="w-16 border rounded px-1"
+                              className="w-20 border p-1 rounded"
                             />
-                          ) : col === "apparaitre_resultats" ? (
-                            insc[col] ? "✔" : "❌"
+                          ) : col === "statut" ? (
+                            <select
+                              value={i.statut || "en attente"}
+                              onChange={(e) =>
+                                handleStatutChange(i.id, e.target.value)
+                              }
+                              className="border rounded p-1"
+                            >
+                              <option value="en attente">En attente</option>
+                              <option value="validé">Validé</option>
+                              <option value="refusé">Refusé</option>
+                            </select>
+                          ) : typeof i[col] === "boolean" ? (
+                            i[col] ? "Oui" : "Non"
                           ) : (
-                            insc[col] || "-"
+                            i[col] || "-"
                           )}
                         </td>
                       ))}
-                      <td className="border px-2 py-1">
-                        <select
-                          value={insc.statut || "en attente"}
-                          onChange={(e) =>
-                            handleStatutChange(insc.id, e.target.value)
-                          }
-                          className="border p-1 rounded"
-                        >
-                          <option value="en attente">En attente</option>
-                          <option value="validé">Validé</option>
-                          <option value="refusé">Refusé</option>
-                        </select>
-                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-
-            <div className="flex justify-end mt-2 gap-2">
-              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                <button
-                  key={p}
-                  onClick={() =>
-                    setPageCourante((prev) => ({ ...prev, [format.id]: p }))
-                  }
-                  className={`px-2 py-1 rounded ${
-                    p === page ? "bg-blue-600 text-white" : "bg-gray-200"
-                  }`}
-                >
-                  {p}
-                </button>
-              ))}
-            </div>
           </div>
         );
       })}
 
-      {/* Modal d’ajout */}
-      {modalOpen && formatSelectionne && (
+      {/* Modal ajout coureur */}
+      {modalAjoutOpen && (
         <ModalAjoutCoureur
-          isOpen={modalOpen}
-          onClose={() => setModalOpen(false)}
-          format={formatSelectionne}
-          refresh={fetchData}
+          formatId={formatSelectionne}
+          onClose={() => {
+            setModalAjoutOpen(false);
+            fetchInscriptions();
+          }}
         />
       )}
 
-      {/* Modal export */}
-      <ExportCSVModal
-        isOpen={modalExportOpen}
-        onClose={() => setModalExportOpen(false)}
-        colonnes={colonnes}
-        donnees={inscriptionsFiltrees}
-        nomFichier={"export_inscriptions.csv"}
-      />
+      {/* Modal export CSV */}
+      {modalExportOpen && (
+        <ExportCSVModal
+          isOpen={modalExportOpen}
+          onClose={() => setModalExportOpen(false)}
+          colonnes={colonnesExport}
+          donnees={
+            inscriptionsParFormat[formatSelectionne]?.inscriptions || []
+          }
+          nomFichier={`inscriptions_${inscriptionsParFormat[formatSelectionne]?.formatNom || "export"}.csv`}
+        />
+      )}
     </div>
   );
 }
