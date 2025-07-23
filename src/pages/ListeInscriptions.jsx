@@ -1,64 +1,56 @@
+
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { Download, Plus, X } from "lucide-react";
 
-export default function ListeInscriptions({ courseId }) {
-  const [formats, setFormats] = useState([]);
+export default function ListeInscriptions() {
   const [inscriptions, setInscriptions] = useState([]);
-  const [filtreStatut, setFiltreStatut] = useState("");
-  const [recherche, setRecherche] = useState("");
+  const [formats, setFormats] = useState([]);
   const [modalOpen, setModalOpen] = useState(null);
   const [nouvelleInscription, setNouvelleInscription] = useState({});
+  const [recherche, setRecherche] = useState("");
+  const [filtreStatut, setFiltreStatut] = useState("");
   const [pageParFormat, setPageParFormat] = useState({});
-
   const lignesParPage = 10;
 
   useEffect(() => {
-    fetchFormatsEtInscriptions();
-  }, [courseId]);
+    fetchInscriptions();
+  }, []);
 
-  const fetchFormatsEtInscriptions = async () => {
-    const { data: formatsData } = await supabase
-      .from("formats")
-      .select("id, nom")
-      .eq("course_id", courseId);
-
-    const { data: inscriptionsData } = await supabase
+  const fetchInscriptions = async () => {
+    const { data, error } = await supabase
       .from("inscriptions")
-      .select("*, formats ( id, nom )")
-      .in("format_id", formatsData.map((f) => f.id));
+      .select("*, formats (id, nom)");
 
-    setFormats(formatsData);
-    setInscriptions(inscriptionsData);
-    const pages = {};
-    formatsData.forEach((f) => (pages[f.id] = 1));
-    setPageParFormat(pages);
-  };
-
-  const handleStatutChange = async (id, nouveauStatut) => {
-    await supabase.from("inscriptions").update({ statut: nouveauStatut }).eq("id", id);
-    setInscriptions((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, statut: nouveauStatut } : i))
-    );
-  };
-
-  const handleAjoutInscription = async () => {
-    const { error } = await supabase.from("inscriptions").insert([
-      {
-        ...nouvelleInscription,
-        course_id: courseId,
-        format_id: modalOpen,
-        created_at: new Date(),
-      },
-    ]);
     if (!error) {
-      setModalOpen(null);
-      setNouvelleInscription({});
-      fetchFormatsEtInscriptions();
+      setInscriptions(data);
+      const formatsUniques = Array.from(
+        new Map(data.map((i) => [i.format_id, i.formats])).values()
+      );
+      setFormats(formatsUniques);
     }
   };
 
+  const handleAjoutInscription = async () => {
+    if (!nouvelleInscription.format_id || !nouvelleInscription.nom) return;
+
+    const { error } = await supabase.from("inscriptions").insert([nouvelleInscription]);
+    if (!error) {
+      setNouvelleInscription({});
+      setModalOpen(null);
+      fetchInscriptions();
+    }
+  };
+
+  const handleStatutChange = async (id, statut) => {
+    await supabase.from("inscriptions").update({ statut }).eq("id", id);
+    setInscriptions((prev) =>
+      prev.map((i) => (i.id === id ? { ...i, statut } : i))
+    );
+  };
+
   const handleExportCSV = (formatId) => {
+    const inscriptionsFiltrees = inscriptions.filter((i) => i.format_id === formatId);
     const colonnes = [
       "dossard",
       "nom",
@@ -85,27 +77,23 @@ export default function ListeInscriptions({ courseId }) {
       "prix_total_repas",
     ];
 
-    const lignes = inscriptions
-      .filter((i) => i.format_id === formatId)
-      .map((i) =>
-        colonnes.map((col) => {
-          const val = i[col];
-          return typeof val === "boolean" ? (val ? "Oui" : "Non") : val || "";
-        })
-      );
-
-    const csvContent = [colonnes, ...lignes]
-      .map((e) => e.map((v) => `"${(v + "").replace(/"/g, '""')}"`).join(";"))
-      .join("\n");
+    const csvContent = [
+      colonnes.join(","),
+      ...inscriptionsFiltrees.map((i) =>
+        colonnes.map((c) => `"${i[c] ?? ""}"`).join(",")
+      ),
+    ].join("\n");
 
     const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `inscriptions_format_${formatId}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", `inscriptions_${formatId}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
   };
+
   const colonnes = [
     { key: "dossard", label: "Dossard" },
     { key: "nom", label: "Nom" },
@@ -240,7 +228,6 @@ export default function ListeInscriptions({ courseId }) {
               </table>
             </div>
 
-            {/* Pagination */}
             <div className="flex justify-between mt-2 text-sm">
               <span>
                 Page {page} / {Math.ceil(inscriptionsFiltrees.length / lignesParPage)}
@@ -267,7 +254,6 @@ export default function ListeInscriptions({ courseId }) {
               </div>
             </div>
 
-            {/* Modal d'ajout */}
             {modalOpen === format.id && (
               <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
                 <div className="bg-white p-6 rounded shadow max-h-[90vh] overflow-auto">
@@ -283,6 +269,7 @@ export default function ListeInscriptions({ courseId }) {
                             setNouvelleInscription((prev) => ({
                               ...prev,
                               [col.key]: e.target.value,
+                              format_id: format.id,
                             }))
                           }
                           className="w-full border px-2 py-1 rounded"
