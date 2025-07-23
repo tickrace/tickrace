@@ -1,12 +1,11 @@
-// src/components/Navbar.jsx
-import React, { useContext, useState } from "react";
+import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import toast from "react-hot-toast";
-import { UserContext } from "../contexts/UserContext";
+import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { session, currentRole, setCurrentRole, profil } = useContext(UserContext);
+  const { session, currentRole, switchRole, profil } = useUser();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -18,20 +17,10 @@ export default function Navbar() {
 
   const handleRoleChange = async (e) => {
     const selectedRole = e.target.value;
-    setCurrentRole(selectedRole);
+    switchRole(selectedRole);
 
-    const { error } = await supabase
-      .from("profils_utilisateurs")
-      .update({ role: selectedRole })
-      .eq("user_id", session.user.id)
-      .eq("role", selectedRole);
-
-    if (error) {
-      toast.error("Erreur lors du changement de rôle");
-      console.error(error);
-    } else {
-      toast.success(`Rôle changé : ${selectedRole}`);
-    }
+    // Optionnel : mettre à jour côté base si tu veux garder trace du rôle actuel
+    toast.success(`Rôle changé : ${selectedRole}`);
   };
 
   return (
@@ -66,7 +55,7 @@ export default function Navbar() {
         </div>
 
         <div className="mt-3 lg:mt-0 lg:ml-4 flex flex-col lg:flex-row lg:items-center lg:space-x-4">
-          {session && profil && profil.length > 1 && (
+          {session && profil?.length > 1 && (
             <select
               onChange={handleRoleChange}
               value={currentRole || ""}
