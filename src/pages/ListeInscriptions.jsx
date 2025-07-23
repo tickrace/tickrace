@@ -1,137 +1,160 @@
+// src/pages/ListeInscriptions.jsx
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
+import { Download, Loader } from "lucide-react";
 
 export default function ListeInscriptions() {
-  const { format_id: formatId } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
+  const [filtreStatut, setFiltreStatut] = useState("tous");
   const [searchTerm, setSearchTerm] = useState("");
-  const [statutFilter, setStatutFilter] = useState("");
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (formatId) {
-      fetchInscriptions();
-    }
-  }, [formatId]);
+    fetchInscriptions();
+  }, []);
 
   const fetchInscriptions = async () => {
+    setLoading(true);
     const { data, error } = await supabase
       .from("inscriptions")
       .select("*")
-      .eq("format_id", formatId)
-      .order("created_at", { ascending: true });
+      .order("created_at", { ascending: false });
 
-    if (!error) setInscriptions(data);
-    else console.error("Erreur récupération inscriptions", error);
+    if (!error) {
+      setInscriptions(data);
+    }
+    setLoading(false);
   };
 
-  const handleChangeDossard = async (id, newDossard) => {
+  const handleStatutChange = async (id, newStatut) => {
     const { error } = await supabase
       .from("inscriptions")
-      .update({ dossard: newDossard })
+      .update({ statut: newStatut })
       .eq("id", id);
 
-    if (error) {
-      alert("Erreur mise à jour du dossard");
-      console.error(error);
-    } else {
-      fetchInscriptions();
+    if (!error) {
+      setInscriptions((prev) =>
+        prev.map((insc) =>
+          insc.id === id ? { ...insc, statut: newStatut } : insc
+        )
+      );
+      alert("Statut mis à jour.");
     }
   };
 
-  const filtered = inscriptions
-    .filter((i) =>
-      `${i.nom} ${i.prenom} ${i.email} ${i.ville}`
-        .toLowerCase()
-        .includes(searchTerm.toLowerCase())
-    )
-    .filter((i) => (statutFilter ? i.statut === statutFilter : true));
+  const filteredInscriptions = inscriptions.filter((insc) => {
+    const matchStatut =
+      filtreStatut === "tous" || insc.statut === filtreStatut;
+    const matchSearch =
+      insc.nom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      insc.prenom?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      insc.email?.toLowerCase().includes(searchTerm.toLowerCase());
+    return matchStatut && matchSearch;
+  });
+
+  const exportCSV = () => {
+    const headers = Object.keys(inscriptions[0] || {}).join(",");
+    const rows = inscriptions
+      .map((insc) =>
+        Object.values(insc)
+          .map((v) =>
+            typeof v === "string" && v.includes(",") ? `"${v}"` : v ?? ""
+          )
+          .join(",")
+      )
+      .join("\n");
+
+    const csvContent = [headers, rows].join("\n");
+    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.setAttribute("download", "inscriptions.csv");
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  if (loading) {
+    return (
+      <div className="p-6">
+        <Loader className="animate-spin" /> Chargement des inscriptions...
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 max-w-7xl mx-auto">
-      <h1 className="text-2xl font-bold mb-6">Liste des inscrits</h1>
+    <div className="p-6 overflow-x-auto">
+      <h1 className="text-2xl font-bold mb-4">Liste des inscriptions</h1>
 
-      <div className="flex flex-wrap gap-4 mb-4">
+      <div className="flex flex-wrap items-center gap-4 mb-4">
         <input
           type="text"
-          placeholder="Recherche..."
-          className="border p-2 flex-1"
+          placeholder="Rechercher (nom, prénom, email)"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
+          className="border p-2 rounded w-full sm:w-1/3"
         />
+
         <select
-          className="border p-2"
-          value={statutFilter}
-          onChange={(e) => setStatutFilter(e.target.value)}
+          value={filtreStatut}
+          onChange={(e) => setFiltreStatut(e.target.value)}
+          className="border p-2 rounded"
         >
-          <option value="">Tous les statuts</option>
+          <option value="tous">Tous les statuts</option>
           <option value="en attente">En attente</option>
           <option value="validé">Validé</option>
           <option value="refusé">Refusé</option>
         </select>
+
+        <button
+          onClick={exportCSV}
+          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded flex items-center"
+        >
+          <Download className="w-4 h-4 mr-2" /> Export CSV
+        </button>
       </div>
 
-      <div className="overflow-x-auto">
-        <table className="min-w-full border text-sm">
-          <thead>
-            <tr className="bg-gray-100">
-              <th className="border p-2">Dossard</th>
-              <th className="border p-2">Nom</th>
-              <th className="border p-2">Prénom</th>
-              <th className="border p-2">Genre</th>
-              <th className="border p-2">Date naissance</th>
-              <th className="border p-2">Nationalité</th>
-              <th className="border p-2">Email</th>
-              <th className="border p-2">Téléphone</th>
-              <th className="border p-2">Adresse</th>
-              <th className="border p-2">Code postal</th>
-              <th className="border p-2">Ville</th>
-              <th className="border p-2">Pays</th>
-              <th className="border p-2">Club</th>
-              <th className="border p-2">Justificatif</th>
-              <th className="border p-2">Licence</th>
-              <th className="border p-2">Contact urgence</th>
-              <th className="border p-2">Statut</th>
-              <th className="border p-2">Date inscription</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map((i) => (
-              <tr key={i.id} className="hover:bg-gray-50">
-                <td className="border p-2">
-                  <input
-                    type="number"
-                    className="border w-16 p-1"
-                    value={i.dossard || ""}
-                    onChange={(e) => handleChangeDossard(i.id, e.target.value)}
-                  />
-                </td>
-                <td className="border p-2">{i.nom}</td>
-                <td className="border p-2">{i.prenom}</td>
-                <td className="border p-2">{i.genre}</td>
-                <td className="border p-2">{i.date_naissance}</td>
-                <td className="border p-2">{i.nationalite}</td>
-                <td className="border p-2">{i.email}</td>
-                <td className="border p-2">{i.telephone}</td>
-                <td className="border p-2">{i.adresse}</td>
-                <td className="border p-2">{i.code_postal}</td>
-                <td className="border p-2">{i.ville}</td>
-                <td className="border p-2">{i.pays}</td>
-                <td className="border p-2">{i.club}</td>
-                <td className="border p-2">{i.justificatif_type}</td>
-                <td className="border p-2">{i.numero_licence}</td>
-                <td className="border p-2">
-                  {i.contact_urgence_nom} ({i.contact_urgence_telephone})
-                </td>
-                <td className="border p-2">{i.statut}</td>
-                <td className="border p-2">
-                  {new Date(i.created_at).toLocaleString()}
-                </td>
-              </tr>
+      <table className="min-w-[1500px] border text-sm">
+        <thead className="bg-gray-100">
+          <tr>
+            {Object.keys(inscriptions[0] || {}).map((key) => (
+              <th key={key} className="border px-2 py-1 text-left">
+                {key}
+              </th>
             ))}
-          </tbody>
-        </table>
-      </div>
+            <th className="border px-2 py-1">Modifier statut</th>
+          </tr>
+        </thead>
+        <tbody>
+          {filteredInscriptions.map((insc) => (
+            <tr key={insc.id}>
+              {Object.values(insc).map((value, idx) => (
+                <td key={idx} className="border px-2 py-1">
+                  {value === true
+                    ? "Oui"
+                    : value === false
+                    ? "Non"
+                    : value ?? ""}
+                </td>
+              ))}
+              <td className="border px-2 py-1">
+                <select
+                  value={insc.statut || "en attente"}
+                  onChange={(e) =>
+                    handleStatutChange(insc.id, e.target.value)
+                  }
+                  className="border p-1 text-sm"
+                >
+                  <option value="en attente">En attente</option>
+                  <option value="validé">Validé</option>
+                  <option value="refusé">Refusé</option>
+                </select>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   );
 }
