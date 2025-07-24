@@ -1,85 +1,74 @@
-import React, { useState } from "react";
-import { X, Download } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import Papa from "papaparse";
 
-export default function ExportCSVModal({
-  isOpen,
-  onClose,
-  colonnes,
-  donnees,
-  nomFichier = "export.csv",
-}) {
-  const [selection, setSelection] = useState(colonnes.map((c) => c.key));
+const ExportCSVModal = ({ isOpen, onClose, colonnes = [], donnees = [], nomFichier = "export.csv" }) => {
+  const [selectedCols, setSelectedCols] = useState([]);
 
-  const toggleColonne = (key) => {
-    setSelection((prev) =>
-      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key]
-    );
+  useEffect(() => {
+    if (isOpen && colonnes.length > 0) {
+      setSelectedCols(colonnes);
+    }
+  }, [isOpen, colonnes]);
+
+  const handleToggleCol = (col) => {
+    if (selectedCols.includes(col)) {
+      setSelectedCols(selectedCols.filter((c) => c !== col));
+    } else {
+      setSelectedCols([...selectedCols, col]);
+    }
   };
 
-  const exporterCSV = () => {
-    const lignes = [];
-    const entetes = colonnes
-      .filter((c) => selection.includes(c.key))
-      .map((c) => c.label);
-    lignes.push(entetes);
-
-    donnees.forEach((item) => {
-      const ligne = colonnes
-        .filter((c) => selection.includes(c.key))
-        .map((c) => {
-          const val = item[c.key];
-          if (val === null || val === undefined) return "";
-          if (typeof val === "boolean") return val ? "Oui" : "Non";
-          if (val instanceof Date) return val.toISOString().split("T")[0];
-          return String(val).replace(/"/g, '""'); // Escape quotes
-        });
-      lignes.push(ligne);
+  const handleExport = () => {
+    const filteredData = donnees.map((item) => {
+      const row = {};
+      selectedCols.forEach((col) => {
+        row[col] = item[col];
+      });
+      return row;
     });
-
-    const contenu = lignes.map((l) => l.join(";")).join("\n");
-    const blob = new Blob([contenu], { type: "text/csv;charset=utf-8;" });
+    const csv = Papa.unparse(filteredData);
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = nomFichier;
-    a.click();
-    URL.revokeObjectURL(url);
+    const link = document.createElement("a");
+    link.setAttribute("href", url);
+    link.setAttribute("download", nomFichier);
+    link.style.visibility = "hidden";
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
     onClose();
   };
 
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex justify-center items-center z-50">
-      <div className="bg-white p-6 rounded w-full max-w-md max-h-[90vh] overflow-auto">
-        <div className="flex justify-between items-center mb-4">
-          <h2 className="text-lg font-bold">Sélection des colonnes</h2>
-          <button onClick={onClose} className="text-gray-600 hover:text-red-600">
-            <X />
-          </button>
-        </div>
-
-        <div className="grid grid-cols-2 gap-2 text-sm mb-4">
-          {colonnes.map((c) => (
-            <label key={c.key} className="flex items-center gap-2">
+    <div className="fixed inset-0 z-50 bg-black bg-opacity-50 flex items-center justify-center">
+      <div className="bg-white rounded-lg p-6 w-full max-w-md">
+        <h2 className="text-xl font-bold mb-4">Exporter en CSV</h2>
+        <p className="text-sm mb-2">Choisissez les colonnes à inclure :</p>
+        <div className="max-h-64 overflow-y-auto mb-4">
+          {colonnes.map((col) => (
+            <label key={col} className="flex items-center space-x-2 mb-1">
               <input
                 type="checkbox"
-                checked={selection.includes(c.key)}
-                onChange={() => toggleColonne(c.key)}
+                checked={selectedCols.includes(col)}
+                onChange={() => handleToggleCol(col)}
               />
-              {c.label}
+              <span className="text-sm">{col}</span>
             </label>
           ))}
         </div>
-
-        <button
-          onClick={exporterCSV}
-          className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded w-full flex justify-center items-center gap-2"
-        >
-          <Download size={16} />
-          Exporter les données
-        </button>
+        <div className="flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-1 bg-gray-300 rounded hover:bg-gray-400">
+            Annuler
+          </button>
+          <button onClick={handleExport} className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700">
+            Exporter
+          </button>
+        </div>
       </div>
     </div>
   );
-}
+};
+
+export default ExportCSVModal;
