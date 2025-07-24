@@ -13,7 +13,6 @@ export default function Signup() {
 
   const handleSignup = async (e) => {
     e.preventDefault();
-
     setMessage(null);
 
     // Étape 1 : création du compte
@@ -35,13 +34,12 @@ export default function Signup() {
       return;
     }
 
-    // Étape 2 : insertion dans profils_utilisateurs
+    // Étape 2 : insertion dans profils_utilisateurs sans colonne role
     const { error: insertError } = await supabase.from("profils_utilisateurs").insert([
       {
         user_id: userId,
         nom,
         prenom,
-        role: null, // pas de rôle défini à l’inscription
       },
     ]);
 
