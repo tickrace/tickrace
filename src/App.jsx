@@ -18,6 +18,7 @@ import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
 import ListeInscriptions from "./pages/ListeInscriptions";
 import AuthRedirectWrapper from "./components/AuthRedirectWrapper";
 import { Toaster } from "react-hot-toast";
+import DetailsCoureur from "./pages/DetailsCoureur";
 
 function AppContent() {
   const { currentRole } = useUser(); // 👈 récupération du rôle
@@ -40,7 +41,10 @@ function AppContent() {
         <Route path="/signup" element={<Signup />} />
         <Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
         <Route path="/organisateur/inscriptions/:format_id" element={<ListeInscriptions />} />
-      </Routes>
+        <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
+      
+
+</Routes>
     </>
   );
 }
