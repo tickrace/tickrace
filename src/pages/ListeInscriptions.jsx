@@ -189,7 +189,7 @@ export default function ListeInscriptions() {
                       </td>
                       <td className="border px-2 py-1 text-center">
                         <Link
-                          to={`/detailscoureur/${insc.id}`}
+                          to={`/details-coureur/${insc.id}`}
                           className="text-blue-600 underline"
                         >
                           Détails
