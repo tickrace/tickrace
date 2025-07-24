@@ -3,6 +3,7 @@ import { supabase } from "../supabase";
 import { Link } from "react-router-dom";
 import ExportCSVModal from "../components/ExportCSVModal";
 
+
 export default function ListeInscriptions() {
   const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
   const [searchTerm, setSearchTerm] = useState("");
