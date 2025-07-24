@@ -19,6 +19,9 @@ import ListeInscriptions from "./pages/ListeInscriptions";
 import AuthRedirectWrapper from "./components/AuthRedirectWrapper";
 import { Toaster } from "react-hot-toast";
 import DetailsCoureur from "./pages/DetailsCoureur";
+import ResetPassword from "./pages/ResetPassword";
+import ForgotPassword from "./pages/ForgotPassword";
+
 
 function AppContent() {
   const { currentRole } = useUser(); // 👈 récupération du rôle
@@ -42,9 +45,11 @@ function AppContent() {
         <Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
         <Route path="/organisateur/inscriptions/:format_id" element={<ListeInscriptions />} />
         <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
-      
-
+        <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/forgot-password" element={<ForgotPassword />} />
 </Routes>
+
+
     </>
   );
 }
