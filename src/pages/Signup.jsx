@@ -15,7 +15,7 @@ export default function Signup() {
     e.preventDefault();
     setMessage(null);
 
-    // Étape 1 : création du compte
+    // Étape 1 : création de l'utilisateur
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
@@ -28,18 +28,18 @@ export default function Signup() {
     }
 
     const userId = signUpData?.user?.id;
-
     if (!userId) {
       setMessage("Erreur : identifiant utilisateur non disponible.");
       return;
     }
 
-    // Étape 2 : insertion dans profils_utilisateurs sans colonne role
+    // Étape 2 : insertion du profil utilisateur (sans champ 'role')
     const { error: insertError } = await supabase.from("profils_utilisateurs").insert([
       {
         user_id: userId,
         nom,
         prenom,
+        email,
       },
     ]);
 
