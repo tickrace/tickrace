@@ -1,16 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import ExportCSVModal from "../components/ExportCSVModal";
+import { Link } from "react-router-dom";
 
 export default function ListeInscriptions() {
   const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
   const [modalExportOpen, setModalExportOpen] = useState(false);
   const [exportData, setExportData] = useState([]);
   const [colonnes, setColonnes] = useState([]);
-  const [recherche, setRecherche] = useState("");
+  const [search, setSearch] = useState("");
   const [filtreStatut, setFiltreStatut] = useState("");
-  const [pagination, setPagination] = useState({});
-  const lignesParPage = 50;
+  const [currentPage, setCurrentPage] = useState({});
+
+  const LIGNES_PAR_PAGE = 50;
 
   useEffect(() => {
     fetchInscriptions();
@@ -30,101 +32,88 @@ export default function ListeInscriptions() {
         return acc;
       }, {});
       setInscriptionsParFormat(grouped);
-      const initialPagination = Object.keys(grouped).reduce((acc, formatId) => {
-        acc[formatId] = 1;
-        return acc;
-      }, {});
-      setPagination(initialPagination);
     }
   };
 
-  const handleChange = (formatId, index, champ, valeur) => {
-    const updated = { ...inscriptionsParFormat };
-    updated[formatId][index][champ] = valeur;
-    setInscriptionsParFormat(updated);
+  const handleChange = async (id, champ, valeur) => {
+    await supabase.from("inscriptions").update({ [champ]: valeur }).eq("id", id);
+    fetchInscriptions();
   };
 
-  const ajouterLigne = (formatId) => {
-    const nouvelleLigne = {
-      id: Math.random().toString(),
-      nom: "",
-      prenom: "",
-      dossard: "",
-      email: "",
-      club: "",
-      statut: "en attente",
-      formats: { nom: inscriptionsParFormat[formatId][0]?.formats?.nom },
-    };
-    setInscriptionsParFormat((prev) => ({
+  const handlePageChange = (formatId, direction) => {
+    setCurrentPage((prev) => ({
       ...prev,
-      [formatId]: [...prev[formatId], nouvelleLigne],
+      [formatId]: Math.max(0, (prev[formatId] || 0) + direction),
     }));
-  };
-
-  const filtrerInscriptions = (inscriptions) => {
-    return inscriptions.filter((i) => {
-      const matchRecherche =
-        i.nom?.toLowerCase().includes(recherche.toLowerCase()) ||
-        i.prenom?.toLowerCase().includes(recherche.toLowerCase()) ||
-        i.email?.toLowerCase().includes(recherche.toLowerCase());
-      const matchStatut = filtreStatut ? i.statut === filtreStatut : true;
-      return matchRecherche && matchStatut;
-    });
   };
 
   return (
     <div className="p-6 space-y-8">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mb-4 gap-2">
+      <div className="flex items-center gap-4 mb-6">
         <input
           type="text"
           placeholder="Rechercher..."
-          className="p-2 border rounded w-full sm:w-auto"
-          value={recherche}
-          onChange={(e) => setRecherche(e.target.value)}
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          className="border px-3 py-1 rounded w-1/3"
         />
         <select
-          className="p-2 border rounded w-full sm:w-auto"
           value={filtreStatut}
           onChange={(e) => setFiltreStatut(e.target.value)}
+          className="border px-3 py-1 rounded"
         >
           <option value="">Tous les statuts</option>
-          <option value="en attente">En attente</option>
           <option value="validé">Validé</option>
+          <option value="en attente">En attente</option>
           <option value="refusé">Refusé</option>
         </select>
       </div>
 
       {Object.entries(inscriptionsParFormat).map(([formatId, inscriptions]) => {
-        const filtres = filtrerInscriptions(inscriptions);
-        const page = pagination[formatId] || 1;
-        const paginees = filtres.slice((page - 1) * lignesParPage, page * lignesParPage);
+        const page = currentPage[formatId] || 0;
+
+        const inscriptionsFiltrees = inscriptions.filter((insc) => {
+          const matchRecherche =
+            search === "" ||
+            `${insc.nom} ${insc.prenom} ${insc.email} ${insc.club}`
+              .toLowerCase()
+              .includes(search.toLowerCase());
+          const matchStatut = filtreStatut === "" || insc.statut === filtreStatut;
+          return matchRecherche && matchStatut;
+        });
+
+        const totalPages = Math.ceil(inscriptionsFiltrees.length / LIGNES_PAR_PAGE);
+        const pageInscriptions = inscriptionsFiltrees.slice(
+          page * LIGNES_PAR_PAGE,
+          (page + 1) * LIGNES_PAR_PAGE
+        );
 
         return (
           <div key={formatId} className="border border-gray-300 p-4 rounded-md">
             <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">Format : {inscriptions[0]?.formats?.nom}</h2>
-              <div className="flex gap-4">
-                <button
-                  onClick={() => ajouterLigne(formatId)}
-                  className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
-                >
-                  Ajouter un coureur
-                </button>
-                <button
-                  onClick={() => {
-                    setExportData(filtres);
-                    setColonnes(["nom", "prenom", "dossard", "email", "club", "statut"]);
-                    setModalExportOpen(true);
-                  }}
-                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-                >
-                  Exporter CSV
-                </button>
-              </div>
+              <h2 className="text-xl font-bold">
+                Format : {inscriptions[0]?.formats?.nom}
+              </h2>
+              <button
+                onClick={() => {
+                  setExportData(inscriptionsFiltrees);
+                  setColonnes([
+                    "nom",
+                    "prenom",
+                    "dossard",
+                    "email",
+                    "club",
+                    "statut",
+                  ]);
+                  setModalExportOpen(true);
+                }}
+                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+              >
+                Exporter CSV
+              </button>
             </div>
-
             <div className="overflow-x-auto">
-              <table className="min-w-full table-auto border-collapse border border-gray-300">
+              <table className="min-w-full border-collapse border border-gray-300">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="border px-2 py-1">Nom</th>
@@ -133,75 +122,103 @@ export default function ListeInscriptions() {
                     <th className="border px-2 py-1">Email</th>
                     <th className="border px-2 py-1">Club</th>
                     <th className="border px-2 py-1">Statut</th>
+                    <th className="border px-2 py-1">Détails</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {paginees.map((insc, index) => (
+                  {pageInscriptions.map((insc) => (
                     <tr key={insc.id}>
                       <td className="border px-2 py-1">
                         <input
-                          value={insc.nom || ""}
-                          onChange={(e) => handleChange(formatId, index, "nom", e.target.value)}
                           className="w-full"
+                          value={insc.nom || ""}
+                          onChange={(e) => handleChange(insc.id, "nom", e.target.value)}
                         />
                       </td>
                       <td className="border px-2 py-1">
                         <input
-                          value={insc.prenom || ""}
-                          onChange={(e) => handleChange(formatId, index, "prenom", e.target.value)}
                           className="w-full"
+                          value={insc.prenom || ""}
+                          onChange={(e) =>
+                            handleChange(insc.id, "prenom", e.target.value)
+                          }
                         />
                       </td>
                       <td className="border px-2 py-1">
                         <input
                           type="number"
+                          className="w-full"
                           value={insc.dossard || ""}
-                          onChange={(e) => handleChange(formatId, index, "dossard", e.target.value)}
-                          className="w-full"
+                          onChange={(e) =>
+                            handleChange(insc.id, "dossard", e.target.value)
+                          }
                         />
                       </td>
                       <td className="border px-2 py-1">
                         <input
+                          className="w-full"
                           value={insc.email || ""}
-                          onChange={(e) => handleChange(formatId, index, "email", e.target.value)}
-                          className="w-full"
+                          onChange={(e) =>
+                            handleChange(insc.id, "email", e.target.value)
+                          }
                         />
                       </td>
                       <td className="border px-2 py-1">
                         <input
-                          value={insc.club || ""}
-                          onChange={(e) => handleChange(formatId, index, "club", e.target.value)}
                           className="w-full"
+                          value={insc.club || ""}
+                          onChange={(e) =>
+                            handleChange(insc.id, "club", e.target.value)
+                          }
                         />
                       </td>
                       <td className="border px-2 py-1">
                         <select
-                          value={insc.statut || "en attente"}
-                          onChange={(e) => handleChange(formatId, index, "statut", e.target.value)}
                           className="w-full"
+                          value={insc.statut || "en attente"}
+                          onChange={(e) =>
+                            handleChange(insc.id, "statut", e.target.value)
+                          }
                         >
                           <option value="en attente">En attente</option>
                           <option value="validé">Validé</option>
                           <option value="refusé">Refusé</option>
                         </select>
                       </td>
+                      <td className="border px-2 py-1 text-center">
+                        <Link
+                          to={`/details-coureur/${insc.id}`}
+                          className="text-blue-600 underline"
+                        >
+                          Voir
+                        </Link>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
             </div>
-
-            <div className="flex justify-end mt-2 space-x-2">
-              {Array.from({ length: Math.ceil(filtres.length / lignesParPage) }, (_, i) => (
+            {totalPages > 1 && (
+              <div className="mt-4 flex justify-end gap-2">
                 <button
-                  key={i + 1}
-                  onClick={() => setPagination((prev) => ({ ...prev, [formatId]: i + 1 }))}
-                  className={`px-3 py-1 border rounded ${pagination[formatId] === i + 1 ? "bg-gray-300" : ""}`}
+                  onClick={() => handlePageChange(formatId, -1)}
+                  disabled={page === 0}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
                 >
-                  {i + 1}
+                  Précédent
                 </button>
-              ))}
-            </div>
+                <span className="self-center">
+                  Page {page + 1} sur {totalPages}
+                </span>
+                <button
+                  onClick={() => handlePageChange(formatId, 1)}
+                  disabled={page >= totalPages - 1}
+                  className="px-3 py-1 border rounded disabled:opacity-50"
+                >
+                  Suivant
+                </button>
+              </div>
+            )}
           </div>
         );
       })}
