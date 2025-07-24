@@ -29,34 +29,23 @@ export default function Login() {
     const session = authData.session;
     setSession(session);
 
-    // Charger les rôles dans profils_utilisateurs
     const { data: profils, error: profilsError } = await supabase
       .from("profils_utilisateurs")
       .select("*")
       .eq("user_id", user.id);
 
     if (profilsError || !profils || profils.length === 0) {
-      setMessage("Aucun rôle trouvé pour cet utilisateur.");
+      setMessage("Aucune donnée de profil trouvée.");
       return;
     }
 
-    const rolesList = profils.map((p) => p.role);
-    const roleParDefaut = rolesList.includes("coureur")
-      ? "coureur"
-      : rolesList[0]; // Priorité au rôle coureur sinon 1er rôle
+    const profil = profils[0]; // on prend simplement le 1er
+    setNom(profil.nom);
+    setPrenom(profil.prenom);
+    setRoles(["coureur"]);
+    setActiveRole("coureur");
 
-    const { nom, prenom } = profils.find((p) => p.role === roleParDefaut) || profils[0];
-
-    setRoles(rolesList);
-    setActiveRole(roleParDefaut);
-    setNom(nom);
-    setPrenom(prenom);
-
-    // Redirection
-    if (roleParDefaut === "organisateur") navigate("/organisateur/mon-espace");
-    else if (roleParDefaut === "admin") navigate("/admin/dashboard");
-    else if (roleParDefaut === "benevole") navigate("/benevole/mes-missions");
-    else navigate("/profil");
+    navigate("/profil");
   };
 
   return (
