@@ -6,31 +6,38 @@ export default function ForgotPassword() {
   const [message, setMessage] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    setMessage(null);
+const handleSubmit = async (e) => {
+  e.preventDefault();
+  setMessage(null);
 
-    if (!email) {
-      setMessage("Veuillez entrer votre adresse email.");
-      return;
-    }
+  if (!email) {
+    setMessage("Veuillez entrer votre adresse email.");
+    return;
+  }
 
-    setLoading(true);
+  setLoading(true);
 
+  try {
     const { error } = await supabase.auth.resetPasswordForEmail(email, {
-      redirectTo: `${window.location.origin}/reset-password`, // Page de reset
+      redirectTo: `${window.location.origin}/reset-password`,
     });
 
-    setLoading(false);
-
     if (error) {
+      console.error("Erreur Supabase:", error);
       setMessage("Erreur : " + error.message);
     } else {
       setMessage(
         "Un email de réinitialisation vous a été envoyé. Vérifiez votre boîte mail."
       );
     }
-  };
+  } catch (err) {
+    console.error("Erreur inattendue:", err);
+    setMessage("Erreur inattendue : " + err.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   return (
     <div className="flex justify-center items-center min-h-screen bg-gray-100">
