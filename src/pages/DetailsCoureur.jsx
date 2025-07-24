@@ -3,98 +3,67 @@ import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function DetailsCoureur() {
-  const { id } = useParams(); // ID de l'inscription
+  const { id } = useParams();
   const navigate = useNavigate();
-  const [inscription, setInscription] = useState(null);
+  const [coureur, setCoureur] = useState(null);
 
   useEffect(() => {
-    if (id) {
-      fetchInscription();
-    }
+    if (id) fetchCoureur();
   }, [id]);
 
-  const fetchInscription = async () => {
+  const fetchCoureur = async () => {
     const { data, error } = await supabase
       .from("inscriptions")
       .select("*")
       .eq("id", id)
       .single();
-    if (!error) setInscription(data);
+
+    if (!error) setCoureur(data);
   };
 
-  const handleChange = async (field, value) => {
-    const updated = { ...inscription, [field]: value };
-    setInscription(updated);
-    await supabase.from("inscriptions").update({ [field]: value }).eq("id", id);
+  const handleChange = async (e, field) => {
+    const value =
+      e.target.type === "checkbox" ? e.target.checked : e.target.value;
+    const updated = { ...coureur, [field]: value };
+    setCoureur(updated);
+    await supabase
+      .from("inscriptions")
+      .update({ [field]: value })
+      .eq("id", coureur.id);
   };
 
-  if (!inscription) return <div className="p-6">Chargement...</div>;
+  if (!coureur) return <div>Chargement...</div>;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto space-y-6">
+    <div className="p-6">
+      <h1 className="text-2xl font-bold mb-4">Détails du coureur</h1>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {Object.entries(coureur).map(([key, value]) => (
+          <div key={key}>
+            <label className="block text-sm font-medium">{key}</label>
+            {typeof value === "boolean" ? (
+              <input
+                type="checkbox"
+                checked={value}
+                onChange={(e) => handleChange(e, key)}
+              />
+            ) : (
+              <input
+                type="text"
+                value={value ?? ""}
+                onChange={(e) => handleChange(e, key)}
+                className="w-full border border-gray-300 rounded px-2 py-1"
+              />
+            )}
+          </div>
+        ))}
+      </div>
       <button
         onClick={() => navigate(-1)}
-        className="px-4 py-2 bg-gray-300 text-gray-900 rounded hover:bg-gray-400"
+        className="mt-6 bg-gray-500 text-white px-4 py-2 rounded"
       >
-        ← Retour
+        Retour
       </button>
-
-      <h1 className="text-2xl font-bold">Détails du coureur</h1>
-
-      <table className="min-w-full table-auto border border-gray-300">
-        <tbody>
-          {Object.entries({
-            nom: "Nom",
-            prenom: "Prénom",
-            genre: "Genre",
-            date_naissance: "Date de naissance",
-            nationalite: "Nationalité",
-            email: "Email",
-            telephone: "Téléphone",
-            adresse: "Adresse",
-            adresse_complement: "Complément d'adresse",
-            code_postal: "Code postal",
-            ville: "Ville",
-            pays: "Pays",
-            apparaitre_resultats: "Apparaître dans les résultats",
-            club: "Club",
-            justificatif_type: "Justificatif",
-            contact_urgence_nom: "Nom contact d'urgence",
-            contact_urgence_telephone: "Téléphone contact d'urgence",
-            statut: "Statut",
-            created_at: "Créé le",
-            updated_at: "Mis à jour le",
-            numero_licence: "Numéro de licence",
-            dossard: "Dossard",
-            nombre_repas: "Nombre de repas",
-            prix_total_repas: "Prix total des repas",
-          }).map(([field, label]) => (
-            <tr key={field}>
-              <td className="border px-2 py-1 font-medium bg-gray-100">{label}</td>
-              <td className="border px-2 py-1">
-                {field === "apparaitre_resultats" ? (
-                  <input
-                    type="checkbox"
-                    checked={inscription[field] || false}
-                    onChange={(e) => handleChange(field, e.target.checked)}
-                  />
-                ) : field === "created_at" || field === "updated_at" ? (
-                  <span className="text-gray-600">
-                    {inscription[field] ? new Date(inscription[field]).toLocaleString() : "-"}
-                  </span>
-                ) : (
-                  <input
-                    type={field === "date_naissance" ? "date" : "text"}
-                    value={inscription[field] || ""}
-                    onChange={(e) => handleChange(field, e.target.value)}
-                    className="w-full border rounded px-2 py-1"
-                  />
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
     </div>
   );
 }
