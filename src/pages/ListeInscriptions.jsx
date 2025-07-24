@@ -1,18 +1,17 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import ExportCSVModal from "../components/ExportCSVModal";
 import { Link } from "react-router-dom";
+import ExportCSVModal from "../components/ExportCSVModal";
 
 export default function ListeInscriptions() {
   const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statutFilter, setStatutFilter] = useState("");
   const [modalExportOpen, setModalExportOpen] = useState(false);
   const [exportData, setExportData] = useState([]);
   const [colonnes, setColonnes] = useState([]);
-  const [search, setSearch] = useState("");
-  const [filtreStatut, setFiltreStatut] = useState("");
-  const [currentPage, setCurrentPage] = useState({});
-
-  const LIGNES_PAR_PAGE = 50;
+  const [currentPages, setCurrentPages] = useState({});
+  const ITEMS_PER_PAGE = 50;
 
   useEffect(() => {
     fetchInscriptions();
@@ -35,85 +34,127 @@ export default function ListeInscriptions() {
     }
   };
 
-  const handleChange = async (id, champ, valeur) => {
-    await supabase.from("inscriptions").update({ [champ]: valeur }).eq("id", id);
-    fetchInscriptions();
+  const handleUpdateChamp = async (id, field, value) => {
+    const { error } = await supabase
+      .from("inscriptions")
+      .update({ [field]: value })
+      .eq("id", id);
+    if (!error) fetchInscriptions();
+  };
+
+  const handleAddCoureur = async (formatId) => {
+    const { data, error } = await supabase
+      .from("inscriptions")
+      .insert([{ format_id: formatId, statut: "en attente" }])
+      .select();
+    if (!error && data?.[0]) fetchInscriptions();
   };
 
   const handlePageChange = (formatId, direction) => {
-    setCurrentPage((prev) => ({
+    setCurrentPages((prev) => ({
       ...prev,
       [formatId]: Math.max(0, (prev[formatId] || 0) + direction),
     }));
   };
 
+  const renderEditableCell = (value, id, field, type = "text") => {
+    if (field === "statut") {
+      return (
+        <select
+          className="w-full border rounded px-1 py-0.5"
+          value={value || ""}
+          onChange={(e) => handleUpdateChamp(id, field, e.target.value)}
+        >
+          <option value="en attente">En attente</option>
+          <option value="validé">Validé</option>
+          <option value="refusé">Refusé</option>
+        </select>
+      );
+    }
+
+    return (
+      <input
+        type={type}
+        className="w-full border rounded px-1 py-0.5"
+        value={value || ""}
+        onChange={(e) => handleUpdateChamp(id, field, e.target.value)}
+      />
+    );
+  };
+
   return (
     <div className="p-6 space-y-8">
-      <div className="flex items-center gap-4 mb-6">
+      <div className="flex items-center justify-between">
         <input
           type="text"
-          placeholder="Rechercher..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          className="border px-3 py-1 rounded w-1/3"
+          placeholder="Recherche..."
+          value={searchTerm}
+          onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
+          className="border px-3 py-1 rounded w-1/2"
         />
         <select
-          value={filtreStatut}
-          onChange={(e) => setFiltreStatut(e.target.value)}
+          value={statutFilter}
+          onChange={(e) => setStatutFilter(e.target.value)}
           className="border px-3 py-1 rounded"
         >
           <option value="">Tous les statuts</option>
-          <option value="validé">Validé</option>
           <option value="en attente">En attente</option>
+          <option value="validé">Validé</option>
           <option value="refusé">Refusé</option>
         </select>
       </div>
 
       {Object.entries(inscriptionsParFormat).map(([formatId, inscriptions]) => {
-        const page = currentPage[formatId] || 0;
-
-        const inscriptionsFiltrees = inscriptions.filter((insc) => {
-          const matchRecherche =
-            search === "" ||
-            `${insc.nom} ${insc.prenom} ${insc.email} ${insc.club}`
+        const page = currentPages[formatId] || 0;
+        const filtered = inscriptions.filter((insc) => {
+          const matchesSearch =
+            Object.values(insc)
+              .join(" ")
               .toLowerCase()
-              .includes(search.toLowerCase());
-          const matchStatut = filtreStatut === "" || insc.statut === filtreStatut;
-          return matchRecherche && matchStatut;
+              .includes(searchTerm);
+          const matchesStatut =
+            !statutFilter || insc.statut === statutFilter;
+          return matchesSearch && matchesStatut;
         });
-
-        const totalPages = Math.ceil(inscriptionsFiltrees.length / LIGNES_PAR_PAGE);
-        const pageInscriptions = inscriptionsFiltrees.slice(
-          page * LIGNES_PAR_PAGE,
-          (page + 1) * LIGNES_PAR_PAGE
+        const paginated = filtered.slice(
+          page * ITEMS_PER_PAGE,
+          (page + 1) * ITEMS_PER_PAGE
         );
 
         return (
           <div key={formatId} className="border border-gray-300 p-4 rounded-md">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-xl font-bold">
+            <div className="flex justify-between mb-3 items-center">
+              <h2 className="text-xl font-semibold">
                 Format : {inscriptions[0]?.formats?.nom}
               </h2>
-              <button
-                onClick={() => {
-                  setExportData(inscriptionsFiltrees);
-                  setColonnes([
-                    "nom",
-                    "prenom",
-                    "dossard",
-                    "email",
-                    "club",
-                    "statut",
-                  ]);
-                  setModalExportOpen(true);
-                }}
-                className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
-              >
-                Exporter CSV
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => handleAddCoureur(formatId)}
+                  className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+                >
+                  Ajouter un coureur
+                </button>
+                <button
+                  onClick={() => {
+                    setExportData(filtered);
+                    setColonnes([
+                      "nom",
+                      "prenom",
+                      "dossard",
+                      "email",
+                      "club",
+                      "statut",
+                    ]);
+                    setModalExportOpen(true);
+                  }}
+                  className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+                >
+                  Exporter CSV
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
-              <table className="min-w-full border-collapse border border-gray-300">
+              <table className="min-w-full border-collapse border border-gray-300 text-sm">
                 <thead className="bg-gray-100">
                   <tr>
                     <th className="border px-2 py-1">Nom</th>
@@ -122,103 +163,62 @@ export default function ListeInscriptions() {
                     <th className="border px-2 py-1">Email</th>
                     <th className="border px-2 py-1">Club</th>
                     <th className="border px-2 py-1">Statut</th>
-                    <th className="border px-2 py-1">Détails</th>
+                    <th className="border px-2 py-1">Actions</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {pageInscriptions.map((insc) => (
+                  {paginated.map((insc) => (
                     <tr key={insc.id}>
                       <td className="border px-2 py-1">
-                        <input
-                          className="w-full"
-                          value={insc.nom || ""}
-                          onChange={(e) => handleChange(insc.id, "nom", e.target.value)}
-                        />
+                        {renderEditableCell(insc.nom, insc.id, "nom")}
                       </td>
                       <td className="border px-2 py-1">
-                        <input
-                          className="w-full"
-                          value={insc.prenom || ""}
-                          onChange={(e) =>
-                            handleChange(insc.id, "prenom", e.target.value)
-                          }
-                        />
+                        {renderEditableCell(insc.prenom, insc.id, "prenom")}
                       </td>
                       <td className="border px-2 py-1">
-                        <input
-                          type="number"
-                          className="w-full"
-                          value={insc.dossard || ""}
-                          onChange={(e) =>
-                            handleChange(insc.id, "dossard", e.target.value)
-                          }
-                        />
+                        {renderEditableCell(insc.dossard, insc.id, "dossard", "number")}
                       </td>
                       <td className="border px-2 py-1">
-                        <input
-                          className="w-full"
-                          value={insc.email || ""}
-                          onChange={(e) =>
-                            handleChange(insc.id, "email", e.target.value)
-                          }
-                        />
+                        {renderEditableCell(insc.email, insc.id, "email")}
                       </td>
                       <td className="border px-2 py-1">
-                        <input
-                          className="w-full"
-                          value={insc.club || ""}
-                          onChange={(e) =>
-                            handleChange(insc.id, "club", e.target.value)
-                          }
-                        />
+                        {renderEditableCell(insc.club, insc.id, "club")}
                       </td>
                       <td className="border px-2 py-1">
-                        <select
-                          className="w-full"
-                          value={insc.statut || "en attente"}
-                          onChange={(e) =>
-                            handleChange(insc.id, "statut", e.target.value)
-                          }
-                        >
-                          <option value="en attente">En attente</option>
-                          <option value="validé">Validé</option>
-                          <option value="refusé">Refusé</option>
-                        </select>
+                        {renderEditableCell(insc.statut, insc.id, "statut")}
                       </td>
                       <td className="border px-2 py-1 text-center">
                         <Link
-                          to={`/details-coureur/${insc.id}`}
+                          to={`/detailscoureur/${insc.id}`}
                           className="text-blue-600 underline"
                         >
-                          Voir
+                          Détails
                         </Link>
                       </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-            </div>
-            {totalPages > 1 && (
-              <div className="mt-4 flex justify-end gap-2">
+              <div className="flex justify-between mt-2">
                 <button
                   onClick={() => handlePageChange(formatId, -1)}
+                  className="px-2 py-1 border rounded disabled:opacity-50"
                   disabled={page === 0}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
                 >
                   Précédent
                 </button>
-                <span className="self-center">
-                  Page {page + 1} sur {totalPages}
+                <span className="text-sm">
+                  Page {page + 1} / {Math.ceil(filtered.length / ITEMS_PER_PAGE)}
                 </span>
                 <button
                   onClick={() => handlePageChange(formatId, 1)}
-                  disabled={page >= totalPages - 1}
-                  className="px-3 py-1 border rounded disabled:opacity-50"
+                  className="px-2 py-1 border rounded disabled:opacity-50"
+                  disabled={(page + 1) * ITEMS_PER_PAGE >= filtered.length}
                 >
                   Suivant
                 </button>
               </div>
-            )}
+            </div>
           </div>
         );
       })}
