@@ -1,4 +1,3 @@
-// src/pages/Signup.jsx
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -16,6 +15,7 @@ export default function Signup() {
     e.preventDefault();
     setMessage(null);
 
+    // Étape 1 : création du compte Supabase
     const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
@@ -33,12 +33,12 @@ export default function Signup() {
       return;
     }
 
+    // Étape 2 : insertion dans profils_utilisateurs sans email
     const { error: insertError } = await supabase.from("profils_utilisateurs").insert([
       {
         user_id: userId,
         nom,
         prenom,
-        email,
       },
     ]);
 
