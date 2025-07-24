@@ -9,48 +9,38 @@ export default function Signup() {
   const [password, setPassword] = useState("");
   const [nom, setNom] = useState("");
   const [prenom, setPrenom] = useState("");
+  const [selectedRole, setSelectedRole] = useState(""); // "coureur" ou "organisateur"
   const [message, setMessage] = useState(null);
 
   const handleSignup = async (e) => {
     e.preventDefault();
-    setMessage(null);
 
-    // Étape 1 : création de l'utilisateur
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+    if (!selectedRole) {
+      setMessage("Veuillez choisir un rôle.");
+      return;
+    }
+
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
+      options: {
+        data: {
+          role: selectedRole,
+          nom,
+          prenom,
+        },
+      },
     });
 
-    if (signUpError) {
-      console.error("Erreur création compte :", signUpError.message);
-      setMessage("Erreur : " + signUpError.message);
-      return;
+    if (error) {
+      console.error("Erreur création compte :", error.message);
+      setMessage("Erreur : " + error.message);
+    } else {
+      setMessage(
+        "Compte créé avec succès. Veuillez confirmer votre email avant de vous connecter."
+      );
+      setTimeout(() => navigate("/login"), 3000);
     }
-
-    const userId = signUpData?.user?.id;
-    if (!userId) {
-      setMessage("Erreur : identifiant utilisateur non disponible.");
-      return;
-    }
-
-    // Étape 2 : insertion du profil utilisateur (sans champ 'role')
-    const { error: insertError } = await supabase.from("profils_utilisateurs").insert([
-      {
-        user_id: userId,
-        nom,
-        prenom,
-        email,
-      },
-    ]);
-
-    if (insertError) {
-      console.error("Erreur insertion profil :", insertError.message);
-      setMessage("Erreur lors de la création du profil utilisateur.");
-      return;
-    }
-
-    setMessage("Compte créé. Vérifiez votre email pour confirmer votre inscription.");
-    setTimeout(() => navigate("/login"), 3000);
   };
 
   return (
@@ -101,6 +91,20 @@ export default function Signup() {
           />
         </div>
 
+        <div>
+          <label className="block">Choisissez votre rôle :</label>
+          <select
+            value={selectedRole}
+            onChange={(e) => setSelectedRole(e.target.value)}
+            required
+            className="w-full border rounded px-3 py-2"
+          >
+            <option value="">-- Sélectionner --</option>
+            <option value="coureur">Coureur</option>
+            <option value="organisateur">Organisateur</option>
+          </select>
+        </div>
+
         <button
           type="submit"
           className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
@@ -109,7 +113,7 @@ export default function Signup() {
         </button>
       </form>
 
-      {message && <p className="mt-4 text-center text-sm text-red-600">{message}</p>}
+      {message && <p className="mt-4 text-center text-sm">{message}</p>}
     </div>
   );
 }
