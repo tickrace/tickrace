@@ -81,11 +81,6 @@ export default function Signup() {
 
       {message && <p className="mt-4 text-center text-sm text-red-600">{message}</p>}
 
-      <div className="mt-4 text-center">
-        <Link to="/forgot-password" className="text-blue-600 hover:underline">
-          Mot de passe oublié ?
-        </Link>
-      </div>
-    </div>
+          </div>
   );
 }

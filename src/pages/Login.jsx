@@ -1,6 +1,6 @@
 // src/pages/Login.jsx
 import React, { useState } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 
@@ -39,7 +39,7 @@ export default function Login() {
       return;
     }
 
-    const profil = profils[0]; // on prend simplement le 1er
+    const profil = profils[0];
     setNom(profil.nom);
     setPrenom(profil.prenom);
     setRoles(["coureur"]);
@@ -81,6 +81,12 @@ export default function Login() {
           Se connecter
         </button>
       </form>
+
+      <div className="mt-4 text-center">
+        <Link to="/forgot-password" className="text-blue-600 hover:underline">
+          Mot de passe oublié ?
+        </Link>
+      </div>
 
       {message && <p className="mt-4 text-red-600 text-sm">{message}</p>}
     </div>
