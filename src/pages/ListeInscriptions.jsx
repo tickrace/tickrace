@@ -138,14 +138,13 @@ export default function ListeInscriptions() {
                 <button
                   onClick={() => {
                     setExportData(filtered);
-                    setColonnes([
-                      "nom",
-                      "prenom",
-                      "dossard",
-                      "email",
-                      "club",
-                      "statut",
-                    ]);
+                   setColonnes([
+  "nom", "prenom", "genre", "date_naissance",
+  "email", "club", "dossard", "statut"
+]);
+
+setExportData(inscriptions); // sans format imbriqué
+
                     setModalExportOpen(true);
                   }}
                   className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
