@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
+import GPXViewer from "../components/GPXViewer";
 
 export default function CourseDetail() {
   const { id } = useParams();
@@ -22,7 +23,6 @@ export default function CourseDetail() {
         setFormats(data.formats || []);
       }
     };
-
     fetchData();
   }, [id]);
 
@@ -76,6 +76,9 @@ export default function CourseDetail() {
                   {format.presentation_parcours}
                 </p>
               )}
+
+              {/* GPX + profil */}
+              {format.gpx_url && <GPXViewer gpxUrl={format.gpx_url} />}
 
               <div className="mt-4 text-right">
                 <Link
