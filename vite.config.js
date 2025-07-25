@@ -21,7 +21,6 @@ export default defineConfig({
         'file-saver',
         'jspdf',
         'jspdf-autotable'
-        // On ne met PAS react-leaflet et leaflet ici pour qu'ils soient inclus
       ],
     },
   },
