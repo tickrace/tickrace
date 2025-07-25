@@ -5,13 +5,13 @@ export default defineConfig({
   plugins: [react()],
   optimizeDeps: {
     include: [
+      'react-leaflet',
+      'leaflet',
       'uuid',
       'xlsx',
       'file-saver',
       'jspdf',
-      'jspdf-autotable',
-      'react-leaflet',
-      'leaflet'
+      'jspdf-autotable'
     ],
   },
   build: {
@@ -21,6 +21,7 @@ export default defineConfig({
         'file-saver',
         'jspdf',
         'jspdf-autotable'
+        // IMPORTANT : on ne met pas react-leaflet ici
       ],
     },
   },
