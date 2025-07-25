@@ -65,46 +65,49 @@ export default function NouvelleCourse() {
     setFormats((prev) => [...prev, { id: uuidv4(), ...formatTemplate() }]);
   };
 
- /** Géocodage robuste via Nominatim (multi-essais + logs) */
-async function getLatLngFromPostalCode(codePostal, ville) {
-  const base = "https://nominatim.openstreetmap.org/search";
-  const headers = { "User-Agent": "Tickrace/1.0 (contact@tickrace.app)" };
+  /** Géocodage robuste via Nominatim (multi-essais + logs) */
+  async function getLatLngFromPostalCode(codePostal, ville) {
+    const base = "https://nominatim.openstreetmap.org/search";
+    const headers = { "User-Agent": "Tickrace/1.0 (contact@tickrace.app)" };
 
-  // On prépare plusieurs requêtes, de la plus précise à la plus large
-  const queries = [
-    `${ville} ${codePostal} France`,
-    `${codePostal} ${ville} France`,
-    `${codePostal} France`,
-    `${ville} France`,
-  ];
+    const queries = [
+      `${ville} ${codePostal} France`,
+      `${codePostal} ${ville} France`,
+      `${codePostal} France`,
+      `${ville} France`,
+    ];
 
-  for (const q of queries) {
-    const url = `${base}?q=${encodeURIComponent(q)}&format=json&limit=1`;
-    try {
-      const res = await fetch(url, { headers });
-      const data = await res.json();
-      console.log("[Nominatim] Query:", q, "→ Résultat:", data);
+    for (const q of queries) {
+      const url = `${base}?q=${encodeURIComponent(q)}&format=json&limit=1`;
+      try {
+        const res = await fetch(url, { headers });
+        const data = await res.json();
+        console.log("[Nominatim] Query:", q, "→ Résultat:", data);
 
-      if (Array.isArray(data) && data.length > 0) {
-        return {
-          lat: parseFloat(data[0].lat),
-          lng: parseFloat(data[0].lon),
-        };
+        if (Array.isArray(data) && data.length > 0) {
+          return {
+            lat: parseFloat(data[0].lat),
+            lng: parseFloat(data[0].lon),
+          };
+        }
+      } catch (e) {
+        console.error("[Nominatim] Erreur sur la requête:", q, e);
       }
-    } catch (e) {
-      console.error("[Nominatim] Erreur sur la requête:", q, e);
     }
+
+    console.warn("[Nominatim] Aucune coordonnée trouvée pour", { codePostal, ville });
+    return { lat: null, lng: null };
   }
 
-  console.warn("[Nominatim] Aucune coordonnée trouvée pour", { codePostal, ville });
-  return { lat: null, lng: null };
-}
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
+    const { data: sessionData } = await supabase.auth.getSession();
+    const userId = sessionData?.session?.user?.id;
+    if (!userId) return alert("Utilisateur non connecté.");
 
-    // --- Géocodage code postal ---
     const { lat, lng } = await getLatLngFromPostalCode(course.code_postal, course.lieu);
 
-    // --- Upload image de la course ---
     let imageCourseUrl = null;
     if (course.imageFile) {
       const { data, error } = await supabase.storage
@@ -114,7 +117,6 @@ async function getLatLngFromPostalCode(codePostal, ville) {
       imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
     }
 
-    // --- Insert course ---
     const { data: courseInserted, error: courseError } = await supabase
       .from("courses")
       .insert({
@@ -136,7 +138,6 @@ async function getLatLngFromPostalCode(codePostal, ville) {
       return alert("Erreur enregistrement épreuve : " + courseError.message);
     }
 
-    // --- Insert formats ---
     for (const format of formats) {
       let imageFormatUrl = null;
       let gpxUrl = null;
@@ -233,7 +234,6 @@ async function getLatLngFromPostalCode(codePostal, ville) {
           Image de l’épreuve :
           <input type="file" name="image" accept="image/*" onChange={handleCourseChange} />
         </label>
-        {/* --- Formats --- */}
         <h2 className="text-xl font-semibold mt-6">Formats de course</h2>
         {formats.map((f, index) => (
           <div key={f.id} className="border p-4 my-4 space-y-2 bg-gray-50 rounded">
