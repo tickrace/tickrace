@@ -65,31 +65,41 @@ export default function NouvelleCourse() {
     setFormats((prev) => [...prev, { id: uuidv4(), ...formatTemplate() }]);
   };
 
-  /** Récupération automatique lat/lng via Nominatim */
-  async function getLatLngFromPostalCode(codePostal, ville) {
+ /** Géocodage robuste via Nominatim (multi-essais + logs) */
+async function getLatLngFromPostalCode(codePostal, ville) {
+  const base = "https://nominatim.openstreetmap.org/search";
+  const headers = { "User-Agent": "Tickrace/1.0 (contact@tickrace.app)" };
+
+  // On prépare plusieurs requêtes, de la plus précise à la plus large
+  const queries = [
+    `${ville} ${codePostal} France`,
+    `${codePostal} ${ville} France`,
+    `${codePostal} France`,
+    `${ville} France`,
+  ];
+
+  for (const q of queries) {
+    const url = `${base}?q=${encodeURIComponent(q)}&format=json&limit=1`;
     try {
-      const response = await fetch(
-        `https://nominatim.openstreetmap.org/search?postalcode=${codePostal}&city=${ville}&country=France&format=json&limit=1`
-      );
-      const data = await response.json();
-      if (data.length > 0) {
+      const res = await fetch(url, { headers });
+      const data = await res.json();
+      console.log("[Nominatim] Query:", q, "→ Résultat:", data);
+
+      if (Array.isArray(data) && data.length > 0) {
         return {
           lat: parseFloat(data[0].lat),
           lng: parseFloat(data[0].lon),
         };
       }
-    } catch (err) {
-      console.error("Erreur géocodage :", err);
+    } catch (e) {
+      console.error("[Nominatim] Erreur sur la requête:", q, e);
     }
-    return { lat: null, lng: null };
   }
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  console.warn("[Nominatim] Aucune coordonnée trouvée pour", { codePostal, ville });
+  return { lat: null, lng: null };
+}
 
-    const { data: sessionData } = await supabase.auth.getSession();
-    const userId = sessionData?.session?.user?.id;
-    if (!userId) return alert("Utilisateur non connecté.");
 
     // --- Géocodage code postal ---
     const { lat, lng } = await getLatLngFromPostalCode(course.code_postal, course.lieu);
