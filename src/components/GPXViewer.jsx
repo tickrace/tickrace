@@ -1,23 +1,46 @@
 import React, { useEffect, useState } from "react";
-import { MapContainer, TileLayer, Polyline, Marker, useMap } from "react-leaflet";
+import {
+  MapContainer,
+  TileLayer,
+  Polyline,
+  Marker,
+  Popup,
+  useMap,
+} from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer } from "recharts";
+import {
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ResponsiveContainer,
+} from "recharts";
 
-// Icones départ et arrivée
+// Icônes
 const startIcon = new L.Icon({
-  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+  iconUrl:
+    "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
 
 const endIcon = new L.Icon({
-  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-red.png",
+  iconUrl:
+    "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-red.png",
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
 
-// Bouton centrer
+const waypointIcon = new L.Icon({
+  iconUrl:
+    "https://cdn-icons-png.flaticon.com/512/854/854878.png", // remplace si besoin
+  iconSize: [24, 24],
+  iconAnchor: [12, 24],
+});
+
+// Bouton pour recentrer
 function ResetViewButton({ bounds }) {
   const map = useMap();
   return (
@@ -36,6 +59,7 @@ export default function GPXViewer({ gpxUrl }) {
   const [isLoading, setIsLoading] = useState(true);
   const [profileData, setProfileData] = useState([]);
   const [stats, setStats] = useState({ distance: 0, elevationGain: 0 });
+  const [waypoints, setWaypoints] = useState([]);
 
   useEffect(() => {
     if (!gpxUrl) return;
@@ -50,6 +74,8 @@ export default function GPXViewer({ gpxUrl }) {
         // Parsing GPX
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, "application/xml");
+
+        // ---- TRACK POINTS ----
         const trkpts = xmlDoc.getElementsByTagName("trkpt");
 
         const coords = [];
@@ -60,9 +86,12 @@ export default function GPXViewer({ gpxUrl }) {
         for (let i = 0; i < trkpts.length; i++) {
           const lat = parseFloat(trkpts[i].getAttribute("lat"));
           const lon = parseFloat(trkpts[i].getAttribute("lon"));
-          const ele = parseFloat(trkpts[i].getElementsByTagName("ele")[0]?.textContent || "0");
+          const ele = parseFloat(
+            trkpts[i].getElementsByTagName("ele")[0]?.textContent || "0"
+          );
           coords.push([lat, lon, ele]);
 
+        // distance & D+
           if (i > 0) {
             const [lat1, lon1, ele1] = coords[i - 1];
             const R = 6371e3;
@@ -83,9 +112,23 @@ export default function GPXViewer({ gpxUrl }) {
         }
 
         setPositions(coords);
-        setBounds(L.latLngBounds(coords));
+        if (coords.length > 0) setBounds(L.latLngBounds(coords));
         setProfileData(profile);
         setStats({ distance: dist / 1000, elevationGain });
+
+        // ---- WAYPOINTS ----
+        const wpts = xmlDoc.getElementsByTagName("wpt");
+        const wptsArray = [];
+        for (let i = 0; i < wpts.length; i++) {
+          const lat = parseFloat(wpts[i].getAttribute("lat"));
+          const lon = parseFloat(wpts[i].getAttribute("lon"));
+          const name =
+            wpts[i].getElementsByTagName("name")[0]?.textContent || "Waypoint";
+          const desc =
+            wpts[i].getElementsByTagName("desc")[0]?.textContent || "";
+          wptsArray.push({ lat, lon, name, desc });
+        }
+        setWaypoints(wptsArray);
       } catch (error) {
         console.error("Erreur GPX:", error);
       } finally {
@@ -119,10 +162,33 @@ export default function GPXViewer({ gpxUrl }) {
             attribution="&copy; OpenStreetMap contributors"
           />
           <Polyline positions={positions} color="blue" />
-          <Marker position={[start[0], start[1]]} icon={startIcon} />
-          <Marker position={[end[0], end[1]]} icon={endIcon} />
+
+          {/* Départ / Arrivée */}
+          <Marker position={[start[0], start[1]]} icon={startIcon}>
+            <Popup>Départ</Popup>
+          </Marker>
+          <Marker position={[end[0], end[1]]} icon={endIcon}>
+          <Popup>Arrivée</Popup>
+          </Marker>
+
+          {/* Waypoints */}
+          {waypoints.map((w, idx) => (
+            <Marker
+              key={idx}
+              position={[w.lat, w.lon]}
+              icon={waypointIcon}
+            >
+              <Popup>
+                <strong>{w.name}</strong>
+                {w.desc && <div className="mt-1 text-xs text-gray-600">{w.desc}</div>}
+              </Popup>
+            </Marker>
+          ))}
+
           <ResetViewButton bounds={bounds} />
         </MapContainer>
+
+        {/* Stats rapides */}
         <div className="absolute bottom-2 left-2 bg-white p-1 text-xs rounded shadow">
           {stats.distance.toFixed(2)} km — D+ {Math.round(stats.elevationGain)} m
         </div>
@@ -134,13 +200,22 @@ export default function GPXViewer({ gpxUrl }) {
           <h4 className="text-sm font-semibold mb-1">Profil altimétrique</h4>
           <ResponsiveContainer width="100%" height="90%">
             <LineChart data={profileData}>
-              <XAxis dataKey="km" tickFormatter={(v) => v.toFixed(1) + " km"} />
+              <XAxis
+                dataKey="km"
+                tickFormatter={(v) => v.toFixed(1) + " km"}
+              />
               <YAxis dataKey="ele" unit=" m" />
               <Tooltip
                 formatter={(value) => `${Math.round(value)} m`}
                 labelFormatter={(label) => `${label.toFixed(2)} km`}
               />
-              <Line type="monotone" dataKey="ele" stroke="#3b82f6" strokeWidth={2} dot={false} />
+              <Line
+                type="monotone"
+                dataKey="ele"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
