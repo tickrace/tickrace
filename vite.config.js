@@ -1,8 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import path from 'path';
 
 export default defineConfig({
   plugins: [react()],
+  resolve: {
+    alias: {
+      'react-leaflet': path.resolve(__dirname, 'node_modules/react-leaflet'),
+    },
+  },
   optimizeDeps: {
     include: [
       'react-leaflet',
@@ -11,7 +17,7 @@ export default defineConfig({
       'xlsx',
       'file-saver',
       'jspdf',
-      'jspdf-autotable'
+      'jspdf-autotable',
     ],
   },
   build: {
@@ -21,7 +27,6 @@ export default defineConfig({
         'file-saver',
         'jspdf',
         'jspdf-autotable'
-        // IMPORTANT : on ne met pas react-leaflet ici
       ],
     },
   },
