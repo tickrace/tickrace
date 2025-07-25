@@ -20,9 +20,8 @@ export default defineConfig({
         'xlsx',
         'file-saver',
         'jspdf',
-        'jspdf-autotable',
-        'react-leaflet',
-        'leaflet'
+        'jspdf-autotable'
+        // On ne met PAS react-leaflet et leaflet ici pour qu'ils soient inclus
       ],
     },
   },
