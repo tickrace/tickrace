@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, lazy, Suspense } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
-import GPXViewer from "../components/GPXViewer";
+
+const GPXViewer = lazy(() => import("../components/GPXViewer"));
 
 export default function CourseDetail() {
   const { id } = useParams();
@@ -77,8 +78,12 @@ export default function CourseDetail() {
                 </p>
               )}
 
-              {/* GPX + profil */}
-              {format.gpx_url && <GPXViewer gpxUrl={format.gpx_url} />}
+              {/* GPX + profil (chargement dynamique) */}
+              {format.gpx_url && (
+                <Suspense fallback={<p>Chargement de la carte...</p>}>
+                  <GPXViewer gpxUrl={format.gpx_url} />
+                </Suspense>
+              )}
 
               <div className="mt-4 text-right">
                 <Link
