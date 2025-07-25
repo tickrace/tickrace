@@ -216,7 +216,6 @@ export default function NouvelleCourse() {
             <input name="adresse_depart" placeholder="Adresse de départ" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-
             <input
               name="stock_repas"
               placeholder="Nombre total de repas, mettre 0 si pas de repas"
@@ -224,7 +223,6 @@ export default function NouvelleCourse() {
               onChange={(e) => handleFormatChange(index, e)}
               className="border p-2 w-full"
             />
-
             {parseInt(f.stock_repas) > 0 && (
               <input
                 name="prix_repas"
@@ -234,7 +232,6 @@ export default function NouvelleCourse() {
                 className="border p-2 w-full"
               />
             )}
-
             <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
