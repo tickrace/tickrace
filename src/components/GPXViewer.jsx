@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -30,7 +30,7 @@ function ResetViewButton({ bounds }) {
   );
 }
 
-export default function GPXViewer({ gpxUrl, onStatsCalculated }) {
+export default function GPXViewer({ gpxUrl }) {
   const [positions, setPositions] = useState([]);
   const [bounds, setBounds] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -57,13 +57,12 @@ export default function GPXViewer({ gpxUrl, onStatsCalculated }) {
           setPositions(coords);
           setBounds(L.latLngBounds(coords));
 
-          // --- Calcul distance et D+ ---
           let dist = 0;
           let elevationGain = 0;
           for (let i = 1; i < coords.length; i++) {
             const [lat1, lon1, ele1] = coords[i - 1];
             const [lat2, lon2, ele2] = coords[i];
-            const R = 6371e3; // rayon Terre
+            const R = 6371e3;
             const φ1 = (lat1 * Math.PI) / 180;
             const φ2 = (lat2 * Math.PI) / 180;
             const Δφ = ((lat2 - lat1) * Math.PI) / 180;
@@ -75,12 +74,10 @@ export default function GPXViewer({ gpxUrl, onStatsCalculated }) {
               Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 
-            dist += R * c; // en mètres
-
+            dist += R * c;
             if (ele2 > ele1) elevationGain += ele2 - ele1;
           }
           setStats({ distance: dist / 1000, elevationGain });
-          if (onStatsCalculated) onStatsCalculated(dist / 1000, elevationGain);
         });
       } catch (error) {
         console.error("Erreur GPX:", error);
@@ -113,10 +110,8 @@ export default function GPXViewer({ gpxUrl, onStatsCalculated }) {
           attribution="&copy; OpenStreetMap contributors"
         />
         <Polyline positions={positions} color="blue" />
-        <Marker position={[start[0], start[1]]} icon={startIcon}>
-        </Marker>
-        <Marker position={[end[0], end[1]]} icon={endIcon}>
-        </Marker>
+        <Marker position={[start[0], start[1]]} icon={startIcon} />
+        <Marker position={[end[0], end[1]]} icon={endIcon} />
         <ResetViewButton bounds={bounds} />
       </MapContainer>
       <div className="absolute bottom-2 left-2 bg-white p-1 text-xs rounded shadow">
