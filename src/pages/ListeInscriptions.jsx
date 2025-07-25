@@ -4,7 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import ExportCSVModal from "../components/ExportCSVModal";
 
 export default function ListeInscriptions() {
-  const { format_id } = useParams(); // ← récupère le format_id depuis l’URL
+  const { format_id } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
   const [formatNom, setFormatNom] = useState("");
   const [searchTerm, setSearchTerm] = useState("");
@@ -20,11 +20,9 @@ export default function ListeInscriptions() {
     if (format_id) {
       fetchInscriptions();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [format_id]);
 
   const fetchInscriptions = async () => {
-    // On ne récupère QUE les inscriptions du format demandé
     const { data, error } = await supabase
       .from("inscriptions")
       .select("*, formats(id, nom)")
@@ -51,14 +49,13 @@ export default function ListeInscriptions() {
       console.error(error);
       return;
     }
-    // Recharge pour rester simple et sûr (tu peux aussi patcher localement le state)
     fetchInscriptions();
   };
 
   const handleAddCoureur = async () => {
     const { data, error } = await supabase
       .from("inscriptions")
-      .insert([{ format_id, statut: "en attente" }])
+      .insert([{ format_id, statut: "en attente", nombre_repas: 0 }])
       .select();
 
     if (error) {
@@ -110,13 +107,18 @@ export default function ListeInscriptions() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated = filtered.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);
 
+  // ---- Calcul total des repas ----
+  const totalRepas = filtered.reduce((sum, insc) => sum + (parseInt(insc.nombre_repas) || 0), 0);
+
   return (
     <div className="p-6 space-y-8">
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
         <div className="flex items-center gap-2">
           <h1 className="text-2xl font-semibold">Inscriptions</h1>
           {formatNom && (
-            <span className="text-gray-600">— Format : <strong>{formatNom}</strong></span>
+            <span className="text-gray-600">
+              — Format : <strong>{formatNom}</strong>
+            </span>
           )}
         </div>
         <div className="flex items-center gap-2">
@@ -145,13 +147,12 @@ export default function ListeInscriptions() {
           </button>
           <button
             onClick={() => {
-              // Colonnes par défaut (élargis si tu veux tous les champs de la table)
               setColonnes([
                 "nom", "prenom", "genre", "date_naissance", "nationalite",
                 "email", "telephone", "adresse", "code_postal", "ville",
-                "pays", "club", "dossard", "statut", "created_at"
+                "pays", "club", "dossard", "nombre_repas", "statut", "created_at"
               ]);
-              setExportData(filtered.map(({ formats, ...rest }) => rest)); // Retire l'objet formats
+              setExportData(filtered.map(({ formats, ...rest }) => rest));
               setModalExportOpen(true);
             }}
             className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
@@ -164,57 +165,66 @@ export default function ListeInscriptions() {
       <div className="border border-gray-300 p-4 rounded-md">
         <div className="overflow-x-auto">
           <table className="min-w-full border-collapse border border-gray-300 text-sm">
-          <thead className="bg-gray-100">
-            <tr>
-              <th className="border px-2 py-1">Nom</th>
-              <th className="border px-2 py-1">Prénom</th>
-              <th className="border px-2 py-1">Dossard</th>
-              <th className="border px-2 py-1">Email</th>
-              <th className="border px-2 py-1">Club</th>
-              <th className="border px-2 py-1">Statut</th>
-              <th className="border px-2 py-1">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {paginated.map((insc) => (
-              <tr key={insc.id}>
-                <td className="border px-2 py-1">
-                  {renderEditableCell(insc.nom, insc.id, "nom")}
-                </td>
-                <td className="border px-2 py-1">
-                  {renderEditableCell(insc.prenom, insc.id, "prenom")}
-                </td>
-                <td className="border px-2 py-1">
-                  {renderEditableCell(insc.dossard, insc.id, "dossard", "number")}
-                </td>
-                <td className="border px-2 py-1">
-                  {renderEditableCell(insc.email, insc.id, "email")}
-                </td>
-                <td className="border px-2 py-1">
-                  {renderEditableCell(insc.club, insc.id, "club")}
-                </td>
-                <td className="border px-2 py-1">
-                  {renderEditableCell(insc.statut, insc.id, "statut")}
-                </td>
-                <td className="border px-2 py-1 text-center">
-                  <Link
-                    to={`/details-coureur/${insc.id}`}
-                    className="text-blue-600 underline"
-                  >
-                    Détails
-                  </Link>
-                </td>
-              </tr>
-            ))}
-            {paginated.length === 0 && (
+            <thead className="bg-gray-100">
               <tr>
-                <td colSpan={7} className="text-center text-gray-500 py-4">
-                  Aucune inscription trouvée pour ce format.
-                </td>
+                <th className="border px-2 py-1">Nom</th>
+                <th className="border px-2 py-1">Prénom</th>
+                <th className="border px-2 py-1">Dossard</th>
+                <th className="border px-2 py-1">Email</th>
+                <th className="border px-2 py-1">Club</th>
+                <th className="border px-2 py-1">Repas</th>
+                <th className="border px-2 py-1">Statut</th>
+                <th className="border px-2 py-1">Actions</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {paginated.map((insc) => (
+                <tr key={insc.id}>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.nom, insc.id, "nom")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.prenom, insc.id, "prenom")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.dossard, insc.id, "dossard", "number")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.email, insc.id, "email")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.club, insc.id, "club")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.nombre_repas, insc.id, "nombre_repas", "number")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.statut, insc.id, "statut")}
+                  </td>
+                  <td className="border px-2 py-1 text-center">
+                    <Link
+                      to={`/details-coureur/${insc.id}`}
+                      className="text-blue-600 underline"
+                    >
+                      Détails
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+              {paginated.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="text-center text-gray-500 py-4">
+                    Aucune inscription trouvée pour ce format.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          {/* Total des repas */}
+          <div className="mt-3 text-sm font-semibold">
+            🍽️ Total repas réservés : {totalRepas}
+          </div>
 
           <div className="flex justify-between mt-2">
             <button
