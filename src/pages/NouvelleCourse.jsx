@@ -237,7 +237,42 @@ export default function NouvelleCourse() {
         <h2 className="text-xl font-semibold mt-6">Formats de course</h2>
         {formats.map((f, index) => (
           <div key={f.id} className="border p-4 my-4 space-y-2 bg-gray-50 rounded">
-            {/* ... Reste des champs formats ... */}
+            <input name="nom" placeholder="Nom du format" value={f.nom} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input type="file" name="imageFile" onChange={(e) => handleFormatChange(index, e)} />
+            <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <textarea name="presentation_parcours" placeholder="Présentation du parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input type="file" name="fichier_gpx" onChange={(e) => handleFormatChange(index, e)} />
+            <input name="type_epreuve" placeholder="Type d'épreuve (trail, rando, route)" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="distance_km" placeholder="Distance (km)" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="denivele_dplus" placeholder="D+" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="denivele_dmoins" placeholder="D-" value={f.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="adresse_depart" placeholder="Adresse de départ" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input
+              name="stock_repas"
+              placeholder="Nombre total de repas, mettre 0 si pas de repas"
+              value={f.stock_repas}
+              onChange={(e) => handleFormatChange(index, e)}
+              className="border p-2 w-full"
+            />
+            {parseInt(f.stock_repas) > 0 && (
+              <input
+                name="prix_repas"
+                placeholder="Prix d’un repas (€)"
+                value={f.prix_repas}
+                onChange={(e) => handleFormatChange(index, e)}
+                className="border p-2 w-full"
+              />
+            )}
+            <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input type="file" name="fichier_reglement" onChange={(e) => handleFormatChange(index, e)} />
+            <input name="nb_max_coureurs" placeholder="Nombre max de coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <input name="age_minimum" placeholder="Âge minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
+            <textarea name="hebergements" placeholder="Hébergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
           </div>
         ))}
         <button type="button" onClick={addFormat} className="bg-blue-600 text-white px-4 py-2 rounded">+ Ajouter un format</button>
