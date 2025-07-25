@@ -29,6 +29,14 @@ export default function CourseDetail() {
 
   if (!course) return <div className="p-6">Chargement...</div>;
 
+  const handleDownloadGPX = (url) => {
+    if (!url) return;
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "parcours.gpx";
+    link.click();
+  };
+
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <h1 className="text-3xl font-bold mb-2 text-gray-800">{course.nom}</h1>
@@ -78,11 +86,21 @@ export default function CourseDetail() {
                 </p>
               )}
 
-              {/* GPX + profil (chargement dynamique) */}
+              {/* GPX + profil + bouton téléchargement */}
               {format.gpx_url && (
-                <Suspense fallback={<p>Chargement de la carte...</p>}>
-                  <GPXViewer gpxUrl={format.gpx_url} />
-                </Suspense>
+                <>
+                  <div className="mt-3 flex justify-end">
+                    <button
+                      onClick={() => handleDownloadGPX(format.gpx_url)}
+                      className="bg-gray-700 text-white px-4 py-1 rounded hover:bg-gray-900 text-sm shadow"
+                    >
+                      ⬇ Télécharger le GPX
+                    </button>
+                  </div>
+                  <Suspense fallback={<p>Chargement de la carte...</p>}>
+                    <GPXViewer gpxUrl={format.gpx_url} />
+                  </Suspense>
+                </>
               )}
 
               <div className="mt-4 text-right">
