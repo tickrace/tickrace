@@ -2,22 +2,21 @@ import React, { useEffect, useState } from "react";
 import { MapContainer, TileLayer, Polyline, Marker, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { parseString } from "xml2js";
 
+// Icones pour départ et arrivée
 const startIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
   iconSize: [25, 41],
   iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
 });
 
 const endIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-red.png",
   iconSize: [25, 41],
   iconAnchor: [12, 41],
-  popupAnchor: [1, -34],
 });
 
+// Bouton pour recentrer la carte
 function ResetViewButton({ bounds }) {
   const map = useMap();
   return (
@@ -43,42 +42,46 @@ export default function GPXViewer({ gpxUrl }) {
       try {
         setIsLoading(true);
         const res = await fetch(gpxUrl);
+        if (!res.ok) throw new Error("Impossible de charger le GPX");
         const text = await res.text();
-        parseString(text, (err, result) => {
-          if (err) return;
 
-          const trkpts = result.gpx.trk[0].trkseg[0].trkpt;
-          const coords = trkpts.map((pt) => [
-            parseFloat(pt.$.lat),
-            parseFloat(pt.$.lon),
-            parseFloat(pt.ele[0]),
-          ]);
+        // Parsing GPX avec DOMParser (sans xml2js)
+        const parser = new DOMParser();
+        const xmlDoc = parser.parseFromString(text, "application/xml");
+        const trkpts = xmlDoc.getElementsByTagName("trkpt");
 
-          setPositions(coords);
-          setBounds(L.latLngBounds(coords));
+        const coords = [];
+        for (let i = 0; i < trkpts.length; i++) {
+          const lat = parseFloat(trkpts[i].getAttribute("lat"));
+          const lon = parseFloat(trkpts[i].getAttribute("lon"));
+          const ele = parseFloat(trkpts[i].getElementsByTagName("ele")[0]?.textContent || "0");
+          coords.push([lat, lon, ele]);
+        }
 
-          let dist = 0;
-          let elevationGain = 0;
-          for (let i = 1; i < coords.length; i++) {
-            const [lat1, lon1, ele1] = coords[i - 1];
-            const [lat2, lon2, ele2] = coords[i];
-            const R = 6371e3;
-            const φ1 = (lat1 * Math.PI) / 180;
-            const φ2 = (lat2 * Math.PI) / 180;
-            const Δφ = ((lat2 - lat1) * Math.PI) / 180;
-            const Δλ = ((lon2 - lon1) * Math.PI) / 180;
+        setPositions(coords);
+        setBounds(L.latLngBounds(coords));
 
-            const a =
-              Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
-              Math.cos(φ1) * Math.cos(φ2) *
-              Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        // Calcul distance + D+
+        let dist = 0;
+        let elevationGain = 0;
+        for (let i = 1; i < coords.length; i++) {
+          const [lat1, lon1, ele1] = coords[i - 1];
+          const [lat2, lon2, ele2] = coords[i];
+          const R = 6371e3;
+          const φ1 = (lat1 * Math.PI) / 180;
+          const φ2 = (lat2 * Math.PI) / 180;
+          const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+          const Δλ = ((lon2 - lon1) * Math.PI) / 180;
 
-            dist += R * c;
-            if (ele2 > ele1) elevationGain += ele2 - ele1;
-          }
-          setStats({ distance: dist / 1000, elevationGain });
-        });
+          const a =
+            Math.sin(Δφ / 2) * Math.sin(Δφ / 2) +
+            Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) * Math.sin(Δλ / 2);
+          const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+          dist += R * c;
+
+          if (ele2 > ele1) elevationGain += ele2 - ele1;
+        }
+        setStats({ distance: dist / 1000, elevationGain });
       } catch (error) {
         console.error("Erreur GPX:", error);
       } finally {
