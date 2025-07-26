@@ -24,8 +24,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      fichier_gpx: null, // Ajout correct
-      gpx_url: "",       // Contiendra l'URL après upload
+      fichier_gpx: null,          // Pour stocker le fichier GPX
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -38,8 +37,7 @@ export default function NouvelleCourse() {
       ravitaillements: "",
       remise_dossards: "",
       dotation: "",
-      fichier_reglement: null,  // Ajout correct
-      reglement_pdf_url: "",    // Contiendra l'URL après upload
+      fichier_reglement: null,    // Pour stocker le fichier PDF
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
@@ -130,7 +128,6 @@ export default function NouvelleCourse() {
       let gpxUrl = null;
       let reglementUrl = null;
 
-      // Upload image format
       if (format.imageFile) {
         const { data, error } = await supabase.storage
           .from("formats")
@@ -140,7 +137,6 @@ export default function NouvelleCourse() {
         }
       }
 
-      // Upload fichier GPX
       if (format.fichier_gpx) {
         const { data, error } = await supabase.storage
           .from("formats")
@@ -150,7 +146,6 @@ export default function NouvelleCourse() {
         }
       }
 
-      // Upload règlement PDF
       if (format.fichier_reglement) {
         const { data, error } = await supabase.storage
           .from("reglements")
@@ -162,8 +157,7 @@ export default function NouvelleCourse() {
 
       const prix = format.prix ? parseFloat(format.prix) : 0;
       const prix_repas = format.prix_repas ? parseFloat(format.prix_repas) : 0;
-      const prix_total_inscription =
-        prix + (parseInt(format.stock_repas) > 0 ? prix_repas : 0);
+      const prix_total_inscription = prix + (parseInt(format.stock_repas) > 0 ? prix_repas : 0);
 
       const { error: formatError } = await supabase.from("formats").insert({
         course_id: courseInserted.id,
@@ -177,12 +171,8 @@ export default function NouvelleCourse() {
           ? format.type_epreuve
           : "trail",
         distance_km: format.distance_km ? parseFloat(format.distance_km) : null,
-        denivele_dplus: format.denivele_dplus
-          ? parseInt(format.denivele_dplus)
-          : null,
-        denivele_dmoins: format.denivele_dmoins
-          ? parseInt(format.denivele_dmoins)
-          : null,
+        denivele_dplus: format.denivele_dplus ? parseInt(format.denivele_dplus) : null,
+        denivele_dmoins: format.denivele_dmoins ? parseInt(format.denivele_dmoins) : null,
         adresse_depart: format.adresse_depart || null,
         adresse_arrivee: format.adresse_arrivee || null,
         prix: prix,
@@ -193,9 +183,7 @@ export default function NouvelleCourse() {
         remise_dossards: format.remise_dossards || null,
         dotation: format.dotation || null,
         reglement_pdf_url: reglementUrl,
-        nb_max_coureurs: format.nb_max_coureurs
-          ? parseInt(format.nb_max_coureurs)
-          : null,
+        nb_max_coureurs: format.nb_max_coureurs ? parseInt(format.nb_max_coureurs) : null,
         age_minimum: format.age_minimum ? parseInt(format.age_minimum) : null,
         hebergements: format.hebergements || null,
       });
@@ -220,12 +208,8 @@ export default function NouvelleCourse() {
         <input name="code_postal" placeholder="Code postal" onChange={handleCourseChange} className="border p-2 w-full" />
         <input name="departement" placeholder="Département" onChange={handleCourseChange} className="border p-2 w-full" />
         <textarea name="presentation" placeholder="Présentation" onChange={handleCourseChange} className="border p-2 w-full" />
-        <label className="block">
-          Image de l’épreuve :
-          <input type="file" name="image" accept="image/*" onChange={handleCourseChange} />
-        </label>
+        <label className="block">Image de l’épreuve :<input type="file" name="image" accept="image/*" onChange={handleCourseChange} /></label>
 
-        {/* Formats */}
         <h2 className="text-xl font-semibold mt-6">Formats de course</h2>
         {formats.map((f, index) => (
           <div key={f.id} className="border p-4 my-4 space-y-2 bg-gray-50 rounded">
@@ -247,12 +231,10 @@ export default function NouvelleCourse() {
             <input name="adresse_depart" placeholder="Adresse de départ" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-
             <input name="stock_repas" placeholder="Nombre total de repas, mettre 0 si pas de repas" value={f.stock_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             {parseInt(f.stock_repas) > 0 && (
               <input name="prix_repas" placeholder="Prix d’un repas (€)" value={f.prix_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             )}
-
             <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
