@@ -26,7 +26,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      fichier_gpx: null, // On gère un fichier GPX
+      fichier_gpx: null, // GPX
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -39,7 +39,7 @@ export default function NouvelleCourse() {
       ravitaillements: "",
       remise_dossards: "",
       dotation: "",
-      fichier_reglement: null,
+      fichier_reglement: null, // PDF
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
@@ -128,7 +128,6 @@ export default function NouvelleCourse() {
       let gpxUrl = null;
       let reglementUrl = null;
 
-      // Image format
       if (format.imageFile) {
         const { data, error } = await supabase.storage
           .from("formats")
@@ -138,7 +137,6 @@ export default function NouvelleCourse() {
         }
       }
 
-      // Fichier GPX
       if (format.fichier_gpx) {
         const { data, error } = await supabase.storage
           .from("formats")
@@ -148,7 +146,6 @@ export default function NouvelleCourse() {
         }
       }
 
-      // Règlement PDF
       if (format.fichier_reglement) {
         const { data, error } = await supabase.storage
           .from("reglements")
@@ -222,6 +219,7 @@ export default function NouvelleCourse() {
           Image de l’épreuve :
           <input type="file" name="image" accept="image/*" onChange={handleCourseChange} />
         </label>
+
         <h2 className="text-xl font-semibold mt-6">Formats de course</h2>
         {formats.map((f, index) => (
           <div key={f.id} className="border p-4 my-4 space-y-2 bg-gray-50 rounded">
@@ -252,7 +250,14 @@ export default function NouvelleCourse() {
             <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input type="file" name="fichier_reglement" onChange={(e) => handleFormatChange(index, e)} />
+
+            {/* Champ PDF règlement avec explication */}
+            <label className="block">
+              Règlement (PDF) :
+              <input type="file" name="fichier_reglement" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
+              <small className="text-gray-500 block">Un fichier PDF est attendu pour le règlement.</small>
+            </label>
+
             <input name="nb_max_coureurs" placeholder="Nombre max de coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="age_minimum" placeholder="Âge minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <textarea name="hebergements" placeholder="Hébergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
