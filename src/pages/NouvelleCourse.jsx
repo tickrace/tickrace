@@ -26,7 +26,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      fichier_gpx: null,
+      gpx_url: "",
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -140,8 +140,8 @@ export default function NouvelleCourse() {
 
     for (const format of formats) {
       let imageFormatUrl = null;
-      let gpxUrl = null;
-      let reglementUrl = null;
+let gpx_url = format.gpx_url;
+            let reglementUrl = null;
 
       if (format.imageFile) {
         const { data, error } = await supabase.storage
@@ -152,13 +152,17 @@ export default function NouvelleCourse() {
         }
       }
 
-      if (format.fichier_gpx) {
-        const { data, error } = await supabase.storage
+
+if (format.gpx_url) {
+        const { data } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
-        if (!error) {
-          gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
-        }
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
+        gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+
+
+
+
+             }
       }
 
       if (format.fichier_reglement) {
@@ -182,7 +186,7 @@ export default function NouvelleCourse() {
         date: format.date || null,
         heure_depart: format.heure_depart || null,
         presentation_parcours: format.presentation_parcours || null,
-        gpx_url: gpxUrl,
+       gpx_url,
         type_epreuve: ["trail", "rando", "route"].includes(format.type_epreuve)
           ? format.type_epreuve
           : "trail",
@@ -242,7 +246,7 @@ export default function NouvelleCourse() {
             <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <textarea name="presentation_parcours" placeholder="Présentation du parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input type="file" name="fichier_gpx" onChange={(e) => handleFormatChange(index, e)} />
+            <input type="file" name="gpx_url" onChange={(e) => handleFormatChange(index, e)} />
             <input name="type_epreuve" placeholder="Type d'épreuve (trail, rando, route)" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="distance_km" placeholder="Distance (km)" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="denivele_dplus" placeholder="D+" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
