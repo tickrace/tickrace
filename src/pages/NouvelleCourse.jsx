@@ -24,7 +24,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      fichier_gpx: null,
+      gpx_url: null,
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -37,7 +37,7 @@ export default function NouvelleCourse() {
       ravitaillements: "",
       remise_dossards: "",
       dotation: "",
-      fichier_reglement: null,
+      reglement_pdf_url: null,
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
@@ -137,19 +137,19 @@ export default function NouvelleCourse() {
         }
       }
 
-      if (format.fichier_gpx) {
+      if (format.gpx_url) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
         if (!error) {
           gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
       }
 
-      if (format.fichier_reglement) {
+      if (format.reglement_pdf_url) {
         const { data, error } = await supabase.storage
           .from("reglements")
-          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
+          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.reglement_pdf_url);
         if (!error) {
           reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
         }
@@ -232,7 +232,7 @@ export default function NouvelleCourse() {
             
             <label>
               Fichier GPX (trace du parcours) :
-              <input type="file" name="fichier_gpx" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+              <input type="file" name="gpx_url" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
             </label>
 
             <input name="type_epreuve" placeholder="Type d'épreuve (trail, rando, route)" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
@@ -253,7 +253,7 @@ export default function NouvelleCourse() {
 
             <label>
               Règlement (PDF) :
-              <input type="file" name="fichier_reglement" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
+              <input type="file" name="reglement_pdf_url" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
             </label>
 
             <input name="nb_max_coureurs" placeholder="Nombre max de coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
