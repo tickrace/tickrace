@@ -1,5 +1,3 @@
-
-
 import React, { useState } from "react";
 import { supabase } from "../supabase";
 import { useNavigate } from "react-router-dom";
@@ -28,7 +26,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      gpx_url: "",
+      fichier_gpx: null, // On gère un fichier GPX
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -67,37 +65,22 @@ export default function NouvelleCourse() {
     setFormats((prev) => [...prev, { id: uuidv4(), ...formatTemplate() }]);
   };
 
-  /** Géocodage robuste via Nominatim (multi-essais + logs) */
+  /** Géocodage via Nominatim */
   async function getLatLngFromPostalCode(codePostal, ville) {
-    const base = "https://nominatim.openstreetmap.org/search";
-    const headers = { "User-Agent": "Tickrace/1.0 (contact@tickrace.app)" };
-
-    const queries = [
-      `${ville} ${codePostal} France`,
-      `${codePostal} ${ville} France`,
-      `${codePostal} France`,
-      `${ville} France`,
-    ];
-
-    for (const q of queries) {
-      const url = `${base}?q=${encodeURIComponent(q)}&format=json&limit=1`;
-      try {
-        const res = await fetch(url, { headers });
-        const data = await res.json();
-        console.log("[Nominatim] Query:", q, "→ Résultat:", data);
-
-        if (Array.isArray(data) && data.length > 0) {
-          return {
-            lat: parseFloat(data[0].lat),
-            lng: parseFloat(data[0].lon),
-          };
-        }
-      } catch (e) {
-        console.error("[Nominatim] Erreur sur la requête:", q, e);
+    try {
+      const response = await fetch(
+        `https://nominatim.openstreetmap.org/search?postalcode=${codePostal}&city=${ville}&country=France&format=json&limit=1`
+      );
+      const data = await response.json();
+      if (data.length > 0) {
+        return {
+          lat: parseFloat(data[0].lat),
+          lng: parseFloat(data[0].lon),
+        };
       }
+    } catch (err) {
+      console.error("Erreur géocodage :", err);
     }
-
-    console.warn("[Nominatim] Aucune coordonnée trouvée pour", { codePostal, ville });
     return { lat: null, lng: null };
   }
 
@@ -142,9 +125,10 @@ export default function NouvelleCourse() {
 
     for (const format of formats) {
       let imageFormatUrl = null;
-let gpx_url = format.gpx_url;
-            let reglementUrl = null;
+      let gpxUrl = null;
+      let reglementUrl = null;
 
+      // Image format
       if (format.imageFile) {
         const { data, error } = await supabase.storage
           .from("formats")
@@ -154,19 +138,17 @@ let gpx_url = format.gpx_url;
         }
       }
 
-
-if (format.gpx_url) {
-        const { data } = await supabase.storage
+      // Fichier GPX
+      if (format.fichier_gpx) {
+        const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
-        gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
-
-
-
-
-             }
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+        if (!error) {
+          gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+        }
       }
 
+      // Règlement PDF
       if (format.fichier_reglement) {
         const { data, error } = await supabase.storage
           .from("reglements")
@@ -188,7 +170,7 @@ if (format.gpx_url) {
         date: format.date || null,
         heure_depart: format.heure_depart || null,
         presentation_parcours: format.presentation_parcours || null,
-       gpx_url,
+        gpx_url: gpxUrl,
         type_epreuve: ["trail", "rando", "route"].includes(format.type_epreuve)
           ? format.type_epreuve
           : "trail",
@@ -248,7 +230,14 @@ if (format.gpx_url) {
             <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <textarea name="presentation_parcours" placeholder="Présentation du parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input type="file" name="gpx_url" onChange={(e) => handleFormatChange(index, e)} />
+
+            {/* Champ GPX avec explication */}
+            <label className="block">
+              Fichier GPX du parcours :
+              <input type="file" name="fichier_gpx" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+              <small className="text-gray-500 block">Un fichier GPX (.gpx) est attendu pour tracer le parcours.</small>
+            </label>
+
             <input name="type_epreuve" placeholder="Type d'épreuve (trail, rando, route)" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="distance_km" placeholder="Distance (km)" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="denivele_dplus" placeholder="D+" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
@@ -256,21 +245,9 @@ if (format.gpx_url) {
             <input name="adresse_depart" placeholder="Adresse de départ" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="adresse_arrivee" placeholder="Adresse d'arrivée" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="prix" placeholder="Prix (€)" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input
-              name="stock_repas"
-              placeholder="Nombre total de repas, mettre 0 si pas de repas"
-              value={f.stock_repas}
-              onChange={(e) => handleFormatChange(index, e)}
-              className="border p-2 w-full"
-            />
+            <input name="stock_repas" placeholder="Nombre total de repas, mettre 0 si pas de repas" value={f.stock_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             {parseInt(f.stock_repas) > 0 && (
-              <input
-                name="prix_repas"
-                placeholder="Prix d’un repas (€)"
-                value={f.prix_repas}
-                onChange={(e) => handleFormatChange(index, e)}
-                className="border p-2 w-full"
-              />
+              <input name="prix_repas" placeholder="Prix d’un repas (€)" value={f.prix_repas} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             )}
             <input name="ravitaillements" placeholder="Ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input name="remise_dossards" placeholder="Remise des dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
