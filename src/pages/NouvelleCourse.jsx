@@ -24,7 +24,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      gpx_url: null,
+      fichier_gpx: null, // variable temporaire pour l'upload GPX
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -37,7 +37,7 @@ export default function NouvelleCourse() {
       ravitaillements: "",
       remise_dossards: "",
       dotation: "",
-      reglement_pdf_url: null,
+      fichier_reglement: null, // variable temporaire pour l'upload PDF
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
@@ -137,19 +137,21 @@ export default function NouvelleCourse() {
         }
       }
 
-      if (format.gpx_url) {
+      // Upload GPX
+      if (format.fichier_gpx) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
         if (!error) {
           gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
       }
 
-      if (format.reglement_pdf_url) {
+      // Upload PDF
+      if (format.fichier_reglement) {
         const { data, error } = await supabase.storage
           .from("reglements")
-          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.reglement_pdf_url);
+          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
         if (!error) {
           reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
         }
@@ -157,8 +159,7 @@ export default function NouvelleCourse() {
 
       const prix = format.prix ? parseFloat(format.prix) : 0;
       const prix_repas = format.prix_repas ? parseFloat(format.prix_repas) : 0;
-      const prix_total_inscription =
-        prix + (parseInt(format.stock_repas) > 0 ? prix_repas : 0);
+      const prix_total_inscription = prix + (parseInt(format.stock_repas) > 0 ? prix_repas : 0);
 
       const { error: formatError } = await supabase.from("formats").insert({
         course_id: courseInserted.id,
@@ -172,12 +173,8 @@ export default function NouvelleCourse() {
           ? format.type_epreuve
           : "trail",
         distance_km: format.distance_km ? parseFloat(format.distance_km) : null,
-        denivele_dplus: format.denivele_dplus
-          ? parseInt(format.denivele_dplus)
-          : null,
-        denivele_dmoins: format.denivele_dmoins
-          ? parseInt(format.denivele_dmoins)
-          : null,
+        denivele_dplus: format.denivele_dplus ? parseInt(format.denivele_dplus) : null,
+        denivele_dmoins: format.denivele_dmoins ? parseInt(format.denivele_dmoins) : null,
         adresse_depart: format.adresse_depart || null,
         adresse_arrivee: format.adresse_arrivee || null,
         prix: prix,
@@ -188,9 +185,7 @@ export default function NouvelleCourse() {
         remise_dossards: format.remise_dossards || null,
         dotation: format.dotation || null,
         reglement_pdf_url: reglementUrl,
-        nb_max_coureurs: format.nb_max_coureurs
-          ? parseInt(format.nb_max_coureurs)
-          : null,
+        nb_max_coureurs: format.nb_max_coureurs ? parseInt(format.nb_max_coureurs) : null,
         age_minimum: format.age_minimum ? parseInt(format.age_minimum) : null,
         hebergements: format.hebergements || null,
       });
@@ -229,10 +224,10 @@ export default function NouvelleCourse() {
             <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <textarea name="presentation_parcours" placeholder="Présentation du parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            
+
             <label>
-              Fichier GPX (trace du parcours) :
-              <input type="file" name="gpx_url" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+              Fichier GPX (trace du parcours) : <span className="text-gray-500 text-sm">(Format .gpx)</span>
+              <input type="file" name="fichier_gpx" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
             </label>
 
             <input name="type_epreuve" placeholder="Type d'épreuve (trail, rando, route)" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
@@ -252,8 +247,8 @@ export default function NouvelleCourse() {
             <input name="dotation" placeholder="Dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
 
             <label>
-              Règlement (PDF) :
-              <input type="file" name="reglement_pdf_url" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
+              Règlement (PDF) : <span className="text-gray-500 text-sm">(Format .pdf)</span>
+              <input type="file" name="fichier_reglement" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
             </label>
 
             <input name="nb_max_coureurs" placeholder="Nombre max de coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
