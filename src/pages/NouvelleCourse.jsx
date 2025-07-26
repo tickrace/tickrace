@@ -26,7 +26,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      fichier_gpx: null, // GPX
+      gpx_url: null, // GPX
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -39,7 +39,7 @@ export default function NouvelleCourse() {
       ravitaillements: "",
       remise_dossards: "",
       dotation: "",
-      fichier_reglement: null, // PDF
+      reglement_pdf_url: null, // PDF
       nb_max_coureurs: "",
       age_minimum: "",
       hebergements: "",
@@ -137,19 +137,19 @@ export default function NouvelleCourse() {
         }
       }
 
-      if (format.fichier_gpx) {
+      if (format.gpx_url) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
         if (!error) {
           gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
       }
 
-      if (format.fichier_reglement) {
+      if (format.reglement_pdf_url) {
         const { data, error } = await supabase.storage
           .from("reglements")
-          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
+          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.reglement_pdf_url);
         if (!error) {
           reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
         }
@@ -232,7 +232,7 @@ export default function NouvelleCourse() {
             {/* Champ GPX avec explication */}
             <label className="block">
               Fichier GPX du parcours :
-              <input type="file" name="fichier_gpx" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+              <input type="file" name="gpx_url" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
               <small className="text-gray-500 block">Un fichier GPX (.gpx) est attendu pour tracer le parcours.</small>
             </label>
 
@@ -254,7 +254,7 @@ export default function NouvelleCourse() {
             {/* Champ PDF règlement avec explication */}
             <label className="block">
               Règlement (PDF) :
-              <input type="file" name="fichier_reglement" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
+              <input type="file" name="reglement_pdf_url" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
               <small className="text-gray-500 block">Un fichier PDF est attendu pour le règlement.</small>
             </label>
 
