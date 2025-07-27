@@ -63,7 +63,7 @@ export default function InscriptionCourse() {
         numero_licence: "",
         nombre_repas: 0,
         prix_total_repas: 0,
-        prix_total_inscription: 0,
+        prix_total_coureur: 0,
       },
     ]);
   };
@@ -79,7 +79,7 @@ export default function InscriptionCourse() {
       const prixBase = Number(format?.prix || 0);
       updated[index].nombre_repas = Number(value);
       updated[index].prix_total_repas = prixRepas * updated[index].nombre_repas;
-      updated[index].prix_total_inscription =
+      updated[index].prix_total_coureur =
         prixBase + updated[index].prix_total_repas;
     }
     setInscriptions(updated);
@@ -98,7 +98,7 @@ export default function InscriptionCourse() {
         format_id: selectedFormatId,
         ...ins,
         prix_total_repas: ins.prix_total_repas,
-        prix_total_inscription: Number(format.prix || 0) + Number(ins.prix_total_repas),
+        prix_total_coureur: Number(format.prix || 0) + Number(ins.prix_total_repas),
       };
 
       const { error } = await supabase.from("inscriptions").insert([inscription]);
@@ -185,7 +185,7 @@ export default function InscriptionCourse() {
                   className="border p-2 w-full"
                 />
                 <p className="text-sm text-gray-600">
-                  Prix repas : {selectedFormat.prix_repas} € — Total repas : {ins.prix_total_repas} € — Total inscription : {ins.prix_total_inscription} €
+                  Prix repas : {selectedFormat.prix_repas} € — Total repas : {ins.prix_total_repas} € — Total inscription : {ins.prix_total_coureur} €
                 </p>
               </div>
             )}
