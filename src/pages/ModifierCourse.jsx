@@ -221,7 +221,13 @@ export default function ModifierCourse() {
             <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
             <textarea name="presentation_parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Présentation du parcours" />
-            <input type="file" name="fichier_gpx" onChange={(e) => handleFormatChange(index, e)} />
+            
+            {/* GPX */}
+            <label>
+              Fichier GPX (trace du parcours) :
+              <input type="file" name="fichier_gpx" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+            </label>
+
             <input name="type_epreuve" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Type d’épreuve" />
             <input name="distance_km" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Distance (km)" />
             <input name="denivele_dplus" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="D+" />
@@ -229,6 +235,8 @@ export default function ModifierCourse() {
             <input name="adresse_depart" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse de départ" />
             <input name="adresse_arrivee" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse d’arrivée" />
             <input name="prix" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix (€)" />
+
+            {/* Repas */}
             <label className="flex items-center gap-2">
               <input type="checkbox" name="propose_repas" checked={f.propose_repas || false} onChange={(e) => handleFormatChange(index, e)} /> Proposez-vous des repas ?
             </label>
@@ -238,10 +246,17 @@ export default function ModifierCourse() {
                 <input name="prix_repas" value={f.prix_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix d’un repas (€)" />
               </>
             )}
+
             <input name="ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Ravitaillements" />
             <input name="remise_dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Remise des dossards" />
             <input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Dotation" />
-            <input type="file" name="fichier_reglement" onChange={(e) => handleFormatChange(index, e)} />
+
+            {/* PDF */}
+            <label>
+              Règlement (PDF) :
+              <input type="file" name="fichier_reglement" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
+            </label>
+
             <input name="nb_max_coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre max de coureurs" />
             <p className="text-sm text-gray-700">
               Inscriptions : {f.nb_inscrits} / {f.nb_max_coureurs || "non défini"}
