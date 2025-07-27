@@ -15,9 +15,7 @@ export default function InscriptionCourse() {
     const fetchCourseAndFormats = async () => {
       const { data, error } = await supabase
         .from("courses")
-        .select(
-          "*, formats(id, nom, date, distance_km, denivele_dplus, nb_max_coureurs, stock_repas, prix_repas)"
-        )
+        .select("*, formats(id, nom, date, distance_km, denivele_dplus, prix, nb_max_coureurs, stock_repas, prix_repas)")
         .eq("id", courseId)
         .single();
 
@@ -38,36 +36,10 @@ export default function InscriptionCourse() {
       setFormats(formatsWithCount);
     };
 
-    const fetchProfil = async () => {
-      const session = await supabase.auth.getSession();
-      const user = session.data?.session?.user;
-      if (!user) return;
-
-      const { data } = await supabase
-        .from("profils_utilisateurs")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
-
-      if (data) {
-        // Par défaut, 1 coureur dans la liste
-        setInscriptions([{ ...data, nombre_repas: 0 }]);
-      }
-    };
-
     fetchCourseAndFormats();
-    fetchProfil();
   }, [courseId]);
 
-  const handleFieldChange = (index, field, value) => {
-    setInscriptions((prev) => {
-      const updated = [...prev];
-      updated[index][field] = value;
-      return updated;
-    });
-  };
-
-  const addCoureur = () => {
+  const handleAddInscription = () => {
     setInscriptions((prev) => [
       ...prev,
       {
@@ -90,222 +62,142 @@ export default function InscriptionCourse() {
         contact_urgence_telephone: "",
         numero_licence: "",
         nombre_repas: 0,
+        prix_total_repas: 0,
+        prix_total_inscription: 0,
       },
     ]);
   };
 
-  const removeCoureur = (index) => {
-    setInscriptions((prev) => prev.filter((_, i) => i !== index));
+  const handleInscriptionChange = (index, e) => {
+    const { name, value, type, checked } = e.target;
+    const updated = [...inscriptions];
+    updated[index][name] = type === "checkbox" ? checked : value;
+
+    if (name === "nombre_repas") {
+      const format = formats.find((f) => f.id === selectedFormatId);
+      const prixRepas = Number(format?.prix_repas || 0);
+      const prixBase = Number(format?.prix || 0);
+      updated[index].nombre_repas = Number(value);
+      updated[index].prix_total_repas = prixRepas * updated[index].nombre_repas;
+      updated[index].prix_total_inscription =
+        prixBase + updated[index].prix_total_repas;
+    }
+    setInscriptions(updated);
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedFormatId) {
-      alert("Veuillez sélectionner un format.");
-      return;
-    }
+    if (!selectedFormatId) return alert("Veuillez sélectionner un format.");
 
-    const selectedFormat = formats.find((f) => f.id === selectedFormatId);
-    if (selectedFormat.inscrits + inscriptions.length > selectedFormat.nb_max_coureurs) {
-      alert("Nombre de coureurs supérieur au nombre de places restantes !");
-      return;
-    }
+    const format = formats.find((f) => f.id === selectedFormatId);
+    if (!format) return;
 
-    const session = await supabase.auth.getSession();
-    const user = session.data?.session?.user;
-    if (!user) return;
+    for (const ins of inscriptions) {
+      const inscription = {
+        course_id: courseId,
+        format_id: selectedFormatId,
+        ...ins,
+        prix_total_repas: ins.prix_total_repas,
+        prix_total_inscription: Number(format.prix || 0) + Number(ins.prix_total_repas),
+      };
 
-    const inscriptionsToInsert = inscriptions.map((coureur) => ({
-      coureur_id: user.id,
-      course_id: courseId,
-      format_id: selectedFormatId,
-      nom: coureur.nom,
-      prenom: coureur.prenom,
-      genre: coureur.genre,
-      date_naissance: coureur.date_naissance,
-      nationalite: coureur.nationalite,
-      email: coureur.email,
-      telephone: coureur.telephone,
-      adresse: coureur.adresse,
-      adresse_complement: coureur.adresse_complement,
-      code_postal: coureur.code_postal,
-      ville: coureur.ville,
-      pays: coureur.pays,
-      apparaitre_resultats: coureur.apparaitre_resultats,
-      club: coureur.club,
-      justificatif_type: coureur.justificatif_type,
-      contact_urgence_nom: coureur.contact_urgence_nom,
-      contact_urgence_telephone: coureur.contact_urgence_telephone,
-      numero_licence: coureur.numero_licence,
-      nombre_repas: coureur.nombre_repas,
-      prix_total_repas:
-        selectedFormat.prix_repas && coureur.nombre_repas
-          ? selectedFormat.prix_repas * coureur.nombre_repas
-          : 0,
-    }));
-
-    const { error } = await supabase.from("inscriptions").insert(inscriptionsToInsert);
-    if (error) {
-      console.error("Erreur inscription :", error);
-      alert("Erreur lors de l'inscription");
-      return;
+      const { error } = await supabase.from("inscriptions").insert([inscription]);
+      if (error) {
+        console.error("Erreur insertion :", error);
+        alert("Erreur lors de l'inscription pour " + ins.nom);
+        return;
+      }
     }
 
     setMessage("Toutes les inscriptions ont été enregistrées !");
   };
 
   const selectedFormat = formats.find((f) => f.id === selectedFormatId);
-  const totalPrix = inscriptions.reduce(
-    (sum, c) =>
-      sum +
-      (selectedFormat?.prix_repas && c.nombre_repas
-        ? selectedFormat.prix_repas * c.nombre_repas
-        : 0),
-    0
-  );
 
-  if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
+  if (!course || formats.length === 0)
+    return <div className="p-6">Chargement...</div>;
 
   return (
-    <div className="p-6 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Inscription à : {course.nom}</h1>
+    <div className="p-6 max-w-5xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">
+        Inscriptions à : {course.nom}
+      </h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
         <div>
           <label className="font-semibold">Choix du format :</label>
           <select
-            className="border p-2 w-full mt-1"
+            className="border p-2 w-full"
             value={selectedFormatId}
             onChange={(e) => setSelectedFormatId(e.target.value)}
             required
           >
             <option value="">-- Sélectionnez un format --</option>
             {formats.map((f) => (
-              <option key={f.id} value={f.id} disabled={f.inscrits >= f.nb_max_coureurs}>
-                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ ({f.inscrits}/
-                {f.nb_max_coureurs})
+              <option
+                key={f.id}
+                value={f.id}
+                disabled={f.inscrits >= f.nb_max_coureurs}
+              >
+                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ (
+                {f.inscrits}/{f.nb_max_coureurs})
               </option>
             ))}
           </select>
         </div>
 
-        {/* Liste des coureurs */}
-        {inscriptions.map((c, index) => (
-          <div key={index} className="border p-4 rounded-lg bg-gray-50 shadow-md space-y-3">
-            <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input
-                type="text"
-                placeholder="Nom"
-                value={c.nom}
-                onChange={(e) => handleFieldChange(index, "nom", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="text"
-                placeholder="Prénom"
-                value={c.prenom}
-                onChange={(e) => handleFieldChange(index, "prenom", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="text"
-                placeholder="Genre"
-                value={c.genre}
-                onChange={(e) => handleFieldChange(index, "genre", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="date"
-                value={c.date_naissance}
-                onChange={(e) => handleFieldChange(index, "date_naissance", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="text"
-                placeholder="Email"
-                value={c.email}
-                onChange={(e) => handleFieldChange(index, "email", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="text"
-                placeholder="Téléphone"
-                value={c.telephone}
-                onChange={(e) => handleFieldChange(index, "telephone", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="text"
-                placeholder="Adresse"
-                value={c.adresse}
-                onChange={(e) => handleFieldChange(index, "adresse", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="text"
-                placeholder="Code postal"
-                value={c.code_postal}
-                onChange={(e) => handleFieldChange(index, "code_postal", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="text"
-                placeholder="Ville"
-                value={c.ville}
-                onChange={(e) => handleFieldChange(index, "ville", e.target.value)}
-                className="border p-2 w-full"
-              />
-              <input
-                type="number"
-                placeholder="Nombre de repas"
-                min="0"
-                value={c.nombre_repas}
-                onChange={(e) =>
-                  handleFieldChange(index, "nombre_repas", Number(e.target.value))
-                }
-                className="border p-2 w-full"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={() => removeCoureur(index)}
-              className="bg-red-500 text-white px-3 py-1 rounded mt-2"
-            >
-              Supprimer ce coureur
-            </button>
+        {/* Formulaires de coureurs */}
+        {inscriptions.map((ins, idx) => (
+          <div
+            key={idx}
+            className="border p-4 rounded bg-gray-50 space-y-2"
+          >
+            <h3 className="text-lg font-semibold">Coureur {idx + 1}</h3>
+            <input name="nom" value={ins.nom} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Nom" />
+            <input name="prenom" value={ins.prenom} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Prénom" />
+            <input name="genre" value={ins.genre} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Genre" />
+            <input type="date" name="date_naissance" value={ins.date_naissance} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" />
+            <input name="nationalite" value={ins.nationalite} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Nationalité" />
+            <input type="email" name="email" value={ins.email} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Email" />
+            <input name="telephone" value={ins.telephone} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Téléphone" />
+            <input name="adresse" value={ins.adresse} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Adresse" />
+            <input name="adresse_complement" value={ins.adresse_complement} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Complément d'adresse" />
+            <input name="code_postal" value={ins.code_postal} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Code postal" />
+            <input name="ville" value={ins.ville} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Ville" />
+            <input name="pays" value={ins.pays} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Pays" />
+            <input name="club" value={ins.club} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Club" />
+            <input name="justificatif_type" value={ins.justificatif_type} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Justificatif" />
+            <input name="numero_licence" value={ins.numero_licence} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Licence (si applicable)" />
+            <input name="contact_urgence_nom" value={ins.contact_urgence_nom} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Nom contact urgence" />
+            <input name="contact_urgence_telephone" value={ins.contact_urgence_telephone} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Téléphone contact urgence" />
+
+            {/* Gestion des repas */}
+            {Number(selectedFormat?.stock_repas) > 0 && (
+              <div>
+                <label className="font-semibold">Nombre de repas :</label>
+                <input
+                  type="number"
+                  min="0"
+                  max={selectedFormat.stock_repas}
+                  value={ins.nombre_repas}
+                  name="nombre_repas"
+                  onChange={(e) => handleInscriptionChange(idx, e)}
+                  className="border p-2 w-full"
+                />
+                <p className="text-sm text-gray-600">
+                  Prix repas : {selectedFormat.prix_repas} € — Total repas : {ins.prix_total_repas} € — Total inscription : {ins.prix_total_inscription} €
+                </p>
+              </div>
+            )}
           </div>
         ))}
 
-        <button
-          type="button"
-          onClick={addCoureur}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-        >
+        <button type="button" onClick={handleAddInscription} className="bg-blue-600 text-white px-4 py-2 rounded">
           + Ajouter un coureur
         </button>
 
-        {/* Récapitulatif */}
-        {inscriptions.length > 0 && selectedFormat && (
-          <div className="mt-6 p-4 bg-gray-100 rounded-lg shadow-inner">
-            <h2 className="text-lg font-bold mb-3">Récapitulatif des inscriptions</h2>
-            <ul className="space-y-1 text-sm text-gray-800">
-              {inscriptions.map((c, idx) => (
-                <li key={idx}>
-                  {c.nom} {c.prenom} — {c.nombre_repas} repas (
-                  {selectedFormat.prix_repas * c.nombre_repas} €)
-                </li>
-              ))}
-            </ul>
-            <p className="mt-3 font-semibold">Total : {totalPrix} €</p>
-          </div>
-        )}
-
-        <button
-          type="submit"
-          className="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded mt-4"
-        >
-          Confirmer toutes les inscriptions
+        <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded">
+          Confirmer les inscriptions
         </button>
 
         {message && <p className="text-green-700 mt-4">{message}</p>}
