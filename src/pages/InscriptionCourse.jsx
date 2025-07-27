@@ -8,13 +8,14 @@ export default function InscriptionCourse() {
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
   const [coureurs, setCoureurs] = useState([]);
+  const [profil, setProfil] = useState({});
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     const fetchCourseAndFormats = async () => {
       const { data, error } = await supabase
         .from("courses")
-        .select("*, formats(id, nom, date, prix, distance_km, denivele_dplus, nb_max_coureurs, stock_repas, prix_repas)")
+        .select("*, formats(id, nom, prix, date, distance_km, denivele_dplus, nb_max_coureurs, stock_repas, prix_repas)")
         .eq("id", courseId)
         .single();
 
@@ -22,12 +23,15 @@ export default function InscriptionCourse() {
 
       const formatsWithCount = await Promise.all(
         (data.formats || []).map(async (f) => {
-          const { count } = await supabase
+          const { count, error: countError } = await supabase
             .from("inscriptions")
             .select("*", { count: "exact", head: true })
             .eq("format_id", f.id);
 
-          return { ...f, inscrits: count || 0 };
+          return {
+            ...f,
+            inscrits: countError ? 0 : count,
+          };
         })
       );
 
@@ -47,13 +51,15 @@ export default function InscriptionCourse() {
         .single();
 
       if (!error && data) {
+        setProfil(data);
+        // Pré-remplir le premier coureur
         setCoureurs([
           {
             ...data,
-            coureur_id: user.id,
+            id: Date.now(),
+            coureur_id: user.id, // le coureur connecté
             format_id: "",
             nombre_repas: 0,
-            prix_total_coureur: 0,
           },
         ]);
       }
@@ -63,26 +69,12 @@ export default function InscriptionCourse() {
     fetchProfil();
   }, [courseId]);
 
-  const handleCoureurChange = (index, field, value) => {
-    const updated = [...coureurs];
-    updated[index][field] = value;
-
-    // Recalcul du prix total coureur
-    if (field === "format_id" || field === "nombre_repas") {
-      const format = formats.find((f) => f.id === updated[index].format_id);
-      const prix = format ? Number(format.prix || 0) : 0;
-      const prixRepas = format && format.prix_repas ? Number(format.prix_repas) * Number(updated[index].nombre_repas || 0) : 0;
-      updated[index].prix_total_coureur = prix + prixRepas;
-    }
-
-    setCoureurs(updated);
-  };
-
   const addCoureur = () => {
     setCoureurs((prev) => [
       ...prev,
       {
-        coureur_id: null,
+        id: Date.now(),
+        coureur_id: null, // coureur externe
         nom: "",
         prenom: "",
         genre: "",
@@ -103,37 +95,78 @@ export default function InscriptionCourse() {
         numero_licence: "",
         format_id: "",
         nombre_repas: 0,
-        prix_total_coureur: 0,
       },
     ]);
   };
 
-  const removeCoureur = (index) => {
-    setCoureurs((prev) => prev.filter((_, i) => i !== index));
+  const removeCoureur = (id) => {
+    setCoureurs((prev) => prev.filter((c) => c.id !== id));
+  };
+
+  const handleChange = (id, field, value) => {
+    setCoureurs((prev) =>
+      prev.map((c) => (c.id === id ? { ...c, [field]: value } : c))
+    );
+  };
+
+  const buildInscriptionPayload = (coureur) => {
+    const selectedFormat = formats.find((f) => f.id === coureur.format_id);
+    const prix_format = selectedFormat?.prix || 0;
+    const prix_total_repas =
+      (selectedFormat?.prix_repas || 0) * (coureur.nombre_repas || 0);
+    const prix_total_coureur = prix_format + prix_total_repas;
+
+    return {
+      coureur_id: coureur.coureur_id,
+      course_id: courseId,
+      format_id: coureur.format_id,
+      nom: coureur.nom,
+      prenom: coureur.prenom,
+      genre: coureur.genre,
+      date_naissance: coureur.date_naissance,
+      nationalite: coureur.nationalite,
+      email: coureur.email,
+      telephone: coureur.telephone,
+      adresse: coureur.adresse,
+      adresse_complement: coureur.adresse_complement,
+      code_postal: coureur.code_postal,
+      ville: coureur.ville,
+      pays: coureur.pays,
+      apparaitre_resultats: coureur.apparaitre_resultats,
+      club: coureur.club,
+      justificatif_type: coureur.justificatif_type,
+      contact_urgence_nom: coureur.contact_urgence_nom,
+      contact_urgence_telephone: coureur.contact_urgence_telephone,
+      numero_licence: coureur.numero_licence,
+      nombre_repas: coureur.nombre_repas,
+      prix_total_repas,
+      prix_total_coureur,
+    };
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-
-    for (const coureur of coureurs) {
-      if (!coureur.format_id) {
+    for (const c of coureurs) {
+      if (!c.format_id) {
         alert("Veuillez sélectionner un format pour chaque coureur.");
         return;
       }
     }
 
-    const { error } = await supabase.from("inscriptions").insert(coureurs.map((c) => ({
-      ...c,
-      course_id: courseId,
-    })));
+    try {
+      const payloads = coureurs.map(buildInscriptionPayload);
+      const { error } = await supabase.from("inscriptions").insert(payloads);
 
-    if (error) {
-      console.error("Erreur insertion :", error);
-      alert("Erreur lors de l'inscription");
-      return;
+      if (error) {
+        console.error("Erreur insertion :", error);
+        alert("Erreur lors de l'inscription");
+        return;
+      }
+
+      setMessage("Inscriptions enregistrées avec succès !");
+    } catch (err) {
+      console.error("Erreur :", err);
     }
-
-    setMessage("Inscriptions enregistrées avec succès !");
   };
 
   if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
@@ -141,81 +174,137 @@ export default function InscriptionCourse() {
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Inscription à : {course.nom}</h1>
-
       <form onSubmit={handleSubmit} className="space-y-6">
-        {coureurs.map((c, index) => (
-          <fieldset key={index} className="border p-4 rounded-lg bg-gray-50 space-y-4">
-            <legend className="font-bold text-lg">Coureur {index + 1}</legend>
-            
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <input type="text" value={c.nom || ""} onChange={(e) => handleCoureurChange(index, "nom", e.target.value)} placeholder="Nom" className="border p-2 w-full" />
-              <input type="text" value={c.prenom || ""} onChange={(e) => handleCoureurChange(index, "prenom", e.target.value)} placeholder="Prénom" className="border p-2 w-full" />
-              
-              <select value={c.genre || ""} onChange={(e) => handleCoureurChange(index, "genre", e.target.value)} className="border p-2 w-full">
-                <option value="">Genre</option>
-                <option value="Homme">Homme</option>
-                <option value="Femme">Femme</option>
-              </select>
-              <input type="date" value={c.date_naissance || ""} onChange={(e) => handleCoureurChange(index, "date_naissance", e.target.value)} className="border p-2 w-full" />
-              
-              <input type="text" value={c.nationalite || ""} onChange={(e) => handleCoureurChange(index, "nationalite", e.target.value)} placeholder="Nationalité" className="border p-2 w-full" />
-              <input type="email" value={c.email || ""} onChange={(e) => handleCoureurChange(index, "email", e.target.value)} placeholder="Email" className="border p-2 w-full" />
-              <input type="tel" value={c.telephone || ""} onChange={(e) => handleCoureurChange(index, "telephone", e.target.value)} placeholder="Téléphone" className="border p-2 w-full" />
-            </div>
-
-            <div>
-              <label className="font-semibold">Format :</label>
-              <select
-                className="border p-2 w-full mt-1"
-                value={c.format_id || ""}
-                onChange={(e) => handleCoureurChange(index, "format_id", e.target.value)}
-              >
-                <option value="">-- Sélectionnez un format --</option>
-                {formats.map((f) => (
-                  <option key={f.id} value={f.id} disabled={f.inscrits >= f.nb_max_coureurs}>
-                    {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ ({f.inscrits}/{f.nb_max_coureurs}) - {f.prix} €
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {Number(c.nombre_repas) >= 0 && (
-              <div>
-                <label className="font-semibold">Repas :</label>
+        {coureurs.map((coureur) => {
+          const selectedFormat = formats.find((f) => f.id === coureur.format_id);
+          return (
+            <div key={coureur.id} className="border rounded p-4 bg-gray-50 space-y-3">
+              <h2 className="font-semibold">Coureur</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                 <input
-                  type="number"
-                  min="0"
-                  max={formats.find((f) => f.id === c.format_id)?.stock_repas || 0}
-                  value={c.nombre_repas}
-                  onChange={(e) => handleCoureurChange(index, "nombre_repas", e.target.value)}
-                  className="border p-2 w-full mt-1"
+                  type="text"
+                  value={coureur.nom}
+                  onChange={(e) => handleChange(coureur.id, "nom", e.target.value)}
+                  placeholder="Nom"
+                  className="border p-2 w-full"
                 />
-                <p className="text-sm text-gray-600">
-                  Total repas : {formats.find((f) => f.id === c.format_id)?.prix_repas || 0} € × {c.nombre_repas} = {(formats.find((f) => f.id === c.format_id)?.prix_repas || 0) * (c.nombre_repas || 0)} €
-                </p>
+                <input
+                  type="text"
+                  value={coureur.prenom}
+                  onChange={(e) => handleChange(coureur.id, "prenom", e.target.value)}
+                  placeholder="Prénom"
+                  className="border p-2 w-full"
+                />
+                <select
+                  value={coureur.genre || ""}
+                  onChange={(e) => handleChange(coureur.id, "genre", e.target.value)}
+                  className="border p-2 w-full"
+                >
+                  <option value="">Genre</option>
+                  <option value="Homme">Homme</option>
+                  <option value="Femme">Femme</option>
+                </select>
+                <input
+                  type="date"
+                  value={coureur.date_naissance || ""}
+                  onChange={(e) =>
+                    handleChange(coureur.id, "date_naissance", e.target.value)
+                  }
+                  className="border p-2 w-full"
+                />
+                <input
+                  type="text"
+                  value={coureur.email}
+                  onChange={(e) => handleChange(coureur.id, "email", e.target.value)}
+                  placeholder="Email"
+                  className="border p-2 w-full"
+                />
+                <input
+                  type="text"
+                  value={coureur.telephone}
+                  onChange={(e) =>
+                    handleChange(coureur.id, "telephone", e.target.value)
+                  }
+                  placeholder="Téléphone"
+                  className="border p-2 w-full"
+                />
+                <input
+                  type="text"
+                  value={coureur.adresse}
+                  onChange={(e) => handleChange(coureur.id, "adresse", e.target.value)}
+                  placeholder="Adresse"
+                  className="border p-2 w-full"
+                />
+                <input
+                  type="text"
+                  value={coureur.ville}
+                  onChange={(e) => handleChange(coureur.id, "ville", e.target.value)}
+                  placeholder="Ville"
+                  className="border p-2 w-full"
+                />
+                <select
+                  value={coureur.format_id}
+                  onChange={(e) =>
+                    handleChange(coureur.id, "format_id", e.target.value)
+                  }
+                  className="border p-2 w-full"
+                >
+                  <option value="">-- Sélectionnez un format --</option>
+                  {formats.map((f) => (
+                    <option
+                      key={f.id}
+                      value={f.id}
+                      disabled={f.inscrits >= f.nb_max_coureurs}
+                    >
+                      {f.nom} - {f.date} - {f.distance_km} km ({f.inscrits}/{f.nb_max_coureurs})
+                    </option>
+                  ))}
+                </select>
               </div>
-            )}
 
-            <p className="text-right font-bold">
-              Prix total : {c.prix_total_coureur.toFixed(2)} €
-            </p>
+              {Number(selectedFormat?.stock_repas) > 0 && (
+                <div>
+                  <label className="font-semibold">Nombre de repas :</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={selectedFormat.stock_repas}
+                    value={coureur.nombre_repas}
+                    onChange={(e) =>
+                      handleChange(coureur.id, "nombre_repas", Number(e.target.value))
+                    }
+                    className="border p-2 w-full"
+                  />
+                  <p className="text-sm text-gray-600">
+                    Prix unitaire : {selectedFormat.prix_repas} € — Total repas :{" "}
+                    {(coureur.nombre_repas * selectedFormat.prix_repas).toFixed(2)} €
+                  </p>
+                </div>
+              )}
 
-            {index > 0 && (
               <button
                 type="button"
-                onClick={() => removeCoureur(index)}
-                className="bg-red-600 text-white px-3 py-1 rounded"
+                onClick={() => removeCoureur(coureur.id)}
+                className="bg-red-500 text-white px-3 py-1 rounded mt-2"
               >
-                Supprimer ce coureur
+                Supprimer
               </button>
-            )}
-          </fieldset>
-        ))}
+            </div>
+          );
+        })}
 
-        <button type="button" onClick={addCoureur} className="bg-blue-600 text-white px-4 py-2 rounded">
+        <button
+          type="button"
+          onClick={addCoureur}
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
           + Ajouter un coureur
         </button>
-        <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded">
+
+        <button
+          type="submit"
+          className="bg-green-600 text-white px-6 py-2 rounded"
+        >
           Confirmer les inscriptions
         </button>
 
