@@ -7,15 +7,41 @@ export default function InscriptionCourse() {
   const { courseId } = useParams();
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
-  const [selectedFormatId, setSelectedFormatId] = useState("");
-  const [inscriptions, setInscriptions] = useState([]);
+  const [inscriptions, setInscriptions] = useState([
+    {
+      nom: "",
+      prenom: "",
+      genre: "Homme",
+      date_naissance: "",
+      nationalite: "",
+      email: "",
+      telephone: "",
+      adresse: "",
+      adresse_complement: "",
+      code_postal: "",
+      ville: "",
+      pays: "",
+      apparaitre_resultats: true,
+      club: "",
+      justificatif_type: "",
+      contact_urgence_nom: "",
+      contact_urgence_telephone: "",
+      numero_licence: "",
+      nombre_repas: 0,
+      prix_total_repas: 0,
+      prix_total_coureur: 0,
+      format_id: "",
+    },
+  ]);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     const fetchCourseAndFormats = async () => {
       const { data, error } = await supabase
         .from("courses")
-        .select("*, formats(id, nom, date, distance_km, denivele_dplus, prix, nb_max_coureurs, stock_repas, prix_repas)")
+        .select(
+          "*, formats(id, nom, date, distance_km, denivele_dplus, nb_max_coureurs, stock_repas, prix, prix_repas)"
+        )
         .eq("id", courseId)
         .single();
 
@@ -39,13 +65,33 @@ export default function InscriptionCourse() {
     fetchCourseAndFormats();
   }, [courseId]);
 
-  const handleAddInscription = () => {
+  const handleChange = (index, e) => {
+    const { name, value, type, checked } = e.target;
+    const updated = [...inscriptions];
+    updated[index][name] = type === "checkbox" ? checked : value;
+
+    // Recalcul du prix total coureur si format choisi
+    if (name === "format_id" || name === "nombre_repas") {
+      const selectedFormat = formats.find((f) => f.id === updated[index].format_id);
+      const prixBase = selectedFormat ? selectedFormat.prix || 0 : 0;
+      const prixRepas =
+        selectedFormat && selectedFormat.prix_repas
+          ? selectedFormat.prix_repas * (updated[index].nombre_repas || 0)
+          : 0;
+      updated[index].prix_total_repas = prixRepas;
+      updated[index].prix_total_coureur = prixBase + prixRepas;
+    }
+
+    setInscriptions(updated);
+  };
+
+  const addCoureur = () => {
     setInscriptions((prev) => [
       ...prev,
       {
         nom: "",
         prenom: "",
-        genre: "",
+        genre: "Homme",
         date_naissance: "",
         nationalite: "",
         email: "",
@@ -64,139 +110,151 @@ export default function InscriptionCourse() {
         nombre_repas: 0,
         prix_total_repas: 0,
         prix_total_coureur: 0,
+        format_id: "",
       },
     ]);
   };
 
-  const handleInscriptionChange = (index, e) => {
-    const { name, value, type, checked } = e.target;
-    const updated = [...inscriptions];
-    updated[index][name] = type === "checkbox" ? checked : value;
-
-    if (name === "nombre_repas") {
-      const format = formats.find((f) => f.id === selectedFormatId);
-      const prixRepas = Number(format?.prix_repas || 0);
-      const prixBase = Number(format?.prix || 0);
-      updated[index].nombre_repas = Number(value);
-      updated[index].prix_total_repas = prixRepas * updated[index].nombre_repas;
-      updated[index].prix_total_coureur =
-        prixBase + updated[index].prix_total_repas;
-    }
-    setInscriptions(updated);
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!selectedFormatId) return alert("Veuillez sélectionner un format.");
 
-    const format = formats.find((f) => f.id === selectedFormatId);
-    if (!format) return;
+    const session = await supabase.auth.getSession();
+    const user = session.data?.session?.user;
 
-    for (const ins of inscriptions) {
-      const inscription = {
+    for (const inscription of inscriptions) {
+      const selectedFormat = formats.find((f) => f.id === inscription.format_id);
+      if (!selectedFormat) {
+        alert("Veuillez sélectionner un format pour chaque coureur.");
+        return;
+      }
+
+      const payload = {
         course_id: courseId,
-        format_id: selectedFormatId,
-        ...ins,
-        prix_total_repas: ins.prix_total_repas,
-        prix_total_coureur: Number(format.prix || 0) + Number(ins.prix_total_repas),
+        format_id: inscription.format_id,
+        nom: inscription.nom,
+        prenom: inscription.prenom,
+        genre: inscription.genre,
+        date_naissance: inscription.date_naissance,
+        nationalite: inscription.nationalite,
+        email: inscription.email,
+        telephone: inscription.telephone,
+        adresse: inscription.adresse,
+        adresse_complement: inscription.adresse_complement,
+        code_postal: inscription.code_postal,
+        ville: inscription.ville,
+        pays: inscription.pays,
+        apparaitre_resultats: inscription.apparaitre_resultats,
+        club: inscription.club,
+        justificatif_type: inscription.justificatif_type,
+        contact_urgence_nom: inscription.contact_urgence_nom,
+        contact_urgence_telephone: inscription.contact_urgence_telephone,
+        numero_licence: inscription.numero_licence,
+        nombre_repas: inscription.nombre_repas,
+        prix_total_repas: inscription.prix_total_repas,
+        prix_total_coureur: inscription.prix_total_coureur,
       };
 
-      const { error } = await supabase.from("inscriptions").insert([inscription]);
+      if (user) payload.coureur_id = user.id; // On met coureur_id uniquement si connecté
+
+      const { error } = await supabase.from("inscriptions").insert([payload]);
       if (error) {
         console.error("Erreur insertion :", error);
-        alert("Erreur lors de l'inscription pour " + ins.nom);
+        alert("Erreur lors de l'inscription pour " + inscription.nom);
         return;
       }
     }
 
-    setMessage("Toutes les inscriptions ont été enregistrées !");
+    setMessage("Inscriptions enregistrées avec succès !");
   };
 
-  const selectedFormat = formats.find((f) => f.id === selectedFormatId);
-
-  if (!course || formats.length === 0)
-    return <div className="p-6">Chargement...</div>;
+  if (!course) return <div className="p-6">Chargement...</div>;
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">
-        Inscriptions à : {course.nom}
-      </h1>
+    <div className="p-6 max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Inscription à : {course.nom}</h1>
 
       <form onSubmit={handleSubmit} className="space-y-6">
-        <div>
-          <label className="font-semibold">Choix du format :</label>
-          <select
-            className="border p-2 w-full"
-            value={selectedFormatId}
-            onChange={(e) => setSelectedFormatId(e.target.value)}
-            required
-          >
-            <option value="">-- Sélectionnez un format --</option>
-            {formats.map((f) => (
-              <option
-                key={f.id}
-                value={f.id}
-                disabled={f.inscrits >= f.nb_max_coureurs}
-              >
-                {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+ (
-                {f.inscrits}/{f.nb_max_coureurs})
-              </option>
-            ))}
-          </select>
-        </div>
+        {inscriptions.map((ins, index) => {
+          const selectedFormat = formats.find((f) => f.id === ins.format_id);
+          return (
+            <div key={index} className="border rounded-lg p-4 bg-gray-50 space-y-3">
+              <h2 className="text-lg font-semibold mb-2">
+                Coureur {index + 1}
+              </h2>
+              <input name="nom" placeholder="Nom" value={ins.nom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" required />
+              <input name="prenom" placeholder="Prénom" value={ins.prenom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" required />
+              
+              <label className="block">
+                Genre :
+                <select name="genre" value={ins.genre} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
+                  <option value="Homme">Homme</option>
+                  <option value="Femme">Femme</option>
+                </select>
+              </label>
 
-        {/* Formulaires de coureurs */}
-        {inscriptions.map((ins, idx) => (
-          <div
-            key={idx}
-            className="border p-4 rounded bg-gray-50 space-y-2"
-          >
-            <h3 className="text-lg font-semibold">Coureur {idx + 1}</h3>
-            <input name="nom" value={ins.nom} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Nom" />
-            <input name="prenom" value={ins.prenom} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Prénom" />
-            <input name="genre" value={ins.genre} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Genre" />
-            <input type="date" name="date_naissance" value={ins.date_naissance} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" />
-            <input name="nationalite" value={ins.nationalite} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Nationalité" />
-            <input type="email" name="email" value={ins.email} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Email" />
-            <input name="telephone" value={ins.telephone} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Téléphone" />
-            <input name="adresse" value={ins.adresse} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Adresse" />
-            <input name="adresse_complement" value={ins.adresse_complement} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Complément d'adresse" />
-            <input name="code_postal" value={ins.code_postal} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Code postal" />
-            <input name="ville" value={ins.ville} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Ville" />
-            <input name="pays" value={ins.pays} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Pays" />
-            <input name="club" value={ins.club} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Club" />
-            <input name="justificatif_type" value={ins.justificatif_type} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Justificatif" />
-            <input name="numero_licence" value={ins.numero_licence} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Licence (si applicable)" />
-            <input name="contact_urgence_nom" value={ins.contact_urgence_nom} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Nom contact urgence" />
-            <input name="contact_urgence_telephone" value={ins.contact_urgence_telephone} onChange={(e) => handleInscriptionChange(idx, e)} className="border p-2 w-full" placeholder="Téléphone contact urgence" />
-
-            {/* Gestion des repas */}
-            {Number(selectedFormat?.stock_repas) > 0 && (
-              <div>
-                <label className="font-semibold">Nombre de repas :</label>
-                <input
-                  type="number"
-                  min="0"
-                  max={selectedFormat.stock_repas}
-                  value={ins.nombre_repas}
-                  name="nombre_repas"
-                  onChange={(e) => handleInscriptionChange(idx, e)}
+              <input type="date" name="date_naissance" value={ins.date_naissance} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="nationalite" placeholder="Nationalité" value={ins.nationalite} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="email" placeholder="Email" type="email" value={ins.email} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="telephone" placeholder="Téléphone" value={ins.telephone} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="adresse" placeholder="Adresse" value={ins.adresse} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="adresse_complement" placeholder="Complément adresse" value={ins.adresse_complement} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="code_postal" placeholder="Code postal" value={ins.code_postal} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="ville" placeholder="Ville" value={ins.ville} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="pays" placeholder="Pays" value={ins.pays} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="club" placeholder="Club" value={ins.club} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              
+              <label>
+                Format :
+                <select
+                  name="format_id"
+                  value={ins.format_id}
+                  onChange={(e) => handleChange(index, e)}
                   className="border p-2 w-full"
-                />
-                <p className="text-sm text-gray-600">
-                  Prix repas : {selectedFormat.prix_repas} € — Total repas : {ins.prix_total_repas} € — Total inscription : {ins.prix_total_coureur} €
-                </p>
-              </div>
-            )}
-          </div>
-        ))}
+                  required
+                >
+                  <option value="">-- Sélectionnez un format --</option>
+                  {formats.map((f) => (
+                    <option key={f.id} value={f.id} disabled={f.inscrits >= f.nb_max_coureurs}>
+                      {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-        <button type="button" onClick={handleAddInscription} className="bg-blue-600 text-white px-4 py-2 rounded">
+              {Number(selectedFormat?.stock_repas) > 0 && (
+                <label>
+                  Nombre de repas :
+                  <input
+                    type="number"
+                    name="nombre_repas"
+                    min="0"
+                    max={selectedFormat.stock_repas}
+                    value={ins.nombre_repas}
+                    onChange={(e) => handleChange(index, e)}
+                    className="border p-2 w-full"
+                  />
+                  <p className="text-sm text-gray-600">
+                    Prix repas total : {ins.prix_total_repas} €  
+                    — Total coureur : {ins.prix_total_coureur} €
+                  </p>
+                </label>
+              )}
+            </div>
+          );
+        })}
+
+        <button
+          type="button"
+          onClick={addCoureur}
+          className="bg-blue-600 text-white px-4 py-2 rounded"
+        >
           + Ajouter un coureur
         </button>
 
-        <button type="submit" className="bg-green-600 text-white px-6 py-2 rounded">
+        <button
+          type="submit"
+          className="bg-green-600 text-white px-6 py-2 rounded mt-4"
+        >
           Confirmer les inscriptions
         </button>
 
