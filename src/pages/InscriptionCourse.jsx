@@ -86,6 +86,7 @@ export default function InscriptionCourse() {
     nombre_repas: 0,
     prix_total_repas: 0,
     prix_total_coureur: 0,
+pps_identifier: "",
   });
 
   const addInscription = (inscription = defaultCoureur()) => {
