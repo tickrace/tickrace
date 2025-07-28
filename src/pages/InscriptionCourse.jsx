@@ -130,6 +130,12 @@ export default function InscriptionCourse() {
     setInscriptions(updated);
   };
 
+  const handleUploadPPS = (url, index) => {
+    const updated = [...inscriptions];
+    updated[index].justificatif_url = url;
+    setInscriptions(updated);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -145,10 +151,12 @@ export default function InscriptionCourse() {
         return;
       }
 
-      const { error } = await supabase.from("inscriptions").insert([{
-        ...inscription,
-        course_id: courseId,
-      }]);
+      const { error } = await supabase.from("inscriptions").insert([
+        {
+          ...inscription,
+          course_id: courseId,
+        },
+      ]);
 
       if (error) {
         console.error("Erreur insertion :", error);
@@ -161,7 +169,7 @@ export default function InscriptionCourse() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
           },
           body: JSON.stringify({
             email: inscription.email,
@@ -180,9 +188,13 @@ export default function InscriptionCourse() {
     setMessage("Inscriptions enregistrées ! Vous recevrez un email de confirmation.");
   };
 
-  const prixTotalGlobal = inscriptions.reduce((acc, insc) => acc + (insc.prix_total_coureur || 0), 0);
+  const prixTotalGlobal = inscriptions.reduce(
+    (acc, insc) => acc + (insc.prix_total_coureur || 0),
+    0
+  );
 
-  if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
+  if (!course || formats.length === 0)
+    return <div className="p-6">Chargement...</div>;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -192,15 +204,56 @@ export default function InscriptionCourse() {
           const selectedFormat = formats.find((f) => f.id === inscription.format_id);
           return (
             <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
-              <h2 className="text-lg font-semibold flex justify-between">Coureur {index + 1}
+              <h2 className="text-lg font-semibold flex justify-between">
+                Coureur {index + 1}
                 <button
                   type="button"
                   onClick={() => removeInscription(index)}
                   className="text-red-600 text-sm"
-                >Supprimer</button>
+                >
+                  Supprimer
+                </button>
               </h2>
 
-              {/* [champs inchangés ici] */}
+              {/* Justificatif */}
+              <div>
+                <label className="block font-semibold">Justificatif :</label>
+                <select
+                  name="justificatif_type"
+                  value={inscription.justificatif_type}
+                  onChange={(e) => handleChange(index, e)}
+                  className="border p-2 w-full"
+                >
+                  <option value="">-- Sélectionnez --</option>
+                  <option value="licence">Licence FFA</option>
+                  <option value="pps">PPS (Parcours Prévention Santé)</option>
+                </select>
+                {inscription.justificatif_type === "licence" && (
+                  <input
+                    name="numero_licence"
+                    placeholder="Numéro de licence"
+                    value={inscription.numero_licence}
+                    onChange={(e) => handleChange(index, e)}
+                    className="border p-2 w-full mt-2"
+                  />
+                )}
+                {inscription.justificatif_type === "pps" && (
+                  <div className="space-y-2 mt-2">
+                    <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
+                    <UploadPPS
+                      inscriptionIndex={index}
+                      onUpload={(url) => handleUploadPPS(url, index)}
+                    />
+                    <input
+                      name="pps_identifier"
+                      placeholder="Numéro PPS (ex: P73D3F3D5A4)"
+                      value={inscription.pps_identifier}
+                      onChange={(e) => handleChange(index, e)}
+                      className="border p-2 w-full"
+                    />
+                  </div>
+                )}
+              </div>
 
               <label className="block font-semibold">Nombre de repas :</label>
               <input
@@ -217,7 +270,9 @@ export default function InscriptionCourse() {
                 </p>
               )}
 
-              <p className="font-bold mt-2">Total coureur : {inscription.prix_total_coureur.toFixed(2)} €</p>
+              <p className="font-bold mt-2">
+                Total coureur : {inscription.prix_total_coureur.toFixed(2)} €
+              </p>
             </div>
           );
         })}
@@ -226,9 +281,13 @@ export default function InscriptionCourse() {
           type="button"
           onClick={() => addInscription()}
           className="bg-blue-600 text-white px-4 py-2 rounded"
-        >Ajouter un coureur</button>
+        >
+          Ajouter un coureur
+        </button>
 
-        <div className="mt-4 font-bold text-lg">Prix total : {prixTotalGlobal.toFixed(2)} €</div>
+        <div className="mt-4 font-bold text-lg">
+          Prix total : {prixTotalGlobal.toFixed(2)} €
+        </div>
 
         <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
           Confirmer les inscriptions
