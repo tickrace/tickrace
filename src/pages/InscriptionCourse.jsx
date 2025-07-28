@@ -130,12 +130,6 @@ export default function InscriptionCourse() {
     setInscriptions(updated);
   };
 
-  const handleUpload = (index, url) => {
-    const updated = [...inscriptions];
-    updated[index].justificatif_url = url;
-    setInscriptions(updated);
-  };
-
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -192,53 +186,91 @@ export default function InscriptionCourse() {
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Inscription à : {course.nom}</h1>
       <form onSubmit={handleSubmit} className="space-y-6">
-        {inscriptions.map((inscription, index) => (
-          <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
-            <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
-            {/* Justificatif */}
-            <div>
-              <label className="font-semibold">Justificatif :</label>
+        {inscriptions.map((inscription, index) => {
+          const selectedFormat = formats.find((f) => f.id === inscription.format_id);
+          return (
+            <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
+              <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
+
               <select
-                name="justificatif_type"
-                value={inscription.justificatif_type}
+                name="format_id"
+                value={inscription.format_id}
                 onChange={(e) => handleChange(index, e)}
                 className="border p-2 w-full"
               >
-                <option value="">-- Sélectionnez --</option>
-                <option value="licence">Licence FFA</option>
-                <option value="pps">PPS (Parcours Prévention Santé)</option>
+                <option value="">-- Choisissez un format --</option>
+                {formats.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.nom} – {f.date} ({f.distance_km} km / {f.denivele_dplus} D+)
+                  </option>
+                ))}
               </select>
 
-              {inscription.justificatif_type === "licence" && (
-                <input
-                  name="numero_licence"
-                  placeholder="Numéro de licence"
-                  value={inscription.numero_licence}
-                  onChange={(e) => handleChange(index, e)}
-                  className="border p-2 w-full mt-2"
-                />
-              )}
+              <input name="nom" value={inscription.nom} onChange={(e) => handleChange(index, e)} placeholder="Nom" className="border p-2 w-full" />
+              <input name="prenom" value={inscription.prenom} onChange={(e) => handleChange(index, e)} placeholder="Prénom" className="border p-2 w-full" />
+              <input name="genre" value={inscription.genre} onChange={(e) => handleChange(index, e)} placeholder="Genre" className="border p-2 w-full" />
+              <input name="date_naissance" value={inscription.date_naissance} onChange={(e) => handleChange(index, e)} placeholder="Date de naissance" className="border p-2 w-full" />
+              <input name="nationalite" value={inscription.nationalite} onChange={(e) => handleChange(index, e)} placeholder="Nationalité" className="border p-2 w-full" />
+              <input name="email" value={inscription.email} onChange={(e) => handleChange(index, e)} placeholder="Email" className="border p-2 w-full" />
+              <input name="telephone" value={inscription.telephone} onChange={(e) => handleChange(index, e)} placeholder="Téléphone" className="border p-2 w-full" />
+              <input name="adresse" value={inscription.adresse} onChange={(e) => handleChange(index, e)} placeholder="Adresse" className="border p-2 w-full" />
+              <input name="adresse_complement" value={inscription.adresse_complement} onChange={(e) => handleChange(index, e)} placeholder="Complément d'adresse" className="border p-2 w-full" />
+              <input name="code_postal" value={inscription.code_postal} onChange={(e) => handleChange(index, e)} placeholder="Code postal" className="border p-2 w-full" />
+              <input name="ville" value={inscription.ville} onChange={(e) => handleChange(index, e)} placeholder="Ville" className="border p-2 w-full" />
+              <input name="pays" value={inscription.pays} onChange={(e) => handleChange(index, e)} placeholder="Pays" className="border p-2 w-full" />
+              <input name="club" value={inscription.club} onChange={(e) => handleChange(index, e)} placeholder="Club (facultatif)" className="border p-2 w-full" />
 
-              {inscription.justificatif_type === "pps" && (
-                <div className="space-y-2 mt-2">
-                  <p className="text-sm text-gray-600">
-                    Vous pouvez scanner un QR code ou charger le fichier PDF :
-                  </p>
-                  <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
-                  <UploadPPS index={index} setInscriptions={setInscriptions} />
+              <label className="block mt-2">Afficher dans les résultats :</label>
+              <input type="checkbox" name="apparaitre_resultats" checked={inscription.apparaitre_resultats} onChange={(e) => handleChange(index, e)} />
+
+              <input name="contact_urgence_nom" value={inscription.contact_urgence_nom} onChange={(e) => handleChange(index, e)} placeholder="Contact d'urgence - nom" className="border p-2 w-full mt-2" />
+              <input name="contact_urgence_telephone" value={inscription.contact_urgence_telephone} onChange={(e) => handleChange(index, e)} placeholder="Contact d'urgence - téléphone" className="border p-2 w-full" />
+
+              {/* Justificatif */}
+              <div>
+                <label className="font-semibold">Justificatif :</label>
+                <select
+                  name="justificatif_type"
+                  value={inscription.justificatif_type}
+                  onChange={(e) => handleChange(index, e)}
+                  className="border p-2 w-full"
+                >
+                  <option value="">-- Sélectionnez --</option>
+                  <option value="licence">Licence FFA</option>
+                  <option value="pps">PPS (Parcours Prévention Santé)</option>
+                </select>
+
+                {inscription.justificatif_type === "licence" && (
                   <input
-                    type="text"
-                    placeholder="Numéro PPS (si manuel)"
-                    name="pps_identifier"
-                    value={inscription.pps_identifier}
+                    name="numero_licence"
+                    placeholder="Numéro de licence"
+                    value={inscription.numero_licence}
                     onChange={(e) => handleChange(index, e)}
-                    className="border p-2 w-full"
+                    className="border p-2 w-full mt-2"
                   />
-                </div>
-              )}
+                )}
+
+                {inscription.justificatif_type === "pps" && (
+                  <div className="space-y-2 mt-2">
+                    <p className="text-sm text-gray-600">
+                      Vous pouvez scanner un QR code ou charger le fichier PDF :
+                    </p>
+                    <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
+                    <UploadPPS index={index} setInscriptions={setInscriptions} />
+                    <input
+                      type="text"
+                      placeholder="Numéro PPS (si manuel)"
+                      name="pps_identifier"
+                      value={inscription.pps_identifier}
+                      onChange={(e) => handleChange(index, e)}
+                      className="border p-2 w-full"
+                    />
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
           Confirmer les inscriptions
