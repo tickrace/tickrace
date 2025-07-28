@@ -3,6 +3,8 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
+import PPSVerifier from "../components/PPSVerifier";
+import UploadPPS from "../components/UploadPPS";
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
@@ -115,6 +117,16 @@ export default function InscriptionCourse() {
     setInscriptions(updated);
   };
 
+  const handlePPSData = (data, index) => {
+    const updated = [...inscriptions];
+    updated[index].nom = data.last_name;
+    updated[index].prenom = data.first_name;
+    updated[index].date_naissance = data.birthdate;
+    updated[index].genre = data.gender === "male" ? "Homme" : "Femme";
+    updated[index].justificatif_type = "pps";
+    setInscriptions(updated);
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
 
@@ -178,6 +190,7 @@ export default function InscriptionCourse() {
             <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
               <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
 
+              {/* Choix format */}
               <div>
                 <label className="font-semibold">Format :</label>
                 <select
@@ -196,6 +209,7 @@ export default function InscriptionCourse() {
                 </select>
               </div>
 
+              {/* Infos coureur */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <input name="nom" placeholder="Nom" value={inscription.nom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
                 <input name="prenom" placeholder="Prénom" value={inscription.prenom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
@@ -240,6 +254,20 @@ export default function InscriptionCourse() {
                 {inscription.justificatif_type === "licence" && (
                   <input name="numero_licence" placeholder="Numéro de licence" value={inscription.numero_licence} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
                 )}
+                {inscription.justificatif_type === "pps" && (
+  <div className="space-y-2">
+    <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
+    <UploadPPS
+      inscriptionIndex={index}
+      onUpload={(url) => {
+        const updated = [...inscriptions];
+        updated[index].justificatif_url = url;
+        setInscriptions(updated);
+      }}
+    />
+  </div>
+)}
+
               </div>
 
               {/* Contact urgence */}
