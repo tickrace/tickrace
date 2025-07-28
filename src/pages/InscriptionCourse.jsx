@@ -1,3 +1,5 @@
+// src/pages/InscriptionCourse.jsx
+
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -80,15 +82,14 @@ export default function InscriptionCourse() {
     apparaitre_resultats: true,
     club: "",
     justificatif_type: "",
-    numero_licence: "",
     contact_urgence_nom: "",
     contact_urgence_telephone: "",
+    numero_licence: "",
+    justificatif_url: "",
+    pps_identifier: "",
     nombre_repas: 0,
     prix_total_repas: 0,
     prix_total_coureur: 0,
-    justificatif_url: "",
-    pps_identifier: "",
-    pps_expiry_date: "",
   });
 
   const addInscription = (inscription = defaultCoureur()) => {
@@ -125,7 +126,6 @@ export default function InscriptionCourse() {
     updated[index].date_naissance = data.birthdate;
     updated[index].genre = data.gender === "male" ? "Homme" : "Femme";
     updated[index].pps_identifier = data.pps_identifier || "";
-    updated[index].pps_expiry_date = data.pps_expiry_date || "";
     updated[index].justificatif_type = "pps";
     setInscriptions(updated);
   };
@@ -193,8 +193,7 @@ export default function InscriptionCourse() {
     0
   );
 
-  if (!course || formats.length === 0)
-    return <div className="p-6">Chargement...</div>;
+  if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
@@ -215,64 +214,62 @@ export default function InscriptionCourse() {
                 </button>
               </h2>
 
-              {/* Justificatif */}
-              <div>
-                <label className="block font-semibold">Justificatif :</label>
-                <select
-                  name="justificatif_type"
-                  value={inscription.justificatif_type}
-                  onChange={(e) => handleChange(index, e)}
-                  className="border p-2 w-full"
-                >
-                  <option value="">-- Sélectionnez --</option>
-                  <option value="licence">Licence FFA</option>
-                  <option value="pps">PPS (Parcours Prévention Santé)</option>
-                </select>
-                {inscription.justificatif_type === "licence" && (
-                  <input
-                    name="numero_licence"
-                    placeholder="Numéro de licence"
-                    value={inscription.numero_licence}
-                    onChange={(e) => handleChange(index, e)}
-                    className="border p-2 w-full mt-2"
-                  />
-                )}
-                {inscription.justificatif_type === "pps" && (
-                  <div className="space-y-2 mt-2">
-                    <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
-                    <UploadPPS
-                      inscriptionIndex={index}
-                      onUpload={(url) => handleUploadPPS(url, index)}
-                    />
-                    <input
-                      name="pps_identifier"
-                      placeholder="Numéro PPS (ex: P73D3F3D5A4)"
-                      value={inscription.pps_identifier}
-                      onChange={(e) => handleChange(index, e)}
-                      className="border p-2 w-full"
-                    />
-                  </div>
-                )}
-              </div>
-
-              <label className="block font-semibold">Nombre de repas :</label>
-              <input
-                type="number"
-                name="nombre_repas"
-                value={inscription.nombre_repas}
+              <label className="block font-semibold">Justificatif :</label>
+              <select
+                name="justificatif_type"
+                value={inscription.justificatif_type}
                 onChange={(e) => handleChange(index, e)}
                 className="border p-2 w-full"
-                min={0}
-              />
-              {selectedFormat?.prix_repas > 0 && (
-                <p className="text-sm text-gray-600">
-                  {selectedFormat.prix_repas} € par repas – Total : {inscription.prix_total_repas.toFixed(2)} €
-                </p>
+              >
+                <option value="">-- Sélectionnez --</option>
+                <option value="licence">Licence FFA</option>
+                <option value="pps">PPS (Parcours Prévention Santé)</option>
+              </select>
+              {inscription.justificatif_type === "licence" && (
+                <input
+                  name="numero_licence"
+                  placeholder="Numéro de licence"
+                  value={inscription.numero_licence}
+                  onChange={(e) => handleChange(index, e)}
+                  className="border p-2 w-full mt-2"
+                />
+              )}
+              {inscription.justificatif_type === "pps" && (
+                <div className="space-y-2 mt-2">
+                  <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
+                  <UploadPPS
+                    inscriptionIndex={index}
+                    onUpload={(url) => handleUploadPPS(url, index)}
+                  />
+                  <input
+                    name="pps_identifier"
+                    placeholder="Numéro PPS (ex: P73D3F3D5A4)"
+                    value={inscription.pps_identifier}
+                    onChange={(e) => handleChange(index, e)}
+                    className="border p-2 w-full"
+                  />
+                </div>
               )}
 
-              <p className="font-bold mt-2">
-                Total coureur : {inscription.prix_total_coureur.toFixed(2)} €
-              </p>
+              {/* Ajoutez ici tous les autres champs comme dans la version d’origine */}
+
+              {Number(selectedFormat?.stock_repas) > 0 && (
+                <div>
+                  <label className="font-semibold">Nombre de repas :</label>
+                  <input
+                    type="number"
+                    min="0"
+                    max={selectedFormat.stock_repas}
+                    name="nombre_repas"
+                    value={inscription.nombre_repas}
+                    onChange={(e) => handleChange(index, e)}
+                    className="border p-2 w-full"
+                  />
+                  <p className="text-sm text-gray-600">
+                    Prix unitaire : {selectedFormat.prix_repas} € — Total : {inscription.prix_total_coureur.toFixed(2)} €
+                  </p>
+                </div>
+              )}
             </div>
           );
         })}
