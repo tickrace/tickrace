@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+""import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import PPSVerifier from "../components/PPSVerifier";
@@ -192,56 +192,57 @@ export default function InscriptionCourse() {
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Inscription à : {course.nom}</h1>
       <form onSubmit={handleSubmit} className="space-y-6">
-        {inscriptions.map((inscription, index) => {
-          const selectedFormat = formats.find((f) => f.id === inscription.format_id);
-          return (
-            <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
-              <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
+        {inscriptions.map((inscription, index) => (
+          <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
+            <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
+            {/* Justificatif */}
+            <div>
+              <label className="font-semibold">Justificatif :</label>
+              <select
+                name="justificatif_type"
+                value={inscription.justificatif_type}
+                onChange={(e) => handleChange(index, e)}
+                className="border p-2 w-full"
+              >
+                <option value="">-- Sélectionnez --</option>
+                <option value="licence">Licence FFA</option>
+                <option value="pps">PPS (Parcours Prévention Santé)</option>
+              </select>
 
-              {/* Tous les champs existants inchangés */}
+              {inscription.justificatif_type === "licence" && (
+                <input
+                  name="numero_licence"
+                  placeholder="Numéro de licence"
+                  value={inscription.numero_licence}
+                  onChange={(e) => handleChange(index, e)}
+                  className="border p-2 w-full mt-2"
+                />
+              )}
 
-              {/* Justificatif */}
-              <div>
-                <label className="font-semibold">Justificatif :</label>
-                <select name="justificatif_type" value={inscription.justificatif_type} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
-                  <option value="">-- Sélectionnez --</option>
-                  <option value="licence">Licence FFA</option>
-                  <option value="pps">PPS (Parcours Prévention Santé)</option>
-                </select>
-
-                {inscription.justificatif_type === "licence" && (
+              {inscription.justificatif_type === "pps" && (
+                <div className="space-y-2 mt-2">
+                  <p className="text-sm text-gray-600">
+                    Vous pouvez scanner un QR code ou charger le fichier PDF :
+                  </p>
+                  <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
+                  <UploadPPS index={index} setInscriptions={setInscriptions} />
                   <input
-                    name="numero_licence"
-                    placeholder="Numéro de licence"
-                    value={inscription.numero_licence}
+                    type="text"
+                    placeholder="Numéro PPS (si manuel)"
+                    name="pps_identifier"
+                    value={inscription.pps_identifier}
                     onChange={(e) => handleChange(index, e)}
-                    className="border p-2 w-full mt-2"
+                    className="border p-2 w-full"
                   />
-                )}
-
-                {inscription.justificatif_type === "pps" && (
-                  <div className="space-y-2 mt-2">
-                    <p className="text-sm text-gray-600">Vous pouvez scanner un QR code ou charger le fichier PDF :</p>
-                    <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
-                    <UploadPPS index={index} setInscriptions={setInscriptions} />
-                    <input
-                      type="text"
-                      placeholder="Numéro PPS (si manuel)"
-                      name="pps_identifier"
-                      value={inscription.pps_identifier}
-                      onChange={(e) => handleChange(index, e)}
-                      className="border p-2 w-full"
-                    />
-                  </div>
-                )}
-              </div>
-
-              {/* Autres champs inchangés, dont contact, repas, etc. */}
+                </div>
+              )}
             </div>
-          );
-        })}
+          </div>
+        ))}
 
-        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">Confirmer les inscriptions</button>
+        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
+          Confirmer les inscriptions
+        </button>
         {message && <p className="text-green-700 mt-4">{message}</p>}
       </form>
     </div>
