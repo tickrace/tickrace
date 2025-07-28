@@ -81,7 +81,7 @@ export default function InscriptionCourse() {
     club: "",
     justificatif_type: "",
     numero_licence: "",
-    pps_identifier: "", // ✅ ajouté
+    pps_identifier: "", // champ ajouté
     contact_urgence_nom: "",
     contact_urgence_telephone: "",
     nombre_repas: 0,
@@ -131,11 +131,13 @@ export default function InscriptionCourse() {
         return;
       }
 
-      const { error } = await supabase.from("inscriptions").insert([{
-        ...inscription,
-        course_id: courseId,
-        format_id: inscription.format_id,
-      }]);
+      const { error } = await supabase.from("inscriptions").insert([
+        {
+          ...inscription,
+          course_id: courseId,
+          format_id: inscription.format_id,
+        },
+      ]);
 
       if (error) {
         console.error("Erreur insertion :", error);
@@ -148,7 +150,7 @@ export default function InscriptionCourse() {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            "Authorization": `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
           },
           body: JSON.stringify({
             email: inscription.email,
@@ -180,94 +182,43 @@ export default function InscriptionCourse() {
               <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
 
               <div>
-                <label className="font-semibold">Format :</label>
+                <label className="font-semibold">Justificatif :</label>
                 <select
-                  name="format_id"
-                  value={inscription.format_id}
+                  name="justificatif_type"
+                  value={inscription.justificatif_type}
                   onChange={(e) => handleChange(index, e)}
                   className="border p-2 w-full"
-                  required
                 >
-                  <option value="">-- Sélectionnez un format --</option>
-                  {formats.map((f) => (
-                    <option key={f.id} value={f.id} disabled={f.inscrits >= f.nb_max_coureurs}>
-                      {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+
-                    </option>
-                  ))}
-                </select>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input name="nom" placeholder="Nom" value={inscription.nom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="prenom" placeholder="Prénom" value={inscription.prenom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <select name="genre" value={inscription.genre} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
-                  <option value="">Genre</option>
-                  <option value="Homme">Homme</option>
-                  <option value="Femme">Femme</option>
-                </select>
-                <input type="date" name="date_naissance" value={inscription.date_naissance} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="nationalite" placeholder="Nationalité" value={inscription.nationalite} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="email" placeholder="Email" value={inscription.email} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="telephone" placeholder="Téléphone" value={inscription.telephone} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="adresse" placeholder="Adresse" value={inscription.adresse} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="adresse_complement" placeholder="Complément adresse" value={inscription.adresse_complement} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="code_postal" placeholder="Code postal" value={inscription.code_postal} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="ville" placeholder="Ville" value={inscription.ville} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="pays" placeholder="Pays" value={inscription.pays} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                <input name="club" placeholder="Club" value={inscription.club} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-              </div>
-
-              {/* Résultats */}
-              <div>
-                <label className="font-semibold">Résultats :</label>
-                <div className="flex gap-4">
-                  <label>
-                    <input type="radio" name={`apparaitre_resultats-${index}`} checked={inscription.apparaitre_resultats === true} onChange={() => handleChange(index, { target: { name: "apparaitre_resultats", value: true } })} /> Oui
-                  </label>
-                  <label>
-                    <input type="radio" name={`apparaitre_resultats-${index}`} checked={inscription.apparaitre_resultats === false} onChange={() => handleChange(index, { target: { name: "apparaitre_resultats", value: false } })} /> Non
-                  </label>
-                </div>
-              </div>
-
-              {/* Justificatif */}
-              <div>
-                <label className="font-semibold">Justificatif :</label>
-                <select name="justificatif_type" value={inscription.justificatif_type} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
                   <option value="">-- Sélectionnez --</option>
                   <option value="licence">Licence FFA</option>
                   <option value="pps">PPS (Parcours Prévention Santé)</option>
                 </select>
-
                 {inscription.justificatif_type === "licence" && (
-                  <input name="numero_licence" placeholder="Numéro de licence" value={inscription.numero_licence} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
+                  <input
+                    name="numero_licence"
+                    placeholder="Numéro de licence"
+                    value={inscription.numero_licence}
+                    onChange={(e) => handleChange(index, e)}
+                    className="border p-2 w-full mt-2"
+                  />
                 )}
-
                 {inscription.justificatif_type === "pps" && (
-                  <input name="pps_identifier" placeholder="Identifiant PPS" value={inscription.pps_identifier} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
+                  <input
+                    name="pps_identifier"
+                    placeholder="Identifiant PPS"
+                    value={inscription.pps_identifier}
+                    onChange={(e) => handleChange(index, e)}
+                    className="border p-2 w-full mt-2"
+                  />
                 )}
               </div>
-
-              {/* Contact urgence */}
-              <input name="contact_urgence_nom" placeholder="Contact urgence - Nom" value={inscription.contact_urgence_nom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-              <input name="contact_urgence_telephone" placeholder="Contact urgence - Téléphone" value={inscription.contact_urgence_telephone} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-
-              {/* Repas */}
-              {Number(selectedFormat?.stock_repas) > 0 && (
-                <div>
-                  <label className="font-semibold">Nombre de repas :</label>
-                  <input type="number" min="0" max={selectedFormat.stock_repas} name="nombre_repas" value={inscription.nombre_repas} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
-                  <p className="text-sm text-gray-600">Prix unitaire : {selectedFormat.prix_repas} € — Total : {inscription.prix_total_coureur} €</p>
-                </div>
-              )}
-
-              <button type="button" onClick={() => removeInscription(index)} className="bg-red-500 text-white px-3 py-1 rounded">Supprimer</button>
             </div>
           );
         })}
 
-        <button type="button" onClick={() => addInscription()} className="bg-blue-500 text-white px-4 py-2 rounded">+ Ajouter un coureur</button>
-        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">Confirmer les inscriptions</button>
+        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">
+          Confirmer les inscriptions
+        </button>
         {message && <p className="text-green-700 mt-4">{message}</p>}
       </form>
     </div>
