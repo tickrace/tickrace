@@ -1,18 +1,9 @@
+// src/components/ModalAjoutCoureur.jsx
+
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
 import { X } from "lucide-react";
 
-
-/**
- * Modal d’ajout manuel d’un coureur à un format.
- *
- * Props:
- * - isOpen (bool)
- * - onClose () => void
- * - format: { id, nom, prix_repas?, course_id? }
- * - defaultCourseId?: string (prioritaire si fourni)
- * - onSaved?: () => void  (callback rechargement parent)
- */
 export default function ModalAjoutCoureur({
   isOpen,
   onClose,
@@ -38,20 +29,19 @@ export default function ModalAjoutCoureur({
     apparaitre_resultats: true,
     club: "",
     justificatif_type: "",
+    numero_licence: "",
+    pps_identifier: "",
     contact_urgence_nom: "",
     contact_urgence_telephone: "",
     statut: "en attente",
-    numero_licence: "",
     dossard: "",
     nombre_repas: 0,
     prix_total_repas: 0,
   });
 
-  // Réinitialiser au moment où le modal s’ouvre
   useEffect(() => {
     if (isOpen) {
-      setForm((f) => ({
-        ...f,
+      setForm({
         nom: "",
         prenom: "",
         email: "",
@@ -67,14 +57,15 @@ export default function ModalAjoutCoureur({
         apparaitre_resultats: true,
         club: "",
         justificatif_type: "",
+        numero_licence: "",
+        pps_identifier: "",
         contact_urgence_nom: "",
         contact_urgence_telephone: "",
         statut: "en attente",
-        numero_licence: "",
         dossard: "",
         nombre_repas: 0,
         prix_total_repas: 0,
-      }));
+      });
     }
   }, [isOpen]);
 
@@ -135,228 +126,64 @@ export default function ModalAjoutCoureur({
         </h2>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-          <Field label="Nom *">
-            <input
-              type="text"
-              value={form.nom}
-              onChange={(e) => setField("nom", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Prénom *">
-            <input
-              type="text"
-              value={form.prenom}
-              onChange={(e) => setField("prenom", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Email">
-            <input
-              type="email"
-              value={form.email}
-              onChange={(e) => setField("email", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Genre">
-            <input
-              type="text"
-              value={form.genre}
-              onChange={(e) => setField("genre", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Date de naissance">
-            <input
-              type="date"
-              value={form.date_naissance}
-              onChange={(e) => setField("date_naissance", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Nationalité">
-            <input
-              type="text"
-              value={form.nationalite}
-              onChange={(e) => setField("nationalite", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Téléphone">
-            <input
-              type="text"
-              value={form.telephone}
-              onChange={(e) => setField("telephone", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Adresse">
-            <input
-              type="text"
-              value={form.adresse}
-              onChange={(e) => setField("adresse", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Adresse complément">
-            <input
-              type="text"
-              value={form.adresse_complement}
-              onChange={(e) => setField("adresse_complement", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Code postal">
-            <input
-              type="text"
-              value={form.code_postal}
-              onChange={(e) => setField("code_postal", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Ville">
-            <input
-              type="text"
-              value={form.ville}
-              onChange={(e) => setField("ville", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Pays">
-            <input
-              type="text"
-              value={form.pays}
-              onChange={(e) => setField("pays", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Club">
-            <input
-              type="text"
-              value={form.club}
-              onChange={(e) => setField("club", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
+          <Field label="Nom *"><input type="text" value={form.nom} onChange={(e) => setField("nom", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Prénom *"><input type="text" value={form.prenom} onChange={(e) => setField("prenom", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Email"><input type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Genre"><input type="text" value={form.genre} onChange={(e) => setField("genre", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Date de naissance"><input type="date" value={form.date_naissance} onChange={(e) => setField("date_naissance", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Nationalité"><input type="text" value={form.nationalite} onChange={(e) => setField("nationalite", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Téléphone"><input type="text" value={form.telephone} onChange={(e) => setField("telephone", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Adresse"><input type="text" value={form.adresse} onChange={(e) => setField("adresse", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Adresse complément"><input type="text" value={form.adresse_complement} onChange={(e) => setField("adresse_complement", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Code postal"><input type="text" value={form.code_postal} onChange={(e) => setField("code_postal", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Ville"><input type="text" value={form.ville} onChange={(e) => setField("ville", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Pays"><input type="text" value={form.pays} onChange={(e) => setField("pays", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Club"><input type="text" value={form.club} onChange={(e) => setField("club", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
 
           <Field label="Justificatif">
-            <input
-              type="text"
-              value={form.justificatif_type}
-              onChange={(e) => setField("justificatif_type", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
+            <select value={form.justificatif_type} onChange={(e) => setField("justificatif_type", e.target.value)} className="w-full border px-2 py-1 rounded">
+              <option value="">-- Sélectionnez --</option>
+              <option value="licence">Licence</option>
+              <option value="pps">PPS</option>
+            </select>
           </Field>
 
-          <Field label="Licence">
-            <input
-              type="text"
-              value={form.numero_licence}
-              onChange={(e) => setField("numero_licence", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
+          {form.justificatif_type === "licence" && (
+            <Field label="Numéro de licence">
+              <input type="text" value={form.numero_licence} onChange={(e) => setField("numero_licence", e.target.value)} className="w-full border px-2 py-1 rounded" />
+            </Field>
+          )}
 
-          <Field label="Contact urgence nom">
-            <input
-              type="text"
-              value={form.contact_urgence_nom}
-              onChange={(e) => setField("contact_urgence_nom", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
+          {form.justificatif_type === "pps" && (
+            <Field label="Identifiant PPS">
+              <input type="text" value={form.pps_identifier} onChange={(e) => setField("pps_identifier", e.target.value)} className="w-full border px-2 py-1 rounded" />
+            </Field>
+          )}
 
-          <Field label="Contact urgence téléphone">
-            <input
-              type="text"
-              value={form.contact_urgence_telephone}
-              onChange={(e) =>
-                setField("contact_urgence_telephone", e.target.value)
-              }
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
+          <Field label="Contact urgence - Nom"><input type="text" value={form.contact_urgence_nom} onChange={(e) => setField("contact_urgence_nom", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Contact urgence - Téléphone"><input type="text" value={form.contact_urgence_telephone} onChange={(e) => setField("contact_urgence_telephone", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
 
           <Field label="Statut">
-            <select
-              value={form.statut}
-              onChange={(e) => setField("statut", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            >
+            <select value={form.statut} onChange={(e) => setField("statut", e.target.value)} className="w-full border px-2 py-1 rounded">
               <option value="en attente">En attente</option>
               <option value="validée">Validée</option>
               <option value="refusée">Refusée</option>
             </select>
           </Field>
 
-          <Field label="Dossard">
-            <input
-              type="number"
-              value={form.dossard}
-              onChange={(e) => setField("dossard", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Nombre de repas">
-            <input
-              type="number"
-              min={0}
-              value={form.nombre_repas}
-              onChange={(e) => setField("nombre_repas", e.target.value)}
-              className="w-full border px-2 py-1 rounded"
-            />
-          </Field>
-
-          <Field label="Prix total repas (€)">
-            <input
-              type="number"
-              value={form.prix_total_repas}
-              readOnly
-              className="w-full border px-2 py-1 rounded bg-gray-100 text-gray-700 cursor-not-allowed"
-            />
-          </Field>
+          <Field label="Dossard"><input type="number" value={form.dossard} onChange={(e) => setField("dossard", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Nombre de repas"><input type="number" min={0} value={form.nombre_repas} onChange={(e) => setField("nombre_repas", e.target.value)} className="w-full border px-2 py-1 rounded" /></Field>
+          <Field label="Prix total repas (€)"><input type="number" value={form.prix_total_repas} readOnly className="w-full border px-2 py-1 rounded bg-gray-100 text-gray-700 cursor-not-allowed" /></Field>
         </div>
 
         <div className="flex items-center mt-4 mb-4">
-          <input
-            id="apparaitre_results"
-            type="checkbox"
-            checked={form.apparaitre_resultats}
-            onChange={(e) => setField("apparaitre_resultats", e.target.checked)}
-            className="mr-2"
-          />
-          <label htmlFor="apparaitre_results" className="text-sm">
-            Apparaître dans les résultats publics.
-          </label>
+          <input id="apparaitre_results" type="checkbox" checked={form.apparaitre_resultats} onChange={(e) => setField("apparaitre_resultats", e.target.checked)} className="mr-2" />
+          <label htmlFor="apparaitre_results" className="text-sm">Apparaître dans les résultats publics.</label>
         </div>
 
         <div className="flex justify-end gap-2 mt-4">
-          <button
-            onClick={onClose}
-            className="px-4 py-2 rounded border bg-gray-100 hover:bg-gray-200 text-sm"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={valider}
-            className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm"
-          >
-            Enregistrer
-          </button>
+          <button onClick={onClose} className="px-4 py-2 rounded border bg-gray-100 hover:bg-gray-200 text-sm">Annuler</button>
+          <button onClick={valider} className="px-4 py-2 rounded bg-blue-600 hover:bg-blue-700 text-white text-sm">Enregistrer</button>
         </div>
       </div>
     </div>
