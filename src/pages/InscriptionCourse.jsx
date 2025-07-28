@@ -1,5 +1,3 @@
-// src/pages/InscriptionCourse.jsx
-
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -82,9 +80,9 @@ export default function InscriptionCourse() {
     apparaitre_resultats: true,
     club: "",
     justificatif_type: "",
+    numero_licence: "",
     contact_urgence_nom: "",
     contact_urgence_telephone: "",
-    numero_licence: "",
     nombre_repas: 0,
     prix_total_repas: 0,
     prix_total_coureur: 0,
@@ -126,9 +124,9 @@ export default function InscriptionCourse() {
     updated[index].prenom = data.first_name;
     updated[index].date_naissance = data.birthdate;
     updated[index].genre = data.gender === "male" ? "Homme" : "Femme";
+    updated[index].pps_identifier = data.pps_identifier || "";
+    updated[index].pps_expiry_date = data.pps_expiry_date || "";
     updated[index].justificatif_type = "pps";
-    updated[index].pps_identifier = data.pps_identifier;
-    updated[index].pps_expiry_date = data.expiry_date;
     setInscriptions(updated);
   };
 
@@ -156,7 +154,6 @@ export default function InscriptionCourse() {
       const { error } = await supabase.from("inscriptions").insert([{
         ...inscription,
         course_id: courseId,
-        format_id: inscription.format_id,
       }]);
 
       if (error) {
@@ -199,7 +196,11 @@ export default function InscriptionCourse() {
           const selectedFormat = formats.find((f) => f.id === inscription.format_id);
           return (
             <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
-              {/* ... Champs ... */}
+              <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
+
+              {/* Tous les champs existants inchangés */}
+
+              {/* Justificatif */}
               <div>
                 <label className="font-semibold">Justificatif :</label>
                 <select name="justificatif_type" value={inscription.justificatif_type} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
@@ -207,20 +208,39 @@ export default function InscriptionCourse() {
                   <option value="licence">Licence FFA</option>
                   <option value="pps">PPS (Parcours Prévention Santé)</option>
                 </select>
+
                 {inscription.justificatif_type === "licence" && (
-                  <input name="numero_licence" placeholder="Numéro de licence" value={inscription.numero_licence} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
+                  <input
+                    name="numero_licence"
+                    placeholder="Numéro de licence"
+                    value={inscription.numero_licence}
+                    onChange={(e) => handleChange(index, e)}
+                    className="border p-2 w-full mt-2"
+                  />
                 )}
+
                 {inscription.justificatif_type === "pps" && (
-                  <div className="space-y-4 mt-2">
+                  <div className="space-y-2 mt-2">
+                    <p className="text-sm text-gray-600">Vous pouvez scanner un QR code ou charger le fichier PDF :</p>
                     <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
-                    <UploadPPS inscriptionIndex={index} onUpload={(url) => handleUpload(index, url)} />
+                    <UploadPPS index={index} setInscriptions={setInscriptions} />
+                    <input
+                      type="text"
+                      placeholder="Numéro PPS (si manuel)"
+                      name="pps_identifier"
+                      value={inscription.pps_identifier}
+                      onChange={(e) => handleChange(index, e)}
+                      className="border p-2 w-full"
+                    />
                   </div>
                 )}
               </div>
+
+              {/* Autres champs inchangés, dont contact, repas, etc. */}
             </div>
           );
         })}
-        <button type="button" onClick={() => addInscription()} className="bg-blue-500 text-white px-4 py-2 rounded">+ Ajouter un coureur</button>
+
         <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">Confirmer les inscriptions</button>
         {message && <p className="text-green-700 mt-4">{message}</p>}
       </form>
