@@ -80,13 +80,13 @@ export default function InscriptionCourse() {
     apparaitre_resultats: true,
     club: "",
     justificatif_type: "",
+    numero_licence: "",
+    pps_identifier: "", // ✅ ajouté
     contact_urgence_nom: "",
     contact_urgence_telephone: "",
-    numero_licence: "",
     nombre_repas: 0,
     prix_total_repas: 0,
     prix_total_coureur: 0,
-pps_identifier: "",
   });
 
   const addInscription = (inscription = defaultCoureur()) => {
@@ -231,42 +231,23 @@ pps_identifier: "",
               </div>
 
               {/* Justificatif */}
-              {/* Justificatif */}
-<div>
-  <label className="font-semibold">Justificatif :</label>
-  <select
-    name="justificatif_type"
-    value={inscription.justificatif_type}
-    onChange={(e) => handleChange(index, e)}
-    className="border p-2 w-full"
-  >
-    <option value="">-- Sélectionnez --</option>
-    <option value="licence">Licence FFA</option>
-    <option value="pps">PPS (Parcours Prévention Santé)</option>
-  </select>
+              <div>
+                <label className="font-semibold">Justificatif :</label>
+                <select name="justificatif_type" value={inscription.justificatif_type} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
+                  <option value="">-- Sélectionnez --</option>
+                  <option value="licence">Licence FFA</option>
+                  <option value="pps">PPS (Parcours Prévention Santé)</option>
+                </select>
 
-  {inscription.justificatif_type === "licence" && (
-    <input
-      name="numero_licence"
-      placeholder="Numéro de licence"
-      value={inscription.numero_licence}
-      onChange={(e) => handleChange(index, e)}
-      className="border p-2 w-full mt-2"
-    />
-  )}
+                {inscription.justificatif_type === "licence" && (
+                  <input name="numero_licence" placeholder="Numéro de licence" value={inscription.numero_licence} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
+                )}
 
-  {inscription.justificatif_type === "pps" && (
-    <input
-      name="pps_identifier"
-      placeholder="Identifiant PPS"
-      value={inscription.pps_identifier}
-      onChange={(e) => handleChange(index, e)}
-      className="border p-2 w-full mt-2"
-    />
-  )}
-</div>
+                {inscription.justificatif_type === "pps" && (
+                  <input name="pps_identifier" placeholder="Identifiant PPS" value={inscription.pps_identifier} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
+                )}
+              </div>
 
-              
               {/* Contact urgence */}
               <input name="contact_urgence_nom" placeholder="Contact urgence - Nom" value={inscription.contact_urgence_nom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
               <input name="contact_urgence_telephone" placeholder="Contact urgence - Téléphone" value={inscription.contact_urgence_telephone} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
