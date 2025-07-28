@@ -47,13 +47,53 @@ export default function InscriptionCourse() {
         .single();
 
       if (profil) {
-        addInscription({
-          ...defaultCoureur(),
-          ...profil,
-          coureur_id: user.id,
-          prix_total_coureur: 0,
-        });
-      } else {
+  const {
+    nom,
+    prenom,
+    email,
+    genre,
+    date_naissance,
+    nationalite,
+    telephone,
+    adresse,
+    adresse_complement,
+    code_postal,
+    ville,
+    pays,
+    apparaitre_resultats,
+    club,
+    justificatif_type,
+    numero_licence,
+    pps_identifier,
+    contact_urgence_nom,
+    contact_urgence_telephone,
+  } = profil;
+
+  addInscription({
+    ...defaultCoureur(),
+    nom,
+    prenom,
+    email,
+    genre,
+    date_naissance,
+    nationalite,
+    telephone,
+    adresse,
+    adresse_complement,
+    code_postal,
+    ville,
+    pays,
+    apparaitre_resultats,
+    club,
+    justificatif_type,
+    numero_licence,
+    pps_identifier,
+    contact_urgence_nom,
+    contact_urgence_telephone,
+    coureur_id: user.id,
+    prix_total_coureur: 0,
+  });
+} else {
         addInscription(defaultCoureur());
       }
     };
