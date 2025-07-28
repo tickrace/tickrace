@@ -1,55 +1,63 @@
 import React, { useState } from "react";
 
 export default function PPSVerifier({ onPPSData }) {
-  const [url, setUrl] = useState("");
-  const [error, setError] = useState(null);
+  const [ppsUrl, setPpsUrl] = useState("");
+  const [decodedData, setDecodedData] = useState(null);
 
-  const extractPPSData = () => {
-    setError(null);
-
+  const handleExtract = () => {
     try {
-      const parsedUrl = new URL(url);
-      const dataParam = parsedUrl.searchParams.get("data");
+      const url = new URL(ppsUrl);
+      const base64Data = url.searchParams.get("data");
+      if (!base64Data) throw new Error("Données manquantes dans l'URL.");
 
-      if (!dataParam) {
-        setError("Paramètre 'data' manquant dans l'URL.");
-        return;
-      }
+      const jsonStr = atob(base64Data);
+      const data = JSON.parse(jsonStr);
 
-      const decodedData = atob(dataParam);
-      const json = JSON.parse(decodedData);
+      setDecodedData(data);
 
-      // Vérification minimum
-      if (!json.first_name || !json.last_name) {
-        setError("Données invalides ou incomplètes.");
-        return;
-      }
+      const gender = data.gender === "male" ? "Homme" : "Femme";
 
-      onPPSData(json);
+      // Renvoi des données au parent
+      onPPSData({
+        first_name: data.first_name,
+        last_name: data.last_name,
+        birthdate: data.birthdate,
+        gender,
+        pps_identifier: data.pps_identifier,
+        pps_expiry_date: data.expiry_date,
+      });
     } catch (err) {
-      console.error("Erreur lors du décodage PPS :", err);
-      setError("URL invalide ou donnée mal encodée.");
+      alert("Erreur de lecture du QR code : " + err.message);
     }
   };
 
   return (
-    <div className="mt-2">
-      <label className="block font-medium">URL de vérification PPS :</label>
+    <div className="space-y-2 mt-2">
       <input
         type="text"
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="https://pps.athle.fr/courses/xxxx/verify?data=..."
-        className="border p-2 w-full mt-1"
+        placeholder="Collez ici l'URL du QR code PPS"
+        value={ppsUrl}
+        onChange={(e) => setPpsUrl(e.target.value)}
+        className="border p-2 w-full"
       />
       <button
         type="button"
-        onClick={extractPPSData}
-        className="mt-2 bg-blue-500 text-white px-4 py-1 rounded"
+        onClick={handleExtract}
+        className="bg-gray-800 text-white px-3 py-1 rounded"
       >
-        Charger données PPS
+        Extraire données PPS
       </button>
-      {error && <p className="text-red-600 mt-1">{error}</p>}
+
+      {decodedData && (
+        <div className="text-sm text-gray-700 mt-2">
+          <p>Prénom : {decodedData.first_name}</p>
+          <p>Nom : {decodedData.last_name}</p>
+          <p>Date de naissance : {decodedData.birthdate}</p>
+          <p>Genre : {decodedData.gender}</p>
+          <p>N° PPS : {decodedData.pps_identifier}</p>
+          <p>Expire le : {decodedData.expiry_date}</p>
+        </div>
+      )}
     </div>
   );
 }

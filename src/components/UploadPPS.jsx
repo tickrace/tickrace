@@ -1,56 +1,80 @@
-import React, { useRef, useState } from "react";
+import React, { useState } from "react";
 import { supabase } from "../supabase";
 
-export default function UploadPPS({ index, onUpload }) {
-  const fileInputRef = useRef();
+export default function UploadPPS({ onChange }) {
+  const [ppsIdentifier, setPpsIdentifier] = useState("");
+  const [expiryDate, setExpiryDate] = useState("");
   const [uploading, setUploading] = useState(false);
-  const [previewUrl, setPreviewUrl] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
 
-  const handleFileChange = async (event) => {
-    const file = event.target.files[0];
+  const handleUpload = async (e) => {
+    const file = e.target.files[0];
     if (!file) return;
 
-    const fileExt = file.name.split(".").pop();
-    const filePath = `pps_${index}_${Date.now()}.${fileExt}`;
-
     setUploading(true);
-
-    const { error } = await supabase.storage
+    const filename = `${Date.now()}-${file.name}`;
+    const { data, error } = await supabase.storage
       .from("ppsjustificatifs")
-      .upload(filePath, file);
+      .upload(filename, file);
 
     if (error) {
-      alert("Erreur lors de l'upload du fichier : " + error.message);
+      console.error("Erreur upload :", error);
       setUploading(false);
       return;
     }
 
-    const { data } = supabase.storage
+    const url = supabase.storage
       .from("ppsjustificatifs")
-      .getPublicUrl(filePath);
+      .getPublicUrl(filename).data.publicUrl;
 
-    setPreviewUrl(data.publicUrl);
-    onUpload(data.publicUrl);
+    setFileUrl(url);
     setUploading(false);
+
+    // Mettre à jour les données vers le parent
+    onChange({
+      pps_identifier: ppsIdentifier,
+      pps_expiry_date: expiryDate,
+      justificatif_url: url,
+    });
+  };
+
+  const handleFieldChange = (field, value) => {
+    const newValues = {
+      pps_identifier: field === "pps_identifier" ? value : ppsIdentifier,
+      pps_expiry_date: field === "pps_expiry_date" ? value : expiryDate,
+      justificatif_url: fileUrl,
+    };
+    if (field === "pps_identifier") setPpsIdentifier(value);
+    if (field === "pps_expiry_date") setExpiryDate(value);
+    onChange(newValues);
   };
 
   return (
-    <div className="space-y-2">
-      <label className="font-semibold">Upload du fichier PPS (image scannée) :</label>
+    <div className="space-y-2 mt-2">
+      <input
+        type="text"
+        placeholder="Code PPS (ex : P73D3F3D5A4)"
+        className="border p-2 w-full"
+        value={ppsIdentifier}
+        onChange={(e) => handleFieldChange("pps_identifier", e.target.value)}
+      />
+      <input
+        type="date"
+        className="border p-2 w-full"
+        value={expiryDate}
+        onChange={(e) => handleFieldChange("pps_expiry_date", e.target.value)}
+      />
       <input
         type="file"
-        accept="image/*"
-        onChange={handleFileChange}
-        ref={fileInputRef}
+        accept="image/*,application/pdf"
         className="border p-2 w-full"
+        onChange={handleUpload}
       />
-      {uploading && <p className="text-sm text-gray-500">Envoi en cours...</p>}
-      {previewUrl && (
-        <img
-          src={previewUrl}
-          alt="Justificatif PPS"
-          className="mt-2 border rounded max-w-xs"
-        />
+      {uploading && <p className="text-sm text-gray-500">Upload en cours...</p>}
+      {fileUrl && (
+        <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="text-blue-600 underline text-sm">
+          Voir justificatif
+        </a>
       )}
     </div>
   );

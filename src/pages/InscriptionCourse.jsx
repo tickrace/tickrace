@@ -88,6 +88,10 @@ export default function InscriptionCourse() {
     nombre_repas: 0,
     prix_total_repas: 0,
     prix_total_coureur: 0,
+  justificatif_url: "",
+  pps_identifier: "",
+  pps_expiry_date: "",
+
   });
 
   const addInscription = (inscription = defaultCoureur()) => {
@@ -252,11 +256,25 @@ export default function InscriptionCourse() {
                   <option value="pps">PPS (Parcours Prévention Santé)</option>
                 </select>
                 {inscription.justificatif_type === "licence" && (
-                  <input name="numero_licence" placeholder="Numéro de licence" value={inscription.numero_licence} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
-                )}
-                {inscription.justificatif_type === "pps" && (
-  <div className="space-y-2">
+  <input
+    name="numero_licence"
+    placeholder="Numéro de licence"
+    value={inscription.numero_licence}
+    onChange={(e) => handleChange(index, e)}
+    className="border p-2 w-full mt-2"
+  />
+)}
+
+{inscription.justificatif_type === "pps" && (
+  <div className="space-y-4 mt-2">
+    <p className="text-sm text-gray-600">
+      Fournissez soit l’URL du QR code PPS (extrait automatiquement), soit un scan de l’attestation.
+    </p>
     <PPSVerifier onPPSData={(data) => handlePPSData(data, index)} />
+    <UploadPPS index={index} setInscriptions={setInscriptions} />
+  </div>
+)}
+
     <UploadPPS
       inscriptionIndex={index}
       onUpload={(url) => {
