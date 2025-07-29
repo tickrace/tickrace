@@ -61,10 +61,11 @@ export default function MonInscription() {
     const confirm = window.confirm("Confirmer l’annulation de votre inscription ?");
     if (!confirm) return;
 
-    await fetch("/functions/annuler_inscription", {
-      method: "POST",
-      body: JSON.stringify({ id }),
-    });
+   await supabase.functions.invoke("annuler_inscription", {
+  method: "POST",
+  body: { id },
+});
+
 
     alert("Inscription annulée");
     navigate("/mes-inscriptions");
@@ -144,12 +145,19 @@ export default function MonInscription() {
           >
             Enregistrer les modifications
           </button>
-          <button
-            onClick={handleCancel}
-            className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded"
-          >
-            Annuler mon inscription
-          </button>
+          {inscription.statut === "annulé" ? (
+  <p className="text-red-600 font-semibold">
+    Cette inscription a déjà été annulée.
+  </p>
+) : (
+  <button
+    onClick={handleCancel}
+    className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded"
+  >
+    Annuler mon inscription
+  </button>
+)}
+
         </div>
       </div>
     </div>
