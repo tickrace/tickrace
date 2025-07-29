@@ -40,7 +40,7 @@ export default function Navbar() {
     <Link to="/monprofilcoureur" className="block px-3 py-2 hover:bg-gray-800 rounded">
       Mon Profil
     </Link>
-    <Link to="/mes-inscriptions" className="block px-3 py-2 hover:bg-gray-800 rounded">
+    <Link to="/mesinscriptions" className="block px-3 py-2 hover:bg-gray-800 rounded">
       Mes Inscriptions
     </Link>
   </>

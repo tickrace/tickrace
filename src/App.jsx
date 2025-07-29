@@ -22,7 +22,7 @@ import DetailsCoureur from "./pages/DetailsCoureur";
 import ResetPassword from "./pages/ResetPassword";
 import ForgotPassword from "./pages/ForgotPassword";
 import MonInscription from "./pages/MonInscription";
-
+import MesInscriptions from "./pages/MesInscriptions";
 
 function AppContent() {
   const { currentRole } = useUser(); // 👈 récupération du rôle
@@ -49,6 +49,8 @@ function AppContent() {
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
 <Route path="/mon-inscription" element={<MonInscription />} />
+<Route path="/mesinscriptions" element={<MesInscriptions />} />
+
 
 </Routes>
 
