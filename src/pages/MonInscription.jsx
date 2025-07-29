@@ -8,34 +8,44 @@ export default function MonInscription() {
   const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
   const [format, setFormat] = useState(null);
+  const [credit, setCredit] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchInscriptionEtFormat = async () => {
-      const { data: inscriptionData, error: err1 } = await supabase
+    const fetchData = async () => {
+      // Récupérer inscription
+      const { data: insc, error } = await supabase
         .from("inscriptions")
         .select("*")
         .eq("id", id)
         .single();
 
-      if (err1 || !inscriptionData) return setLoading(false);
+      if (error || !insc) return setLoading(false);
+      setInscription(insc);
 
-      setInscription(inscriptionData);
+      // Récupérer format
+      const { data: fmt } = await supabase
+        .from("formats")
+        .select("*")
+        .eq("id", insc.format_id)
+        .single();
 
-      if (inscriptionData.format_id) {
-        const { data: formatData, error: err2 } = await supabase
-          .from("formats")
-          .select("id, nom, date, prix")
-          .eq("id", inscriptionData.format_id)
+      setFormat(fmt);
+
+      // Si annulée, récupérer crédit
+      if (insc.statut === "annulé") {
+        const { data: cred } = await supabase
+          .from("credits_annulation")
+          .select("*")
+          .eq("inscription_id", insc.id)
           .single();
-
-        if (!err2) setFormat(formatData);
+        setCredit(cred);
       }
 
       setLoading(false);
     };
 
-    fetchInscriptionEtFormat();
+    fetchData();
   }, [id]);
 
   const handleChange = (e) => {
@@ -47,10 +57,7 @@ export default function MonInscription() {
   };
 
   const handleSave = async () => {
-    await supabase
-      .from("inscriptions")
-      .update(inscription)
-      .eq("id", id);
+    await supabase.from("inscriptions").update(inscription).eq("id", id);
     alert("Modifications enregistrées");
   };
 
@@ -65,10 +72,16 @@ export default function MonInscription() {
 
   if (loading || !inscription) return <p>Chargement...</p>;
 
+  const prixInscription =
+    (inscription.prix_total_coureur || 0) -
+    (inscription.prix_total_repas || 0);
+
   return (
     <div className="max-w-2xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Modifier mon inscription</h1>
+
       <div className="space-y-2">
+        {/* Champs modifiables */}
         {[
           "nom",
           "prenom",
@@ -119,15 +132,39 @@ export default function MonInscription() {
           className="w-full p-2 border rounded"
         />
 
-        {/* Encadré Simulation Crédit d'Annulation */}
-        <div className="border border-yellow-400 bg-yellow-100 p-4 rounded-md mt-4">
-          <h2 className="font-semibold mb-2">Simulation de crédit en cas d’annulation</h2>
+        {/* ✅ Encadré simulation si NON annulé */}
+        {inscription.statut !== "annulé" && (
           <CalculCreditAnnulation
             formatDate={format?.date}
-            prixInscription={(inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)}
+            prixInscription={prixInscription}
             prixRepas={inscription.prix_total_repas || 0}
           />
-        </div>
+        )}
+
+        {/* ✅ Affichage du crédit réel si annulé */}
+        {inscription.statut === "annulé" && credit && (
+          <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-4 rounded">
+            <p className="font-semibold mb-2">💰 Crédit généré suite à l’annulation :</p>
+            <ul className="list-disc list-inside">
+              <li>
+                Remboursement repas :{" "}
+                <strong>{credit.montant_rembourse_repas.toFixed(2)} €</strong>
+              </li>
+              <li>
+                Remboursement partiel inscription :{" "}
+                <strong>{credit.montant_rembourse_inscription.toFixed(2)} €</strong>
+              </li>
+              <li>
+                Frais retenus :{" "}
+                <strong>{credit.frais_tickrace.toFixed(2)} €</strong>
+              </li>
+              <li>
+                Crédit total :{" "}
+                <strong>{credit.credit_total.toFixed(2)} €</strong>
+              </li>
+            </ul>
+          </div>
+        )}
 
         <div className="flex space-x-4 mt-4">
           <button
@@ -136,12 +173,14 @@ export default function MonInscription() {
           >
             Enregistrer
           </button>
-          <button
-            onClick={handleCancel}
-            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-          >
-            Annuler mon inscription
-          </button>
+          {inscription.statut !== "annulé" && (
+            <button
+              onClick={handleCancel}
+              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+            >
+              Annuler mon inscription
+            </button>
+          )}
         </div>
       </div>
     </div>
