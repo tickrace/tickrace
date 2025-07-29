@@ -7,25 +7,20 @@ export default function MonInscription() {
   const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [club, setClub] = useState("");
-  const [apparaitreResultats, setApparaitreResultats] = useState(true);
-  const [message, setMessage] = useState("");
+  const [message, setMessage] = useState(null);
 
   useEffect(() => {
     const fetchInscription = async () => {
       const { data, error } = await supabase
         .from("inscriptions")
-        .select("*, format:formats(*, course:courses(*))")
+        .select("*")
         .eq("id", id)
         .single();
 
       if (error) {
-        console.error("Erreur de chargement :", error);
-        setMessage("Erreur lors du chargement.");
+        setMessage("Erreur lors du chargement de l'inscription.");
       } else {
         setInscription(data);
-        setClub(data.club || "");
-        setApparaitreResultats(data.apparaitre_resultats ?? true);
       }
       setLoading(false);
     };
@@ -33,14 +28,18 @@ export default function MonInscription() {
     fetchInscription();
   }, [id]);
 
+  const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setInscription((prev) => ({
+      ...prev,
+      [name]: type === "checkbox" ? checked : value,
+    }));
+  };
+
   const handleUpdate = async () => {
     const { error } = await supabase
       .from("inscriptions")
-      .update({
-        club,
-        apparaitre_resultats: apparaitreResultats,
-        updated_at: new Date().toISOString(),
-      })
+      .update(inscription)
       .eq("id", id);
 
     if (error) {
@@ -51,74 +50,95 @@ export default function MonInscription() {
   };
 
   const handleCancel = async () => {
-    const confirm = window.confirm("Confirmer l'annulation de cette inscription ?");
-    if (!confirm) return;
-
     const { error } = await supabase
       .from("inscriptions")
-      .update({ statut: "annulé", updated_at: new Date().toISOString() })
+      .update({ statut: "annulé" })
       .eq("id", id);
 
-    if (error) {
-      setMessage("Erreur lors de l'annulation.");
-    } else {
+    if (!error) {
       navigate("/mes-inscriptions");
+    } else {
+      setMessage("Erreur lors de l'annulation.");
     }
   };
 
   if (loading) return <p className="p-4">Chargement...</p>;
-  if (!inscription) return <p className="p-4 text-red-500">Inscription introuvable.</p>;
-
-  const { format } = inscription;
-  const course = format?.course;
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Modifier mon inscription</h1>
+      <h1 className="text-xl font-bold mb-4">Mon Inscription</h1>
+      {message && <p className="text-red-600 mb-4">{message}</p>}
+      {inscription && (
+        <form className="grid grid-cols-1 gap-4">
+          {[
+            "nom",
+            "prenom",
+            "genre",
+            "date_naissance",
+            "nationalite",
+            "email",
+            "telephone",
+            "adresse",
+            "adresse_complement",
+            "code_postal",
+            "ville",
+            "pays",
+            "club",
+            "justificatif_type",
+            "numero_licence",
+            "pps_identifier",
+            "contact_urgence_nom",
+            "contact_urgence_telephone",
+          ].map((field) => (
+            <input
+              key={field}
+              name={field}
+              value={inscription[field] || ""}
+              onChange={handleChange}
+              className="border p-2 rounded"
+              placeholder={field.replace(/_/g, " ")}
+            />
+          ))}
 
-      {message && <p className="mb-4 text-sm text-blue-600">{message}</p>}
+          <label className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              name="apparaitre_resultats"
+              checked={inscription.apparaitre_resultats}
+              onChange={handleChange}
+            />
+            <span>Apparaître dans les résultats</span>
+          </label>
 
-      <div className="mb-4">
-        <strong>Course :</strong> {course?.nom} — {course?.lieu}
-      </div>
-      <div className="mb-4">
-        <strong>Format :</strong> {format?.nom} ({format?.distance_km} km / {format?.denivele_dplus} m D+)
-      </div>
-      <div className="mb-4">
-        <label className="block text-sm font-medium">Club :</label>
-        <input
-          type="text"
-          value={club}
-          onChange={(e) => setClub(e.target.value)}
-          className="mt-1 block w-full border px-3 py-2 rounded"
-        />
-      </div>
-      <div className="mb-4">
-        <label className="inline-flex items-center">
-          <input
-            type="checkbox"
-            checked={apparaitreResultats}
-            onChange={(e) => setApparaitreResultats(e.target.checked)}
-            className="mr-2"
-          />
-          Afficher mon nom dans les résultats publics
-        </label>
-      </div>
+          <label>
+            Nombre de repas :
+            <input
+              type="number"
+              name="nombre_repas"
+              value={inscription.nombre_repas || 0}
+              onChange={handleChange}
+              className="border p-2 rounded w-full"
+            />
+          </label>
 
-      <div className="flex gap-4">
-        <button
-          onClick={handleUpdate}
-          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
-        >
-          Enregistrer
-        </button>
-        <button
-          onClick={handleCancel}
-          className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-        >
-          Annuler mon inscription
-        </button>
-      </div>
+          <div className="flex space-x-4 mt-4">
+            <button
+              type="button"
+              onClick={handleUpdate}
+              className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            >
+              Mettre à jour
+            </button>
+            <button
+              type="button"
+              onClick={handleCancel}
+              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+            >
+              Annuler mon inscription
+            </button>
+          </div>
+        </form>
+      )}
     </div>
   );
 }
