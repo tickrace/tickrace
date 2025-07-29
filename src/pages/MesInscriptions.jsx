@@ -30,7 +30,7 @@ export default function MesInscriptions() {
           course:courses (
             id,
             nom,
-            ville,
+            lieu,
             pays,
             image_url
           )
@@ -80,7 +80,7 @@ export default function MesInscriptions() {
                     {course?.nom} – {format?.nom}
                   </h2>
                   <p className="text-sm text-gray-600">
-                    {course?.ville}, {course?.pays} – {format?.distance_km} km /{" "}
+                    {course?.lieu}, {course?.pays} – {format?.distance_km} km /{" "}
                     {format?.denivele_dplus} m D+ – {format?.date}
                   </p>
                   <p className="text-sm mt-1">
