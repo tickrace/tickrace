@@ -7,20 +7,25 @@ export default function MonInscription() {
   const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [club, setClub] = useState("");
+  const [apparaitreResultats, setApparaitreResultats] = useState(true);
   const [message, setMessage] = useState("");
 
   useEffect(() => {
     const fetchInscription = async () => {
       const { data, error } = await supabase
         .from("inscriptions")
-        .select("*")
+        .select("*, format:formats(*, course:courses(*))")
         .eq("id", id)
         .single();
 
       if (error) {
-        setMessage("Erreur lors du chargement de l'inscription.");
+        console.error("Erreur de chargement :", error);
+        setMessage("Erreur lors du chargement.");
       } else {
         setInscription(data);
+        setClub(data.club || "");
+        setApparaitreResultats(data.apparaitre_resultats ?? true);
       }
       setLoading(false);
     };
@@ -28,15 +33,14 @@ export default function MonInscription() {
     fetchInscription();
   }, [id]);
 
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setInscription((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSave = async () => {
+  const handleUpdate = async () => {
     const { error } = await supabase
       .from("inscriptions")
-      .update(inscription)
+      .update({
+        club,
+        apparaitre_resultats: apparaitreResultats,
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", id);
 
     if (error) {
@@ -47,12 +51,12 @@ export default function MonInscription() {
   };
 
   const handleCancel = async () => {
-    const confirm = window.confirm("Confirmer l'annulation de votre inscription ?");
+    const confirm = window.confirm("Confirmer l'annulation de cette inscription ?");
     if (!confirm) return;
 
     const { error } = await supabase
       .from("inscriptions")
-      .update({ statut: "annulé" })
+      .update({ statut: "annulé", updated_at: new Date().toISOString() })
       .eq("id", id);
 
     if (error) {
@@ -62,37 +66,56 @@ export default function MonInscription() {
     }
   };
 
-  if (loading) return <div>Chargement...</div>;
+  if (loading) return <p className="p-4">Chargement...</p>;
+  if (!inscription) return <p className="p-4 text-red-500">Inscription introuvable.</p>;
 
-  if (!inscription) return <div>Aucune inscription trouvée.</div>;
+  const { format } = inscription;
+  const course = format?.course;
 
   return (
-    <div className="max-w-3xl mx-auto p-4">
+    <div className="p-4 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Modifier mon inscription</h1>
 
-      {message && <div className="mb-4 text-red-600">{message}</div>}
+      {message && <p className="mb-4 text-sm text-blue-600">{message}</p>}
 
-      <div className="grid grid-cols-1 gap-4">
-        <label className="block">
-          Nom
-          <input type="text" name="nom" value={inscription.nom || ""} onChange={handleChange} className="w-full border px-2 py-1 rounded" />
+      <div className="mb-4">
+        <strong>Course :</strong> {course?.nom} — {course?.lieu}
+      </div>
+      <div className="mb-4">
+        <strong>Format :</strong> {format?.nom} ({format?.distance_km} km / {format?.denivele_dplus} m D+)
+      </div>
+      <div className="mb-4">
+        <label className="block text-sm font-medium">Club :</label>
+        <input
+          type="text"
+          value={club}
+          onChange={(e) => setClub(e.target.value)}
+          className="mt-1 block w-full border px-3 py-2 rounded"
+        />
+      </div>
+      <div className="mb-4">
+        <label className="inline-flex items-center">
+          <input
+            type="checkbox"
+            checked={apparaitreResultats}
+            onChange={(e) => setApparaitreResultats(e.target.checked)}
+            className="mr-2"
+          />
+          Afficher mon nom dans les résultats publics
         </label>
-        <label className="block">
-          Prénom
-          <input type="text" name="prenom" value={inscription.prenom || ""} onChange={handleChange} className="w-full border px-2 py-1 rounded" />
-        </label>
-        <label className="block">
-          Email
-          <input type="email" name="email" value={inscription.email || ""} onChange={handleChange} className="w-full border px-2 py-1 rounded" />
-        </label>
-        {/* Ajoute d'autres champs si nécessaire */}
       </div>
 
-      <div className="mt-6 flex gap-4">
-        <button onClick={handleSave} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
-          Enregistrer les modifications
+      <div className="flex gap-4">
+        <button
+          onClick={handleUpdate}
+          className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+        >
+          Enregistrer
         </button>
-        <button onClick={handleCancel} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+        <button
+          onClick={handleCancel}
+          className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+        >
           Annuler mon inscription
         </button>
       </div>

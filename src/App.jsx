@@ -48,7 +48,8 @@ function AppContent() {
         <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-<Route path="/mon-inscription" element={<MonInscription />} />
+<Route path="/mon-inscription/:id" element={<MonInscription />} />
+
 <Route path="/mesinscriptions" element={<MesInscriptions />} />
 
 
