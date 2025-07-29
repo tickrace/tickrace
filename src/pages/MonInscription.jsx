@@ -61,11 +61,14 @@ export default function MonInscription() {
     const confirm = window.confirm("Confirmer l’annulation de votre inscription ?");
     if (!confirm) return;
 
-   await supabase.functions.invoke("annuler_inscription", {
-  method: "POST",
-  body: { id },
-});
+    const { error } = await supabase.functions.invoke("annuler_inscription", {
+      body: { id },
+    });
 
+    if (error) {
+      alert("Erreur lors de l'annulation");
+      return;
+    }
 
     alert("Inscription annulée");
     navigate("/mes-inscriptions");
@@ -75,7 +78,12 @@ export default function MonInscription() {
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white shadow-md rounded">
-      <h1 className="text-3xl font-bold mb-6 text-center text-gray-800">Modifier mon inscription</h1>
+      <h1 className="text-3xl font-bold mb-2 text-center text-gray-800">
+        Modifier mon inscription
+      </h1>
+      <p className={`text-center text-sm mb-6 font-medium ${inscription.statut === "annulé" ? "text-red-600" : "text-green-600"}`}>
+        Statut de l’inscription : {inscription.statut}
+      </p>
 
       <div className="grid grid-cols-1 gap-4">
         {[
@@ -146,18 +154,17 @@ export default function MonInscription() {
             Enregistrer les modifications
           </button>
           {inscription.statut === "annulé" ? (
-  <p className="text-red-600 font-semibold">
-    Cette inscription a déjà été annulée.
-  </p>
-) : (
-  <button
-    onClick={handleCancel}
-    className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded"
-  >
-    Annuler mon inscription
-  </button>
-)}
-
+            <p className="text-red-600 font-semibold self-center">
+              Cette inscription a déjà été annulée.
+            </p>
+          ) : (
+            <button
+              onClick={handleCancel}
+              className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded"
+            >
+              Annuler mon inscription
+            </button>
+          )}
         </div>
       </div>
     </div>
