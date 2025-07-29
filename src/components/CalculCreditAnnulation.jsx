@@ -1,59 +1,42 @@
 // src/components/CalculCreditAnnulation.jsx
-
 import React, { useEffect, useState } from "react";
 import dayjs from "dayjs";
 
-export default function CalculCreditAnnulation({ formatDate, prixInscription = 0, prixRepas = 0 }) {
-  const [credit, setCredit] = useState(null);
-  const [message, setMessage] = useState("");
+export default function CalculCreditAnnulation({ prixInscription = 0, prixRepas = 0, dateCourse, dateAnnulation = new Date() }) {
+  const [credit, setCredit] = useState(0);
+  const [explication, setExplication] = useState("");
 
   useEffect(() => {
-    if (!formatDate) return;
+    if (!dateCourse) return;
 
-    const now = dayjs();
-    const courseDate = dayjs(formatDate);
-    const joursAvantCourse = courseDate.diff(now, "day");
+    const dateCourseObj = dayjs(dateCourse);
+    const dateAnnulationObj = dayjs(dateAnnulation);
+    const diffDays = dateCourseObj.diff(dateAnnulationObj, "day");
 
-    // Frais de départ (5% sur prix d'inscription uniquement)
-    const fraisFixes = prixInscription * 0.05;
-    const montantRemboursable = prixInscription - fraisFixes;
-
-    let remboursementInscription = 0;
-
-    if (joursAvantCourse > 14) {
-      remboursementInscription = montantRemboursable * 0.95;
-      setMessage(`Annulation +14 jours : remboursement 95 % du montant restant après frais fixes (5 %)`);
-    } else if (joursAvantCourse >= 4) {
-      remboursementInscription = montantRemboursable * 0.50;
-      setMessage(`Annulation entre 4 et 14 jours : remboursement 50 % du montant restant après frais fixes (5 %)`);
+    let pourcentage = 0;
+    if (diffDays > 14) {
+      pourcentage = 0.95;
+      setExplication("Annulation +14 jours : remboursement 95% de l'inscription + 100% des repas.");
+    } else if (diffDays >= 4) {
+      pourcentage = 0.5 * 0.95;
+      setExplication("Annulation entre 4 et 14 jours : remboursement 50% de l'inscription (moins 5%) + 100% des repas.");
     } else {
-      remboursementInscription = 0;
-      setMessage(`Annulation -4 jours : aucun remboursement sur l'inscription`);
+      pourcentage = 0;
+      setExplication("Annulation < 4 jours : aucun remboursement sur l'inscription. Seuls les repas sont remboursés.");
     }
 
-    // Repas toujours remboursés à 100 %
+    const remboursementInscription = prixInscription * pourcentage;
     const remboursementRepas = prixRepas;
+    const total = remboursementInscription + remboursementRepas;
 
-    setCredit({
-      repas: remboursementRepas.toFixed(2),
-      inscription: remboursementInscription.toFixed(2),
-      total: (remboursementRepas + remboursementInscription).toFixed(2),
-      joursAvantCourse,
-    });
-  }, [formatDate, prixInscription, prixRepas]);
-
-  if (!credit) return null;
+    setCredit(total.toFixed(2));
+  }, [prixInscription, prixRepas, dateCourse, dateAnnulation]);
 
   return (
-    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-700 p-4 my-4 rounded">
-      <h3 className="font-bold mb-2">Simulation de crédit en cas d'annulation</h3>
-      <p className="mb-1">{message}</p>
-      <ul className="list-disc list-inside text-sm">
-        <li>Remboursement inscription : {credit.inscription} €</li>
-        <li>Remboursement repas : {credit.repas} €</li>
-        <li className="font-semibold">Crédit total : {credit.total} €</li>
-        <li>Jours avant la course : {credit.joursAvantCourse} jours</li>
-      </ul>
+    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 mt-4 rounded">
+      <p className="font-semibold mb-1">Simulation de crédit en cas d'annulation :</p>
+      <p>{explication}</p>
+      <p className="mt-2 font-bold">Crédit estimé : {credit} €</p>
     </div>
   );
 }
