@@ -9,24 +9,25 @@ export default function MesInscriptions() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (session?.user?.id) {
+    if (session) {
       fetchInscriptions();
     }
   }, [session]);
 
   const fetchInscriptions = async () => {
     setLoading(true);
+
     const { data, error } = await supabase
       .from("inscriptions")
       .select(`
         *,
-        formats (
+        format:formats (
           id,
           nom,
           distance_km,
           denivele_dplus,
           date,
-          courses (
+          course:courses (
             id,
             nom,
             ville,
@@ -38,50 +39,67 @@ export default function MesInscriptions() {
       .eq("coureur_id", session.user.id)
       .order("created_at", { ascending: false });
 
-    if (!error) setInscriptions(data);
+    if (error) {
+      console.error("Erreur chargement inscriptions:", error.message);
+    } else {
+      setInscriptions(data);
+    }
+
     setLoading(false);
   };
 
-  if (loading) return <div className="p-4">Chargement...</div>;
+  if (loading) return <div className="p-6 text-center">Chargement...</div>;
 
   return (
-    <div className="p-4 max-w-4xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Mes inscriptions</h1>
-      {inscriptions.length === 0 && (
-        <p className="text-gray-600">Aucune inscription trouvée.</p>
-      )}
-      <div className="space-y-4">
-        {inscriptions.map((inscription) => {
-          const format = inscription.formats;
-          const course = format?.courses;
-          return (
-            <div
-              key={inscription.id}
-              className="border rounded p-4 bg-white shadow-sm"
-            >
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold">{course?.nom}</h2>
+    <div className="p-6 max-w-5xl mx-auto">
+      <h1 className="text-2xl font-bold mb-4">Mes Inscriptions</h1>
+
+      {inscriptions.length === 0 ? (
+        <p>Vous n'avez pas encore d'inscription.</p>
+      ) : (
+        <div className="grid gap-4">
+          {inscriptions.map((insc) => {
+            const { format } = insc;
+            const course = format?.course;
+
+            return (
+              <div
+                key={insc.id}
+                className="bg-white rounded-lg shadow p-4 border flex gap-4 items-center"
+              >
+                {course?.image_url && (
+                  <img
+                    src={course.image_url}
+                    alt={course.nom}
+                    className="w-28 h-20 object-cover rounded"
+                  />
+                )}
+
+                <div className="flex-1">
+                  <h2 className="text-lg font-semibold">
+                    {course?.nom} – {format?.nom}
+                  </h2>
                   <p className="text-sm text-gray-600">
-                    {course?.ville}, {course?.pays} – {format?.nom} ({format?.distance_km} km, {format?.denivele_dplus} m D+)
+                    {course?.ville}, {course?.pays} – {format?.distance_km} km /{" "}
+                    {format?.denivele_dplus} m D+ – {format?.date}
                   </p>
-                  <p className="text-sm text-gray-500">
-                    Date : {format?.date}
+                  <p className="text-sm mt-1">
+                    Statut :{" "}
+                    <span className="font-medium">{insc.statut || "?"}</span>
                   </p>
                 </div>
-                <div className="mt-2 sm:mt-0">
-                  <Link
-                    to={`/mon-inscription/${inscription.id}`}
-                    className="inline-block bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700 text-sm"
-                  >
-                    Voir / Modifier
-                  </Link>
-                </div>
+
+                <Link
+                  to={`/mon-inscription/${insc.id}`}
+                  className="text-sm text-blue-600 hover:underline"
+                >
+                  Voir / Modifier
+                </Link>
               </div>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
