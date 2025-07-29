@@ -21,6 +21,7 @@ import { Toaster } from "react-hot-toast";
 import DetailsCoureur from "./pages/DetailsCoureur";
 import ResetPassword from "./pages/ResetPassword";
 import ForgotPassword from "./pages/ForgotPassword";
+import MonInscription from "./pages/MonInscription";
 
 
 function AppContent() {
@@ -47,6 +48,8 @@ function AppContent() {
         <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+<Route path="/mon-inscription" element={<MonInscription />} />
+
 </Routes>
 
 
