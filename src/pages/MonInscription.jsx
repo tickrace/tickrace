@@ -11,32 +11,31 @@ export default function MonInscription() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchInscription = async () => {
-      const { data, error } = await supabase
+    const fetchInscriptionEtFormat = async () => {
+      const { data: inscriptionData, error: err1 } = await supabase
         .from("inscriptions")
         .select("*")
         .eq("id", id)
         .single();
 
-      if (!error && data) {
-        setInscription(data);
+      if (err1 || !inscriptionData) return setLoading(false);
 
-        // Charger le format lié
-        if (data.format_id) {
-          const { data: formatData, error: formatError } = await supabase
-            .from("formats")
-            .select("date, prix")
-            .eq("id", data.format_id)
-            .single();
+      setInscription(inscriptionData);
 
-          if (!formatError) setFormat(formatData);
-        }
+      if (inscriptionData.format_id) {
+        const { data: formatData, error: err2 } = await supabase
+          .from("formats")
+          .select("id, nom, date, prix")
+          .eq("id", inscriptionData.format_id)
+          .single();
+
+        if (!err2) setFormat(formatData);
       }
 
       setLoading(false);
     };
 
-    fetchInscription();
+    fetchInscriptionEtFormat();
   }, [id]);
 
   const handleChange = (e) => {
@@ -48,12 +47,18 @@ export default function MonInscription() {
   };
 
   const handleSave = async () => {
-    await supabase.from("inscriptions").update(inscription).eq("id", id);
+    await supabase
+      .from("inscriptions")
+      .update(inscription)
+      .eq("id", id);
     alert("Modifications enregistrées");
   };
 
   const handleCancel = async () => {
-    await supabase.from("inscriptions").update({ statut: "annulé" }).eq("id", id);
+    await supabase
+      .from("inscriptions")
+      .update({ statut: "annulé" })
+      .eq("id", id);
     alert("Inscription annulée");
     navigate("/mes-inscriptions");
   };
@@ -114,14 +119,15 @@ export default function MonInscription() {
           className="w-full p-2 border rounded"
         />
 
-        {format && (
+        {/* Encadré Simulation Crédit d'Annulation */}
+        <div className="border border-yellow-400 bg-yellow-100 p-4 rounded-md mt-4">
+          <h2 className="font-semibold mb-2">Simulation de crédit en cas d’annulation</h2>
           <CalculCreditAnnulation
+            formatDate={format?.date}
             prixInscription={(inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)}
             prixRepas={inscription.prix_total_repas || 0}
-            dateCourse={format.date}
-            dateAnnulation={new Date()}
           />
-        )}
+        </div>
 
         <div className="flex space-x-4 mt-4">
           <button
