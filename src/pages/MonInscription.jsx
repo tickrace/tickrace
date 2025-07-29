@@ -8,23 +8,28 @@ export default function MonInscription() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
+  const [format, setFormat] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchInscription = async () => {
-      const { data, error } = await supabase
+    const fetchInscriptionAndFormat = async () => {
+      const { data: insc, error: inscError } = await supabase
         .from("inscriptions")
-        .select("*")
+        .select("*, formats(*)")
         .eq("id", id)
         .single();
 
-      if (!error && data) {
-        setInscription(data);
+      if (inscError || !insc) {
+        setLoading(false);
+        return;
       }
+
+      setInscription(insc);
+      setFormat(insc.formats);
       setLoading(false);
     };
 
-    fetchInscription();
+    fetchInscriptionAndFormat();
   }, [id]);
 
   const handleChange = (e) => {
@@ -41,31 +46,16 @@ export default function MonInscription() {
   };
 
   const handleCancel = async () => {
-    const confirm = window.confirm(
-      "Souhaitez-vous vraiment annuler votre inscription ? Le crédit sera calculé automatiquement selon les règles d'annulation."
-    );
-    if (!confirm) return;
+    const response = await fetch("/functions/annuler_inscription", {
+      method: "POST",
+      body: JSON.stringify({ id }),
+    });
 
-    try {
-      const response = await fetch(
-        "https://pecotcxpcqfkwvyylvjv.functions.supabase.co/annuler_inscription",
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: inscription.id }),
-        }
-      );
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message);
-      }
-
-      alert("Inscription annulée. Un crédit a été généré.");
+    if (response.ok) {
+      alert("Inscription annulée");
       navigate("/mes-inscriptions");
-    } catch (err) {
-      console.error(err);
-      alert("Erreur lors de l'annulation : " + err.message);
+    } else {
+      alert("Erreur lors de l’annulation");
     }
   };
 
@@ -75,7 +65,26 @@ export default function MonInscription() {
     <div className="max-w-2xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Modifier mon inscription</h1>
       <div className="space-y-2">
-        {["nom","prenom","genre","date_naissance","nationalite","email","telephone","adresse","adresse_complement","code_postal","ville","pays","club","justificatif_type","numero_licence","contact_urgence_nom","contact_urgence_telephone","pps_identifier"].map((field) => (
+        {[
+          "nom",
+          "prenom",
+          "genre",
+          "date_naissance",
+          "nationalite",
+          "email",
+          "telephone",
+          "adresse",
+          "adresse_complement",
+          "code_postal",
+          "ville",
+          "pays",
+          "club",
+          "justificatif_type",
+          "numero_licence",
+          "contact_urgence_nom",
+          "contact_urgence_telephone",
+          "pps_identifier",
+        ].map((field) => (
           <input
             key={field}
             type="text"
@@ -106,13 +115,14 @@ export default function MonInscription() {
           className="w-full p-2 border rounded"
         />
 
+        {/* Encadré de simulation crédit */}
         <CalculCreditAnnulation
+          formatDate={format?.date}
           prixInscription={
-            (inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)
+            (inscription.prix_total_coureur || 0) -
+            (inscription.prix_total_repas || 0)
           }
           prixRepas={inscription.prix_total_repas || 0}
-          dateCourse={inscription.date}
-          dateAnnulation={new Date()}
         />
 
         <div className="flex space-x-4 mt-4">
