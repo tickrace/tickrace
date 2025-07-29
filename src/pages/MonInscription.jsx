@@ -1,4 +1,3 @@
-// src/pages/MonInscription.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -12,25 +11,35 @@ export default function MonInscription() {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchInscriptionAndFormat = async () => {
-      const { data: insc, error: inscError } = await supabase
+    const fetchInscription = async () => {
+      const { data, error } = await supabase
         .from("inscriptions")
-        .select("*, formats(*)")
+        .select("*")
         .eq("id", id)
         .single();
 
-      if (inscError || !insc) {
-        setLoading(false);
-        return;
+      if (!error && data) {
+        setInscription(data);
       }
-
-      setInscription(insc);
-      setFormat(insc.formats);
       setLoading(false);
     };
 
-    fetchInscriptionAndFormat();
+    fetchInscription();
   }, [id]);
+
+  useEffect(() => {
+    const fetchFormat = async () => {
+      if (!inscription?.format_id) return;
+      const { data, error } = await supabase
+        .from("formats")
+        .select("id, date, prix")
+        .eq("id", inscription.format_id)
+        .single();
+      if (!error) setFormat(data);
+    };
+
+    fetchFormat();
+  }, [inscription]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
@@ -41,30 +50,33 @@ export default function MonInscription() {
   };
 
   const handleSave = async () => {
-    await supabase.from("inscriptions").update(inscription).eq("id", id);
+    await supabase
+      .from("inscriptions")
+      .update(inscription)
+      .eq("id", id);
     alert("Modifications enregistrées");
   };
 
   const handleCancel = async () => {
-    const response = await fetch("/functions/annuler_inscription", {
+    const confirm = window.confirm("Confirmer l’annulation de votre inscription ?");
+    if (!confirm) return;
+
+    await fetch("/functions/annuler_inscription", {
       method: "POST",
       body: JSON.stringify({ id }),
     });
 
-    if (response.ok) {
-      alert("Inscription annulée");
-      navigate("/mes-inscriptions");
-    } else {
-      alert("Erreur lors de l’annulation");
-    }
+    alert("Inscription annulée");
+    navigate("/mes-inscriptions");
   };
 
   if (loading || !inscription) return <p>Chargement...</p>;
 
   return (
-    <div className="max-w-2xl mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-4">Modifier mon inscription</h1>
-      <div className="space-y-2">
+    <div className="max-w-3xl mx-auto p-6 bg-white shadow-md rounded">
+      <h1 className="text-3xl font-bold mb-6 text-center text-gray-800">Modifier mon inscription</h1>
+
+      <div className="grid grid-cols-1 gap-4">
         {[
           "nom",
           "prenom",
@@ -91,8 +103,8 @@ export default function MonInscription() {
             name={field}
             value={inscription[field] || ""}
             onChange={handleChange}
-            placeholder={field.replace(/_/g, " ")}
-            className="w-full p-2 border rounded"
+            placeholder={field.replace(/_/g, " ").toUpperCase()}
+            className="w-full p-3 border border-gray-300 rounded"
           />
         ))}
 
@@ -112,29 +124,29 @@ export default function MonInscription() {
           value={inscription.nombre_repas || 0}
           onChange={handleChange}
           placeholder="Nombre de repas"
-          className="w-full p-2 border rounded"
+          className="w-full p-3 border border-gray-300 rounded"
         />
 
-        {/* Encadré de simulation crédit */}
-        <CalculCreditAnnulation
-          formatDate={format?.date}
-          prixInscription={
-            (inscription.prix_total_coureur || 0) -
-            (inscription.prix_total_repas || 0)
-          }
-          prixRepas={inscription.prix_total_repas || 0}
-        />
+        {/* Simulation de crédit d'annulation */}
+        {format && (
+          <CalculCreditAnnulation
+            prixInscription={(inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)}
+            prixRepas={inscription.prix_total_repas || 0}
+            dateCourse={format.date}
+            dateAnnulation={new Date()}
+          />
+        )}
 
-        <div className="flex space-x-4 mt-4">
+        <div className="flex justify-center space-x-6 mt-6">
           <button
             onClick={handleSave}
-            className="bg-blue-600 text-white px-4 py-2 rounded hover:bg-blue-700"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded"
           >
-            Enregistrer
+            Enregistrer les modifications
           </button>
           <button
             onClick={handleCancel}
-            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+            className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded"
           >
             Annuler mon inscription
           </button>

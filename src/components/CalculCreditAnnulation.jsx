@@ -1,68 +1,54 @@
 // src/components/CalculCreditAnnulation.jsx
-import React, { useEffect, useState } from "react";
+import React, { useMemo } from "react";
 import dayjs from "dayjs";
 
-export default function CalculCreditAnnulation({
-  prixInscription = 0,
-  prixRepas = 0,
-  dateCourse,
-  dateAnnulation = new Date(),
-}) {
-  const [credit, setCredit] = useState(null);
+export default function CalculCreditAnnulation({ prixInscription, prixRepas, dateCourse, dateAnnulation }) {
+  const { creditTotal, creditInscription, creditRepas, fraisTotal, pourcentageRemboursement, type } = useMemo(() => {
+    const dateCourseObj = dayjs(dateCourse);
+    const dateAnnulationObj = dayjs(dateAnnulation);
+    const joursRestants = dateCourseObj.diff(dateAnnulationObj, "day");
 
-  useEffect(() => {
-    if (!dateCourse) return;
-
-    const courseDate = dayjs(dateCourse);
-    const annulationDate = dayjs(dateAnnulation);
-    const joursRestants = courseDate.diff(annulationDate, "day");
-
-    const fraisInitiaux = prixInscription * 0.05;
-    let remboursementInscription = 0;
     let pourcentage = 0;
+    let type = "";
 
     if (joursRestants > 14) {
-      pourcentage = 1;
-      remboursementInscription = prixInscription - fraisInitiaux;
+      pourcentage = 1.0;
+      type = "Plus de 14 jours";
     } else if (joursRestants >= 4) {
       pourcentage = 0.5;
-      remboursementInscription = (prixInscription - fraisInitiaux) * 0.5;
+      type = "Entre 4 et 14 jours";
     } else {
-      pourcentage = 0;
-      remboursementInscription = 0;
+      pourcentage = 0.0;
+      type = "Moins de 4 jours";
     }
 
-    const fraisSupplémentaires = remboursementInscription * 0.05;
-    const montantFinalInscription = remboursementInscription - fraisSupplémentaires;
+    const creditInscription = Math.round(prixInscription * pourcentage * 0.95 * 100) / 100; // -5% frais
+    const creditRepas = prixRepas;
+    const fraisTotal = Math.round((prixInscription * 0.05 + prixInscription * (1 - pourcentage) * 0.95) * 100) / 100;
+    const creditTotal = Math.round((creditInscription + creditRepas) * 100) / 100;
 
-    const creditTotal = montantFinalInscription + prixRepas;
-
-    setCredit({
-      joursRestants,
-      fraisInitiaux,
-      pourcentage,
-      remboursementInscription,
-      fraisSupplémentaires,
-      montantFinalInscription,
-      prixRepas,
+    return {
       creditTotal,
-    });
+      creditInscription,
+      creditRepas,
+      fraisTotal,
+      pourcentageRemboursement: pourcentage * 100,
+      type,
+    };
   }, [prixInscription, prixRepas, dateCourse, dateAnnulation]);
 
-  if (!credit) return null;
-
   return (
-    <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-4 rounded mt-4">
-      <h2 className="font-semibold mb-2">💡 Simulation de crédit en cas d’annulation</h2>
-      <ul className="space-y-1 text-sm">
-        <li>🗓 Jours restants avant la course : <strong>{credit.joursRestants}</strong></li>
-        <li>💶 Prix de l’inscription : {prixInscription.toFixed(2)} €</li>
-        <li>❌ Frais initiaux retenus (5%) : {credit.fraisInitiaux.toFixed(2)} €</li>
-        <li>✅ Pourcentage remboursé : {(credit.pourcentage * 100).toFixed(0)}%</li>
-        <li>💸 Frais sur le remboursement : {credit.fraisSupplémentaires.toFixed(2)} €</li>
-        <li>🔁 Montant remboursé sur l’inscription : {credit.montantFinalInscription.toFixed(2)} €</li>
-        <li>🍽 Remboursement des repas : {credit.prixRepas.toFixed(2)} €</li>
-        <li className="font-bold mt-2">🎯 Crédit total : {credit.creditTotal.toFixed(2)} €</li>
+    <div className="p-4 mt-6 rounded border border-yellow-400 bg-yellow-50 text-yellow-900">
+      <h2 className="text-lg font-semibold mb-2">Simulation de crédit en cas d’annulation</h2>
+      <ul className="list-disc list-inside text-sm space-y-1">
+        <li><strong>Type de période :</strong> {type}</li>
+        <li><strong>Jours avant la course :</strong> {dayjs(dateCourse).diff(dayjs(dateAnnulation), 'day')} jours</li>
+        <li><strong>Montant inscription :</strong> {prixInscription.toFixed(2)} €</li>
+        <li><strong>Montant repas :</strong> {prixRepas.toFixed(2)} €</li>
+        <li><strong>Remboursement sur inscription :</strong> {creditInscription.toFixed(2)} € ({pourcentageRemboursement}% - frais 5%)</li>
+        <li><strong>Remboursement repas :</strong> {creditRepas.toFixed(2)} €</li>
+        <li><strong>Frais retenus :</strong> {fraisTotal.toFixed(2)} €</li>
+        <li><strong>Crédit total :</strong> {creditTotal.toFixed(2)} €</li>
       </ul>
     </div>
   );
