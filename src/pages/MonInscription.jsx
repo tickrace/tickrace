@@ -1,91 +1,101 @@
-// src/pages/MonInscription.jsx
-
 import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function MonInscription() {
-  const { token } = useParams();
+  const { id } = useParams();
+  const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
-  const [format, setFormat] = useState(null);
-  const [message, setMessage] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [message, setMessage] = useState("");
 
   useEffect(() => {
     const fetchInscription = async () => {
-      const { data: tokenRow } = await supabase
-        .from("inscription_tokens")
-        .select("*, inscriptions(*), inscriptions:format_id(formats(*))")
-        .eq("token", token)
+      const { data, error } = await supabase
+        .from("inscriptions")
+        .select("*")
+        .eq("id", id)
         .single();
 
-      if (tokenRow && tokenRow.inscriptions) {
-        setInscription(tokenRow.inscriptions);
-        const { data: formatData } = await supabase
-          .from("formats")
-          .select("*")
-          .eq("id", tokenRow.inscriptions.format_id)
-          .single();
-        setFormat(formatData);
+      if (error) {
+        setMessage("Erreur lors du chargement de l'inscription.");
+      } else {
+        setInscription(data);
       }
+      setLoading(false);
     };
 
     fetchInscription();
-  }, [token]);
+  }, [id]);
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setInscription((prev) => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const handleSave = async () => {
     const { error } = await supabase
       .from("inscriptions")
       .update(inscription)
-      .eq("id", inscription.id);
+      .eq("id", id);
 
     if (error) {
-      console.error(error);
       setMessage("Erreur lors de la mise à jour.");
     } else {
       setMessage("Inscription mise à jour avec succès.");
     }
   };
 
-  if (!inscription) return <div className="p-6">Chargement...</div>;
+  const handleCancel = async () => {
+    const confirm = window.confirm("Confirmer l'annulation de votre inscription ?");
+    if (!confirm) return;
+
+    const { error } = await supabase
+      .from("inscriptions")
+      .update({ statut: "annulé" })
+      .eq("id", id);
+
+    if (error) {
+      setMessage("Erreur lors de l'annulation.");
+    } else {
+      navigate("/mes-inscriptions");
+    }
+  };
+
+  if (loading) return <div>Chargement...</div>;
+
+  if (!inscription) return <div>Aucune inscription trouvée.</div>;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
+    <div className="max-w-3xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Modifier mon inscription</h1>
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <input name="nom" placeholder="Nom" value={inscription.nom || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="prenom" placeholder="Prénom" value={inscription.prenom || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="email" placeholder="Email" value={inscription.email || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="telephone" placeholder="Téléphone" value={inscription.telephone || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="adresse" placeholder="Adresse" value={inscription.adresse || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="ville" placeholder="Ville" value={inscription.ville || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="code_postal" placeholder="Code postal" value={inscription.code_postal || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="pays" placeholder="Pays" value={inscription.pays || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="club" placeholder="Club" value={inscription.club || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="contact_urgence_nom" placeholder="Contact d'urgence - nom" value={inscription.contact_urgence_nom || ""} onChange={handleChange} className="w-full border p-2" />
-        <input name="contact_urgence_telephone" placeholder="Contact d'urgence - téléphone" value={inscription.contact_urgence_telephone || ""} onChange={handleChange} className="w-full border p-2" />
-        <select name="justificatif_type" value={inscription.justificatif_type || ""} onChange={handleChange} className="w-full border p-2">
-          <option value="">-- Justificatif --</option>
-          <option value="licence">Licence</option>
-          <option value="pps">PPS</option>
-        </select>
-        {inscription.justificatif_type === "licence" && (
-          <input name="numero_licence" placeholder="Numéro de licence" value={inscription.numero_licence || ""} onChange={handleChange} className="w-full border p-2" />
-        )}
-        {inscription.justificatif_type === "pps" && (
-          <input name="pps_identifier" placeholder="Identifiant PPS" value={inscription.pps_identifier || ""} onChange={handleChange} className="w-full border p-2" />
-        )}
 
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">
-          Mettre à jour mon inscription
+      {message && <div className="mb-4 text-red-600">{message}</div>}
+
+      <div className="grid grid-cols-1 gap-4">
+        <label className="block">
+          Nom
+          <input type="text" name="nom" value={inscription.nom || ""} onChange={handleChange} className="w-full border px-2 py-1 rounded" />
+        </label>
+        <label className="block">
+          Prénom
+          <input type="text" name="prenom" value={inscription.prenom || ""} onChange={handleChange} className="w-full border px-2 py-1 rounded" />
+        </label>
+        <label className="block">
+          Email
+          <input type="email" name="email" value={inscription.email || ""} onChange={handleChange} className="w-full border px-2 py-1 rounded" />
+        </label>
+        {/* Ajoute d'autres champs si nécessaire */}
+      </div>
+
+      <div className="mt-6 flex gap-4">
+        <button onClick={handleSave} className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700">
+          Enregistrer les modifications
         </button>
-        {message && <p className="text-green-700 mt-2">{message}</p>}
-      </form>
+        <button onClick={handleCancel} className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700">
+          Annuler mon inscription
+        </button>
+      </div>
     </div>
   );
 }
