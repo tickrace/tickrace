@@ -1,42 +1,34 @@
 // src/components/CalculCreditAnnulation.jsx
-
 import React from "react";
 import dayjs from "dayjs";
 
-export default function CalculCreditAnnulation({ prixInscription = 0, prixRepas = 0, dateCourse, dateAnnulation = new Date() }) {
-  const dateCourseObj = dayjs(dateCourse);
-  const dateAnnulationObj = dayjs(dateAnnulation);
-  const joursAvantCourse = dateCourseObj.diff(dateAnnulationObj, "day");
+export default function CalculCreditAnnulation({ format, prixInscription, prixRepas }) {
+  if (!format || !format.date) return null;
 
-  // Frais initiaux conservés
-  const fraisBase = prixInscription * 0.05;
+  const dateCourse = dayjs(format.date);
+  const aujourdHui = dayjs();
+  const joursRestant = dateCourse.diff(aujourdHui, "day");
+
+  const fraisFixes = Math.round(prixInscription * 0.05 * 100) / 100;
+  const remboursementRepas = prixRepas;
+
   let remboursementInscription = 0;
-
-  if (joursAvantCourse > 14) {
-    remboursementInscription = prixInscription - fraisBase;
-  } else if (joursAvantCourse >= 4) {
-    remboursementInscription = (prixInscription * 0.5) * 0.95;
-  } else {
-    remboursementInscription = 0;
+  if (joursRestant > 14) {
+    remboursementInscription = Math.round((prixInscription - fraisFixes) * 0.95 * 100) / 100;
+  } else if (joursRestant >= 4) {
+    remboursementInscription = Math.round((prixInscription - fraisFixes) * 0.5 * 0.95 * 100) / 100;
   }
 
-  const remboursementRepas = prixRepas;
-  const totalCredit = remboursementInscription + remboursementRepas;
+  const creditTotal = Math.round((remboursementInscription + remboursementRepas) * 100) / 100;
 
   return (
-    <div className="bg-yellow-50 p-4 rounded border border-yellow-300 mt-4">
-      <h2 className="text-lg font-semibold mb-2">Simulation du crédit</h2>
-      <p className="text-sm text-gray-700">
-        Date de la course : <strong>{dateCourseObj.format("DD/MM/YYYY")}</strong><br />
-        Date d'annulation : <strong>{dateAnnulationObj.format("DD/MM/YYYY")}</strong><br />
-        Nombre de jours avant la course : <strong>{joursAvantCourse}</strong>
-      </p>
-      <hr className="my-2" />
-      <p className="text-sm">
-        Montant initial de l'inscription : {prixInscription.toFixed(2)} €<br />
-        Montant des repas : {prixRepas.toFixed(2)} €<br />
-        <strong>Crédit total accordé :</strong> <span className="text-green-700 font-semibold">{totalCredit.toFixed(2)} €</span>
-      </p>
+    <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-4 rounded mt-4">
+      <h3 className="font-bold mb-2">Simulation de crédit en cas d'annulation</h3>
+      <p>Jours avant la course : <strong>{joursRestant} jours</strong></p>
+      <p>Frais fixes conservés : <strong>{fraisFixes.toFixed(2)} €</strong></p>
+      <p>Remboursement inscription : <strong>{remboursementInscription.toFixed(2)} €</strong></p>
+      <p>Remboursement repas : <strong>{remboursementRepas.toFixed(2)} €</strong></p>
+      <p className="mt-2 font-semibold text-lg">Crédit total : <strong>{creditTotal.toFixed(2)} €</strong></p>
     </div>
   );
 }
