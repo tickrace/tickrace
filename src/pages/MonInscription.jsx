@@ -7,6 +7,7 @@ export default function MonInscription() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
+  const [format, setFormat] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -19,7 +20,19 @@ export default function MonInscription() {
 
       if (!error && data) {
         setInscription(data);
+
+        // Charger le format lié
+        if (data.format_id) {
+          const { data: formatData, error: formatError } = await supabase
+            .from("formats")
+            .select("date, prix")
+            .eq("id", data.format_id)
+            .single();
+
+          if (!formatError) setFormat(formatData);
+        }
       }
+
       setLoading(false);
     };
 
@@ -35,18 +48,12 @@ export default function MonInscription() {
   };
 
   const handleSave = async () => {
-    await supabase
-      .from("inscriptions")
-      .update(inscription)
-      .eq("id", id);
+    await supabase.from("inscriptions").update(inscription).eq("id", id);
     alert("Modifications enregistrées");
   };
 
   const handleCancel = async () => {
-    await supabase
-      .from("inscriptions")
-      .update({ statut: "annulé" })
-      .eq("id", id);
+    await supabase.from("inscriptions").update({ statut: "annulé" }).eq("id", id);
     alert("Inscription annulée");
     navigate("/mes-inscriptions");
   };
@@ -107,14 +114,14 @@ export default function MonInscription() {
           className="w-full p-2 border rounded"
         />
 
-        <CalculCreditAnnulation
-          prixInscription={
-            (inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)
-          }
-          prixRepas={inscription.prix_total_repas || 0}
-          dateCourse={inscription.date}
-          dateAnnulation={new Date()}
-        />
+        {format && (
+          <CalculCreditAnnulation
+            prixInscription={(inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)}
+            prixRepas={inscription.prix_total_repas || 0}
+            dateCourse={format.date}
+            dateAnnulation={new Date()}
+          />
+        )}
 
         <div className="flex space-x-4 mt-4">
           <button
