@@ -1,3 +1,4 @@
+// src/pages/MonInscription.jsx
 import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -7,45 +8,23 @@ export default function MonInscription() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
-  const [format, setFormat] = useState(null);
-  const [credit, setCredit] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchData = async () => {
-      // Récupérer inscription
-      const { data: insc, error } = await supabase
+    const fetchInscription = async () => {
+      const { data, error } = await supabase
         .from("inscriptions")
         .select("*")
         .eq("id", id)
         .single();
 
-      if (error || !insc) return setLoading(false);
-      setInscription(insc);
-
-      // Récupérer format
-      const { data: fmt } = await supabase
-        .from("formats")
-        .select("*")
-        .eq("id", insc.format_id)
-        .single();
-
-      setFormat(fmt);
-
-      // Si annulée, récupérer crédit
-      if (insc.statut === "annulé") {
-        const { data: cred } = await supabase
-          .from("credits_annulation")
-          .select("*")
-          .eq("inscription_id", insc.id)
-          .single();
-        setCredit(cred);
+      if (!error && data) {
+        setInscription(data);
       }
-
       setLoading(false);
     };
 
-    fetchData();
+    fetchInscription();
   }, [id]);
 
   const handleChange = (e) => {
@@ -62,46 +41,41 @@ export default function MonInscription() {
   };
 
   const handleCancel = async () => {
-    await supabase
-      .from("inscriptions")
-      .update({ statut: "annulé" })
-      .eq("id", id);
-    alert("Inscription annulée");
-    navigate("/mes-inscriptions");
+    const confirm = window.confirm(
+      "Souhaitez-vous vraiment annuler votre inscription ? Le crédit sera calculé automatiquement selon les règles d'annulation."
+    );
+    if (!confirm) return;
+
+    try {
+      const response = await fetch(
+        "https://pecotcxpcqfkwvyylvjv.functions.supabase.co/annuler_inscription",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ id: inscription.id }),
+        }
+      );
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message);
+      }
+
+      alert("Inscription annulée. Un crédit a été généré.");
+      navigate("/mes-inscriptions");
+    } catch (err) {
+      console.error(err);
+      alert("Erreur lors de l'annulation : " + err.message);
+    }
   };
 
   if (loading || !inscription) return <p>Chargement...</p>;
 
-  const prixInscription =
-    (inscription.prix_total_coureur || 0) -
-    (inscription.prix_total_repas || 0);
-
   return (
     <div className="max-w-2xl mx-auto p-4">
       <h1 className="text-2xl font-bold mb-4">Modifier mon inscription</h1>
-
       <div className="space-y-2">
-        {/* Champs modifiables */}
-        {[
-          "nom",
-          "prenom",
-          "genre",
-          "date_naissance",
-          "nationalite",
-          "email",
-          "telephone",
-          "adresse",
-          "adresse_complement",
-          "code_postal",
-          "ville",
-          "pays",
-          "club",
-          "justificatif_type",
-          "numero_licence",
-          "contact_urgence_nom",
-          "contact_urgence_telephone",
-          "pps_identifier",
-        ].map((field) => (
+        {["nom","prenom","genre","date_naissance","nationalite","email","telephone","adresse","adresse_complement","code_postal","ville","pays","club","justificatif_type","numero_licence","contact_urgence_nom","contact_urgence_telephone","pps_identifier"].map((field) => (
           <input
             key={field}
             type="text"
@@ -132,39 +106,14 @@ export default function MonInscription() {
           className="w-full p-2 border rounded"
         />
 
-        {/* ✅ Encadré simulation si NON annulé */}
-        {inscription.statut !== "annulé" && (
-          <CalculCreditAnnulation
-            formatDate={format?.date}
-            prixInscription={prixInscription}
-            prixRepas={inscription.prix_total_repas || 0}
-          />
-        )}
-
-        {/* ✅ Affichage du crédit réel si annulé */}
-        {inscription.statut === "annulé" && credit && (
-          <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-4 rounded">
-            <p className="font-semibold mb-2">💰 Crédit généré suite à l’annulation :</p>
-            <ul className="list-disc list-inside">
-              <li>
-                Remboursement repas :{" "}
-                <strong>{credit.montant_rembourse_repas.toFixed(2)} €</strong>
-              </li>
-              <li>
-                Remboursement partiel inscription :{" "}
-                <strong>{credit.montant_rembourse_inscription.toFixed(2)} €</strong>
-              </li>
-              <li>
-                Frais retenus :{" "}
-                <strong>{credit.frais_tickrace.toFixed(2)} €</strong>
-              </li>
-              <li>
-                Crédit total :{" "}
-                <strong>{credit.credit_total.toFixed(2)} €</strong>
-              </li>
-            </ul>
-          </div>
-        )}
+        <CalculCreditAnnulation
+          prixInscription={
+            (inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)
+          }
+          prixRepas={inscription.prix_total_repas || 0}
+          dateCourse={inscription.date}
+          dateAnnulation={new Date()}
+        />
 
         <div className="flex space-x-4 mt-4">
           <button
@@ -173,14 +122,12 @@ export default function MonInscription() {
           >
             Enregistrer
           </button>
-          {inscription.statut !== "annulé" && (
-            <button
-              onClick={handleCancel}
-              className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
-            >
-              Annuler mon inscription
-            </button>
-          )}
+          <button
+            onClick={handleCancel}
+            className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-700"
+          >
+            Annuler mon inscription
+          </button>
         </div>
       </div>
     </div>
