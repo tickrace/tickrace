@@ -1,42 +1,69 @@
-import React from "react";
+// src/components/CalculCreditAnnulation.jsx
+import React, { useEffect, useState } from "react";
 import dayjs from "dayjs";
 
-export default function CalculCreditAnnulation({ dateCourse, prixInscription = 0, prixRepas = 0 }) {
-  if (!dateCourse) return null;
+export default function CalculCreditAnnulation({
+  prixInscription = 0,
+  prixRepas = 0,
+  dateCourse,
+  dateAnnulation = new Date(),
+}) {
+  const [credit, setCredit] = useState(null);
 
-  const now = dayjs();
-  const courseDate = dayjs(dateCourse);
-  const joursRestants = courseDate.diff(now, "day");
+  useEffect(() => {
+    if (!dateCourse) return;
 
-  const fraisFixes = prixInscription * 0.05;
-  let remboursementInscription = 0;
+    const courseDate = dayjs(dateCourse);
+    const annulationDate = dayjs(dateAnnulation);
+    const joursRestants = courseDate.diff(annulationDate, "day");
 
-  if (joursRestants > 14) {
-    remboursementInscription = prixInscription - fraisFixes;
-  } else if (joursRestants >= 4) {
-    remboursementInscription = (prixInscription * 0.5) - fraisFixes;
-  } else {
-    remboursementInscription = 0;
-  }
+    const fraisInitiaux = prixInscription * 0.05;
+    let remboursementInscription = 0;
+    let pourcentage = 0;
 
-  if (remboursementInscription < 0) remboursementInscription = 0;
+    if (joursRestants > 14) {
+      pourcentage = 1;
+      remboursementInscription = prixInscription - fraisInitiaux;
+    } else if (joursRestants >= 4) {
+      pourcentage = 0.5;
+      remboursementInscription = (prixInscription - fraisInitiaux) * 0.5;
+    } else {
+      pourcentage = 0;
+      remboursementInscription = 0;
+    }
 
-  const remboursementTotal = remboursementInscription + prixRepas;
+    const fraisSupplémentaires = remboursementInscription * 0.05;
+    const montantFinalInscription = remboursementInscription - fraisSupplémentaires;
+
+    const creditTotal = montantFinalInscription + prixRepas;
+
+    setCredit({
+      joursRestants,
+      fraisInitiaux,
+      pourcentage,
+      remboursementInscription,
+      fraisSupplémentaires,
+      montantFinalInscription,
+      prixRepas,
+      creditTotal,
+    });
+  }, [prixInscription, prixRepas, dateCourse, dateAnnulation]);
+
+  if (!credit) return null;
 
   return (
-    <div className="bg-yellow-100 text-yellow-900 border border-yellow-300 rounded p-4 mt-6">
-      <h2 className="font-bold mb-2">Simulation de crédit en cas d'annulation</h2>
-      <p>Date de la course : <strong>{courseDate.format("DD/MM/YYYY")}</strong></p>
-      <p>Jours restants avant la course : <strong>{joursRestants}</strong></p>
-      <ul className="list-disc list-inside my-2">
-        <li>Prix de l’inscription (hors repas) : {prixInscription.toFixed(2)} €</li>
-        <li>Frais de traitement (5 %) : -{fraisFixes.toFixed(2)} €</li>
-        <li>Prix des repas : +{prixRepas.toFixed(2)} €</li>
+    <div className="bg-yellow-100 border border-yellow-400 text-yellow-800 p-4 rounded mt-4">
+      <h2 className="font-semibold mb-2">💡 Simulation de crédit en cas d’annulation</h2>
+      <ul className="space-y-1 text-sm">
+        <li>🗓 Jours restants avant la course : <strong>{credit.joursRestants}</strong></li>
+        <li>💶 Prix de l’inscription : {prixInscription.toFixed(2)} €</li>
+        <li>❌ Frais initiaux retenus (5%) : {credit.fraisInitiaux.toFixed(2)} €</li>
+        <li>✅ Pourcentage remboursé : {(credit.pourcentage * 100).toFixed(0)}%</li>
+        <li>💸 Frais sur le remboursement : {credit.fraisSupplémentaires.toFixed(2)} €</li>
+        <li>🔁 Montant remboursé sur l’inscription : {credit.montantFinalInscription.toFixed(2)} €</li>
+        <li>🍽 Remboursement des repas : {credit.prixRepas.toFixed(2)} €</li>
+        <li className="font-bold mt-2">🎯 Crédit total : {credit.creditTotal.toFixed(2)} €</li>
       </ul>
-      <p>
-        <strong>Crédit estimé :</strong> {remboursementTotal.toFixed(2)} €
-      </p>
-      <p className="text-sm mt-2">Ce crédit sera automatiquement ajouté à votre solde en cas d'annulation.</p>
     </div>
   );
 }
