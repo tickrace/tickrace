@@ -36,8 +36,15 @@ export default function Navbar() {
           <Link to="/courses" className="block px-3 py-2 hover:bg-gray-800 rounded">Courses</Link>
 
           {session && currentRole === "coureur" && (
-            <Link to="/monprofilcoureur" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon Profil</Link>
-          )}
+  <>
+    <Link to="/monprofilcoureur" className="block px-3 py-2 hover:bg-gray-800 rounded">
+      Mon Profil
+    </Link>
+    <Link to="/mes-inscriptions" className="block px-3 py-2 hover:bg-gray-800 rounded">
+      Mes Inscriptions
+    </Link>
+  </>
+)}
 
           {session && currentRole === "organisateur" && (
             <>
