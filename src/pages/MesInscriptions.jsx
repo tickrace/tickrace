@@ -77,11 +77,12 @@ export default function MesInscriptions() {
                   </div>
                   <div className="mt-3 md:mt-0">
                     <Link
-                      to={`/mon-inscription/${id}`}
-                      className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
-                    >
-                      Voir / Modifier
-                    </Link>
+  to={`/mon-inscription/${inscription.id}`}
+  className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
+>
+  Voir / Modifier
+</Link>
+
                   </div>
                 </div>
               </li>
