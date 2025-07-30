@@ -62,7 +62,7 @@ export default function MonInscription() {
     if (!confirm) return;
 
     const { error } = await supabase.functions.invoke("annuler_inscription", {
-      body: { id },
+      body: { inscription_id: id },
     });
 
     if (error) {
