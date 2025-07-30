@@ -1,54 +1,48 @@
 // src/components/CalculCreditAnnulation.jsx
-import React, { useMemo } from "react";
-import dayjs from "dayjs";
+import React from "react";
 
-export default function CalculCreditAnnulation({ prixInscription, prixRepas, dateCourse, dateAnnulation }) {
-  const { creditTotal, creditInscription, creditRepas, fraisTotal, pourcentageRemboursement, type } = useMemo(() => {
-    const dateCourseObj = dayjs(dateCourse);
-    const dateAnnulationObj = dayjs(dateAnnulation);
-    const joursRestants = dateCourseObj.diff(dateAnnulationObj, "day");
+export default function CalculCreditAnnulation({ simulation }) {
+  if (!simulation) return null;
 
-    let pourcentage = 0;
-    let type = "";
+  const {
+    jours_avant_course,
+    pourcentage_remboursement,
+    frais,
+    remboursement_inscription,
+    remboursement_repas,
+    montant_total,
+  } = simulation;
 
-    if (joursRestants > 14) {
-      pourcentage = 1.0;
-      type = "Plus de 14 jours";
-    } else if (joursRestants >= 4) {
-      pourcentage = 0.5;
-      type = "Entre 4 et 14 jours";
-    } else {
-      pourcentage = 0.0;
-      type = "Moins de 4 jours";
-    }
+  const formatEuro = (montant) =>
+    new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+      minimumFractionDigits: 2,
+    }).format(montant);
 
-    const creditInscription = Math.round(prixInscription * pourcentage * 0.95 * 100) / 100; // -5% frais
-    const creditRepas = prixRepas;
-    const fraisTotal = Math.round((prixInscription * 0.05 + prixInscription * (1 - pourcentage) * 0.95) * 100) / 100;
-    const creditTotal = Math.round((creditInscription + creditRepas) * 100) / 100;
+  let typePeriode = "";
+  if (jours_avant_course > 30) {
+    typePeriode = "Plus de 30 jours";
+  } else if (jours_avant_course > 14) {
+    typePeriode = "Entre 15 et 30 jours";
+  } else if (jours_avant_course > 7) {
+    typePeriode = "Entre 8 et 14 jours";
+  } else {
+    typePeriode = "Moins de 8 jours";
+  }
 
-    return {
-      creditTotal,
-      creditInscription,
-      creditRepas,
-      fraisTotal,
-      pourcentageRemboursement: pourcentage * 100,
-      type,
-    };
-  }, [prixInscription, prixRepas, dateCourse, dateAnnulation]);
+  const fraisRetenus = remboursement_inscription * frais;
 
   return (
-    <div className="p-4 mt-6 rounded border border-yellow-400 bg-yellow-50 text-yellow-900">
-      <h2 className="text-lg font-semibold mb-2">Simulation de crédit en cas d’annulation</h2>
-      <ul className="list-disc list-inside text-sm space-y-1">
-        <li><strong>Type de période :</strong> {type}</li>
-        <li><strong>Jours avant la course :</strong> {dayjs(dateCourse).diff(dayjs(dateAnnulation), 'day')} jours</li>
-        <li><strong>Montant inscription :</strong> {prixInscription.toFixed(2)} €</li>
-        <li><strong>Montant repas :</strong> {prixRepas.toFixed(2)} €</li>
-        <li><strong>Remboursement sur inscription :</strong> {creditInscription.toFixed(2)} € ({pourcentageRemboursement}% - frais 5%)</li>
-        <li><strong>Remboursement repas :</strong> {creditRepas.toFixed(2)} €</li>
-        <li><strong>Frais retenus :</strong> {fraisTotal.toFixed(2)} €</li>
-        <li><strong>Crédit total :</strong> {creditTotal.toFixed(2)} €</li>
+    <div className="bg-yellow-100 border-l-4 border-yellow-500 text-yellow-800 p-4 mt-4 rounded-xl shadow-sm">
+      <p className="font-semibold mb-2">Simulation de crédit en cas d’annulation</p>
+      <ul className="space-y-1 text-sm">
+        <li><strong>Type de période :</strong> {typePeriode}</li>
+        <li><strong>Jours avant la course :</strong> {jours_avant_course} jours</li>
+        <li><strong>Remboursement sur inscription :</strong> {formatEuro(remboursement_inscription)}</li>
+        <li><strong>Remboursement repas :</strong> {formatEuro(remboursement_repas)}</li>
+        <li><strong>Frais retenus :</strong> {formatEuro(fraisRetenus)}</li>
+        <li><strong>Crédit total :</strong> {formatEuro(montant_total)}</li>
       </ul>
     </div>
   );
