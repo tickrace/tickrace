@@ -30,13 +30,12 @@ export default function CalculCreditAnnulation({ prixInscription, prixRepas, dat
       type = "Moins de 4 jours";
     }
 
-    const frais = prixInscription * 0.05 + prixInscription * (1 - pourcentage) * 0.95;
-    const montantInscription = Math.abs(prixInscription);
-const creditInscription = Math.round(montantInscription * pourcentage * 0.95 * 100) / 100;
+    const montantInscription = Math.abs(prixInscription); // toujours positif
+    const montantRepas = Math.abs(prixRepas);
 
-    const creditRepas = Math.round(Math.max(prixRepas, 0) * 100) / 100;
+    const creditInscription = Math.round(montantInscription * pourcentage * 0.95 * 100) / 100;
+    const creditRepas = montantRepas;
     const fraisTotal = Math.round((montantInscription * 0.05 + montantInscription * (1 - pourcentage) * 0.95) * 100) / 100;
-
     const creditTotal = Math.round((creditInscription + creditRepas) * 100) / 100;
 
     return {
@@ -56,10 +55,12 @@ const creditInscription = Math.round(montantInscription * pourcentage * 0.95 * 1
       <ul className="list-disc list-inside text-sm space-y-1">
         <li><strong>Type de période :</strong> {type}</li>
         <li><strong>Jours avant la course :</strong> {joursRestants} jours</li>
-       <li><strong>Montant inscription :</strong> {montantInscription.toFixed(2)} €</li>
-
-        <li><strong>Montant repas :</strong> {prixRepas.toFixed(2)} €</li>
-        <li><strong>Remboursement sur inscription :</strong> {creditInscription.toFixed(2)} € ({pourcentageRemboursement}% - frais 5%)</li>
+        <li><strong>Montant inscription :</strong> {Math.abs(prixInscription).toFixed(2)} €</li>
+        <li><strong>Montant repas :</strong> {Math.abs(prixRepas).toFixed(2)} €</li>
+        <li>
+          <strong>Remboursement sur inscription :</strong>{" "}
+          {creditInscription.toFixed(2)} € ({pourcentageRemboursement}% - frais 5%)
+        </li>
         <li><strong>Remboursement repas :</strong> {creditRepas.toFixed(2)} €</li>
         <li><strong>Frais retenus :</strong> {fraisTotal.toFixed(2)} €</li>
         <li><strong>Crédit total :</strong> {creditTotal.toFixed(2)} €</li>
