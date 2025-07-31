@@ -150,8 +150,7 @@ export default function ListeInscriptions() {
                 />
                 <select
   onChange={(e) => setFiltreStatut(e.target.value)}
-  className="border px-2 py-1 rounded"
->
+  className="border px-2 py-1 rounded">
   <option value="">Tous statuts</option>
   <option value="en attente">En attente</option>
   <option value="validé">Validé</option>
