@@ -196,16 +196,22 @@ export default function ListeInscriptions() {
                     <tr key={i.id}>
                       {colonnes.map((col) => (
                         <td key={col.key} className="px-2 py-1 border whitespace-nowrap">
-                          {col.key === "statut" ? (
-                            <select
-                              value={i.statut}
-                              onChange={(e) => handleStatutChange(i.id, e.target.value)}
-                              className="border px-1 py-0.5 rounded text-xs"
-                            >
-                              <option value="en attente">En attente</option>
-                              <option value="validé">Validé</option>
-                              <option value="refusé">Refusé</option>
-                            </select>
+                         {col.key === "statut" ? (
+  i.statut === "annulé" ? (
+    <span className="text-red-600 font-semibold text-xs">Annulé</span>
+  ) : (
+    <select
+      value={i.statut}
+      onChange={(e) => handleStatutChange(i.id, e.target.value)}
+      className="border px-1 py-0.5 rounded text-xs"
+    >
+      <option value="en attente">En attente</option>
+      <option value="validé">Validé</option>
+      <option value="refusé">Refusé</option>
+      <option value="annulé">Annulé</option>
+    </select>
+)
+
                           ) : col.key === "dossard" ? (
                             <input
                               type="number"
