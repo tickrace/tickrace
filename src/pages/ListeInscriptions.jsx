@@ -1,4 +1,4 @@
-
+// src/pages/ListeInscriptions.jsx
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { Download, Plus, X } from "lucide-react";
@@ -8,6 +8,7 @@ export default function ListeInscriptions() {
   const [inscriptions, setInscriptions] = useState([]);
   const [formats, setFormats] = useState([]);
   const [modalOpen, setModalOpen] = useState(null);
+  const [modalsExportOpen, setModalsExportOpen] = useState({});
   const [nouvelleInscription, setNouvelleInscription] = useState({});
   const [recherche, setRecherche] = useState("");
   const [filtreStatut, setFiltreStatut] = useState("");
@@ -136,7 +137,8 @@ export default function ListeInscriptions() {
         const page = pageParFormat[format.id] || 1;
         const deb = (page - 1) * lignesParPage;
         const inscriptionsPage = inscriptionsFiltrees.slice(deb, deb + lignesParPage);
-        const [modalExportOpen, setModalExportOpen] = useState(false);
+        const modalExportOpen = modalsExportOpen[format.id] || false;
+
         return (
           <div key={format.id} className="mb-12 border p-4 rounded-lg bg-white shadow">
             <div className="flex justify-between items-center mb-2">
@@ -149,14 +151,15 @@ export default function ListeInscriptions() {
                   onChange={(e) => setRecherche(e.target.value)}
                 />
                 <select
-  onChange={(e) => setFiltreStatut(e.target.value)}
-  className="border px-2 py-1 rounded">
-  <option value="">Tous statuts</option>
-  <option value="en attente">En attente</option>
-  <option value="validé">Validé</option>
-  <option value="refusé">Refusé</option>
-  <option value="annulé">Annulé</option>
-</select>
+                  onChange={(e) => setFiltreStatut(e.target.value)}
+                  className="border px-2 py-1 rounded"
+                >
+                  <option value="">Tous statuts</option>
+                  <option value="en attente">En attente</option>
+                  <option value="validé">Validé</option>
+                  <option value="refusé">Refusé</option>
+                  <option value="annulé">Annulé</option>
+                </select>
 
                 <button
                   onClick={() => handleExportCSV(format.id)}
@@ -164,13 +167,14 @@ export default function ListeInscriptions() {
                 >
                   <Download size={16} /> Export CSV
                 </button>
-<button
-  onClick={() => setModalExportOpen(true)}
-  className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
->
-  <Download size={16} /> Export CSV selectif
-</button>
-
+                <button
+                  onClick={() =>
+                    setModalsExportOpen((prev) => ({ ...prev, [format.id]: true }))
+                  }
+                  className="flex items-center gap-1 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded"
+                >
+                  <Download size={16} /> Export CSV selectif
+                </button>
                 <button
                   onClick={() => setModalOpen(format.id)}
                   className="flex items-center gap-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded"
@@ -196,22 +200,20 @@ export default function ListeInscriptions() {
                     <tr key={i.id}>
                       {colonnes.map((col) => (
                         <td key={col.key} className="px-2 py-1 border whitespace-nowrap">
-                         {col.key === "statut" ? (
-  i.statut === "annulé" ? (
-    <span className="text-red-600 font-semibold text-xs">Annulé</span>
-  ) : (
-    <select
-      value={i.statut}
-      onChange={(e) => handleStatutChange(i.id, e.target.value)}
-      className="border px-1 py-0.5 rounded text-xs"
-    >
-      <option value="en attente">En attente</option>
-      <option value="validé">Validé</option>
-      <option value="refusé">Refusé</option>
-      <option value="annulé">Annulé</option>
-    </select>
-)
-
+                          {col.key === "statut" ? (
+                            i.statut === "annulé" ? (
+                              <span className="italic text-gray-600">{i.statut}</span>
+                            ) : (
+                              <select
+                                value={i.statut}
+                                onChange={(e) => handleStatutChange(i.id, e.target.value)}
+                                className="border px-1 py-0.5 rounded text-xs"
+                              >
+                                <option value="en attente">En attente</option>
+                                <option value="validé">Validé</option>
+                                <option value="refusé">Refusé</option>
+                              </select>
+                            )
                           ) : col.key === "dossard" ? (
                             <input
                               type="number"
@@ -242,73 +244,6 @@ export default function ListeInscriptions() {
                 </tbody>
               </table>
             </div>
-
-            <div className="flex justify-between mt-2 text-sm">
-              <span>
-                Page {page} / {Math.ceil(inscriptionsFiltrees.length / lignesParPage)}
-              </span>
-              <div className="flex gap-1">
-                <button
-                  disabled={page === 1}
-                  onClick={() =>
-                    setPageParFormat((prev) => ({ ...prev, [format.id]: page - 1 }))
-                  }
-                  className="px-2 py-1 border rounded disabled:opacity-50"
-                >
-                  Préc.
-                </button>
-                <button
-                  disabled={page * lignesParPage >= inscriptionsFiltrees.length}
-                  onClick={() =>
-                    setPageParFormat((prev) => ({ ...prev, [format.id]: page + 1 }))
-                  }
-                  className="px-2 py-1 border rounded disabled:opacity-50"
-                >
-                  Suiv.
-                </button>
-              </div>
-            </div>
-
-            {modalOpen === format.id && (
-              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                <div className="bg-white p-6 rounded shadow max-h-[90vh] overflow-auto">
-                  <h3 className="text-lg font-semibold mb-2">Ajout d’un coureur</h3>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    {colonnes.map((col) => (
-                      <div key={col.key}>
-                        <label className="block text-gray-700 text-xs">{col.label}</label>
-                        <input
-                          type="text"
-                          value={nouvelleInscription[col.key] || ""}
-                          onChange={(e) =>
-                            setNouvelleInscription((prev) => ({
-                              ...prev,
-                              [col.key]: e.target.value,
-                              format_id: format.id,
-                            }))
-                          }
-                          className="w-full border px-2 py-1 rounded"
-                        />
-                      </div>
-                    ))}
-                  </div>
-                  <div className="flex justify-between mt-4">
-                    <button
-                      onClick={handleAjoutInscription}
-                      className="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded"
-                    >
-                      Enregistrer
-                    </button>
-                    <button
-                      onClick={() => setModalOpen(null)}
-                      className="bg-gray-400 hover:bg-gray-500 text-white px-4 py-2 rounded"
-                    >
-                      <X size={16} />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
           </div>
         );
       })}
