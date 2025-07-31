@@ -14,7 +14,8 @@ export default function CalculCreditAnnulation({ prixInscription, prixRepas, dat
   } = useMemo(() => {
     const dateCourseObj = dayjs(dateCourse);
     const dateAnnulationObj = dayjs(dateAnnulation);
-    const joursRestants = dateCourseObj.diff(dateAnnulationObj, "day");
+    const joursRestants = dateCourseObj.startOf("day").diff(dateAnnulationObj.startOf("day"), "day");
+
 
    let pourcentage = 0;
 let type = "";
