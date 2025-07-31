@@ -126,7 +126,8 @@ export default function ListeInscriptions() {
     <div className="p-4">
       <h2 className="text-2xl font-semibold mb-4">Inscriptions</h2>
 
-      {formats.map((format) => {
+      {formats.filter(Boolean).map((format) => {
+
         const inscriptionsFiltrees = inscriptions.filter(
           (i) =>
             i.format_id === format.id &&
