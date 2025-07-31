@@ -128,12 +128,22 @@ export default function ListeInscriptions() {
 
       {formats.filter(Boolean).map((format) => {
 
-        const inscriptionsFiltrees = inscriptions.filter(
-          (i) =>
-            i.format_id === format.id &&
-            (filtreStatut ? i.statut === filtreStatut : true) &&
-            `${i.nom} ${i.prenom}`.toLowerCase().includes(recherche.toLowerCase())
-        );
+       const fetchInscriptions = async () => {
+  const { data, error } = await supabase
+    .from("inscriptions")
+    .select("*, formats (id, nom)");
+
+  if (!error) {
+    const inscriptionsValides = data.filter((i) => i.formats !== null);
+    setInscriptions(inscriptionsValides);
+
+    const formatsUniques = Array.from(
+      new Map(inscriptionsValides.map((i) => [i.format_id, i.formats])).values()
+    );
+
+    setFormats(formatsUniques);
+  }
+};
 
         const page = pageParFormat[format.id] || 1;
         const deb = (page - 1) * lignesParPage;
