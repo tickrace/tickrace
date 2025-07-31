@@ -16,19 +16,22 @@ export default function CalculCreditAnnulation({ prixInscription, prixRepas, dat
     const dateAnnulationObj = dayjs(dateAnnulation);
     const joursRestants = dateCourseObj.diff(dateAnnulationObj, "day");
 
-    let pourcentage = 0;
-    let type = "";
+   let pourcentage = 0;
+let type = "";
 
-    if (joursRestants > 14) {
-      pourcentage = 1.0;
-      type = "Plus de 14 jours";
-    } else if (joursRestants >= 4) {
-      pourcentage = 0.5;
-      type = "Entre 4 et 14 jours";
-    } else {
-      pourcentage = 0.0;
-      type = "Moins de 4 jours";
-    }
+if (joursRestants > 60) {
+  pourcentage = 0.95; // Remboursement de 95 %, on conserve 5 %
+  type = "Plus de 60 jours";
+} else if (joursRestants >= 4) {
+  // Remboursement progressif entre 4 et 60 jours
+  const progression = (joursRestants - 3) / (60 - 3); // Valeur entre 0 et 1
+  pourcentage = Math.round(progression * 95) / 100; // De 0.05 à 0.95
+  type = `Annulation ${joursRestants} jours avant`;
+} else {
+  pourcentage = 0; // Aucun remboursement à moins de 4 jours
+  type = "Moins de 4 jours";
+}
+
 
     const montantInscription = Math.abs(prixInscription); // toujours positif
     const montantRepas = Math.abs(prixRepas);
