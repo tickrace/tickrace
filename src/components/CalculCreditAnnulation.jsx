@@ -8,46 +8,43 @@ export default function CalculCreditAnnulation({ prixInscription, prixRepas, dat
     creditInscription,
     creditRepas,
     fraisTotal,
-    pourcentageRemboursement,
+    pourcentageConserve,
     type,
     joursRestants,
   } = useMemo(() => {
-    const dateCourseObj = dayjs(dateCourse);
-    const dateAnnulationObj = dayjs(dateAnnulation);
-    const joursRestants = dateCourseObj.startOf("day").diff(dateAnnulationObj.startOf("day"), "day");
+    const dateCourseObj = dayjs(dateCourse).startOf("day");
+    const dateAnnulationObj = dayjs(dateAnnulation).startOf("day");
+    const joursRestants = dateCourseObj.diff(dateAnnulationObj, "day");
 
+    let pourcentageConserve = 0;
+    let type = "";
 
-   let pourcentage = 0;
-let type = "";
+    if (joursRestants > 60) {
+      pourcentageConserve = 0.05;
+      type = "Plus de 60 jours";
+    } else if (joursRestants >= 4) {
+      const progression = (joursRestants - 3) / (60 - 3); // entre 0 et 1
+      pourcentageConserve = Math.round((1 - progression * 0.95) * 100) / 100;
+      type = `Annulation ${joursRestants} jours avant`;
+    } else {
+      pourcentageConserve = 1.0;
+      type = "Moins de 4 jours";
+    }
 
-if (joursRestants > 60) {
-  pourcentage = 0.95; // Remboursement de 95 %, on conserve 5 %
-  type = "Plus de 60 jours";
-} else if (joursRestants >= 4) {
-  // Remboursement progressif entre 4 et 60 jours
-  const progression = (joursRestants - 3) / (60 - 3); // Valeur entre 0 et 1
-  pourcentage = Math.round(progression * 95) / 100; // De 0.05 à 0.95
-  type = `Annulation ${joursRestants} jours avant`;
-} else {
-  pourcentage = 0; // Aucun remboursement à moins de 4 jours
-  type = "Moins de 4 jours";
-}
-
-
-    const montantInscription = Math.abs(prixInscription); // toujours positif
+    const montantInscription = Math.abs(prixInscription);
     const montantRepas = Math.abs(prixRepas);
 
-    const creditInscription = Math.round(montantInscription * pourcentage * 0.95 * 100) / 100;
-    const creditRepas = montantRepas;
-    const fraisTotal = Math.round((montantInscription * 0.05 + montantInscription * (1 - pourcentage) * 0.95) * 100) / 100;
-    const creditTotal = Math.round((creditInscription + creditRepas) * 100) / 100;
+    const remboursementInscription = Math.round(montantInscription * (1 - pourcentageConserve) * 100) / 100;
+    const remboursementRepas = montantRepas;
+    const frais = Math.round(montantInscription * pourcentageConserve * 100) / 100;
+    const total = Math.round((remboursementInscription + remboursementRepas) * 100) / 100;
 
     return {
-      creditTotal,
-      creditInscription,
-      creditRepas,
-      fraisTotal,
-      pourcentageRemboursement: pourcentage * 100,
+      creditTotal: total,
+      creditInscription: remboursementInscription,
+      creditRepas: remboursementRepas,
+      fraisTotal: frais,
+      pourcentageConserve: pourcentageConserve * 100,
       type,
       joursRestants,
     };
@@ -63,7 +60,7 @@ if (joursRestants > 60) {
         <li><strong>Montant repas :</strong> {Math.abs(prixRepas).toFixed(2)} €</li>
         <li>
           <strong>Remboursement sur inscription :</strong>{" "}
-          {creditInscription.toFixed(2)} € ({pourcentageRemboursement}% - frais 5%)
+          {creditInscription.toFixed(2)} € ({(100 - pourcentageConserve).toFixed(2)}% remboursé)
         </li>
         <li><strong>Remboursement repas :</strong> {creditRepas.toFixed(2)} €</li>
         <li><strong>Frais retenus :</strong> {fraisTotal.toFixed(2)} €</li>
