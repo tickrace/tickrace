@@ -97,12 +97,10 @@ export default function ModalAjoutCoureur({
       course_id: defaultCourseId ?? format?.course_id ?? null,
       format_id: format?.id ?? null,
       prix_total_repas: form.prix_total_repas || 0,
+      coureur_id: null, // 🔐 pour respecter la policy RLS
     };
 
-    // 🔐 suppression forcée de coureur_id
-    delete payload.coureur_id;
-
-    console.log("Payload final à insérer :", payload); // debug
+    console.log("Payload final à insérer :", payload);
 
     const { error } = await supabase.from("inscriptions").insert([payload]);
     if (error) {
