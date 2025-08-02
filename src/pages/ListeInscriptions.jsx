@@ -53,16 +53,32 @@ export default function ListeInscriptions() {
   };
 
   const handleAddCoureur = async () => {
+    if (!format_id) {
+      console.error("❌ format_id manquant !");
+      return;
+    }
+
+    console.log("📦 Ajout d'un coureur avec format_id :", format_id);
+
     const { data, error } = await supabase
       .from("inscriptions")
-      .insert([{ format_id, statut: "en attente", nombre_repas: 0 }])
+      .insert([
+        {
+          format_id: format_id.toString(),
+          statut: "en attente",
+          nombre_repas: 0,
+        },
+      ])
       .select();
 
     if (error) {
-      console.error(error);
+      console.error("❌ Erreur lors de l'insertion du coureur :", error);
+      alert("Erreur : impossible d'ajouter un coureur. Détails dans la console.");
       return;
     }
-    if (data?.[0]) fetchInscriptions();
+
+    console.log("✅ Coureur ajouté :", data);
+    fetchInscriptions();
   };
 
   const handlePageChange = (direction) => {
@@ -95,7 +111,6 @@ export default function ListeInscriptions() {
     );
   };
 
-  // ---- Filtres + pagination ----
   const filtered = inscriptions.filter((insc) => {
     const matchesSearch = Object.values(insc || {})
       .join(" ")
@@ -108,7 +123,6 @@ export default function ListeInscriptions() {
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const paginated = filtered.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);
 
-  // ---- Calcul total des repas ----
   const totalRepas = filtered.reduce((sum, insc) => sum + (parseInt(insc.nombre_repas) || 0), 0);
 
   return (
@@ -223,7 +237,6 @@ export default function ListeInscriptions() {
             </tbody>
           </table>
 
-          {/* Total des repas */}
           <div className="mt-3 text-sm font-semibold">
             🍽️ Total repas réservés : {totalRepas}
           </div>
