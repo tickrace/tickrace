@@ -369,18 +369,22 @@ export default function InscriptionCourse() {
     }
 
     // Paiement Stripe
-    const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        inscriptions,
-        prix_total: inscriptions.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0),
-        user_id: user.id,
-        course_id: courseId,
-      }),
-    });
+   const token = session.data.session.access_token;
+
+const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
+  method: "POST",
+  headers: {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${token}`,
+  },
+  body: JSON.stringify({
+    inscriptions,
+    prix_total: inscriptions.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0),
+    user_id: user.id,
+    course_id: courseId,
+  }),
+});
+
 
     const data = await response.json();
     if (data.url) {
