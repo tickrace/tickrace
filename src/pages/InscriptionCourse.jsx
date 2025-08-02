@@ -155,6 +155,9 @@ export default function InscriptionCourse() {
 
     setInscriptions(updated);
   };
+// src/pages/InscriptionCourse.jsx
+
+// ... (tout le haut du fichier inchangé)
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -171,13 +174,18 @@ export default function InscriptionCourse() {
         return;
       }
 
-      const { error } = await supabase.from("inscriptions").insert([
-        {
-          ...inscription,
-          course_id: courseId,
-          format_id: inscription.format_id,
-        },
-      ]);
+      // 🔥 Modification ici : on récupère l’ID de l’inscription insérée
+      const { data: insertedData, error } = await supabase
+        .from("inscriptions")
+        .insert([
+          {
+            ...inscription,
+            course_id: courseId,
+            format_id: inscription.format_id,
+          },
+        ])
+        .select()
+        .single();
 
       if (error) {
         console.error("Erreur insertion :", error);
@@ -193,12 +201,13 @@ export default function InscriptionCourse() {
             Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
           },
           body: JSON.stringify({
-            email: inscription.email,
             prenom: inscription.prenom,
             nom: inscription.nom,
+            email: inscription.email,
             format_nom: selectedFormat.nom,
             course_nom: course.nom,
             date: selectedFormat.date,
+            inscription_id: insertedData.id, // ✅ envoyé au backend
           }),
         });
       } catch (e) {
@@ -208,6 +217,10 @@ export default function InscriptionCourse() {
 
     setMessage("Inscriptions enregistrées ! Vous recevrez un email de confirmation.");
   };
+
+// ... (tout le reste inchangé)
+
+
 
   if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
 
