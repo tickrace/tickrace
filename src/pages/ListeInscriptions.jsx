@@ -1,132 +1,262 @@
-// src/pages/ListeInscriptions.jsx
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
-import { Download, Plus, X } from "lucide-react";
+import { Link, useParams } from "react-router-dom";
 import ExportCSVModal from "../components/ExportCSVModal";
 
 export default function ListeInscriptions() {
+  const { format_id } = useParams();
   const [inscriptions, setInscriptions] = useState([]);
-  const [formats, setFormats] = useState([]);
-  const [modalOpen, setModalOpen] = useState(null);
-  const [nouvelleInscription, setNouvelleInscription] = useState({});
-  const [recherche, setRecherche] = useState("");
-  const [filtreStatut, setFiltreStatut] = useState("");
-  const [pageParFormat, setPageParFormat] = useState({});
-  const lignesParPage = 10;
+  const [formatNom, setFormatNom] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statutFilter, setStatutFilter] = useState("");
+  const [modalExportOpen, setModalExportOpen] = useState(false);
+  const [exportData, setExportData] = useState([]);
+  const [colonnes, setColonnes] = useState([]);
+  const [page, setPage] = useState(0);
+
+  const ITEMS_PER_PAGE = 50;
 
   useEffect(() => {
-    fetchInscriptions();
-  }, []);
+    if (format_id) {
+      fetchInscriptions();
+    }
+  }, [format_id]);
 
   const fetchInscriptions = async () => {
     const { data, error } = await supabase
       .from("inscriptions")
-      .select("*, formats (id, nom)");
+      .select("*, formats(id, nom)")
+      .eq("format_id", format_id)
+      .order("created_at", { ascending: true });
 
-    if (!error) {
-      const inscriptionsValides = data.filter((i) => i.formats !== null);
-      setInscriptions(inscriptionsValides);
+    if (error) {
+      console.error(error);
+      return;
+    }
 
-      const formatsUniques = Array.from(
-        new Map(inscriptionsValides.map((i) => [i.format_id, i.formats])).values()
+    setInscriptions(data || []);
+    setFormatNom(data?.[0]?.formats?.nom || "");
+    setPage(0);
+  };
+
+  const handleUpdateChamp = async (id, field, value) => {
+    const { error } = await supabase
+      .from("inscriptions")
+      .update({ [field]: value })
+      .eq("id", id);
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+    fetchInscriptions();
+  };
+
+  const handleAddCoureur = async () => {
+    const { data, error } = await supabase
+      .from("inscriptions")
+      .insert([{ format_id, statut: "en attente", nombre_repas: 0 }])
+      .select();
+
+    if (error) {
+      console.error(error);
+      return;
+    }
+    if (data?.[0]) fetchInscriptions();
+  };
+
+  const handlePageChange = (direction) => {
+    setPage((prev) => Math.max(0, prev + direction));
+  };
+
+  const renderEditableCell = (value, id, field, type = "text") => {
+    if (field === "statut") {
+      return (
+        <select
+          className="w-full border rounded px-1 py-0.5"
+          defaultValue={value || ""}
+          onBlur={(e) => handleUpdateChamp(id, field, e.target.value)}
+        >
+          <option value="en attente">En attente</option>
+          <option value="validé">Validé</option>
+          <option value="refusé">Refusé</option>
+          <option value="annulé">Annulé</option>
+        </select>
       );
-      setFormats(formatsUniques);
     }
-  };
 
-  const handleAjoutInscription = async () => {
-    if (!nouvelleInscription.format_id || !nouvelleInscription.nom) return;
-
-    const { error } = await supabase.from("inscriptions").insert([nouvelleInscription]);
-    if (!error) {
-      setNouvelleInscription({});
-      setModalOpen(null);
-      fetchInscriptions();
-    }
-  };
-
-  const handleStatutChange = async (id, statut) => {
-    await supabase.from("inscriptions").update({ statut }).eq("id", id);
-    setInscriptions((prev) =>
-      prev.map((i) => (i.id === id ? { ...i, statut } : i))
+    return (
+      <input
+        type={type}
+        className="w-full border rounded px-1 py-0.5"
+        defaultValue={value || ""}
+        onBlur={(e) => handleUpdateChamp(id, field, e.target.value)}
+      />
     );
   };
 
-  const handleExportCSV = (formatId) => {
-    const inscriptionsFiltrees = inscriptions.filter((i) => i.format_id === formatId);
-    const colonnes = [
-      "dossard",
-      "nom",
-      "prenom",
-      "genre",
-      "date_naissance",
-      "nationalite",
-      "email",
-      "telephone",
-      "adresse",
-      "adresse_complement",
-      "code_postal",
-      "ville",
-      "pays",
-      "apparaitre_resultats",
-      "club",
-      "justificatif_type",
-      "numero_licence",
-      "contact_urgence_nom",
-      "contact_urgence_telephone",
-      "statut",
-      "created_at",
-      "nombre_repas",
-      "prix_total_repas",
-    ];
+  // ---- Filtres + pagination ----
+  const filtered = inscriptions.filter((insc) => {
+    const matchesSearch = Object.values(insc || {})
+      .join(" ")
+      .toLowerCase()
+      .includes(searchTerm);
+    const matchesStatut = !statutFilter || insc.statut === statutFilter;
+    return matchesSearch && matchesStatut;
+  });
 
-    const csvContent = [
-      colonnes.join(","),
-      ...inscriptionsFiltrees.map((i) =>
-        colonnes.map((c) => `"${i[c] ?? ""}"`).join(",")
-      ),
-    ].join("\n");
+  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const paginated = filtered.slice(page * ITEMS_PER_PAGE, (page + 1) * ITEMS_PER_PAGE);
 
-    const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.setAttribute("download", `inscriptions_${formatId}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  const colonnes = [
-    { key: "dossard", label: "Dossard" },
-    { key: "nom", label: "Nom" },
-    { key: "prenom", label: "Prénom" },
-    { key: "genre", label: "Genre" },
-    { key: "date_naissance", label: "Date de naissance" },
-    { key: "nationalite", label: "Nationalité" },
-    { key: "email", label: "Email" },
-    { key: "telephone", label: "Téléphone" },
-    { key: "adresse", label: "Adresse" },
-    { key: "adresse_complement", label: "Complément d'adresse" },
-    { key: "code_postal", label: "Code postal" },
-    { key: "ville", label: "Ville" },
-    { key: "pays", label: "Pays" },
-    { key: "apparaitre_resultats", label: "Apparaît dans les résultats" },
-    { key: "club", label: "Club" },
-    { key: "justificatif_type", label: "Justificatif" },
-    { key: "numero_licence", label: "Licence" },
-    { key: "contact_urgence_nom", label: "Nom contact urgence" },
-    { key: "contact_urgence_telephone", label: "Téléphone urgence" },
-    { key: "statut", label: "Statut" },
-    { key: "created_at", label: "Date inscription" },
-    { key: "nombre_repas", label: "Repas" },
-    { key: "prix_total_repas", label: "Prix repas (€)" },
-  ];
+  // ---- Calcul total des repas ----
+  const totalRepas = filtered.reduce((sum, insc) => sum + (parseInt(insc.nombre_repas) || 0), 0);
 
   return (
-    <div className="p-4">
-      <h2 className="text-2xl font-semibold mb-4">Inscriptions</h2>
-      {/* ... le reste du JSX est inchangé ... */}
+    <div className="p-6 space-y-8">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-semibold">Inscriptions</h1>
+          {formatNom && (
+            <span className="text-gray-600">
+              — Format : <strong>{formatNom}</strong>
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-2">
+          <input
+            type="text"
+            placeholder="Recherche..."
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value.toLowerCase())}
+            className="border px-3 py-1 rounded w-full md:w-64"
+          />
+          <select
+            value={statutFilter}
+            onChange={(e) => setStatutFilter(e.target.value)}
+            className="border px-3 py-1 rounded"
+          >
+            <option value="">Tous les statuts</option>
+            <option value="en attente">En attente</option>
+            <option value="validé">Validé</option>
+            <option value="refusé">Refusé</option>
+            <option value="refusé">Annulé</option>
+          </select>
+          <button
+            onClick={handleAddCoureur}
+            className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
+          >
+            + Ajouter un coureur
+          </button>
+          <button
+            onClick={() => {
+              setColonnes([
+                "nom", "prenom", "genre", "date_naissance", "nationalite",
+                "email", "telephone", "adresse", "code_postal", "ville",
+                "pays", "club", "dossard", "nombre_repas", "statut", "created_at"
+              ]);
+              setExportData(filtered.map(({ formats, ...rest }) => rest));
+              setModalExportOpen(true);
+            }}
+            className="px-3 py-1 bg-blue-600 text-white rounded hover:bg-blue-700"
+          >
+            Exporter CSV
+          </button>
+        </div>
+      </div>
+
+      <div className="border border-gray-300 p-4 rounded-md">
+        <div className="overflow-x-auto">
+          <table className="min-w-full border-collapse border border-gray-300 text-sm">
+            <thead className="bg-gray-100">
+              <tr>
+                <th className="border px-2 py-1">Nom</th>
+                <th className="border px-2 py-1">Prénom</th>
+                <th className="border px-2 py-1">Dossard</th>
+                <th className="border px-2 py-1">Email</th>
+                <th className="border px-2 py-1">Club</th>
+                <th className="border px-2 py-1">Repas</th>
+                <th className="border px-2 py-1">Statut</th>
+                <th className="border px-2 py-1">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {paginated.map((insc) => (
+                <tr key={insc.id}>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.nom, insc.id, "nom")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.prenom, insc.id, "prenom")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.dossard, insc.id, "dossard", "number")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.email, insc.id, "email")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.club, insc.id, "club")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.nombre_repas, insc.id, "nombre_repas", "number")}
+                  </td>
+                  <td className="border px-2 py-1">
+                    {renderEditableCell(insc.statut, insc.id, "statut")}
+                  </td>
+                  <td className="border px-2 py-1 text-center">
+                    <Link
+                      to={`/details-coureur/${insc.id}`}
+                      className="text-blue-600 underline"
+                    >
+                      Détails
+                    </Link>
+                  </td>
+                </tr>
+              ))}
+              {paginated.length === 0 && (
+                <tr>
+                  <td colSpan={8} className="text-center text-gray-500 py-4">
+                    Aucune inscription trouvée pour ce format.
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+
+          {/* Total des repas */}
+          <div className="mt-3 text-sm font-semibold">
+            🍽️ Total repas réservés : {totalRepas}
+          </div>
+
+          <div className="flex justify-between mt-2">
+            <button
+              onClick={() => handlePageChange(-1)}
+              className="px-2 py-1 border rounded disabled:opacity-50"
+              disabled={page === 0}
+            >
+              Précédent
+            </button>
+            <span className="text-sm">
+              Page {Math.min(page + 1, totalPages)} / {totalPages}
+            </span>
+            <button
+              onClick={() => handlePageChange(1)}
+              className="px-2 py-1 border rounded disabled:opacity-50"
+              disabled={(page + 1) * ITEMS_PER_PAGE >= filtered.length}
+            >
+              Suivant
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <ExportCSVModal
+        isOpen={modalExportOpen}
+        onClose={() => setModalExportOpen(false)}
+        colonnes={colonnes}
+        donnees={exportData}
+        nomFichier={`inscriptions_format_${format_id}.csv`}
+      />
     </div>
   );
 }
