@@ -1,11 +1,8 @@
-// Stripe paiement intégré – version test
+// src/pages/InscriptionCourse.jsx
 
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
-import PPSVerifier from "../components/PPSVerifier";
-import UploadPPS from "../components/UploadPPS";
-
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
@@ -50,13 +47,53 @@ export default function InscriptionCourse() {
         .single();
 
       if (profil) {
-        addInscription({
-          ...defaultCoureur(),
-          ...profil,
-          coureur_id: user.id,
-          prix_total_coureur: 0,
-        });
-      } else {
+  const {
+    nom,
+    prenom,
+    email,
+    genre,
+    date_naissance,
+    nationalite,
+    telephone,
+    adresse,
+    adresse_complement,
+    code_postal,
+    ville,
+    pays,
+    apparaitre_resultats,
+    club,
+    justificatif_type,
+    numero_licence,
+    pps_identifier,
+    contact_urgence_nom,
+    contact_urgence_telephone,
+  } = profil;
+
+  addInscription({
+    ...defaultCoureur(),
+    nom,
+    prenom,
+    email,
+    genre,
+    date_naissance,
+    nationalite,
+    telephone,
+    adresse,
+    adresse_complement,
+    code_postal,
+    ville,
+    pays,
+    apparaitre_resultats,
+    club,
+    justificatif_type,
+    numero_licence,
+    pps_identifier,
+    contact_urgence_nom,
+    contact_urgence_telephone,
+    coureur_id: user.id,
+    prix_total_coureur: 0,
+  });
+} else {
         addInscription(defaultCoureur());
       }
     };
@@ -84,14 +121,12 @@ export default function InscriptionCourse() {
     club: "",
     justificatif_type: "",
     numero_licence: "",
+    pps_identifier: "",
     contact_urgence_nom: "",
     contact_urgence_telephone: "",
     nombre_repas: 0,
     prix_total_repas: 0,
     prix_total_coureur: 0,
-    justificatif_url: "",
-    pps_identifier: "",
-    pps_expiry_date: "",
   });
 
   const addInscription = (inscription = defaultCoureur()) => {
@@ -121,35 +156,8 @@ export default function InscriptionCourse() {
     setInscriptions(updated);
   };
 
-  const handlePPSData = (data, index) => {
-    const updated = [...inscriptions];
-    updated[index].nom = data.last_name;
-    updated[index].prenom = data.first_name;
-    updated[index].date_naissance = data.birthdate;
-    updated[index].genre = data.gender === "male" ? "Homme" : "Femme";
-    updated[index].pps_identifier = data.pps_identifier || "";
-    updated[index].pps_expiry_date = data.pps_expiry_date || "";
-    updated[index].justificatif_type = "pps";
-    setInscriptions(updated);
-  };
-
-  const prixTotalGlobal = inscriptions.reduce(
-    (acc, insc) => acc + (insc.prix_total_coureur || 0),
-    0
-  );
-
-  const handlePaiement = async () => {
-    if (inscriptions.length === 0) {
-      setMessage("Ajoutez au moins un coureur.");
-      return;
-    }
-
-    const session = await supabase.auth.getSession();
-    const user = session.data?.session?.user;
-    if (!user) {
-      setMessage("Vous devez être connecté pour payer.");
-      return;
-    }
+  const handleSubmit = async (e) => {
+    e.preventDefault();
 
     for (const inscription of inscriptions) {
       if (!inscription.format_id) {
@@ -163,117 +171,232 @@ export default function InscriptionCourse() {
         return;
       }
 
-      const { error } = await supabase.from("inscriptions").insert([{
-        ...inscription,
-        statut: "en attente",
-        course_id: courseId,
-      }]);
+      const { error } = await supabase.from("inscriptions").insert([
+        {
+          ...inscription,
+          course_id: courseId,
+          format_id: inscription.format_id,
+        },
+      ]);
 
       if (error) {
         console.error("Erreur insertion :", error);
         alert("Erreur lors de l'inscription");
         return;
       }
-    }
 
-    const infosCoureur = inscriptions[0];
-    try {
-      const response = await fetch(
-        "https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session",
-        {
+      try {
+        await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/send-inscription-email", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+          },
           body: JSON.stringify({
-            user_id: user.id,
-            nom: infosCoureur.nom,
-            prenom: infosCoureur.prenom,
-            email: infosCoureur.email,
-            montant_total: prixTotalGlobal,
-            format_id: infosCoureur.format_id,
+            email: inscription.email,
+            prenom: inscription.prenom,
+            nom: inscription.nom,
+            format_nom: selectedFormat.nom,
+            course_nom: course.nom,
+            date: selectedFormat.date,
           }),
-        }
-      );
-
-      const data = await response.json();
-      if (data.checkout_url) {
-        window.location.href = data.checkout_url;
-      } else {
-        setMessage("Erreur : impossible de créer la session de paiement.");
+        });
+      } catch (e) {
+        console.error("Erreur email :", e);
       }
-    } catch (err) {
-      console.error("Erreur Stripe :", err);
-      setMessage("Une erreur est survenue.");
     }
+
+    setMessage("Inscriptions enregistrées ! Vous recevrez un email de confirmation.");
   };
 
-  if (!course || formats.length === 0)
-    return <div className="p-6">Chargement...</div>;
+  if (!course || formats.length === 0) return <div className="p-6">Chargement...</div>;
 
   return (
     <div className="p-6 max-w-4xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Inscription à : {course.nom}</h1>
-      <form onSubmit={(e) => e.preventDefault()} className="space-y-6">
+      <form onSubmit={handleSubmit} className="space-y-6">
         {inscriptions.map((inscription, index) => {
           const selectedFormat = formats.find((f) => f.id === inscription.format_id);
           return (
             <div key={index} className="border p-4 rounded bg-gray-50 space-y-3">
-              <h2 className="text-lg font-semibold flex justify-between">
-                Coureur {index + 1}
-                <button
-                  type="button"
-                  onClick={() => removeInscription(index)}
-                  className="text-red-600 text-sm"
+              <h2 className="text-lg font-semibold">Coureur {index + 1}</h2>
+
+              <div>
+                <label className="font-semibold">Format :</label>
+                <select
+                  name="format_id"
+                  value={inscription.format_id}
+                  onChange={(e) => handleChange(index, e)}
+                  className="border p-2 w-full"
+                  required
                 >
-                  Supprimer
-                </button>
-              </h2>
+                  <option value="">-- Sélectionnez un format --</option>
+                  {formats.map((f) => (
+                    <option key={f.id} value={f.id} disabled={f.inscrits >= f.nb_max_coureurs}>
+                      {f.nom} - {f.date} - {f.distance_km} km / {f.denivele_dplus} m D+
+                    </option>
+                  ))}
+                </select>
+              </div>
 
-              {/* [Ajoute ici les champs du coureur comme nom, prénom, email, etc.] */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                <input name="nom" placeholder="Nom" value={inscription.nom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="prenom" placeholder="Prénom" value={inscription.prenom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <select name="genre" value={inscription.genre} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
+                  <option value="">Genre</option>
+                  <option value="Homme">Homme</option>
+                  <option value="Femme">Femme</option>
+                </select>
+                <input type="date" name="date_naissance" value={inscription.date_naissance} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="nationalite" placeholder="Nationalité" value={inscription.nationalite} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="email" placeholder="Email" value={inscription.email} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="telephone" placeholder="Téléphone" value={inscription.telephone} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="adresse" placeholder="Adresse" value={inscription.adresse} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="adresse_complement" placeholder="Complément adresse" value={inscription.adresse_complement} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="code_postal" placeholder="Code postal" value={inscription.code_postal} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="ville" placeholder="Ville" value={inscription.ville} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="pays" placeholder="Pays" value={inscription.pays} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                <input name="club" placeholder="Club" value={inscription.club} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              </div>
 
-              <label className="block font-semibold">Nombre de repas :</label>
-              <input
-                type="number"
-                name="nombre_repas"
-                value={inscription.nombre_repas}
-                onChange={(e) => handleChange(index, e)}
-                className="border p-2 w-full"
-                min={0}
-              />
-              {selectedFormat?.prix_repas > 0 && (
-                <p className="text-sm text-gray-600">
-                  {selectedFormat.prix_repas} € par repas – Total :{" "}
-                  {inscription.prix_total_repas.toFixed(2)} €
-                </p>
+              <div>
+                <label className="font-semibold">Résultats :</label>
+                <div className="flex gap-4">
+                  <label>
+                    <input type="radio" name={`apparaitre_resultats-${index}`} checked={inscription.apparaitre_resultats === true} onChange={() => handleChange(index, { target: { name: "apparaitre_resultats", value: true } })} /> Oui
+                  </label>
+                  <label>
+                    <input type="radio" name={`apparaitre_resultats-${index}`} checked={inscription.apparaitre_resultats === false} onChange={() => handleChange(index, { target: { name: "apparaitre_resultats", value: false } })} /> Non
+                  </label>
+                </div>
+              </div>
+
+              <div>
+                <label className="font-semibold">Justificatif :</label>
+                <select name="justificatif_type" value={inscription.justificatif_type} onChange={(e) => handleChange(index, e)} className="border p-2 w-full">
+                  <option value="">-- Sélectionnez --</option>
+                  <option value="licence">Licence FFA</option>
+                  <option value="pps">PPS (Parcours Prévention Santé)</option>
+                </select>
+
+                {inscription.justificatif_type === "licence" && (
+                  <input name="numero_licence" placeholder="Numéro de licence" value={inscription.numero_licence} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
+                )}
+
+                {inscription.justificatif_type === "pps" && (
+                  <input name="pps_identifier" placeholder="Identifiant PPS" value={inscription.pps_identifier} onChange={(e) => handleChange(index, e)} className="border p-2 w-full mt-2" />
+                )}
+              </div>
+
+              <input name="contact_urgence_nom" placeholder="Contact urgence - Nom" value={inscription.contact_urgence_nom} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+              <input name="contact_urgence_telephone" placeholder="Contact urgence - Téléphone" value={inscription.contact_urgence_telephone} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+
+              {Number(selectedFormat?.stock_repas) > 0 && (
+                <div>
+                  <label className="font-semibold">Nombre de repas :</label>
+                  <input type="number" min="0" max={selectedFormat.stock_repas} name="nombre_repas" value={inscription.nombre_repas} onChange={(e) => handleChange(index, e)} className="border p-2 w-full" />
+                  <p className="text-sm text-gray-600">Prix unitaire : {selectedFormat.prix_repas} € — Total : {inscription.prix_total_coureur} €</p>
+                </div>
               )}
 
-              <p className="font-bold mt-2">
-                Total coureur : {inscription.prix_total_coureur.toFixed(2)} €
-              </p>
+              <button type="button" onClick={() => removeInscription(index)} className="bg-red-500 text-white px-3 py-1 rounded">Supprimer</button>
             </div>
           );
         })}
 
-        <button
-          type="button"
-          onClick={() => addInscription()}
-          className="bg-blue-600 text-white px-4 py-2 rounded"
-        >
-          Ajouter un coureur
-        </button>
+        <button type="button" onClick={() => addInscription()} className="bg-blue-500 text-white px-4 py-2 rounded">+ Ajouter un coureur</button>
+        
+        
 
-        <div className="mt-4 font-bold text-lg">
-          Prix total : {prixTotalGlobal.toFixed(2)} €
+        <button
+  type="button"
+  className="bg-purple-600 text-white px-4 py-2 rounded"
+  onClick={async () => {
+    const session = await supabase.auth.getSession();
+    const user = session.data?.session?.user;
+
+    if (!user) {
+      alert("Veuillez vous connecter pour effectuer le paiement.");
+      return;
+    }
+
+    // Vérification des formats et insertion
+    for (const inscription of inscriptions) {
+      if (!inscription.format_id) {
+        alert("Veuillez sélectionner un format pour chaque coureur.");
+        return;
+      }
+
+      const selectedFormat = formats.find((f) => f.id === inscription.format_id);
+      if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
+        alert(`Le format ${selectedFormat.nom} est complet.`);
+        return;
+      }
+
+      const { error } = await supabase.from("inscriptions").insert([
+        {
+          ...inscription,
+          course_id: courseId,
+          format_id: inscription.format_id,
+        },
+      ]);
+
+      if (error) {
+        console.error("Erreur insertion :", error);
+        alert("Erreur lors de l'inscription");
+        return;
+      }
+
+      try {
+        await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/send-inscription-email", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+          },
+          body: JSON.stringify({
+            email: inscription.email,
+            prenom: inscription.prenom,
+            nom: inscription.nom,
+            format_nom: selectedFormat.nom,
+            course_nom: course.nom,
+            date: selectedFormat.date,
+          }),
+        });
+      } catch (e) {
+        console.error("Erreur email :", e);
+      }
+    }
+
+    // Paiement Stripe
+    const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        inscriptions,
+        prix_total: inscriptions.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0),
+        user_id: user.id,
+        course_id: courseId,
+      }),
+    });
+
+    const data = await response.json();
+    if (data.url) {
+      window.location.href = data.url;
+    } else {
+      alert("Erreur lors de la création du paiement.");
+    }
+  }}
+>
+  Confirmer et payer
+</button>
+{message && <p className="text-green-700 mt-4">{message}</p>}
+                <div className="mt-4 font-bold text-lg">
+          Prix total : {inscriptions.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0).toFixed(2)} €
         </div>
 
-        <button
-          type="button"
-          onClick={handlePaiement}
-          className="bg-green-600 text-white px-4 py-2 rounded"
-        >
-          Confirmer et payer
-        </button>
-
-        {message && <p className="text-green-700 mt-4">{message}</p>}
       </form>
     </div>
   );
