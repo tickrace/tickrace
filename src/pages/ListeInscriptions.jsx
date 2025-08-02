@@ -143,7 +143,7 @@ export default function ListeInscriptions() {
             <option value="en attente">En attente</option>
             <option value="validé">Validé</option>
             <option value="refusé">Refusé</option>
-            <option value="refusé">Annulé</option>
+            <option value="annulé">Annulé</option>
           </select>
           <button
             onClick={() => setModalAjoutOpen(true)} // ✅ ouvre le modal
