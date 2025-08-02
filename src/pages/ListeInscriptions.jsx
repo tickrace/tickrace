@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { Link, useParams } from "react-router-dom";
 import ExportCSVModal from "../components/ExportCSVModal";
+import ModalAjoutCoureur from "../components/ModalAjoutCoureur"; // ✅ Ajout ici
 
 export default function ListeInscriptions() {
   const { format_id } = useParams();
@@ -10,6 +11,8 @@ export default function ListeInscriptions() {
   const [searchTerm, setSearchTerm] = useState("");
   const [statutFilter, setStatutFilter] = useState("");
   const [modalExportOpen, setModalExportOpen] = useState(false);
+  const [modalAjoutOpen, setModalAjoutOpen] = useState(false); // ✅ nouvel état pour le modal
+  const [formatData, setFormatData] = useState(null); // ✅ pour transmettre les données du format au modal
   const [exportData, setExportData] = useState([]);
   const [colonnes, setColonnes] = useState([]);
   const [page, setPage] = useState(0);
@@ -19,6 +22,7 @@ export default function ListeInscriptions() {
   useEffect(() => {
     if (format_id) {
       fetchInscriptions();
+      fetchFormatData(); // ✅ on récupère les infos du format
     }
   }, [format_id]);
 
@@ -39,6 +43,21 @@ export default function ListeInscriptions() {
     setPage(0);
   };
 
+  const fetchFormatData = async () => {
+    const { data, error } = await supabase
+      .from("formats")
+      .select("*")
+      .eq("id", format_id)
+      .single();
+
+    if (error) {
+      console.error("Erreur chargement format :", error);
+      return;
+    }
+
+    setFormatData(data);
+  };
+
   const handleUpdateChamp = async (id, field, value) => {
     const { error } = await supabase
       .from("inscriptions")
@@ -49,35 +68,6 @@ export default function ListeInscriptions() {
       console.error(error);
       return;
     }
-    fetchInscriptions();
-  };
-
-  const handleAddCoureur = async () => {
-    if (!format_id) {
-      console.error("❌ format_id manquant !");
-      return;
-    }
-
-    console.log("📦 Ajout d'un coureur avec format_id :", format_id);
-
-    const { data, error } = await supabase
-      .from("inscriptions")
-      .insert([
-        {
-          format_id: format_id.toString(),
-          statut: "en attente",
-          nombre_repas: 0,
-        },
-      ])
-      .select();
-
-    if (error) {
-      console.error("❌ Erreur lors de l'insertion du coureur :", error);
-      alert("Erreur : impossible d'ajouter un coureur. Détails dans la console.");
-      return;
-    }
-
-    console.log("✅ Coureur ajouté :", data);
     fetchInscriptions();
   };
 
@@ -156,7 +146,7 @@ export default function ListeInscriptions() {
             <option value="refusé">Annulé</option>
           </select>
           <button
-            onClick={handleAddCoureur}
+            onClick={() => setModalAjoutOpen(true)} // ✅ ouvre le modal
             className="px-3 py-1 bg-green-600 text-white rounded hover:bg-green-700"
           >
             + Ajouter un coureur
@@ -269,6 +259,15 @@ export default function ListeInscriptions() {
         colonnes={colonnes}
         donnees={exportData}
         nomFichier={`inscriptions_format_${format_id}.csv`}
+      />
+
+      {/* ✅ Intégration du modal ajout coureur */}
+      <ModalAjoutCoureur
+        isOpen={modalAjoutOpen}
+        onClose={() => setModalAjoutOpen(false)}
+        format={formatData}
+        defaultCourseId={formatData?.course_id}
+        onSaved={fetchInscriptions}
       />
     </div>
   );
