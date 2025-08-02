@@ -99,10 +99,10 @@ export default function ModalAjoutCoureur({
       prix_total_repas: form.prix_total_repas || 0,
     };
 
-    // Supprime coureur_id s'il n'existe pas pour éviter une violation de contrainte
-    if (!payload.coureur_id) {
-      delete payload.coureur_id;
-    }
+    // 🔐 suppression forcée de coureur_id
+    delete payload.coureur_id;
+
+    console.log("Payload final à insérer :", payload); // debug
 
     const { error } = await supabase.from("inscriptions").insert([payload]);
     if (error) {
@@ -110,6 +110,7 @@ export default function ModalAjoutCoureur({
       alert("Erreur lors de l'enregistrement.");
       return;
     }
+
     onClose();
     onSaved?.();
   };
