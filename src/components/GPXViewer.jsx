@@ -17,7 +17,8 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import "leaflet.fullscreen/Control.FullScreen.css";
+import "leaflet.fullscreen/dist/leaflet.fullscreen.css";
+
 import "leaflet.fullscreen";
 
 // Icônes
