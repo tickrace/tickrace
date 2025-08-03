@@ -23,6 +23,7 @@ import ResetPassword from "./pages/ResetPassword";
 import ForgotPassword from "./pages/ForgotPassword";
 import MonInscription from "./pages/MonInscription";
 import MesInscriptions from "./pages/MesInscriptions";
+import Merci from "./pages/Merci";
 
 function AppContent() {
   const { currentRole } = useUser(); // 👈 récupération du rôle
@@ -51,6 +52,7 @@ function AppContent() {
 <Route path="/mon-inscription/:id" element={<MonInscription />} />
 
 <Route path="/mesinscriptions" element={<MesInscriptions />} />
+<Route path="/merci" element={<Merci />} />
 
 
 </Routes>
