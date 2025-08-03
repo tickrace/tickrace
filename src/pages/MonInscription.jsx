@@ -61,16 +61,40 @@ export default function MonInscription() {
     const confirm = window.confirm("Confirmer l’annulation de votre inscription ?");
     if (!confirm) return;
 
-    const { error } = await supabase.functions.invoke("rembourser_credit_annulation", {
+    const { error: annulationError } = await supabase.functions.invoke("annuler_inscription", {
       body: { inscription_id: id },
     });
 
-    if (error) {
+    if (annulationError) {
       alert("Erreur lors de l'annulation");
       return;
     }
 
-    alert("Inscription annulée et remboursement lancé");
+    // Récupération du crédit lié
+    const { data: credit, error: creditError } = await supabase
+      .from("credits_annulation")
+      .select("id")
+      .eq("inscription_id", id)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .single();
+
+    if (creditError || !credit?.id) {
+      alert("Crédit d’annulation non trouvé.");
+      return;
+    }
+
+    // Appel remboursement Stripe
+    const { error: refundError } = await supabase.functions.invoke("rembourser_credit_annulation", {
+      body: { credit_id: credit.id },
+    });
+
+    if (refundError) {
+      alert("Erreur lors du remboursement Stripe.");
+      return;
+    }
+
+    alert("Inscription annulée et remboursée !");
     navigate("/mes-inscriptions");
   };
 
