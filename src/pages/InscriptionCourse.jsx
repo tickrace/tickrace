@@ -210,10 +210,10 @@ export default function InscriptionCourse() {
        //     inscription_id: insertedData.id, // ✅ envoyé au backend
        //   }),
       //  });
-    //  } catch (e) {
+     // } //catch (e) {
     //    console.error("Erreur email :", e);
     //  }
-    //}
+    }
 
    // setMessage("Inscriptions enregistrées ! Vous recevrez un email de confirmation.");
   };
