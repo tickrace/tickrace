@@ -5,7 +5,6 @@ import {
   Polyline,
   Marker,
   Popup,
-  LayersControl,
   useMap,
 } from "react-leaflet";
 import L from "leaflet";
@@ -19,6 +18,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
+// Icônes
 const startIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
   iconSize: [25, 41],
@@ -56,6 +56,7 @@ export default function GPXViewer({ gpxUrl }) {
   const [profileData, setProfileData] = useState([]);
   const [stats, setStats] = useState({ distance: 0, elevationGain: 0 });
   const [waypoints, setWaypoints] = useState([]);
+  const [fullscreen, setFullscreen] = useState(false);
 
   useEffect(() => {
     if (!gpxUrl) return;
@@ -66,10 +67,12 @@ export default function GPXViewer({ gpxUrl }) {
         const res = await fetch(gpxUrl);
         if (!res.ok) throw new Error("Impossible de charger le GPX");
         const text = await res.text();
+
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, "application/xml");
 
         const trkpts = xmlDoc.getElementsByTagName("trkpt");
+
         const coords = [];
         const profile = [];
         let dist = 0;
@@ -92,6 +95,7 @@ export default function GPXViewer({ gpxUrl }) {
             const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             dist += R * c;
+
             if (ele > ele1) elevationGain += ele - ele1;
           }
           profile.push({ km: dist / 1000, ele });
@@ -122,6 +126,11 @@ export default function GPXViewer({ gpxUrl }) {
     fetchGPX();
   }, [gpxUrl]);
 
+  useEffect(() => {
+    document.body.style.overflow = fullscreen ? "hidden" : "auto";
+    return () => (document.body.style.overflow = "auto");
+  }, [fullscreen]);
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-64 bg-gray-100 rounded">
@@ -135,22 +144,15 @@ export default function GPXViewer({ gpxUrl }) {
   const start = positions[0];
   const end = positions[positions.length - 1];
 
-  const polylineColor = stats.elevationGain > 1000 ? "red" : stats.elevationGain > 500 ? "orange" : "blue";
-
   return (
     <div className="space-y-4">
-      <div className="relative h-96">
+      <div className={`relative ${fullscreen ? "fixed inset-0 z-[1000]" : "h-96"} bg-white`}>
         <MapContainer bounds={bounds} style={{ height: "100%", width: "100%" }}>
-          <LayersControl position="topright">
-            <LayersControl.BaseLayer checked name="OpenStreetMap">
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" attribution="&copy; OpenStreetMap contributors" />
-            </LayersControl.BaseLayer>
-            <LayersControl.BaseLayer name="Satellite">
-              <TileLayer url="https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png" attribution="&copy; OpenTopoMap" />
-            </LayersControl.BaseLayer>
-          </LayersControl>
-
-          <Polyline positions={positions.map(([lat, lon]) => [lat, lon])} color={polylineColor} />
+          <TileLayer
+            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+            attribution="&copy; OpenStreetMap contributors"
+          />
+          <Polyline positions={positions} color="blue" />
 
           <Marker position={[start[0], start[1]]} icon={startIcon}>
             <Popup>Départ</Popup>
@@ -171,16 +173,17 @@ export default function GPXViewer({ gpxUrl }) {
           <ResetViewButton bounds={bounds} />
         </MapContainer>
 
+        {/* Boutons */}
+        <button
+          onClick={() => setFullscreen(!fullscreen)}
+          className="absolute top-2 right-12 bg-white p-2 shadow-md rounded hover:bg-gray-200 text-sm"
+        >
+          {fullscreen ? "🗗 Quitter" : "🗖 Plein écran"}
+        </button>
+
         <div className="absolute bottom-2 left-2 bg-white p-1 text-xs rounded shadow">
           {stats.distance.toFixed(2)} km — D+ {Math.round(stats.elevationGain)} m
         </div>
-        <a
-          href={gpxUrl}
-          download
-          className="absolute bottom-2 right-2 bg-white text-sm p-1 rounded shadow hover:bg-gray-200"
-        >
-          ⬇️ Télécharger GPX
-        </a>
       </div>
 
       {profileData.length > 0 && (
@@ -190,17 +193,8 @@ export default function GPXViewer({ gpxUrl }) {
             <LineChart data={profileData}>
               <XAxis dataKey="km" tickFormatter={(v) => v.toFixed(1) + " km"} />
               <YAxis dataKey="ele" unit=" m" />
-              <Tooltip
-                formatter={(value) => `${Math.round(value)} m`}
-                labelFormatter={(label) => `${label.toFixed(2)} km`}
-              />
-              <Line
-                type="monotone"
-                dataKey="ele"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot={false}
-              />
+              <Tooltip formatter={(value) => `${Math.round(value)} m`} labelFormatter={(label) => `${label.toFixed(2)} km`} />
+              <Line type="monotone" dataKey="ele" stroke="#3b82f6" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
