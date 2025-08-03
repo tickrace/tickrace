@@ -7,13 +7,9 @@ import {
   Popup,
   useMap,
   useMapEvent,
-  LayersControl,
-  LayerGroup,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import "leaflet.fullscreen/Control.FullScreen.css";
-import "leaflet.fullscreen";
 import {
   LineChart,
   Line,
@@ -23,7 +19,6 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// Icônes personnalisés
 const startIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
   iconSize: [25, 41],
@@ -47,7 +42,7 @@ function ResetViewButton({ bounds }) {
   return (
     <button
       onClick={() => map.fitBounds(bounds)}
-      className="absolute top-2 right-2 z-[1000] bg-white p-1 px-2 text-sm rounded shadow hover:bg-gray-100"
+      className="absolute top-2 right-2 z-[1000] bg-white p-2 shadow rounded text-sm hover:bg-gray-200"
     >
       🔄 Centrer
     </button>
@@ -61,8 +56,9 @@ export default function GPXViewer({ gpxUrl }) {
   const [profileData, setProfileData] = useState([]);
   const [stats, setStats] = useState({ distance: 0, elevationGain: 0 });
   const [waypoints, setWaypoints] = useState([]);
-  const [hoverPosition, setHoverPosition] = useState(null);
-  const markerRef = useRef(null);
+  const [activePoint, setActivePoint] = useState(null);
+  const [mapLayer, setMapLayer] = useState("osm");
+  const dynamicMarkerRef = useRef();
 
   useEffect(() => {
     if (!gpxUrl) return;
@@ -76,8 +72,8 @@ export default function GPXViewer({ gpxUrl }) {
 
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, "application/xml");
-        const trkpts = xmlDoc.getElementsByTagName("trkpt");
 
+        const trkpts = xmlDoc.getElementsByTagName("trkpt");
         const coords = [];
         const profile = [];
         let dist = 0;
@@ -86,9 +82,7 @@ export default function GPXViewer({ gpxUrl }) {
         for (let i = 0; i < trkpts.length; i++) {
           const lat = parseFloat(trkpts[i].getAttribute("lat"));
           const lon = parseFloat(trkpts[i].getAttribute("lon"));
-          const ele = parseFloat(
-            trkpts[i].getElementsByTagName("ele")[0]?.textContent || "0"
-          );
+          const ele = parseFloat(trkpts[i].getElementsByTagName("ele")[0]?.textContent || "0");
           coords.push([lat, lon, ele]);
 
           if (i > 0) {
@@ -98,10 +92,7 @@ export default function GPXViewer({ gpxUrl }) {
             const φ2 = (lat * Math.PI) / 180;
             const Δφ = ((lat - lat1) * Math.PI) / 180;
             const Δλ = ((lon - lon1) * Math.PI) / 180;
-
-            const a =
-              Math.sin(Δφ / 2) ** 2 +
-              Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+            const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             dist += R * c;
 
@@ -120,10 +111,8 @@ export default function GPXViewer({ gpxUrl }) {
         for (let i = 0; i < wpts.length; i++) {
           const lat = parseFloat(wpts[i].getAttribute("lat"));
           const lon = parseFloat(wpts[i].getAttribute("lon"));
-          const name =
-            wpts[i].getElementsByTagName("name")[0]?.textContent || "Waypoint";
-          const desc =
-            wpts[i].getElementsByTagName("desc")[0]?.textContent || "";
+          const name = wpts[i].getElementsByTagName("name")[0]?.textContent || "Waypoint";
+          const desc = wpts[i].getElementsByTagName("desc")[0]?.textContent || "";
           wptsArray.push({ lat, lon, name, desc });
         }
         setWaypoints(wptsArray);
@@ -137,74 +126,63 @@ export default function GPXViewer({ gpxUrl }) {
     fetchGPX();
   }, [gpxUrl]);
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-64 bg-gray-100 rounded">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  if (!positions.length) return <p>Impossible de charger le GPX.</p>;
-
   const start = positions[0];
   const end = positions[positions.length - 1];
 
+  const tileURLs = {
+    osm: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+    satellite: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  };
+
   return (
     <div className="space-y-4">
-      {/* Carte */}
-      <div className="relative h-[400px] md:h-[500px]">
-        <MapContainer
-          bounds={bounds}
-          style={{ height: "100%", width: "100%" }}
-          fullscreenControl={true}
-        >
-          <LayersControl position="topleft">
-            <LayersControl.BaseLayer name="IGN" checked>
-              <TileLayer
-                url="https://wxs.ign.fr/essentiels/geoportail/wmts?layer=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&style=normal&tilematrixset=PM&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}"
-                attribution="&copy; IGN France"
-              />
-            </LayersControl.BaseLayer>
-            <LayersControl.BaseLayer name="OpenStreetMap">
-              <TileLayer
-                url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
-                attribution="&copy; OpenStreetMap contributors"
-              />
-            </LayersControl.BaseLayer>
-          </LayersControl>
+      <div className="relative h-96">
+        <MapContainer bounds={bounds} style={{ height: "100%", width: "100%" }}>
+          <TileLayer
+            url={tileURLs[mapLayer]}
+            attribution={
+              mapLayer === "osm"
+                ? "&copy; OpenStreetMap"
+                : "Tiles &copy; Esri &mdash; Source: Esri"
+            }
+          />
 
-          <Polyline positions={positions} color="blue" />
+          <Polyline positions={positions.map(([lat, lon]) => [lat, lon])} color="blue" />
 
-          <Marker position={[start[0], start[1]]} icon={startIcon}>
-            <Popup>Départ</Popup>
-          </Marker>
-          <Marker position={[end[0], end[1]]} icon={endIcon}>
-            <Popup>Arrivée</Popup>
-          </Marker>
+          <Marker position={[start[0], start[1]]} icon={startIcon}><Popup>Départ</Popup></Marker>
+          <Marker position={[end[0], end[1]]} icon={endIcon}><Popup>Arrivée</Popup></Marker>
 
           {waypoints.map((w, idx) => (
             <Marker key={idx} position={[w.lat, w.lon]} icon={waypointIcon}>
-              <Popup>
-                <strong>{w.name}</strong>
-                {w.desc && <div className="mt-1 text-xs text-gray-600">{w.desc}</div>}
-              </Popup>
+              <Popup><strong>{w.name}</strong><div className="text-xs text-gray-600">{w.desc}</div></Popup>
             </Marker>
           ))}
 
-          {hoverPosition && (
+          {activePoint && (
             <Marker
-              position={[hoverPosition.lat, hoverPosition.lon]}
-              ref={markerRef}
-              icon={L.divIcon({
-                className: "hover-marker",
-                html: `<div style="background:#ef4444;width:10px;height:10px;border-radius:50%;border:2px solid white;"></div>`,
+              ref={dynamicMarkerRef}
+              position={[activePoint.lat, activePoint.lon]}
+              icon={new L.DivIcon({
+                className: 'custom-icon',
+                html: '<div style="width:10px;height:10px;border-radius:50%;background:red;"></div>'
               })}
             />
           )}
 
           <ResetViewButton bounds={bounds} />
         </MapContainer>
+
+        {/* Bouton de fond de carte */}
+        <div className="absolute top-2 left-2 bg-white shadow rounded z-[1000] text-sm">
+          <select
+            value={mapLayer}
+            onChange={(e) => setMapLayer(e.target.value)}
+            className="p-1 text-sm border-none bg-white rounded"
+          >
+            <option value="osm">OpenStreetMap</option>
+            <option value="satellite">Satellite</option>
+          </select>
+        </div>
 
         <div className="absolute bottom-2 left-2 bg-white p-1 text-xs rounded shadow">
           {stats.distance.toFixed(2)} km — D+ {Math.round(stats.elevationGain)} m
@@ -221,24 +199,15 @@ export default function GPXViewer({ gpxUrl }) {
               onMouseMove={(e) => {
                 if (e && e.activePayload && e.activePayload[0]) {
                   const { lat, lon } = e.activePayload[0].payload;
-                  setHoverPosition({ lat, lon });
+                  setActivePoint({ lat, lon });
                 }
               }}
-              onMouseLeave={() => setHoverPosition(null)}
+              onMouseLeave={() => setActivePoint(null)}
             >
               <XAxis dataKey="km" tickFormatter={(v) => v.toFixed(1) + " km"} />
               <YAxis dataKey="ele" unit=" m" />
-              <Tooltip
-                formatter={(value) => `${Math.round(value)} m`}
-                labelFormatter={(label) => `${label.toFixed(2)} km`}
-              />
-              <Line
-                type="monotone"
-                dataKey="ele"
-                stroke="#3b82f6"
-                strokeWidth={2}
-                dot={false}
-              />
+              <Tooltip formatter={(value) => `${Math.round(value)} m`} labelFormatter={(label) => `${label.toFixed(2)} km`} />
+              <Line type="monotone" dataKey="ele" stroke="#3b82f6" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
         </div>
