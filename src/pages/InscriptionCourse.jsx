@@ -360,25 +360,25 @@ export default function InscriptionCourse() {
         return;
       }
 
-      try {
-        await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/send-inscription-email", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
-          },
-          body: JSON.stringify({
-            email: inscription.email,
-            prenom: inscription.prenom,
-            nom: inscription.nom,
-            format_nom: selectedFormat.nom,
-            course_nom: course.nom,
-            date: selectedFormat.date,
-          }),
-        });
-      } catch (e) {
-        console.error("Erreur email :", e);
-      }
+    //  try {
+     //   await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/send-inscription-email", {
+     //     method: "POST",
+     //     headers: {
+     //       "Content-Type": "application/json",
+      //      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
+     ////     },
+     //     body: JSON.stringify({
+     //       email: inscription.email,
+      //      prenom: inscription.prenom,
+     //       nom: inscription.nom,
+     //       format_nom: selectedFormat.nom,
+     //       course_nom: course.nom,
+     //       date: selectedFormat.date,
+     //     }),
+     //   });
+     // } catch (e) {
+     //   console.error("Erreur email :", e);
+     // }
     }
 
     // Paiement Stripe
