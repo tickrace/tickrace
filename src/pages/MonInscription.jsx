@@ -61,7 +61,7 @@ export default function MonInscription() {
     const confirm = window.confirm("Confirmer l’annulation de votre inscription ?");
     if (!confirm) return;
 
-    const { error } = await supabase.functions.invoke("annuler_inscription", {
+    const { error } = await supabase.functions.invoke("rembourser_credit_annulation", {
       body: { inscription_id: id },
     });
 
@@ -70,7 +70,7 @@ export default function MonInscription() {
       return;
     }
 
-    alert("Inscription annulée");
+    alert("Inscription annulée et remboursement lancé");
     navigate("/mes-inscriptions");
   };
 
