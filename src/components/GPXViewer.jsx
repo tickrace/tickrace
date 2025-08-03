@@ -5,8 +5,10 @@ import {
   Polyline,
   Marker,
   Popup,
-  LayersControl,
   useMap,
+  useMapEvent,
+  LayersControl,
+  LayerGroup,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -21,7 +23,7 @@ import {
   ResponsiveContainer,
 } from "recharts";
 
-// Icônes
+// Icônes personnalisés
 const startIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
   iconSize: [25, 41],
@@ -45,7 +47,7 @@ function ResetViewButton({ bounds }) {
   return (
     <button
       onClick={() => map.fitBounds(bounds)}
-      className="absolute top-2 right-2 bg-white p-2 shadow-md rounded hover:bg-gray-200 text-sm z-[1000]"
+      className="absolute top-2 right-2 z-[1000] bg-white p-1 px-2 text-sm rounded shadow hover:bg-gray-100"
     >
       🔄 Centrer
     </button>
@@ -59,10 +61,8 @@ export default function GPXViewer({ gpxUrl }) {
   const [profileData, setProfileData] = useState([]);
   const [stats, setStats] = useState({ distance: 0, elevationGain: 0 });
   const [waypoints, setWaypoints] = useState([]);
-  const [hoveredIndex, setHoveredIndex] = useState(null);
-
-  const mapRef = useRef(null);
-  const hoverMarkerRef = useRef(null);
+  const [hoverPosition, setHoverPosition] = useState(null);
+  const markerRef = useRef(null);
 
   useEffect(() => {
     if (!gpxUrl) return;
@@ -76,8 +76,8 @@ export default function GPXViewer({ gpxUrl }) {
 
         const parser = new DOMParser();
         const xmlDoc = parser.parseFromString(text, "application/xml");
-
         const trkpts = xmlDoc.getElementsByTagName("trkpt");
+
         const coords = [];
         const profile = [];
         let dist = 0;
@@ -107,7 +107,6 @@ export default function GPXViewer({ gpxUrl }) {
 
             if (ele > ele1) elevationGain += ele - ele1;
           }
-
           profile.push({ km: dist / 1000, ele, lat, lon });
         }
 
@@ -121,8 +120,10 @@ export default function GPXViewer({ gpxUrl }) {
         for (let i = 0; i < wpts.length; i++) {
           const lat = parseFloat(wpts[i].getAttribute("lat"));
           const lon = parseFloat(wpts[i].getAttribute("lon"));
-          const name = wpts[i].getElementsByTagName("name")[0]?.textContent || "Waypoint";
-          const desc = wpts[i].getElementsByTagName("desc")[0]?.textContent || "";
+          const name =
+            wpts[i].getElementsByTagName("name")[0]?.textContent || "Waypoint";
+          const desc =
+            wpts[i].getElementsByTagName("desc")[0]?.textContent || "";
           wptsArray.push({ lat, lon, name, desc });
         }
         setWaypoints(wptsArray);
@@ -135,18 +136,6 @@ export default function GPXViewer({ gpxUrl }) {
 
     fetchGPX();
   }, [gpxUrl]);
-
-  useEffect(() => {
-    if (!mapRef.current || !hoveredIndex || !profileData[hoveredIndex]) return;
-    const { lat, lon } = profileData[hoveredIndex];
-    if (!hoverMarkerRef.current) {
-      hoverMarkerRef.current = L.marker([lat, lon], {
-        icon: L.divIcon({ className: "custom-hover-marker" }),
-      }).addTo(mapRef.current);
-    } else {
-      hoverMarkerRef.current.setLatLng([lat, lon]);
-    }
-  }, [hoveredIndex, profileData]);
 
   if (isLoading) {
     return (
@@ -163,21 +152,21 @@ export default function GPXViewer({ gpxUrl }) {
 
   return (
     <div className="space-y-4">
-      <div className="relative h-[500px]">
+      {/* Carte */}
+      <div className="relative h-[400px] md:h-[500px]">
         <MapContainer
           bounds={bounds}
           style={{ height: "100%", width: "100%" }}
-          fullscreenControl
-          whenCreated={(mapInstance) => (mapRef.current = mapInstance)}
+          fullscreenControl={true}
         >
-          <LayersControl position="topright">
-            <LayersControl.BaseLayer checked name="IGN">
+          <LayersControl position="topleft">
+            <LayersControl.BaseLayer name="IGN" checked>
               <TileLayer
-                url="https://wxs.ign.fr/essentiels/geoportail/wmts?layer=GEOGRAPHICALGRIDSYSTEMS.MAPS&style=normal&tilematrixset=PM&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/jpeg&TileMatrix={z}&TileRow={y}&TileCol={x}"
-                attribution="&copy; IGN"
+                url="https://wxs.ign.fr/essentiels/geoportail/wmts?layer=GEOGRAPHICALGRIDSYSTEMS.PLANIGNV2&style=normal&tilematrixset=PM&Service=WMTS&Request=GetTile&Version=1.0.0&Format=image/png&TileMatrix={z}&TileCol={x}&TileRow={y}"
+                attribution="&copy; IGN France"
               />
             </LayersControl.BaseLayer>
-            <LayersControl.BaseLayer name="OSM">
+            <LayersControl.BaseLayer name="OpenStreetMap">
               <TileLayer
                 url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 attribution="&copy; OpenStreetMap contributors"
@@ -185,38 +174,71 @@ export default function GPXViewer({ gpxUrl }) {
             </LayersControl.BaseLayer>
           </LayersControl>
 
-          <Polyline positions={positions} color="#3b82f6" />
-          <Marker position={[start[0], start[1]]} icon={startIcon}><Popup>Départ</Popup></Marker>
-          <Marker position={[end[0], end[1]]} icon={endIcon}><Popup>Arrivée</Popup></Marker>
+          <Polyline positions={positions} color="blue" />
+
+          <Marker position={[start[0], start[1]]} icon={startIcon}>
+            <Popup>Départ</Popup>
+          </Marker>
+          <Marker position={[end[0], end[1]]} icon={endIcon}>
+            <Popup>Arrivée</Popup>
+          </Marker>
+
           {waypoints.map((w, idx) => (
             <Marker key={idx} position={[w.lat, w.lon]} icon={waypointIcon}>
-              <Popup><strong>{w.name}</strong><div className="text-xs">{w.desc}</div></Popup>
+              <Popup>
+                <strong>{w.name}</strong>
+                {w.desc && <div className="mt-1 text-xs text-gray-600">{w.desc}</div>}
+              </Popup>
             </Marker>
           ))}
+
+          {hoverPosition && (
+            <Marker
+              position={[hoverPosition.lat, hoverPosition.lon]}
+              ref={markerRef}
+              icon={L.divIcon({
+                className: "hover-marker",
+                html: `<div style="background:#ef4444;width:10px;height:10px;border-radius:50%;border:2px solid white;"></div>`,
+              })}
+            />
+          )}
+
           <ResetViewButton bounds={bounds} />
         </MapContainer>
+
         <div className="absolute bottom-2 left-2 bg-white p-1 text-xs rounded shadow">
           {stats.distance.toFixed(2)} km — D+ {Math.round(stats.elevationGain)} m
         </div>
       </div>
 
+      {/* Profil altimétrique */}
       {profileData.length > 0 && (
         <div className="h-48 bg-white shadow rounded p-2">
           <h4 className="text-sm font-semibold mb-1">Profil altimétrique</h4>
           <ResponsiveContainer width="100%" height="90%">
             <LineChart
               data={profileData}
-              onMouseMove={(state) => {
-                if (state?.activeTooltipIndex != null) {
-                  setHoveredIndex(state.activeTooltipIndex);
+              onMouseMove={(e) => {
+                if (e && e.activePayload && e.activePayload[0]) {
+                  const { lat, lon } = e.activePayload[0].payload;
+                  setHoverPosition({ lat, lon });
                 }
               }}
-              onMouseLeave={() => setHoveredIndex(null)}
+              onMouseLeave={() => setHoverPosition(null)}
             >
               <XAxis dataKey="km" tickFormatter={(v) => v.toFixed(1) + " km"} />
               <YAxis dataKey="ele" unit=" m" />
-              <Tooltip formatter={(value) => `${Math.round(value)} m`} labelFormatter={(l) => `${l.toFixed(2)} km`} />
-              <Line type="monotone" dataKey="ele" stroke="#3b82f6" strokeWidth={2} dot={false} />
+              <Tooltip
+                formatter={(value) => `${Math.round(value)} m`}
+                labelFormatter={(label) => `${label.toFixed(2)} km`}
+              />
+              <Line
+                type="monotone"
+                dataKey="ele"
+                stroke="#3b82f6"
+                strokeWidth={2}
+                dot={false}
+              />
             </LineChart>
           </ResponsiveContainer>
         </div>
