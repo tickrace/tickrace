@@ -16,22 +16,40 @@ const supabase = createClient(
 );
 
 serve(async (req) => {
+  // ➤ Réponse OPTIONS (prévol CORS)
+  if (req.method === "OPTIONS") {
+    return new Response(null, {
+      status: 204,
+      headers: {
+        "Access-Control-Allow-Origin": "*",
+        "Access-Control-Allow-Methods": "POST, OPTIONS",
+        "Access-Control-Allow-Headers": "Content-Type, Authorization",
+      },
+    });
+  }
+
   try {
     const { credit_id } = await req.json();
 
     if (!credit_id) {
-      return new Response("credit_id manquant", { status: 400 });
+      return new Response("credit_id manquant", {
+        status: 400,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
     }
 
     // Récupération du crédit et de l'inscription associée
     const { data: credit, error: creditError } = await supabase
       .from("credits_annulation")
-      .select("id, montant_rembourse, inscription_id")
+      .select("id, montant_rembourse, inscription_id, details")
       .eq("id", credit_id)
       .single();
 
     if (creditError || !credit) {
-      return new Response("Crédit non trouvé", { status: 404 });
+      return new Response("Crédit non trouvé", {
+        status: 404,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
     }
 
     // Récupération du paiement associé à l'inscription
@@ -45,7 +63,10 @@ serve(async (req) => {
       .single();
 
     if (paiementError || !paiement?.stripe_payment_intent_id) {
-      return new Response("Paiement introuvable", { status: 404 });
+      return new Response("Paiement introuvable", {
+        status: 404,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
     }
 
     // Remboursement Stripe
@@ -54,17 +75,23 @@ serve(async (req) => {
       amount: Math.round(Number(credit.montant_rembourse) * 100), // en centimes
     });
 
-    // Mise à jour dans Supabase si nécessaire (ex : enregistrer l'ID du refund)
+    // Mise à jour dans Supabase si nécessaire
     await supabase
       .from("credits_annulation")
       .update({ details: { ...credit.details, stripe_refund_id: refund.id } })
       .eq("id", credit.id);
 
     return new Response(JSON.stringify({ success: true, refund_id: refund.id }), {
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
     });
   } catch (error) {
     console.error("Erreur refund :", error);
-    return new Response("Erreur interne", { status: 500 });
+    return new Response("Erreur interne", {
+      status: 500,
+      headers: { "Access-Control-Allow-Origin": "*" },
+    });
   }
 });
