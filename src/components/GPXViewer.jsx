@@ -19,19 +19,22 @@ import {
 } from "recharts";
 
 const startIcon = new L.Icon({
-  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon.png",
+iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
 
 const endIcon = new L.Icon({
-  iconUrl: "https://unpkg.com/leaflet@1.7.1/dist/images/marker-icon-red.png",
+ iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+
   iconSize: [25, 41],
   iconAnchor: [12, 41],
 });
 
 const waypointIcon = new L.Icon({
-  iconUrl: "https://cdn-icons-png.flaticon.com/512/854/854878.png",
+iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+
   iconSize: [24, 24],
   iconAnchor: [12, 24],
 });
