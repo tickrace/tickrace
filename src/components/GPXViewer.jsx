@@ -1,3 +1,5 @@
+// src/components/GPXViewer.jsx
+
 import React, { useEffect, useState, useRef } from "react";
 import {
   MapContainer,
@@ -6,7 +8,6 @@ import {
   Marker,
   Popup,
   useMap,
-  useMapEvent,
 } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -126,8 +127,8 @@ export default function GPXViewer({ gpxUrl }) {
     fetchGPX();
   }, [gpxUrl]);
 
-  const start = positions[0];
-  const end = positions[positions.length - 1];
+  const start = positions.length > 0 ? positions[0] : null;
+  const end = positions.length > 0 ? positions[positions.length - 1] : null;
 
   const tileURLs = {
     osm: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -147,14 +148,30 @@ export default function GPXViewer({ gpxUrl }) {
             }
           />
 
-          <Polyline positions={positions.map(([lat, lon]) => [lat, lon])} color="blue" />
+          {positions.length > 0 && (
+            <Polyline
+              positions={positions.map(([lat, lon]) => [lat, lon])}
+              color="blue"
+            />
+          )}
 
-          <Marker position={[start[0], start[1]]} icon={startIcon}><Popup>Départ</Popup></Marker>
-          <Marker position={[end[0], end[1]]} icon={endIcon}><Popup>Arrivée</Popup></Marker>
+          {start && end && (
+            <>
+              <Marker position={[start[0], start[1]]} icon={startIcon}>
+                <Popup>Départ</Popup>
+              </Marker>
+              <Marker position={[end[0], end[1]]} icon={endIcon}>
+                <Popup>Arrivée</Popup>
+              </Marker>
+            </>
+          )}
 
           {waypoints.map((w, idx) => (
             <Marker key={idx} position={[w.lat, w.lon]} icon={waypointIcon}>
-              <Popup><strong>{w.name}</strong><div className="text-xs text-gray-600">{w.desc}</div></Popup>
+              <Popup>
+                <strong>{w.name}</strong>
+                <div className="text-xs text-gray-600">{w.desc}</div>
+              </Popup>
             </Marker>
           ))}
 
@@ -172,7 +189,7 @@ export default function GPXViewer({ gpxUrl }) {
           <ResetViewButton bounds={bounds} />
         </MapContainer>
 
-        {/* Bouton de fond de carte */}
+        {/* Choix fond de carte */}
         <div className="absolute top-2 left-2 bg-white shadow rounded z-[1000] text-sm">
           <select
             value={mapLayer}
@@ -206,7 +223,10 @@ export default function GPXViewer({ gpxUrl }) {
             >
               <XAxis dataKey="km" tickFormatter={(v) => v.toFixed(1) + " km"} />
               <YAxis dataKey="ele" unit=" m" />
-              <Tooltip formatter={(value) => `${Math.round(value)} m`} labelFormatter={(label) => `${label.toFixed(2)} km`} />
+              <Tooltip
+                formatter={(value) => `${Math.round(value)} m`}
+                labelFormatter={(label) => `${label.toFixed(2)} km`}
+              />
               <Line type="monotone" dataKey="ele" stroke="#3b82f6" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
