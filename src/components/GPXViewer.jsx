@@ -1,5 +1,3 @@
-// src/components/GPXViewer.jsx
-
 import React, { useEffect, useState, useRef } from "react";
 import {
   MapContainer,
@@ -60,6 +58,7 @@ export default function GPXViewer({ gpxUrl }) {
   const [activePoint, setActivePoint] = useState(null);
   const [mapLayer, setMapLayer] = useState("osm");
   const dynamicMarkerRef = useRef();
+  const mapRef = useRef();
 
   useEffect(() => {
     if (!gpxUrl) return;
@@ -127,8 +126,16 @@ export default function GPXViewer({ gpxUrl }) {
     fetchGPX();
   }, [gpxUrl]);
 
-  const start = positions.length > 0 ? positions[0] : null;
-  const end = positions.length > 0 ? positions[positions.length - 1] : null;
+  useEffect(() => {
+    if (!bounds) return;
+    const map = mapRef.current;
+    if (map) {
+      map.fitBounds(bounds);
+    }
+  }, [bounds]);
+
+  const start = positions[0];
+  const end = positions[positions.length - 1];
 
   const tileURLs = {
     osm: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
@@ -138,7 +145,11 @@ export default function GPXViewer({ gpxUrl }) {
   return (
     <div className="space-y-4">
       <div className="relative h-96">
-        <MapContainer bounds={bounds} style={{ height: "100%", width: "100%" }}>
+        <MapContainer
+          ref={mapRef}
+          bounds={bounds || [[0, 0], [0, 0]]}
+          style={{ height: "100%", width: "100%" }}
+        >
           <TileLayer
             url={tileURLs[mapLayer]}
             attribution={
@@ -148,30 +159,14 @@ export default function GPXViewer({ gpxUrl }) {
             }
           />
 
-          {positions.length > 0 && (
-            <Polyline
-              positions={positions.map(([lat, lon]) => [lat, lon])}
-              color="blue"
-            />
-          )}
+          <Polyline positions={positions.map(([lat, lon]) => [lat, lon])} color="blue" />
 
-          {start && end && (
-            <>
-              <Marker position={[start[0], start[1]]} icon={startIcon}>
-                <Popup>Départ</Popup>
-              </Marker>
-              <Marker position={[end[0], end[1]]} icon={endIcon}>
-                <Popup>Arrivée</Popup>
-              </Marker>
-            </>
-          )}
+          {start && <Marker position={[start[0], start[1]]} icon={startIcon}><Popup>Départ</Popup></Marker>}
+          {end && <Marker position={[end[0], end[1]]} icon={endIcon}><Popup>Arrivée</Popup></Marker>}
 
           {waypoints.map((w, idx) => (
             <Marker key={idx} position={[w.lat, w.lon]} icon={waypointIcon}>
-              <Popup>
-                <strong>{w.name}</strong>
-                <div className="text-xs text-gray-600">{w.desc}</div>
-              </Popup>
+              <Popup><strong>{w.name}</strong><div className="text-xs text-gray-600">{w.desc}</div></Popup>
             </Marker>
           ))}
 
@@ -189,7 +184,7 @@ export default function GPXViewer({ gpxUrl }) {
           <ResetViewButton bounds={bounds} />
         </MapContainer>
 
-        {/* Choix fond de carte */}
+        {/* Bouton de fond de carte */}
         <div className="absolute top-2 left-2 bg-white shadow rounded z-[1000] text-sm">
           <select
             value={mapLayer}
@@ -223,10 +218,7 @@ export default function GPXViewer({ gpxUrl }) {
             >
               <XAxis dataKey="km" tickFormatter={(v) => v.toFixed(1) + " km"} />
               <YAxis dataKey="ele" unit=" m" />
-              <Tooltip
-                formatter={(value) => `${Math.round(value)} m`}
-                labelFormatter={(label) => `${label.toFixed(2)} km`}
-              />
+              <Tooltip formatter={(value) => `${Math.round(value)} m`} labelFormatter={(label) => `${label.toFixed(2)} km`} />
               <Line type="monotone" dataKey="ele" stroke="#3b82f6" strokeWidth={2} dot={false} />
             </LineChart>
           </ResponsiveContainer>
