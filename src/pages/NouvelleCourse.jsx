@@ -24,7 +24,7 @@ export default function NouvelleCourse() {
       date: "",
       heure_depart: "",
       presentation_parcours: "",
-      fichier_gpx: null,
+      gpx_url: null,
       type_epreuve: "trail",
       distance_km: "",
       denivele_dplus: "",
@@ -137,10 +137,10 @@ export default function NouvelleCourse() {
         }
       }
 
-      if (format.fichier_gpx) {
+      if (format.gpx_url) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
         if (!error) {
           gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
@@ -232,7 +232,7 @@ export default function NouvelleCourse() {
             
             <label>
               Fichier GPX (trace du parcours) :
-              <input type="file" name="fichier_gpx" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+              <input type="file" name="gpx_url" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
             </label>
 
             <input name="type_epreuve" placeholder="Type d'épreuve (trail, rando, route)" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />

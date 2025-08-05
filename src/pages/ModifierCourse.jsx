@@ -74,7 +74,7 @@ export default function ModifierCourse() {
         date: "",
         heure_depart: "",
         presentation_parcours: "",
-        fichier_gpx: null,
+        gpx_url: null,
         gpx_url: "",
         type_epreuve: "",
         distance_km: "",
@@ -152,10 +152,10 @@ export default function ModifierCourse() {
           .upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
         image_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
       }
-      if (format.fichier_gpx) {
+      if (format.gpx_url) {
         const { data } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.fichier_gpx);
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
         gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
       }
       if (format.fichier_reglement) {
@@ -185,7 +185,7 @@ export default function ModifierCourse() {
       delete formatData.localId;
       delete formatData.nb_inscrits;
       delete formatData.imageFile;
-      delete formatData.fichier_gpx;
+      delete formatData.gpx_url;
       delete formatData.fichier_reglement;
       delete formatData.propose_repas;
 
@@ -225,7 +225,7 @@ export default function ModifierCourse() {
             {/* GPX */}
             <label>
               Fichier GPX (trace du parcours) :
-              <input type="file" name="fichier_gpx" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+              <input type="file" name="gpx_url" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
             </label>
 
             <input name="type_epreuve" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Type d’épreuve" />
