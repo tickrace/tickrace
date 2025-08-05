@@ -137,19 +137,19 @@ export default function NouvelleCourse() {
         }
       }
 
-      if (format.gpx_url) {
+      if (format.gpx_urlFile) {
         const { data, error } = await supabase.storage
           .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
+          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_urlFile);
         if (!error) {
           gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
       }
 
-      if (format.fichier_reglement) {
+      if (format.fichier_reglementFile) {
         const { data, error } = await supabase.storage
           .from("reglements")
-          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
+          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglementFile);
         if (!error) {
           reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
         }
