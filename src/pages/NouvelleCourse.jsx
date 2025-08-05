@@ -137,23 +137,25 @@ export default function NouvelleCourse() {
         }
       }
 
-      if (format.gpx_urlFile) {
-        const { data, error } = await supabase.storage
-          .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_urlFile);
-        if (!error) {
-          gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
-        }
-      }
+     if (format.gpx_urlFile) {
+  const { data, error } = await supabase.storage
+    .from("formats")
+    .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_urlFile);
+  if (!error) {
+    gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+  }
+}
+
 
       if (format.fichier_reglementFile) {
-        const { data, error } = await supabase.storage
-          .from("reglements")
-          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglementFile);
-        if (!error) {
-          reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
-        }
-      }
+  const { data, error } = await supabase.storage
+    .from("reglements")
+    .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglementFile);
+  if (!error) {
+    reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
+  }
+}
+
 
       const prix = format.prix ? parseFloat(format.prix) : 0;
       const prix_repas = format.prix_repas ? parseFloat(format.prix_repas) : 0;
