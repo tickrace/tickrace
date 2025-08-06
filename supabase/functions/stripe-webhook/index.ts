@@ -48,10 +48,14 @@ serve(async (req) => {
     const course_id = session.metadata?.course_id;
     const montant_total = session.amount_total / 100;
     const stripe_payment_intent_id = session.payment_intent;
+
+    // 📌 LOG : contenu brut reçu de Stripe
+    console.log("🧾 inscription_ids brut:", session.metadata?.inscription_ids);
+
     const inscriptionIds = session.metadata?.inscription_ids?.split(",").filter(Boolean) ?? [];
 
-    console.log("📥 Webhook reçu pour user:", user_id);
-    console.log("🧾 Inscriptions transmises:", inscriptionIds);
+    // 📌 LOG : tableau traité
+    console.log("📌 Tableau inscriptionIds :", inscriptionIds);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -71,8 +75,6 @@ serve(async (req) => {
       });
     }
 
-    console.log("📋 Inscriptions retrouvées:", inscriptions.map(i => i.id));
-
     const { error: errUpdate } = await supabase
       .from("inscriptions")
       .update({ statut: "validée" })
@@ -88,7 +90,6 @@ serve(async (req) => {
 
     const paiementData = {
       user_id,
-      course_id,
       inscription_ids: inscriptionIds,
       inscription_id: inscriptionIds.length === 1 ? inscriptionIds[0] : null,
       type: inscriptionIds.length === 1 ? "individuel" : "groupé",
@@ -98,8 +99,6 @@ serve(async (req) => {
       status: "succeeded",
       reversement_effectue: false,
     };
-
-    console.log("💰 Paiement à insérer :", paiementData);
 
     const { error: errPaiement } = await supabase
       .from("paiements")

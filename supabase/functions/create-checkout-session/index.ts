@@ -106,7 +106,7 @@ console.log("📦 IDs envoyés à Stripe : ", inscriptions.map(i => i.id).join("
       metadata: {
         user_id,
         course_id,
-        inscription_ids: inscriptionIds.join(","),
+    inscription_ids: inscriptions.map(i => i.id).join(","), // ✅ string, PAS tableau
       },
       success_url: "https://www.tickrace.com/merci?success=true",
       cancel_url: "https://www.tickrace.com/inscription?cancelled=true",
