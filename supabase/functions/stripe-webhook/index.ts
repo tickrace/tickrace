@@ -1,4 +1,4 @@
-// deno-lint-ignore-file
+// ✅ supabase/functions/stripe-webhook/index.ts
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.5";
@@ -11,23 +11,6 @@ const resend = new Resend(Deno.env.get("RESEND_API_KEY")!);
 const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "https://www.tickrace.com",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Stripe-Signature",
-      },
-    });
-  }
-
-  if (req.method !== "POST") {
-    return new Response("Méthode non autorisée", {
-      status: 405,
-      headers: { "Access-Control-Allow-Origin": "*" },
-    });
-  }
-
   const sig = req.headers.get("stripe-signature");
   const body = await req.text();
 
@@ -35,27 +18,21 @@ serve(async (req) => {
   try {
     event = await stripe.webhooks.constructEventAsync(body, sig!, endpointSecret);
   } catch (err) {
-    console.error("⚠️ Signature Stripe invalide :", err.message);
-    return new Response("Signature invalide", {
-      status: 400,
-      headers: { "Access-Control-Allow-Origin": "*" },
-    });
+    console.error("⚠️ Signature Stripe invalide:", err.message);
+    return new Response("Signature invalide", { status: 400 });
   }
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
+    console.log("📩 Metadata brut reçu :", session.metadata);
+
     const user_id = session.metadata?.user_id;
     const course_id = session.metadata?.course_id;
     const montant_total = session.amount_total / 100;
     const stripe_payment_intent_id = session.payment_intent;
-
-    // 📌 LOG : contenu brut reçu de Stripe
-    console.log("🧾 inscription_ids brut:", session.metadata?.inscription_ids);
-
     const inscriptionIds = session.metadata?.inscription_ids?.split(",").filter(Boolean) ?? [];
 
-    // 📌 LOG : tableau traité
-    console.log("📌 Tableau inscriptionIds :", inscriptionIds);
+    console.log("📎 IDs extraits de metadata:", inscriptionIds);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -69,27 +46,14 @@ serve(async (req) => {
 
     if (errIns || !inscriptions || inscriptions.length === 0) {
       console.error("❌ Aucune inscription trouvée pour ce paiement.");
-      return new Response("Inscriptions manquantes", {
-        status: 400,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      });
+      return new Response("Inscriptions manquantes", { status: 400 });
     }
 
-    const { error: errUpdate } = await supabase
-      .from("inscriptions")
-      .update({ statut: "validée" })
-      .in("id", inscriptionIds);
-
-    if (errUpdate) {
-      console.error("❌ Erreur update inscriptions :", errUpdate.message);
-      return new Response("Erreur update", {
-        status: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      });
-    }
+    await supabase.from("inscriptions").update({ statut: "validée" }).in("id", inscriptionIds);
 
     const paiementData = {
       user_id,
+      course_id,
       inscription_ids: inscriptionIds,
       inscription_id: inscriptionIds.length === 1 ? inscriptionIds[0] : null,
       type: inscriptionIds.length === 1 ? "individuel" : "groupé",
@@ -100,16 +64,10 @@ serve(async (req) => {
       reversement_effectue: false,
     };
 
-    const { error: errPaiement } = await supabase
-      .from("paiements")
-      .insert(paiementData);
-
+    const { error: errPaiement } = await supabase.from("paiements").insert(paiementData);
     if (errPaiement) {
-      console.error("❌ Erreur insertion paiement :", errPaiement.message);
-      return new Response("Erreur paiement", {
-        status: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      });
+      console.error("❌ Erreur insertion paiement:", errPaiement.message);
+      return new Response("Erreur paiement", { status: 500 });
     }
 
     for (const i of inscriptions) {
@@ -122,7 +80,6 @@ serve(async (req) => {
         <p>Merci pour votre confiance et à bientôt sur la ligne de départ !</p>
         <p>L'équipe Tickrace</p>
       `;
-
       try {
         await resend.emails.send({
           from: "Tickrace <inscription@tickrace.com>",
@@ -137,8 +94,5 @@ serve(async (req) => {
     }
   }
 
-  return new Response("ok", {
-    status: 200,
-    headers: { "Access-Control-Allow-Origin": "*" },
-  });
+  return new Response("ok");
 });
