@@ -14,7 +14,6 @@ serve(async (req) => {
   console.log("📥 Requête reçue :", req.method);
 
   if (req.method === "OPTIONS") {
-    console.log("↪️ Requête preflight CORS");
     return new Response("ok", {
       headers: {
         "Access-Control-Allow-Origin": "https://www.tickrace.com",
@@ -25,7 +24,6 @@ serve(async (req) => {
   }
 
   if (req.method !== "POST") {
-    console.warn("⛔ Méthode non autorisée :", req.method);
     return new Response("Méthode non autorisée", {
       status: 405,
       headers: { "Access-Control-Allow-Origin": "*" },
@@ -34,7 +32,6 @@ serve(async (req) => {
 
   const sig = req.headers.get("stripe-signature");
   const body = await req.text();
-  console.log("📦 Corps reçu :", body.slice(0, 100) + "...");
 
   let event;
   try {
@@ -51,10 +48,12 @@ serve(async (req) => {
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     const user_id = session.metadata?.user_id;
-    const format_id = session.metadata?.format_id;
     const course_id = session.metadata?.course_id;
     const montant_total = session.amount_total / 100;
     const stripe_payment_intent_id = session.payment_intent;
+    const inscriptionIds = session.metadata?.inscription_ids?.split(",").filter(Boolean) ?? [];
+
+    console.log("📌 Inscriptions Stripe metadata:", inscriptionIds);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -64,9 +63,7 @@ serve(async (req) => {
     const { data: inscriptions, error: errIns } = await supabase
       .from("inscriptions")
       .select("id, email, nom, prenom")
-      .eq("coureur_id", user_id)
-      .eq("format_id", format_id)
-      .eq("statut", "en attente");
+      .in("id", inscriptionIds);
 
     if (errIns || !inscriptions || inscriptions.length === 0) {
       console.error("❌ Aucune inscription trouvée pour ce paiement.");
@@ -75,8 +72,6 @@ serve(async (req) => {
         headers: { "Access-Control-Allow-Origin": "*" },
       });
     }
-
-    const inscriptionIds = inscriptions.map((i) => i.id);
 
     const { error: errUpdate } = await supabase
       .from("inscriptions")
@@ -91,29 +86,35 @@ serve(async (req) => {
       });
     }
 
-    const { error: errPaiement } = await supabase.from("paiements").insert({
+    const paiementData = {
       user_id,
-      type: "groupé",
       inscription_ids: inscriptionIds,
-      inscription_id: null,
+      inscription_id: inscriptionIds.length === 1 ? inscriptionIds[0] : null,
+      type: inscriptionIds.length === 1 ? "individuel" : "groupé",
       montant_total,
       devise: "EUR",
       stripe_payment_intent_id,
       status: "succeeded",
       reversement_effectue: false,
-    });
+    };
 
-    if (errPaiement) {
-      console.error("❌ Erreur insertion paiement :", errPaiement.message);
+    const { data: paiementInserted, error: errPaiement } = await supabase
+      .from("paiements")
+      .insert(paiementData)
+      .select()
+      .single();
+
+    if (errPaiement || !paiementInserted) {
+      console.error("❌ Erreur insertion paiement :", errPaiement?.message);
+      console.error("💥 Données envoyées :", paiementData);
       return new Response("Erreur paiement", {
         status: 500,
         headers: { "Access-Control-Allow-Origin": "*" },
       });
     }
 
-    console.log(`✅ Paiement groupé confirmé : ${montant_total} € pour ${inscriptionIds.length} inscriptions`);
+    console.log("✅ Paiement enregistré :", paiementInserted.id);
 
-    // ✅ Envoi des emails via Resend
     for (const i of inscriptions) {
       const lien = `https://www.tickrace.com/mon-inscription/${i.id}`;
       const html = `
