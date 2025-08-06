@@ -48,7 +48,9 @@ serve(async (req) => {
       });
     }
 
-    const { nom, prenom, email, format_id } = inscriptions[0];
+    const { nom, prenom, email } = inscriptions[0]; // on retire format_id
+const inscription_ids = inscriptions.map((i) => i.id).filter(Boolean);
+
 
     const supabaseAdmin = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -109,7 +111,7 @@ receipt_email: email,
   user_id,
   format_id,
   course_id,
-  inscription_ids: inscriptions.map(i => i.id).join(","), // ✅ indispensable
+  inscription_ids: inscription_ids.join(","), // ✅ plus propre
 },
 
 
