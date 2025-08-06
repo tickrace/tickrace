@@ -113,9 +113,28 @@ export default function ModifierCourse() {
     setFormats((prev) => [...prev, duplicated]);
   };
 
-  const removeFormat = (index) => {
-    setFormats((prev) => prev.filter((_, i) => i !== index));
-  };
+  const removeFormat = async (index) => {
+  if (!window.confirm("Supprimer ce format ? Cette action est irréversible.")) return;
+
+  const formatToRemove = formats[index];
+
+  // Si le format est déjà en base, le supprimer côté Supabase
+  if (formatToRemove.id) {
+    const { error } = await supabase
+      .from("formats")
+      .delete()
+      .eq("id", formatToRemove.id);
+
+    if (error) {
+      alert("Erreur lors de la suppression du format : " + error.message);
+      return;
+    }
+  }
+
+  // Ensuite : suppression locale dans le state React
+  setFormats((prev) => prev.filter((_, i) => i !== index));
+};
+
 
   const handleSubmit = async (e) => {
     e.preventDefault();
