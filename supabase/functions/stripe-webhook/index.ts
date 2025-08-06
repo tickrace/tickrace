@@ -11,7 +11,7 @@ const resend = new Resend(Deno.env.get("RESEND_API_KEY")!);
 const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 
 serve(async (req) => {
-  console.log("📥 Requête reçue :", req.method);
+  console.log("📥 Requête Stripe webhook reçue");
 
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -32,28 +32,26 @@ serve(async (req) => {
 
   const sig = req.headers.get("stripe-signature");
   const body = await req.text();
-
   let event;
+
   try {
     event = await stripe.webhooks.constructEventAsync(body, sig!, endpointSecret);
-    console.log("✅ Signature Stripe valide :", event.type);
+    console.log("✅ Signature Stripe vérifiée :", event.type);
   } catch (err) {
-    console.error("⚠️ Signature Stripe invalide :", err.message);
-    return new Response("Signature invalide", {
-      status: 400,
-      headers: { "Access-Control-Allow-Origin": "*" },
-    });
+    console.error("❌ Signature Stripe invalide :", err.message);
+    return new Response("Signature invalide", { status: 400 });
   }
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     const user_id = session.metadata?.user_id;
     const course_id = session.metadata?.course_id;
+    const rawIds = session.metadata?.inscription_ids || "";
     const montant_total = session.amount_total / 100;
     const stripe_payment_intent_id = session.payment_intent;
-    const inscriptionIds = session.metadata?.inscription_ids?.split(",").filter(Boolean) ?? [];
 
-    console.log("📌 Inscriptions Stripe metadata:", inscriptionIds);
+    const inscriptionIds = rawIds.split(",").filter(Boolean);
+    console.log("📦 IDs récupérés depuis metadata:", inscriptionIds);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
@@ -66,11 +64,8 @@ serve(async (req) => {
       .in("id", inscriptionIds);
 
     if (errIns || !inscriptions || inscriptions.length === 0) {
-      console.error("❌ Aucune inscription trouvée pour ce paiement.");
-      return new Response("Inscriptions manquantes", {
-        status: 400,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      });
+      console.error("❌ Aucune inscription trouvée pour ces IDs :", inscriptionIds);
+      return new Response("Inscriptions manquantes", { status: 400 });
     }
 
     const { error: errUpdate } = await supabase
@@ -79,11 +74,8 @@ serve(async (req) => {
       .in("id", inscriptionIds);
 
     if (errUpdate) {
-      console.error("❌ Erreur update inscriptions :", errUpdate.message);
-      return new Response("Erreur update", {
-        status: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      });
+      console.error("❌ Erreur lors de la mise à jour des statuts :", errUpdate.message);
+      return new Response("Erreur update", { status: 500 });
     }
 
     const paiementData = {
@@ -98,22 +90,14 @@ serve(async (req) => {
       reversement_effectue: false,
     };
 
-    const { data: paiementInserted, error: errPaiement } = await supabase
-      .from("paiements")
-      .insert(paiementData)
-      .select()
-      .single();
+    console.log("💾 Insertion paiement:", paiementData);
 
-    if (errPaiement || !paiementInserted) {
-      console.error("❌ Erreur insertion paiement :", errPaiement?.message);
-      console.error("💥 Données envoyées :", paiementData);
-      return new Response("Erreur paiement", {
-        status: 500,
-        headers: { "Access-Control-Allow-Origin": "*" },
-      });
+    const { error: errPaiement } = await supabase.from("paiements").insert(paiementData);
+
+    if (errPaiement) {
+      console.error("❌ Erreur insertion paiement :", errPaiement.message);
+      return new Response("Erreur paiement", { status: 500 });
     }
-
-    console.log("✅ Paiement enregistré :", paiementInserted.id);
 
     for (const i of inscriptions) {
       const lien = `https://www.tickrace.com/mon-inscription/${i.id}`;
@@ -135,7 +119,7 @@ serve(async (req) => {
         });
         console.log(`📧 Email envoyé à ${i.email}`);
       } catch (e) {
-        console.error(`❌ Erreur Resend vers ${i.email} :`, e.message);
+        console.error(`❌ Erreur envoi email à ${i.email} :`, e.message);
       }
     }
   }
