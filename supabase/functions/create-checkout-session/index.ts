@@ -85,6 +85,7 @@ serve(async (req) => {
 
     const inscriptionIds = inscriptions.map((i) => i.id);
     console.log("📦 Inscriptions envoyées à Stripe :", inscriptionIds);
+console.log("📦 IDs envoyés à Stripe : ", inscriptions.map(i => i.id).join(","));
 
     const session = await stripe.checkout.sessions.create({
       customer: stripeCustomerId,
