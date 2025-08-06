@@ -364,6 +364,8 @@ export default function InscriptionCourse() {
     }
 
     // ✅ Paiement Stripe avec les inscriptions insérées
+    console.log("📦 Inscriptions envoyées à Stripe :", inserted.map((i) => ({ id: i.id })));
+
     const prixTotal = inserted.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0);
 
     const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
@@ -376,7 +378,7 @@ export default function InscriptionCourse() {
         user_id: user.id,
         course_id: courseId,
         prix_total: prixTotal,
-        inscriptions: inserted, // ✅ on garde les infos nécessaires
+    inscriptions: inserted.map((i) => ({ id: i.id })), // ✅ c'est ici qu'on envoie
  
 
       }),
