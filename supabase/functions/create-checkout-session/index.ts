@@ -104,11 +104,15 @@ receipt_email: email,
         },
       ],
       mode: "payment",
+
       metadata: {
-        user_id,
-        format_id,
-        course_id,
-      },
+  user_id,
+  format_id,
+  course_id,
+  inscription_ids: inscriptions.map(i => i.id).join(","), // ✅ indispensable
+},
+
+
       success_url: "https://www.tickrace.com/merci?success=true",
       cancel_url: "https://www.tickrace.com/inscription?cancelled=true",
     });
