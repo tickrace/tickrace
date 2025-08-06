@@ -376,7 +376,8 @@ export default function InscriptionCourse() {
         user_id: user.id,
         course_id: courseId,
         prix_total: prixTotal,
-        inscriptions: inserted,
+        inscriptions: inserted.map((i) => ({ id: i.id })), // ✅ on ne garde que les ID
+
       }),
     });
 
