@@ -22,7 +22,7 @@ serve(async (req) => {
   }
 
   if (req.method !== "POST") {
-    return new Response("Méthode non autorisée", {
+    return new Response("Method Not Allowed", {
       status: 405,
       headers: { "Access-Control-Allow-Origin": "*" },
     });
@@ -34,9 +34,10 @@ serve(async (req) => {
   let event;
   try {
     event = await stripe.webhooks.constructEventAsync(body, sig!, endpointSecret);
+    console.log("✅ Event Stripe :", event.type);
   } catch (err) {
-    console.error("⚠️ Signature Stripe invalide :", err.message);
-    return new Response("Signature invalide", {
+    console.error("❌ Erreur de signature Stripe :", err.message);
+    return new Response("Invalid signature", {
       status: 400,
       headers: { "Access-Control-Allow-Origin": "*" },
     });
@@ -50,6 +51,14 @@ serve(async (req) => {
     const stripe_payment_intent_id = session.payment_intent;
     const inscriptionIds = session.metadata?.inscription_ids?.split(",").filter(Boolean) ?? [];
 
+    console.log("📦 Données checkout :", {
+      user_id,
+      course_id,
+      montant_total,
+      stripe_payment_intent_id,
+      inscriptionIds,
+    });
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -61,8 +70,8 @@ serve(async (req) => {
       .in("id", inscriptionIds);
 
     if (errIns || !inscriptions || inscriptions.length === 0) {
-      console.error("❌ Aucune inscription trouvée pour ce paiement.");
-      return new Response("Inscriptions manquantes", {
+      console.error("❌ Aucune inscription trouvée :", errIns);
+      return new Response("Inscriptions not found", {
         status: 400,
         headers: { "Access-Control-Allow-Origin": "*" },
       });
@@ -74,7 +83,7 @@ serve(async (req) => {
       .in("id", inscriptionIds);
 
     if (errUpdate) {
-      console.error("❌ Erreur update inscriptions :", errUpdate.message);
+      console.error("❌ Erreur mise à jour statut :", errUpdate.message);
       return new Response("Erreur update", {
         status: 500,
         headers: { "Access-Control-Allow-Origin": "*" },
@@ -92,6 +101,8 @@ serve(async (req) => {
       status: "succeeded",
       reversement_effectue: false,
     };
+
+    console.log("💾 Insertion paiement :", paiementData);
 
     const { error: errPaiement } = await supabase
       .from("paiements")
@@ -125,7 +136,7 @@ serve(async (req) => {
         });
         console.log(`📧 Email envoyé à ${i.email}`);
       } catch (e) {
-        console.error(`❌ Erreur Resend vers ${i.email} :`, e.message);
+        console.error(`❌ Erreur envoi email ${i.email} :`, e.message);
       }
     }
   }

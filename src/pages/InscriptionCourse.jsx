@@ -347,7 +347,7 @@ export default function InscriptionCourse() {
       }
     }
 
-    // ✅ Insertion des inscriptions en base avec statut en attente
+    // ✅ Insertion des inscriptions en base
     const { data: inserted, error } = await supabase
       .from("inscriptions")
       .insert(inscriptions.map((i) => ({
@@ -363,9 +363,10 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // ✅ Paiement Stripe avec les inscriptions insérées
+    // ✅ Log pour debug
     console.log("📦 Inscriptions envoyées à Stripe :", inserted.map((i) => ({ id: i.id })));
 
+    // ✅ Paiement Stripe
     const prixTotal = inserted.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0);
 
     const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
@@ -378,9 +379,7 @@ export default function InscriptionCourse() {
         user_id: user.id,
         course_id: courseId,
         prix_total: prixTotal,
-    inscriptions: inserted.map((i) => ({ id: i.id })), // ✅ c'est ici qu'on envoie
- 
-
+        inscriptions: inserted.map((i) => ({ id: i.id })), // ⬅️ important !
       }),
     });
 
@@ -394,6 +393,7 @@ export default function InscriptionCourse() {
 >
   Confirmer et payer
 </button>
+
      
 {message && <p className="text-green-700 mt-4">{message}</p>}
                 <div className="mt-4 font-bold text-lg">
