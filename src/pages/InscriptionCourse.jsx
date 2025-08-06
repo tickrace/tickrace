@@ -321,7 +321,7 @@ export default function InscriptionCourse() {
         
         
 
-        <button
+   <button
   type="button"
   className="bg-purple-600 text-white px-4 py-2 rounded"
   onClick={async () => {
@@ -333,7 +333,7 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // Vérification des formats et insertion
+    // Vérifications avant insertion
     for (const inscription of inscriptions) {
       if (!inscription.format_id) {
         alert("Veuillez sélectionner un format pour chaque coureur.");
@@ -345,59 +345,40 @@ export default function InscriptionCourse() {
         alert(`Le format ${selectedFormat.nom} est complet.`);
         return;
       }
-
-      const { error } = await supabase.from("inscriptions").insert([
-        {
-          ...inscription,
-          course_id: courseId,
-          format_id: inscription.format_id,
-        },
-      ]);
-
-      if (error) {
-        console.error("Erreur insertion :", error);
-        alert("Erreur lors de l'inscription");
-        return;
-      }
-
-    //  try {
-     //   await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/send-inscription-email", {
-     //     method: "POST",
-     //     headers: {
-     //       "Content-Type": "application/json",
-      //      Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_KEY}`,
-     ////     },
-     //     body: JSON.stringify({
-     //       email: inscription.email,
-      //      prenom: inscription.prenom,
-     //       nom: inscription.nom,
-     //       format_nom: selectedFormat.nom,
-     //       course_nom: course.nom,
-     //       date: selectedFormat.date,
-     //     }),
-     //   });
-     // } catch (e) {
-     //   console.error("Erreur email :", e);
-     // }
     }
 
-    // Paiement Stripe
-   const token = session.data.session.access_token;
+    // ✅ Insertion des inscriptions en base avec statut en attente
+    const { data: inserted, error } = await supabase
+      .from("inscriptions")
+      .insert(inscriptions.map((i) => ({
+        ...i,
+        course_id: courseId,
+        statut: "en attente",
+      })))
+      .select();
 
-const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
-  method: "POST",
-  headers: {
-    "Content-Type": "application/json",
-    Authorization: `Bearer ${token}`,
-  },
-  body: JSON.stringify({
-    inscriptions,
-    prix_total: inscriptions.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0),
-    user_id: user.id,
-    course_id: courseId,
-  }),
-});
+    if (error || !inserted) {
+      console.error("❌ Erreur insertion inscriptions :", error);
+      alert("Erreur lors de l'enregistrement des inscriptions.");
+      return;
+    }
 
+    // ✅ Paiement Stripe avec les inscriptions insérées
+    const prixTotal = inserted.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0);
+
+    const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${session.data.session.access_token}`,
+      },
+      body: JSON.stringify({
+        user_id: user.id,
+        course_id: courseId,
+        prix_total: prixTotal,
+        inscriptions: inserted,
+      }),
+    });
 
     const data = await response.json();
     if (data.url) {
@@ -409,6 +390,7 @@ const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co
 >
   Confirmer et payer
 </button>
+     
 {message && <p className="text-green-700 mt-4">{message}</p>}
                 <div className="mt-4 font-bold text-lg">
           Prix total : {inscriptions.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0).toFixed(2)} €
