@@ -317,11 +317,11 @@ export default function InscriptionCourse() {
           );
         })}
 
-        <button type="button" onClick={() => addInscription()} className="bg-blue-500 text-white px-4 py-2 rounded">+ Ajouter un coureur</button>
+    //    <button type="button" onClick={() => addInscription()} className="bg-blue-500 text-white px-4 py-2 rounded">+ Ajouter un coureur</button>
         
         
 
-   <button
+  <button
   type="button"
   className="bg-purple-600 text-white px-4 py-2 rounded"
   onClick={async () => {
@@ -333,41 +333,38 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // Vérifications avant insertion
-    for (const inscription of inscriptions) {
-      if (!inscription.format_id) {
-        alert("Veuillez sélectionner un format pour chaque coureur.");
-        return;
-      }
+    const inscription = inscriptions[0]; // ✅ On prend uniquement le premier (unique) coureur
 
-      const selectedFormat = formats.find((f) => f.id === inscription.format_id);
-      if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
-        alert(`Le format ${selectedFormat.nom} est complet.`);
-        return;
-      }
-    }
-
-    // ✅ Insertion des inscriptions en base
-    const { data: inserted, error } = await supabase
-      .from("inscriptions")
-      .insert(inscriptions.map((i) => ({
-        ...i,
-        course_id: courseId,
-        statut: "en attente",
-      })))
-      .select();
-
-    if (error || !inserted) {
-      console.error("❌ Erreur insertion inscriptions :", error);
-      alert("Erreur lors de l'enregistrement des inscriptions.");
+    if (!inscription || !inscription.format_id) {
+      alert("Veuillez sélectionner un format.");
       return;
     }
 
-    // ✅ Log pour debug
-    console.log("📦 Inscriptions envoyées à Stripe :", inserted.map((i) => ({ id: i.id })));
+    const selectedFormat = formats.find((f) => f.id === inscription.format_id);
+    if (selectedFormat.inscrits >= selectedFormat.nb_max_coureurs) {
+      alert(`Le format ${selectedFormat.nom} est complet.`);
+      return;
+    }
+
+    // ✅ Insertion de l'inscription unique en base
+    const { data: inserted, error } = await supabase
+      .from("inscriptions")
+      .insert([{
+        ...inscription,
+        course_id: courseId,
+        statut: "en attente",
+      }])
+      .select()
+      .single();
+
+    if (error || !inserted) {
+      console.error("❌ Erreur insertion inscription :", error);
+      alert("Erreur lors de l'enregistrement de l'inscription.");
+      return;
+    }
 
     // ✅ Paiement Stripe
-    const prixTotal = inserted.reduce((acc, i) => acc + (i.prix_total_coureur || 0), 0);
+    const prixTotal = inserted.prix_total_coureur || 0;
 
     const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
       method: "POST",
@@ -379,7 +376,7 @@ export default function InscriptionCourse() {
         user_id: user.id,
         course_id: courseId,
         prix_total: prixTotal,
-        inscriptions: inserted.map((i) => ({ id: i.id })), // ⬅️ important !
+        inscription_id: inserted.id, // ✅ ID unique
       }),
     });
 
@@ -393,6 +390,7 @@ export default function InscriptionCourse() {
 >
   Confirmer et payer
 </button>
+
 
      
 {message && <p className="text-green-700 mt-4">{message}</p>}
