@@ -345,7 +345,7 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // ✅ Insertion unique dans la table inscriptions
+    // ✅ Insertion unique
     const { data: inserted, error } = await supabase
       .from("inscriptions")
       .insert([
@@ -364,7 +364,7 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // ✅ Lancement du paiement Stripe
+    // ✅ Paiement Stripe
     const prixTotal = inserted.prix_total_coureur || 0;
 
     const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
@@ -377,7 +377,7 @@ export default function InscriptionCourse() {
         user_id: user.id,
         course_id: courseId,
         prix_total: prixTotal,
-        inscription_id: inserted.id, // ✅ nouveau champ attendu
+        inscription_id: inserted.id, // ✅ CORRIGÉ ICI
       }),
     });
 
@@ -391,6 +391,7 @@ export default function InscriptionCourse() {
 >
   Confirmer et payer
 </button>
+
 
 
 
