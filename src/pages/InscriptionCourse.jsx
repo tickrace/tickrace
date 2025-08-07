@@ -373,6 +373,7 @@ console.log({
   inscription_id: inserted.id,
 });
 
+
     const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
       method: "POST",
       headers: {

@@ -26,9 +26,9 @@ serve(async (req) => {
 
     console.log("📥 Données reçues:", body);
 
-    const { user_id, course_id, prix_total, inscription_id } = body;
+const { user_id, course_id, prix_total, inscription_id, email } = body;
 
-    if (!user_id || !course_id || !prix_total || !inscription_id) {
+if (!user_id || !course_id || !prix_total || !inscription_id || !email) {
       console.error("❌ Paramètre manquant");
       return new Response(
         JSON.stringify({ error: "Paramètre manquant dans la requête" }),
