@@ -1,5 +1,6 @@
-// deno-lint-ignore-file
+// ✅ create-checkout-session/index.ts
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.5";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
@@ -7,57 +8,40 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
 });
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "Content-Type, Authorization",
-      },
-    });
+  const body = await req.json();
+
+  const { user_id, course_id, prix_total, inscription_id } = body;
+  if (!user_id || !course_id || !prix_total || !inscription_id) {
+    console.error("❌ Paramètre manquant");
+    return new Response("Bad Request", { status: 400 });
   }
 
-  if (req.method !== "POST") {
-    return new Response("Méthode non autorisée", { status: 405 });
-  }
-
-  try {
-    const { user_id, course_id, prix_total, inscription_id } = await req.json();
-
-    if (!user_id || !course_id || !prix_total || !inscription_id) {
-      console.error("❌ Données manquantes", { user_id, course_id, prix_total, inscription_id });
-      return new Response("Données manquantes", { status: 400 });
-    }
-
-    const session = await stripe.checkout.sessions.create({
-      payment_method_types: ["card"],
-      line_items: [
-        {
-          price_data: {
-            currency: "eur",
-            product_data: {
-              name: "Inscription course Tickrace",
-            },
-            unit_amount: Math.round(prix_total * 100),
+  const session = await stripe.checkout.sessions.create({
+    payment_method_types: ["card"],
+    line_items: [
+      {
+        price_data: {
+          currency: "eur",
+          product_data: {
+            name: "Inscription à la course",
           },
-          quantity: 1,
+          unit_amount: Math.round(prix_total * 100),
         },
-      ],
-      mode: "payment",
-      metadata: {
-        user_id,
-        course_id,
-        inscription_id,
+        quantity: 1,
       },
-      success_url: "https://www.tickrace.com/inscription-validee",
-      cancel_url: "https://www.tickrace.com/inscription-annulee",
-    });
+    ],
+    mode: "payment",
+    success_url: "https://www.tickrace.com/success",
+    cancel_url: "https://www.tickrace.com/cancel",
+    metadata: {
+      user_id,
+      course_id,
+      prix_total,
+      inscription_id,
+    },
+  });
 
-    return new Response(JSON.stringify({ url: session.url }), {
-      headers: { "Content-Type": "application/json" },
-    });
-  } catch (err) {
-    console.error("❌ Erreur création session Stripe :", err.message);
-    return new Response("Erreur serveur", { status: 500 });
-  }
+  return new Response(JSON.stringify({ url: session.url }), {
+    headers: { "Content-Type": "application/json" },
+  });
 });
