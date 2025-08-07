@@ -375,7 +375,8 @@ export default function InscriptionCourse() {
         user_id: user.id,
         course_id: courseId,
         prix_total: prixTotal,
-        inscription_id: inserted.id, // ✅ ID unique
+          inscription_id: inserted[0].id, // ⬅️ nouveau format individuel
+
       }),
     });
 
