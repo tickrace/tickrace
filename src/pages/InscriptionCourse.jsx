@@ -384,6 +384,7 @@ console.log({
         course_id: courseId,
         prix_total: prixTotal,
         inscription_id: inserted.id, // ✅ CORRIGÉ ICI
+        email, // ✅ ➕ ici
       }),
     });
 
