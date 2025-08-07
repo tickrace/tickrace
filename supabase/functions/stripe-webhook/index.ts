@@ -11,7 +11,7 @@ const resend = new Resend(Deno.env.get("RESEND_API_KEY")!);
 const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 
 serve(async (req) => {
-  console.log("📥 Requête Stripe webhook reçue");
+  console.log("📥 Requête reçue :", req.method);
 
   if (req.method === "OPTIONS") {
     return new Response("ok", {
@@ -32,95 +32,102 @@ serve(async (req) => {
 
   const sig = req.headers.get("stripe-signature");
   const body = await req.text();
-  let event;
+  console.log("📦 Corps reçu :", body.slice(0, 100) + "...");
 
+  let event;
   try {
     event = await stripe.webhooks.constructEventAsync(body, sig!, endpointSecret);
-    console.log("✅ Signature Stripe vérifiée :", event.type);
+    console.log("✅ Signature Stripe valide :", event.type);
   } catch (err) {
-    console.error("❌ Signature Stripe invalide :", err.message);
-    return new Response("Signature invalide", { status: 400 });
+    console.error("⚠️ Signature Stripe invalide :", err.message);
+    return new Response("Signature invalide", {
+      status: 400,
+      headers: { "Access-Control-Allow-Origin": "*" },
+    });
   }
 
   if (event.type === "checkout.session.completed") {
     const session = event.data.object;
     const user_id = session.metadata?.user_id;
     const course_id = session.metadata?.course_id;
-    const rawIds = session.metadata?.inscription_ids || "";
+    const inscription_id = session.metadata?.inscription_id;
     const montant_total = session.amount_total / 100;
     const stripe_payment_intent_id = session.payment_intent;
-
-    const inscriptionIds = rawIds.split(",").filter(Boolean);
-    console.log("📦 IDs récupérés depuis metadata:", inscriptionIds);
 
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const { data: inscriptions, error: errIns } = await supabase
+    const { data: inscription, error: errIns } = await supabase
       .from("inscriptions")
       .select("id, email, nom, prenom")
-      .in("id", inscriptionIds);
+      .eq("id", inscription_id)
+      .eq("statut", "en attente")
+      .single();
 
-    if (errIns || !inscriptions || inscriptions.length === 0) {
-      console.error("❌ Aucune inscription trouvée pour ces IDs :", inscriptionIds);
-      return new Response("Inscriptions manquantes", { status: 400 });
+    if (errIns || !inscription) {
+      console.error("❌ Inscription introuvable ou déjà validée.");
+      return new Response("Inscription manquante", {
+        status: 400,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
     }
 
     const { error: errUpdate } = await supabase
       .from("inscriptions")
       .update({ statut: "validée" })
-      .in("id", inscriptionIds);
+      .eq("id", inscription_id);
 
     if (errUpdate) {
-      console.error("❌ Erreur lors de la mise à jour des statuts :", errUpdate.message);
-      return new Response("Erreur update", { status: 500 });
+      console.error("❌ Erreur update inscription :", errUpdate.message);
+      return new Response("Erreur update", {
+        status: 500,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
     }
 
-    const paiementData = {
+    const { error: errPaiement } = await supabase.from("paiements").insert({
       user_id,
-      inscription_ids: inscriptionIds,
-      inscription_id: inscriptionIds.length === 1 ? inscriptionIds[0] : null,
-      type: inscriptionIds.length === 1 ? "individuel" : "groupé",
+      type: "individuel",
+      inscription_id,
       montant_total,
       devise: "EUR",
       stripe_payment_intent_id,
       status: "succeeded",
       reversement_effectue: false,
-    };
-
-    console.log("💾 Insertion paiement:", paiementData);
-
-    const { error: errPaiement } = await supabase.from("paiements").insert(paiementData);
+    });
 
     if (errPaiement) {
       console.error("❌ Erreur insertion paiement :", errPaiement.message);
-      return new Response("Erreur paiement", { status: 500 });
+      return new Response("Erreur paiement", {
+        status: 500,
+        headers: { "Access-Control-Allow-Origin": "*" },
+      });
     }
 
-    for (const i of inscriptions) {
-      const lien = `https://www.tickrace.com/mon-inscription/${i.id}`;
-      const html = `
-        <p>Bonjour ${i.prenom} ${i.nom},</p>
-        <p>Votre inscription est confirmée 🎉</p>
-        <p><strong>Numéro d'inscription :</strong> ${i.id}</p>
-        <p>👉 <a href="${lien}">Voir mon inscription</a></p>
-        <p>Merci pour votre confiance et à bientôt sur la ligne de départ !</p>
-        <p>L'équipe Tickrace</p>
-      `;
+    console.log(`✅ Paiement confirmé : ${montant_total} € pour ${inscription.nom} ${inscription.prenom}`);
 
-      try {
-        await resend.emails.send({
-          from: "Tickrace <inscription@tickrace.com>",
-          to: i.email,
-          subject: "Votre inscription est confirmée ✔️",
-          html,
-        });
-        console.log(`📧 Email envoyé à ${i.email}`);
-      } catch (e) {
-        console.error(`❌ Erreur envoi email à ${i.email} :`, e.message);
-      }
+    const lien = `https://www.tickrace.com/mon-inscription/${inscription.id}`;
+    const html = `
+      <p>Bonjour ${inscription.prenom} ${inscription.nom},</p>
+      <p>Votre inscription est confirmée 🎉</p>
+      <p><strong>Numéro d'inscription :</strong> ${inscription.id}</p>
+      <p>👉 <a href="${lien}">Voir mon inscription</a></p>
+      <p>Merci pour votre confiance et à bientôt sur la ligne de départ !</p>
+      <p>L'équipe Tickrace</p>
+    `;
+
+    try {
+      await resend.emails.send({
+        from: "Tickrace <inscription@tickrace.com>",
+        to: inscription.email,
+        subject: "Votre inscription est confirmée ✔️",
+        html,
+      });
+      console.log(`📧 Email envoyé à ${inscription.email}`);
+    } catch (e) {
+      console.error(`❌ Erreur Resend vers ${inscription.email} :`, e.message);
     }
   }
 
