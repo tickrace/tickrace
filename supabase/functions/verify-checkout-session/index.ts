@@ -1,4 +1,3 @@
-// supabase/functions/verify-checkout-session/index.ts
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno";
 
@@ -6,10 +5,12 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-04-10",
 });
 
+const ALLOWED_ORIGIN = "https://www.tickrace.com"; // ajoute ton domaine si besoin
 const cors = {
-  "Access-Control-Allow-Origin": "https://www.tickrace.com", // or "*"
+  "Access-Control-Allow-Origin": ALLOWED_ORIGIN,
   "Access-Control-Allow-Methods": "GET, OPTIONS",
   "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
+  "Vary": "Origin",
 };
 
 serve(async (req) => {
@@ -21,6 +22,8 @@ serve(async (req) => {
   try {
     const url = new URL(req.url);
     const session_id = url.searchParams.get("session_id");
+    console.log("🔎 verify-checkout-session called with:", session_id);
+
     if (!session_id) {
       return new Response(JSON.stringify({ ok: false, error: "session_id manquant" }), {
         status: 400,
@@ -28,21 +31,17 @@ serve(async (req) => {
       });
     }
 
-    // (auth check optional—if you require Authorization, keep it, otherwise remove)
-    // const auth = req.headers.get("authorization");
-    // if (!auth) {
-    //   return new Response(JSON.stringify({ ok: false, error: "Missing authorization header" }), {
-    //     status: 401,
-    //     headers: { ...cors, "Content-Type": "application/json" },
-    //   });
-    // }
-
     const session = await stripe.checkout.sessions.retrieve(session_id);
+    console.log("✅ Stripe session status:", {
+      id: session.id,
+      payment_status: session.payment_status,
+      status: session.status,
+      mode: session.mode,
+    });
 
     const paid =
       session.payment_status === "paid" ||
-      session.status === "complete" ||
-      session.mode === "payment" && !!session.payment_intent;
+      session.status === "complete";
 
     return new Response(JSON.stringify({
       ok: true,
@@ -53,7 +52,7 @@ serve(async (req) => {
       headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("verify-checkout-session error:", e);
+    console.error("💥 verify-checkout-session error:", e);
     return new Response(JSON.stringify({ ok: false, error: "Erreur serveur" }), {
       status: 500,
       headers: { ...cors, "Content-Type": "application/json" },

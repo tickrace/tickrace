@@ -7,6 +7,11 @@ password = { env = "SUPABASE_DB_PASSWORD" }
 [functions."stripe-webhook"]
 verify_jwt = false
 
+[functions]
+verify_jwt = true
+
+[functions.verify-checkout-session]
+verify_jwt = false
 
 
 
