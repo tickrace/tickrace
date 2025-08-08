@@ -18,14 +18,14 @@ async function sendResendEmail({ to, subject, html, text }: { to: string; subjec
   if (!r.ok) throw new Error(`Resend ${r.status}: ${await r.text()}`);
 }
 
-// --- Retry helper (ex: 2 retries, backoff)
+// --- Retry helper
 async function sendWithRetry(fn: () => Promise<void>, max = 2) {
   let lastErr: any;
   for (let attempt = 0; attempt <= max; attempt++) {
     try { return await fn(); }
     catch (e) {
       lastErr = e;
-      const wait = 500 * Math.pow(2, attempt); // 0.5s, 1s, 2s
+      const wait = 500 * Math.pow(2, attempt);
       console.warn(`⚠️ Email fail attempt ${attempt+1}/${max+1}, retry in ${wait}ms`, e);
       await new Promise(r => setTimeout(r, wait));
     }
@@ -78,45 +78,49 @@ serve(async (req) => {
     }
   }
 
- async function processPayment(args: {
-  inscription_id?: string | null;
-  inscription_ids?: string[] | string | null;
-  user_id?: string | null;
-  prix_total?: string | number | null;
-  payment_intent_id: string;
-  fallbackEmail?: string | null;
-  meta_source: "pi" | "session";
-  trace_id?: string | null;
-}) {
-  // normalise ids
-  let ids: string[] = [];
-  if (args.inscription_id) ids = [args.inscription_id];
-  else if (args.inscription_ids) {
-    try { 
-      ids = Array.isArray(args.inscription_ids) ? args.inscription_ids : JSON.parse(String(args.inscription_ids)); 
-    } catch {}
-  }
+  async function processPayment(args: {
+    inscription_id?: string | null;
+    inscription_ids?: string[] | string | null;
+    user_id?: string | null;
+    prix_total?: string | number | null;
+    payment_intent_id: string;
+    fallbackEmail?: string | null;
+    meta_source: "pi" | "session";
+    trace_id?: string | null;
+  }) {
+    // ✅ Création du client Supabase ici
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
 
-  // 🔹 Nouveau : fallback via trace_id si aucun id trouvé
-  if (ids.length === 0 && args.trace_id) {
-    console.log("🔍 Recherche des inscriptions par trace_id:", args.trace_id);
-    const { data: found, error: findErr } = await supabase
-      .from("inscriptions")
-      .select("id")
-      .eq("paiement_trace_id", args.trace_id);
-
-    if (findErr) {
-      console.warn("⚠️ Erreur recherche par trace_id :", findErr.message);
-    } else if (found?.length) {
-      ids = found.map(row => row.id);
-      console.log(`✅ ${found.length} inscription(s) trouvée(s) via trace_id`);
+    // Normalisation des IDs
+    let ids: string[] = [];
+    if (args.inscription_id) ids = [args.inscription_id];
+    else if (args.inscription_ids) {
+      try { 
+        ids = Array.isArray(args.inscription_ids) ? args.inscription_ids : JSON.parse(String(args.inscription_ids)); 
+      } catch {}
     }
-  }
 
+    // 🔹 Nouveau : fallback via trace_id si aucun id trouvé
+    if (ids.length === 0 && args.trace_id) {
+      console.log("🔍 Recherche des inscriptions par trace_id:", args.trace_id);
+      const { data: found, error: findErr } = await supabase
+        .from("inscriptions")
+        .select("id")
+        .eq("paiement_trace_id", args.trace_id);
+
+      if (findErr) {
+        console.warn("⚠️ Erreur recherche par trace_id :", findErr.message);
+      } else if (found?.length) {
+        ids = found.map(row => row.id);
+        console.log(`✅ ${found.length} inscription(s) trouvée(s) via trace_id`);
+      }
+    }
 
     const montant_total_num = Number(args.prix_total ?? 0);
     const montant_total = Number.isFinite(montant_total_num) ? montant_total_num : null;
-    const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
     // Idempotence
     const { data: exist } = await supabase
@@ -130,13 +134,13 @@ serve(async (req) => {
     }
 
     // 1) Valider inscriptions + stocker paiement_trace_id
-const { error: updErr } = await supabase
-  .from("inscriptions")
-  .update({
-    statut: "validé",
-    paiement_trace_id: args.trace_id ?? null
-  })
-  .in("id", ids);
+    const { error: updErr } = await supabase
+      .from("inscriptions")
+      .update({
+        statut: "validé",
+        paiement_trace_id: args.trace_id ?? null
+      })
+      .in("id", ids);
 
     if (updErr) {
       console.error("❌ Update inscriptions :", updErr.message);
@@ -144,19 +148,19 @@ const { error: updErr } = await supabase
     }
     console.log("✅ Inscriptions validées :", ids);
 
-    // 2) Insérer paiement (tu peux ajouter trace_id si tu crées la colonne)
-const paiementRow: any = {
-  user_id: args.user_id ?? null,
-  inscription_id: ids.length === 1 ? ids[0] : null,
-  inscription_ids: ids.length > 1 ? ids : null,
-  montant_total,
-  devise: "EUR",
-  stripe_payment_intent_id: args.payment_intent_id,
-  status: "succeeded",
-  reversement_effectue: false,
-  type: ids.length > 1 ? "groupé" : "individuel",
-  trace_id: args.trace_id ?? null, // ✅ on stocke le trace_id
-};
+    // 2) Insérer paiement
+    const paiementRow: any = {
+      user_id: args.user_id ?? null,
+      inscription_id: ids.length === 1 ? ids[0] : null,
+      inscription_ids: ids.length > 1 ? ids : null,
+      montant_total,
+      devise: "EUR",
+      stripe_payment_intent_id: args.payment_intent_id,
+      status: "succeeded",
+      reversement_effectue: false,
+      type: ids.length > 1 ? "groupé" : "individuel",
+      trace_id: args.trace_id ?? null,
+    };
 
     const { error: payErr } = await supabase.from("paiements").insert(paiementRow);
     if (payErr) {
@@ -256,7 +260,6 @@ L'équipe Tickrace`;
 
     try {
       const pi = await stripe.paymentIntents.retrieve(piId);
-      // @ts-ignore
       const md = pickMeta((pi.metadata || {}) as any);
       console.log("🧾 PI.metadata keys:", Object.keys(((pi as any).metadata || {}) as any));
       if (md.inscription_id || md.inscription_ids) {
