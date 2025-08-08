@@ -324,16 +324,15 @@ export default function InscriptionCourse() {
   type="button"
   className="bg-purple-600 text-white px-4 py-2 rounded"
   onClick={async () => {
-    const session = await supabase.auth.getSession();
-    const user = session.data?.session?.user;
+    const { data: sess } = await supabase.auth.getSession();
+    const user = sess?.session?.user;
 
     if (!user) {
       alert("Veuillez vous connecter pour effectuer le paiement.");
       return;
     }
 
-    const inscription = inscriptions[0]; // ✅ Inscription unique
-
+    const inscription = inscriptions[0]; // Inscription unique
     if (!inscription || !inscription.format_id) {
       alert("Veuillez sélectionner un format.");
       return;
@@ -345,7 +344,7 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // ✅ Insertion unique
+    // 1) Insérer l’inscription (statut "en attente")
     const { data: inserted, error } = await supabase
       .from("inscriptions")
       .insert([
@@ -364,11 +363,11 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // ✅ Définition email à envoyer à Stripe
+    // 2) Email pour Stripe
     const payerEmail =
       inscription.email ||
-      user?.email ||
-      user?.user_metadata?.email ||
+      user.email ||
+      user.user_metadata?.email ||
       "";
 
     if (!payerEmail) {
@@ -376,44 +375,52 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // ✅ Paiement Stripe
-    const prixTotal = inserted.prix_total_coureur || 0;
-    console.log({
+    // 3) Montant
+    const prixTotal = Number(inserted.prix_total_coureur || 0);
+
+    // 4) Create Checkout Session via supabase.functions.invoke (POST)
+    console.log("➡️ create-checkout-session payload:", {
       user_id: user.id,
       course_id: courseId,
       prix_total: prixTotal,
       inscription_id: inserted.id,
       email: payerEmail,
+      successUrl: "https://www.tickrace.com/merci",
+      cancelUrl: "https://www.tickrace.com/paiement-annule",
     });
 
-    const response = await fetch(
-      "https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.data.session.access_token}`,
-        },
-        body: JSON.stringify({
-          user_id: user.id,
-          course_id: courseId,
-          prix_total: prixTotal,
-          inscription_id: inserted.id,
-          email: payerEmail, // ✅ envoyé ici
-        }),
-      }
-    );
+    const { data, error: fnError } = await supabase.functions.invoke("create-checkout-session", {
+      body: {
+        user_id: user.id,
+        course_id: courseId,
+        prix_total: prixTotal,
+        inscription_id: inserted.id,
+        email: payerEmail,
+        successUrl: "https://www.tickrace.com/merci",
+        cancelUrl: "https://www.tickrace.com/paiement-annule",
+      },
+    });
 
-    const data = await response.json();
-    if (data.url) {
-      window.location.href = data.url;
-    } else {
+    if (fnError) {
+      console.error("❌ create-checkout-session error:", fnError);
       alert("Erreur lors de la création du paiement.");
+      return;
     }
+
+    if (!data?.url) {
+      console.error("❌ Pas d'URL de session renvoyée :", data);
+      alert("Erreur lors de la création du paiement (pas d'URL).");
+      return;
+    }
+
+    // 5) Redirection Stripe
+    console.log("✅ Redirection vers Stripe:", data.url);
+    window.location.href = data.url;
   }}
 >
   Confirmer et payer
 </button>
+
 
 
 
