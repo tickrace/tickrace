@@ -1,120 +1,113 @@
 // src/pages/Merci.jsx
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 
 export default function Merci() {
   const [searchParams] = useSearchParams();
   const sessionId = searchParams.get("session_id");
-  const [loading, setLoading] = useState(true);
-  const [ok, setOk] = useState(false);
-  const [details, setDetails] = useState(null);
-  const [err, setErr] = useState(null);
+
+  const [status, setStatus] = useState("loading"); // loading | success | error
+  const [message, setMessage] = useState("");
+  const [details, setDetails] = useState(null); // { amount_total, currency, receipt_url, payment_status, status }
 
   useEffect(() => {
-    let mounted = true;
+    const verifySession = async () => {
+      if (!sessionId) {
+        setStatus("error");
+        setMessage("❌ Session de paiement introuvable.");
+        return;
+      }
 
-    const run = async () => {
       try {
-        if (!sessionId) {
-          setErr("Aucun identifiant de session trouvé.");
-          setLoading(false);
-          return;
-        }
-
-        // Appel via supabase-js => headers d’auth auto
-        const { data, error } = await supabase.functions.invoke(
-          "verify-checkout-session",
-          { body: { session_id: sessionId } }
-        );
-
-        if (!mounted) return;
+        const { data, error } = await supabase.functions.invoke("verify-checkout-session", {
+          body: { sessionId }, // ✅ POST, headers gérés par le SDK
+        });
 
         if (error) {
-          console.error("❌ Erreur vérification paiement :", error);
-          setErr("Erreur lors de la vérification du paiement.");
-          setLoading(false);
-          return;
+          console.error(error);
+          throw new Error(error.message || "Erreur invocation fonction");
         }
 
-        setDetails(data);
-        setOk(Boolean(data?.success));
-        setLoading(false);
-      } catch (e) {
-        if (!mounted) return;
-        console.error("💥 Exception côté client :", e);
-        setErr("Erreur inattendue lors de la vérification.");
-        setLoading(false);
+        if (data?.paid) {
+          setStatus("success");
+          setMessage("✅ Paiement validé. Votre inscription est confirmée !");
+        } else {
+          setStatus("error");
+          setMessage(`❌ Paiement non validé (${data?.payment_status ?? "inconnu"}).`);
+        }
+        setDetails(data || null);
+      } catch (err) {
+        console.error("Erreur vérification paiement :", err);
+        setStatus("error");
+        setMessage("❌ Une erreur est survenue lors de la vérification.");
       }
     };
 
-    run();
-    return () => {
-      mounted = false;
-    };
+    verifySession();
   }, [sessionId]);
 
-  if (loading) {
-    return (
-      <div className="p-6 max-w-xl mx-auto text-center">
-        <h1 className="text-2xl font-semibold mb-2">Vérification du paiement…</h1>
-        <p className="text-gray-600">Merci de patienter quelques secondes.</p>
-      </div>
-    );
-  }
+  return (
+    <div className="max-w-2xl mx-auto text-center py-16">
+      {status === "loading" && (
+        <p className="text-lg animate-pulse">Vérification du paiement en cours...</p>
+      )}
 
-  if (err) {
-    return (
-      <div className="p-6 max-w-xl mx-auto text-center">
-        <h1 className="text-2xl font-semibold mb-2">❌ Paiement non confirmé</h1>
-        <p className="text-gray-700 mb-4">{err}</p>
-        <div className="flex gap-3 justify-center">
-          <Link to="/" className="bg-gray-200 px-3 py-2 rounded">Accueil</Link>
-          <Link to="/inscription" className="bg-purple-600 text-white px-3 py-2 rounded">
-            Revenir à l’inscription
-          </Link>
-        </div>
-      </div>
-    );
-  }
+      {status !== "loading" && (
+        <>
+          <h1
+            className={`text-2xl font-bold mb-4 ${
+              status === "success" ? "text-green-600" : "text-red-600"
+            }`}
+          >
+            {message}
+          </h1>
 
-  return ok ? (
-    <div className="p-6 max-w-xl mx-auto text-center">
-      <h1 className="text-2xl font-semibold mb-2">🎉 Paiement confirmé</h1>
-      <p className="text-gray-700">
-        Merci ! Votre inscription a bien été validée.
-      </p>
+          {details && (
+            <div className="mb-6 text-sm text-gray-700 space-y-1">
+              {"amount_total" in details && details.amount_total ? (
+                <p>
+                  Montant : <strong>{details.amount_total}</strong>{" "}
+                  {details.currency?.toUpperCase?.()}
+                </p>
+              ) : null}
+              {details.payment_status && (
+                <p>Statut Stripe : {details.payment_status}</p>
+              )}
+              {details.status && <p>Session : {details.status}</p>}
+              {details.receipt_url && (
+                <p>
+                  Reçu :{" "}
+                  <a
+                    className="text-blue-600 underline"
+                    href={details.receipt_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    voir le reçu
+                  </a>
+                </p>
+              )}
+            </div>
+          )}
 
-      {/* Informations utiles */}
-      <div className="mt-4 text-left bg-gray-50 border rounded p-4">
-        <p><strong>Montant :</strong> {(details?.amount_total ?? 0) / 100} {details?.currency?.toUpperCase()}</p>
-        {details?.customer_email && <p><strong>Email :</strong> {details.customer_email}</p>}
-        <p><strong>Statut Stripe :</strong> {details?.payment_status} / {details?.checkout_status}</p>
-      </div>
-
-      <div className="mt-6 flex gap-3 justify-center">
-        <Link to="/mesinscriptions" className="bg-green-600 text-white px-3 py-2 rounded">
-          Voir mes inscriptions
-        </Link>
-        <Link to="/" className="bg-gray-200 px-3 py-2 rounded">
-          Accueil
-        </Link>
-      </div>
-    </div>
-  ) : (
-    <div className="p-6 max-w-xl mx-auto text-center">
-      <h1 className="text-2xl font-semibold mb-2">❌ Paiement annulé</h1>
-      <p className="text-gray-700">
-        Votre inscription n’a pas été finalisée.
-      </p>
-      <div className="mt-6 flex gap-3 justify-center">
-        <Link to="/inscription" className="bg-purple-600 text-white px-3 py-2 rounded">
-          Réessayer le paiement
-        </Link>
-        <Link to="/" className="bg-gray-200 px-3 py-2 rounded">
-          Accueil
-        </Link>
-      </div>
+          {status === "success" ? (
+            <Link
+              to="/mes-inscriptions"
+              className="bg-green-600 text-white px-4 py-2 rounded hover:bg-green-700"
+            >
+              Voir mes inscriptions
+            </Link>
+          ) : (
+            <Link
+              to="/courses"
+              className="bg-purple-600 text-white px-4 py-2 rounded hover:bg-purple-700"
+            >
+              Voir les courses
+            </Link>
+          )}
+        </>
+      )}
     </div>
   );
 }
