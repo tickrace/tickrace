@@ -7,7 +7,6 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-04-10",
 });
 
-// Autoriser prod + dev
 const ALLOWLIST = [
   "https://www.tickrace.com",
   "http://localhost:5173",
@@ -20,7 +19,7 @@ function cors(origin: string | null) {
     "Access-Control-Allow-Origin": allowedOrigin,
     "Vary": "Origin",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
-    // Important: inclure les en-têtes utilisés par supabase.functions.invoke
+    // IMPORTANT: inclut apikey + headers du SDK
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, prefer",
     "Access-Control-Max-Age": "86400",
   };
@@ -42,16 +41,6 @@ serve(async (req) => {
   }
 
   try {
-    // Corps attendu:
-    // {
-    //   user_id: string,
-    //   course_id: string,
-    //   prix_total: number | string,
-    //   inscription_id: string,
-    //   email: string,
-    //   successUrl?: string, // optionnel
-    //   cancelUrl?: string   // optionnel
-    // }
     const body = await req.json();
     const origin = req.headers.get("origin");
     console.log("📥 create-checkout-session :: origin =", origin);
@@ -60,25 +49,25 @@ serve(async (req) => {
     const {
       user_id,
       course_id,
-      prix_total,
+      prix_total,       // number | string
       inscription_id,
       email,
-      successUrl,
-      cancelUrl,
+      successUrl,       // optionnel, défaut /merci
+      cancelUrl,        // optionnel, défaut /paiement-annule
     } = body ?? {};
 
-    // Validation basique
+    // Normalisation/validation du prix
     const prixNumber = Number(prix_total);
     const unitAmount = Number.isFinite(prixNumber) ? Math.round(prixNumber * 100) : NaN;
 
     console.log("🔎 Champs normalisés:", {
       has_user_id: !!user_id,
       has_course_id: !!course_id,
+      inscription_id,
+      emailPresent: !!email,
       prix_total_raw: prix_total,
       prixNumber,
       unitAmount,
-      inscription_id,
-      emailPresent: !!email,
       successUrl: successUrl || "(default /merci)",
       cancelUrl: cancelUrl || "(default /paiement-annule)",
     });
@@ -96,7 +85,6 @@ serve(async (req) => {
     const SU_URL = (successUrl || "https://www.tickrace.com/merci") + "?session_id={CHECKOUT_SESSION_ID}";
     const CA_URL = (cancelUrl  || "https://www.tickrace.com/paiement-annule") + "?session_id={CHECKOUT_SESSION_ID}";
 
-    // Création de la session Stripe
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
@@ -106,14 +94,13 @@ serve(async (req) => {
             currency: "eur",
             product_data: {
               name: "Inscription à la course",
-              // Tu peux ajouter ici des infos supplémentaires si tu veux (course, format, etc.)
             },
             unit_amount: unitAmount, // en cents
           },
           quantity: 1,
         },
       ],
-      // Préremplir l’email Stripe + reçu
+      // Email (pré-remplissage + reçu)
       customer_email: String(email),
       payment_intent_data: {
         receipt_email: String(email),
@@ -144,7 +131,7 @@ serve(async (req) => {
     console.error("💥 Erreur create-checkout-session :", e?.message ?? e, e?.stack);
     return new Response(JSON.stringify({ error: "Erreur serveur" }), {
       status: 500,
-      headers: { ...cors(req.headers.get("origin")), "Content-Type": "application/json" },
+      headers: { ...headers, "Content-Type": "application/json" },
     });
   }
 });
