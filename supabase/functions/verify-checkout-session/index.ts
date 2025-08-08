@@ -6,87 +6,57 @@ const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-04-10",
 });
 
-function corsHeaders() {
-  return {
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-  };
-}
+const cors = {
+  "Access-Control-Allow-Origin": "https://www.tickrace.com", // or "*"
+  "Access-Control-Allow-Methods": "GET, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization, apikey, x-client-info",
+};
 
 serve(async (req) => {
-  // CORS preflight
+  // Preflight
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders() });
+    return new Response("ok", { headers: cors });
   }
 
   try {
-    let session_id: string | null = null;
-
-    if (req.method === "POST") {
-      // Appel via supabase.functions.invoke -> body JSON
-      const body = await req.json().catch(() => null);
-      session_id = body?.session_id ?? null;
-      console.log("📥 POST /verify-checkout-session body:", body);
-    } else if (req.method === "GET") {
-      // (Optionnel) support GET ?session_id=...
-      const url = new URL(req.url);
-      session_id = url.searchParams.get("session_id");
-      console.log("📥 GET /verify-checkout-session query session_id:", session_id);
-    } else {
-      return new Response("Method Not Allowed", { status: 405, headers: corsHeaders() });
-    }
-
+    const url = new URL(req.url);
+    const session_id = url.searchParams.get("session_id");
     if (!session_id) {
-      console.error("❌ session_id manquant");
-      return new Response(
-        JSON.stringify({ error: "session_id manquant" }),
-        { status: 400, headers: { ...corsHeaders(), "Content-Type": "application/json" } }
-      );
+      return new Response(JSON.stringify({ ok: false, error: "session_id manquant" }), {
+        status: 400,
+        headers: { ...cors, "Content-Type": "application/json" },
+      });
     }
 
-    // Récupérer la session Stripe (expand pour avoir plus d’infos)
-    const session = await stripe.checkout.sessions.retrieve(session_id, {
-      expand: ["payment_intent", "customer_details"],
-    });
+    // (auth check optional—if you require Authorization, keep it, otherwise remove)
+    // const auth = req.headers.get("authorization");
+    // if (!auth) {
+    //   return new Response(JSON.stringify({ ok: false, error: "Missing authorization header" }), {
+    //     status: 401,
+    //     headers: { ...cors, "Content-Type": "application/json" },
+    //   });
+    // }
 
-    // Logs utiles côté serveur
-    console.log("💳 Stripe session:", {
-      id: session.id,
-      status: session.status,                // 'complete' | 'open' | 'expired'
-      payment_status: session.payment_status, // 'paid' | 'unpaid' | 'no_payment_required'
-      amount_total: session.amount_total,
-      currency: session.currency,
-      customer_email: session.customer_details?.email ?? session.customer_email ?? null,
-      metadata: session.metadata,
-      payment_intent_status:
-        typeof session.payment_intent === "object"
-          ? session.payment_intent.status
-          : null,
-    });
+    const session = await stripe.checkout.sessions.retrieve(session_id);
 
-    const response = {
-      success: session.payment_status === "paid" && session.status === "complete",
-      checkout_status: session.status,
-      payment_status: session.payment_status,
-      amount_total: session.amount_total, // en cents
-      currency: session.currency,
-      customer_email: session.customer_details?.email ?? session.customer_email ?? null,
-      metadata: session.metadata ?? {},
-      payment_intent_status:
-        typeof session.payment_intent === "object"
-          ? session.payment_intent.status
-          : null,
-    };
+    const paid =
+      session.payment_status === "paid" ||
+      session.status === "complete" ||
+      session.mode === "payment" && !!session.payment_intent;
 
-    return new Response(JSON.stringify(response), {
-      headers: { ...corsHeaders(), "Content-Type": "application/json" },
+    return new Response(JSON.stringify({
+      ok: true,
+      paid,
+      status: session.payment_status ?? session.status,
+      session_id,
+    }), {
+      headers: { ...cors, "Content-Type": "application/json" },
     });
   } catch (e) {
-    console.error("💥 Erreur verify-checkout-session :", e);
-    return new Response(
-      JSON.stringify({ error: "Erreur serveur" }),
-      { status: 500, headers: { ...corsHeaders(), "Content-Type": "application/json" } }
-    );
+    console.error("verify-checkout-session error:", e);
+    return new Response(JSON.stringify({ ok: false, error: "Erreur serveur" }), {
+      status: 500,
+      headers: { ...cors, "Content-Type": "application/json" },
+    });
   }
 });
