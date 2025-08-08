@@ -320,7 +320,7 @@ export default function InscriptionCourse() {
         
         
 
- <button
+<button
   type="button"
   className="bg-purple-600 text-white px-4 py-2 rounded"
   onClick={async () => {
@@ -364,30 +364,45 @@ export default function InscriptionCourse() {
       return;
     }
 
+    // ✅ Définition email à envoyer à Stripe
+    const payerEmail =
+      inscription.email ||
+      user?.email ||
+      user?.user_metadata?.email ||
+      "";
+
+    if (!payerEmail) {
+      alert("Veuillez renseigner un email.");
+      return;
+    }
+
     // ✅ Paiement Stripe
     const prixTotal = inserted.prix_total_coureur || 0;
-console.log({
-  user_id: user.id,
-  course_id: courseId,
-  prix_total: prixTotal,
-  inscription_id: inserted.id,
-});
-
-
-    const response = await fetch("https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${session.data.session.access_token}`,
-      },
-      body: JSON.stringify({
-        user_id: user.id,
-        course_id: courseId,
-        prix_total: prixTotal,
-        inscription_id: inserted.id, // ✅ CORRIGÉ ICI
-        email, // ✅ ➕ ici
-      }),
+    console.log({
+      user_id: user.id,
+      course_id: courseId,
+      prix_total: prixTotal,
+      inscription_id: inserted.id,
+      email: payerEmail,
     });
+
+    const response = await fetch(
+      "https://pecotcxpcqfkwvyylvjv.functions.supabase.co/create-checkout-session",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.data.session.access_token}`,
+        },
+        body: JSON.stringify({
+          user_id: user.id,
+          course_id: courseId,
+          prix_total: prixTotal,
+          inscription_id: inserted.id,
+          email: payerEmail, // ✅ envoyé ici
+        }),
+      }
+    );
 
     const data = await response.json();
     if (data.url) {
@@ -399,6 +414,7 @@ console.log({
 >
   Confirmer et payer
 </button>
+
 
 
 
