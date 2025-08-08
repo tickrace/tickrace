@@ -3,6 +3,7 @@
 import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
+import { v4 as uuidv4 } from "uuid"; // npm install uuid
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
@@ -344,7 +345,11 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // 1) Insérer l’inscription (statut "en attente")
+    // 0) Génération du trace_id
+    const trace_id = uuidv4();
+    console.log("🧭 TRACE_ID (client) :", trace_id);
+
+    // 1) Insérer l’inscription (statut "en attente" + trace_id)
     const { data: inserted, error } = await supabase
       .from("inscriptions")
       .insert([
@@ -352,6 +357,7 @@ export default function InscriptionCourse() {
           ...inscription,
           course_id: courseId,
           statut: "en attente",
+          paiement_trace_id: trace_id, // 👈 stocké direct en base
         },
       ])
       .select()
@@ -378,28 +384,33 @@ export default function InscriptionCourse() {
     // 3) Montant
     const prixTotal = Number(inserted.prix_total_coureur || 0);
 
-    // 4) Create Checkout Session via supabase.functions.invoke (POST)
+    // 4) Create Checkout Session
     console.log("➡️ create-checkout-session payload:", {
       user_id: user.id,
       course_id: courseId,
       prix_total: prixTotal,
       inscription_id: inserted.id,
       email: payerEmail,
+      trace_id, // 👈 transmis aussi au backend
       successUrl: "https://www.tickrace.com/merci",
       cancelUrl: "https://www.tickrace.com/paiement-annule",
     });
 
-    const { data, error: fnError } = await supabase.functions.invoke("create-checkout-session", {
-      body: {
-        user_id: user.id,
-        course_id: courseId,
-        prix_total: prixTotal,
-        inscription_id: inserted.id,
-        email: payerEmail,
-        successUrl: "https://www.tickrace.com/merci",
-        cancelUrl: "https://www.tickrace.com/paiement-annule",
-      },
-    });
+    const { data, error: fnError } = await supabase.functions.invoke(
+      "create-checkout-session",
+      {
+        body: {
+          user_id: user.id,
+          course_id: courseId,
+          prix_total: prixTotal,
+          inscription_id: inserted.id,
+          email: payerEmail,
+          trace_id, // 👈 backend le mettra dans metadata Stripe
+          successUrl: "https://www.tickrace.com/merci",
+          cancelUrl: "https://www.tickrace.com/paiement-annule",
+        },
+      }
+    );
 
     if (fnError) {
       console.error("❌ create-checkout-session error:", fnError);
@@ -413,8 +424,7 @@ export default function InscriptionCourse() {
       return;
     }
 
-    // 5) Redirection Stripe
-    console.log("✅ Redirection vers Stripe:", data.url);
+    console.log("✅ Session Stripe créée - TRACE_ID:", trace_id);
     window.location.href = data.url;
   }}
 >
