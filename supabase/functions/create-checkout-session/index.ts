@@ -73,8 +73,9 @@ payment_intent_data: {
 
 
       // ✅ Redirections après paiement
-      success_url: "https://www.tickrace.com/merci",
-      cancel_url: "https://www.tickrace.com/cancel",
+      success_url: "https://www.tickrace.com/merci?session_id={CHECKOUT_SESSION_ID}",
+cancel_url: "https://www.tickrace.com/merci?session_id={CHECKOUT_SESSION_ID}&cancelled=true",
+
 
       // 🔗 Métadonnées utiles pour le webhook
       metadata: {

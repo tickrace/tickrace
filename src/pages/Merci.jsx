@@ -1,76 +1,71 @@
+// src/pages/Merci.jsx
 import React, { useEffect, useState } from "react";
-import { useLocation, Link } from "react-router-dom";
-import { supabase } from "../supabase";
 
 export default function Merci() {
-  const location = useLocation();
-  const success = new URLSearchParams(location.search).get("success");
-  const [inscription, setInscription] = useState(null);
-  const [format, setFormat] = useState(null);
-  const [course, setCourse] = useState(null);
+  const [state, setState] = useState({ loading: true, error: null, data: null });
 
   useEffect(() => {
-    const fetchInscription = async () => {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData.session?.user;
-      if (!user) return;
+    const run = async () => {
+      const params = new URLSearchParams(window.location.search);
+      const sessionId = params.get("session_id");
 
-      const { data: inscriptions } = await supabase
-        .from("inscriptions")
-        .select("*, formats(*, courses(*))")
-        .eq("coureur_id", user.id)
-        .order("created_at", { ascending: false })
-        .limit(1);
+      if (!sessionId) {
+        setState({ loading: false, error: "Session de paiement introuvable.", data: null });
+        return;
+      }
 
-      if (inscriptions && inscriptions.length > 0) {
-        setInscription(inscriptions[0]);
-        setFormat(inscriptions[0].formats);
-        setCourse(inscriptions[0].formats?.courses);
+      try {
+        const res = await fetch(
+          `https://pecotcxpcqfkwvyylvjv.functions.supabase.co/verify-checkout-session?session_id=${encodeURIComponent(sessionId)}`,
+          { method: "GET" }
+        );
+        const json = await res.json();
+        if (!res.ok) throw new Error(json?.error || "Erreur de vérification");
+
+        setState({ loading: false, error: null, data: json });
+      } catch (e) {
+        setState({ loading: false, error: e.message, data: null });
       }
     };
+    run();
+  }, []);
 
-    if (success === "true") fetchInscription();
-  }, [success]);
+  if (state.loading) return <div className="p-6">Vérification du paiement…</div>;
+  if (state.error) return (
+    <div className="p-6 text-red-600">
+      ❌ {state.error}
+    </div>
+  );
 
-  if (success !== "true") {
-    return (
-      <div className="max-w-2xl mx-auto p-6 text-center">
-        <h1 className="text-3xl font-bold text-red-600 mb-4">❌ Paiement annulé</h1>
-        <p className="text-lg mb-6">Votre inscription n’a pas été finalisée.</p>
-        <Link to="/courses" className="bg-gray-600 text-white px-4 py-2 rounded">
-          Voir les courses
-        </Link>
-      </div>
-    );
-  }
+  const { payment_status, status, amount_total, currency } = state.data || {};
+  const isPaid = payment_status === "paid" || status === "complete";
 
   return (
-    <div className="max-w-2xl mx-auto p-6 text-center">
-      <h1 className="text-3xl font-bold text-green-600 mb-4">✅ Paiement confirmé</h1>
-      <p className="text-lg text-gray-700 mb-6">
-        Merci pour votre inscription ! Vous recevrez un email de confirmation dans les prochaines minutes.
-      </p>
-
-      {inscription && format && course ? (
-        <div className="bg-white shadow-md rounded-lg p-6 text-left space-y-3 border border-gray-200">
-          <h2 className="text-xl font-semibold text-gray-800">📝 Détails de votre inscription</h2>
-          <div><strong>Course :</strong> {course.nom}</div>
-          <div><strong>Format :</strong> {format.nom} ({format.distance_km} km / {format.denivele_dplus} m D+)</div>
-          <div><strong>Date :</strong> {format.date}</div>
-          <div><strong>Nom :</strong> {inscription.prenom} {inscription.nom}</div>
-          <div><strong>Email :</strong> {inscription.email}</div>
-          <div><strong>Montant payé :</strong> {(inscription.prix_total_coureur || 0).toFixed(2)} €</div>
-          <div><strong>Numéro d’inscription :</strong> <code>{inscription.id}</code></div>
-        </div>
+    <div className="p-6">
+      {isPaid ? (
+        <>
+          <h1 className="text-2xl font-bold text-green-700">🎉 Paiement confirmé</h1>
+          <p className="mt-2">
+            Merci ! Votre inscription est validée.
+          </p>
+          <p className="mt-2 text-gray-700">
+            Montant : {(amount_total / 100).toFixed(2)} {currency?.toUpperCase()}
+          </p>
+          <a href="/mes-inscriptions" className="inline-block mt-4 bg-green-600 text-white px-4 py-2 rounded">
+            Voir mes inscriptions
+          </a>
+        </>
       ) : (
-        <p className="text-sm text-gray-500 mt-4">Chargement de vos informations…</p>
+        <>
+          <h1 className="text-2xl font-bold text-red-700">❌ Paiement non finalisé</h1>
+          <p className="mt-2">
+            Votre paiement ne semble pas confirmé (statut: {payment_status ?? status ?? "inconnu"}).
+          </p>
+          <a href="/courses" className="inline-block mt-4 bg-indigo-600 text-white px-4 py-2 rounded">
+            Voir les courses
+          </a>
+        </>
       )}
-
-      <div className="mt-8">
-        <Link to="/" className="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded shadow">
-          Retour à l’accueil
-        </Link>
-      </div>
     </div>
   );
 }
