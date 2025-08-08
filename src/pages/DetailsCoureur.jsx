@@ -3,17 +3,12 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
-const [receiptUrl, setReceiptUrl] = useState(null);
-const [loadingReceipt, setLoadingReceipt] = useState(false);
-const [receiptError, setReceiptError] = useState("");
-
-
 export default function DetailsCoureur() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
-  const [paiement, setPaiement] = useState(null);
-  const [loadingPaiement, setLoadingPaiement] = useState(true);
+  const [receiptUrl, setReceiptUrl] = useState(null);
+  const [loadingReceipt, setLoadingReceipt] = useState(false);
 
   useEffect(() => {
     const fetchInscription = async () => {
@@ -29,50 +24,41 @@ export default function DetailsCoureur() {
     if (id) fetchInscription();
   }, [id]);
 
-  // ⚡ Dès qu’on a l’inscription, on charge le paiement via paiement_trace_id
-  useEffect(() => {
-    const fetchPaiement = async () => {
-      if (!inscription) return;
-      setLoadingPaiement(true);
-
-      // Priorité au trace_id (lien propre 1↔1 ou 1↔N)
-      if (inscription.paiement_trace_id) {
-        const { data: payByTrace } = await supabase
-          .from("paiements")
-          .select("*")
-          .eq("trace_id", inscription.paiement_trace_id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (payByTrace) {
-          setPaiement(payByTrace);
-          setLoadingPaiement(false);
-          return;
-        }
-      }
-
-      // Fallback: ancien modèle, s’il n’y a pas de trace_id
-      const { data: payByInscription } = await supabase
-        .from("paiements")
-        .select("*")
-        .eq("inscription_id", id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      setPaiement(payByInscription || null);
-      setLoadingPaiement(false);
-    };
-
-    fetchPaiement();
-  }, [inscription, id]);
-
   const handleChange = async (field, value) => {
     const updated = { ...inscription, [field]: value };
     setInscription(updated);
 
-    await supabase.from("inscriptions").update({ [field]: value }).eq("id", id);
+    await supabase
+      .from("inscriptions")
+      .update({ [field]: value })
+      .eq("id", id);
+  };
+
+  const handleGetReceipt = async () => {
+    if (!inscription?.paiement_trace_id) {
+      alert("Aucun paiement_trace_id disponible pour cette inscription.");
+      return;
+    }
+    setLoadingReceipt(true);
+    setReceiptUrl(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("get-receipt-url", {
+        body: { trace_id: inscription.paiement_trace_id }
+      });
+      if (error) {
+        console.error("Erreur Edge Function :", error);
+        alert("Impossible de récupérer le reçu.");
+      } else if (data?.receipt_url) {
+        setReceiptUrl(data.receipt_url);
+      } else {
+        alert("Aucun reçu trouvé.");
+      }
+    } catch (err) {
+      console.error("Erreur :", err);
+      alert("Erreur lors de la récupération du reçu.");
+    } finally {
+      setLoadingReceipt(false);
+    }
   };
 
   if (!inscription) return <div className="p-6">Chargement...</div>;
@@ -83,7 +69,8 @@ export default function DetailsCoureur() {
     "code_postal", "ville", "pays", "apparaitre_resultats",
     "club", "justificatif_type", "contact_urgence_nom",
     "contact_urgence_telephone", "statut", "created_at",
-    "numero_licence", "updated_at", "dossard", "nombre_repas", "prix_total_repas"
+    "numero_licence", "updated_at", "dossard",
+    "nombre_repas", "prix_total_repas", "paiement_trace_id"
   ];
 
   return (
@@ -94,8 +81,28 @@ export default function DetailsCoureur() {
       >
         ← Retour
       </button>
-
       <h2 className="text-2xl font-bold mb-4">Détails du coureur</h2>
+
+      {/* Bouton reçu Stripe */}
+      <div className="mb-4 flex items-center gap-4">
+        <button
+          onClick={handleGetReceipt}
+          disabled={loadingReceipt}
+          className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded disabled:opacity-50"
+        >
+          {loadingReceipt ? "Chargement..." : "Récupérer reçu"}
+        </button>
+        {receiptUrl && (
+          <a
+            href={receiptUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-indigo-600 underline"
+          >
+            Voir le reçu
+          </a>
+        )}
+      </div>
 
       <table className="w-full table-auto border border-gray-300">
         <tbody>
@@ -126,63 +133,6 @@ export default function DetailsCoureur() {
           ))}
         </tbody>
       </table>
-
-      
-
-
-{paiement && (
-  <div className="mt-4 flex gap-3 items-center">
-    {receiptUrl ? (
-      <a
-        href={receiptUrl}
-        target="_blank"
-        rel="noreferrer"
-        className="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
-      >
-        Ouvrir le reçu Stripe
-      </a>
-    ) : (
-      <button
-        disabled={loadingReceipt}
-        onClick={async () => {
-          try {
-            setLoadingReceipt(true);
-            setReceiptError("");
-
-            const { data, error } = await supabase.functions.invoke("get-receipt-url", {
-              body: {
-                // on donne tout ce qu'on a, la fonction s’en sortira
-                inscription_id: id,
-                trace_id: inscription.paiement_trace_id,
-                payment_intent_id: paiement?.stripe_payment_intent_id,
-              },
-            });
-
-            if (error) throw error;
-            if (data?.receipt_url) {
-              setReceiptUrl(data.receipt_url);
-              // on peut aussi ouvrir direct:
-              window.open(data.receipt_url, "_blank", "noopener,noreferrer");
-            } else {
-              setReceiptError("Reçu indisponible.");
-            }
-          } catch (e) {
-            console.error(e);
-            setReceiptError("Erreur lors de la récupération du reçu.");
-          } finally {
-            setLoadingReceipt(false);
-          }
-        }}
-        className="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
-      >
-        {loadingReceipt ? "Récupération…" : "Récupérer le reçu"}
-      </button>
-    )}
-    {receiptError && <span className="text-red-600 text-sm">{receiptError}</span>}
-  </div>
-)}
-
-      </div>
-    
+    </div>
   );
 }
