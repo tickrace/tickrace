@@ -63,13 +63,14 @@ serve(async (req) => {
           quantity: 1,
         },
       ],
-      mode: "payment",
+     mode: "payment",
 
-      // ✅ Email utilisé pour pré-remplir Stripe + reçu
-      customer_email: String(email),
-      payment_intent_data: {
-        receipt_email: String(email),
-      },
+// ✅ Email utilisé pour pré-remplir Stripe + reçu
+customer_email: String(email),
+payment_intent_data: {
+  receipt_email: String(email),
+},
+
 
       // ✅ Redirections après paiement
       success_url: "https://www.tickrace.com/merci",
