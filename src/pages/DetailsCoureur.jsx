@@ -3,6 +3,11 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
+const [receiptUrl, setReceiptUrl] = useState(null);
+const [loadingReceipt, setLoadingReceipt] = useState(false);
+const [receiptError, setReceiptError] = useState("");
+
+
 export default function DetailsCoureur() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -122,43 +127,62 @@ export default function DetailsCoureur() {
         </tbody>
       </table>
 
-      {/* 💳 Bloc Paiement */}
-      <div className="mt-6 p-4 rounded border">
-        <h3 className="text-xl font-semibold mb-3">Paiement</h3>
+      
 
-        {loadingPaiement ? (
-          <p className="animate-pulse">Chargement du paiement…</p>
-        ) : !paiement ? (
-          <p>Aucun paiement lié à cette inscription.</p>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3 text-sm">
-            <div>
-              <span className="font-semibold">Montant :</span>{" "}
-              {paiement.montant_total != null ? `${Number(paiement.montant_total).toFixed(2)} ${paiement.devise || "EUR"}` : "—"}
-            </div>
-            <div>
-              <span className="font-semibold">Statut :</span>{" "}
-              {paiement.status || "—"}
-            </div>
-            <div className="break-all">
-              <span className="font-semibold">Payment Intent :</span>{" "}
-              {paiement.stripe_payment_intent_id || "—"}
-            </div>
-            <div>
-              <span className="font-semibold">Type :</span>{" "}
-              {paiement.type || "individuel"}
-            </div>
-            <div className="break-all">
-              <span className="font-semibold">Trace ID :</span>{" "}
-              {paiement.trace_id || inscription.paiement_trace_id || "—"}
-            </div>
-            <div>
-              <span className="font-semibold">Date :</span>{" "}
-              {paiement.created_at ? new Date(paiement.created_at).toLocaleString() : "—"}
-            </div>
-          </div>
-        )}
+
+{paiement && (
+  <div className="mt-4 flex gap-3 items-center">
+    {receiptUrl ? (
+      <a
+        href={receiptUrl}
+        target="_blank"
+        rel="noreferrer"
+        className="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700"
+      >
+        Ouvrir le reçu Stripe
+      </a>
+    ) : (
+      <button
+        disabled={loadingReceipt}
+        onClick={async () => {
+          try {
+            setLoadingReceipt(true);
+            setReceiptError("");
+
+            const { data, error } = await supabase.functions.invoke("get-receipt-url", {
+              body: {
+                // on donne tout ce qu'on a, la fonction s’en sortira
+                inscription_id: id,
+                trace_id: inscription.paiement_trace_id,
+                payment_intent_id: paiement?.stripe_payment_intent_id,
+              },
+            });
+
+            if (error) throw error;
+            if (data?.receipt_url) {
+              setReceiptUrl(data.receipt_url);
+              // on peut aussi ouvrir direct:
+              window.open(data.receipt_url, "_blank", "noopener,noreferrer");
+            } else {
+              setReceiptError("Reçu indisponible.");
+            }
+          } catch (e) {
+            console.error(e);
+            setReceiptError("Erreur lors de la récupération du reçu.");
+          } finally {
+            setLoadingReceipt(false);
+          }
+        }}
+        className="px-3 py-2 rounded bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-60"
+      >
+        {loadingReceipt ? "Récupération…" : "Récupérer le reçu"}
+      </button>
+    )}
+    {receiptError && <span className="text-red-600 text-sm">{receiptError}</span>}
+  </div>
+)}
+
       </div>
-    </div>
+    
   );
 }
