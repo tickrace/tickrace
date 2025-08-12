@@ -55,46 +55,62 @@ export default function MonProfilOrganisateur() {
   };
 
   async function handleConnectStripe() {
-    setOnboardingMsg("");
-    setOnboardingBusy(true);
-    try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData?.session?.user;
-      if (!user) {
-        setOnboardingMsg("Vous devez être connecté.");
-        return;
-      }
+  setOnboardingMsg("");
+  setOnboardingBusy(true);
+  try {
+    const { data: sessionData } = await supabase.auth.getSession();
+    const user = sessionData?.session?.user;
+    if (!user) {
+      setOnboardingMsg("Vous devez être connecté.");
+      return;
+    }
 
-      // On prend l'email du profil si présent, sinon celui du compte auth
-      const email = (profil.email || user.email || "").trim();
-      if (!email) {
-        setOnboardingMsg("Renseignez et sauvegardez votre email avant de continuer.");
-        return;
-      }
+    const email = (profil.email || user.email || "").trim();
+    if (!email) {
+      setOnboardingMsg("Renseignez et sauvegardez votre email avant de continuer.");
+      return;
+    }
 
-      // Appelle l’Edge Function : crée/récupère le compte Connect + génère l’URL d’onboarding
-      const { data, error } = await supabase.functions.invoke("connect-onboarding", {
-        body: { user_id: user.id, email, country: "FR" },
+    // S'il y a déjà un compte, on ouvre le Dashboard Express
+    if (profil?.stripe_account_id) {
+      const { data, error } = await supabase.functions.invoke("connect-login-link", {
+        body: { user_id: user.id },
       });
       if (error) {
-        setOnboardingMsg(error.message || "Erreur lors de la création du lien d’onboarding.");
+        setOnboardingMsg(error.message || "Erreur lors de la génération du lien de connexion Stripe.");
         return;
       }
-
       const url = data?.url;
       if (!url) {
-        setOnboardingMsg("Lien d’onboarding introuvable.");
+        setOnboardingMsg("Lien de connexion Stripe indisponible.");
         return;
       }
-
-      // Redirection vers Stripe
       window.location.href = url;
-    } catch (e) {
-      setOnboardingMsg(e?.message || "Erreur inattendue.");
-    } finally {
-      setOnboardingBusy(false);
+      return;
     }
+
+    // Sinon: démarrer l'onboarding
+    const { data, error } = await supabase.functions.invoke("connect-onboarding", {
+      body: { user_id: user.id, email, country: "FR" },
+    });
+    if (error) {
+      setOnboardingMsg(error.message || "Erreur lors de la création du lien d’onboarding.");
+      return;
+    }
+
+    const url = data?.url;
+    if (!url) {
+      setOnboardingMsg("Lien d’onboarding introuvable.");
+      return;
+    }
+    window.location.href = url;
+  } catch (e) {
+    setOnboardingMsg(e?.message || "Erreur inattendue.");
+  } finally {
+    setOnboardingBusy(false);
   }
+}
+
 
   if (loading) return <div className="p-6">Chargement…</div>;
 
