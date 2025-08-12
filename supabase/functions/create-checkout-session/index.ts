@@ -27,6 +27,7 @@ function cors(origin: string | null) {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, prefer",
     "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json",
   };
 }
 
@@ -42,32 +43,32 @@ serve(async (req) => {
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Méthode non autorisée" }), {
       status: 405,
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers,
     });
   }
 
   try {
     const body = await req.json();
     const origin = req.headers.get("origin");
-    console.log("📥 create-checkout-session :: origin =", origin);
+    console.log("📥 create-checkout-session (Connect) :: origin =", origin);
     console.log("📥 Données reçues:", body);
 
     const {
       user_id,
       course_id,
-      prix_total,       // number | string
+      prix_total,            // number | string
       inscription_id,
       email,
-      successUrl,       // optionnel
-      cancelUrl,        // optionnel
-      trace_id: traceIdFromClient, // 🆕 optionnel : le front peut en fournir un
+      successUrl,           // optionnel
+      cancelUrl,            // optionnel
+      trace_id: traceIdFromClient,
     } = body ?? {};
 
     // Prix -> cents
     const prixNumber = Number(prix_total);
     const unitAmount = Number.isFinite(prixNumber) ? Math.round(prixNumber * 100) : NaN;
 
-    // 🔐 Validation
+    // 🔐 Validation minimale
     if (!user_id || !course_id || !inscription_id || !email || !Number.isFinite(prixNumber) || unitAmount <= 0) {
       console.error("❌ Paramètre manquant/invalid", {
         has_user_id: !!user_id,
@@ -79,32 +80,67 @@ serve(async (req) => {
       });
       return new Response(JSON.stringify({ error: "Paramètre manquant ou invalide" }), {
         status: 400,
-        headers: { ...headers, "Content-Type": "application/json" },
+        headers,
       });
     }
 
-    // 🧭 trace_id : on prend celui du client s'il est valide, sinon on en génère un
+    // 🧭 trace_id (on prend celui du client s'il est valide, sinon on en génère un)
     const trace_id = isUUID(traceIdFromClient) ? traceIdFromClient : crypto.randomUUID();
     if (!isUUID(traceIdFromClient)) {
       console.log("ℹ️ Nouveau trace_id généré (client absent/invalide) :", trace_id);
     }
     console.log("🧭 TRACE create-checkout-session", { trace_id, inscription_id, user_id, course_id, prix_total });
 
-    // 💾 MAJ dans la table inscriptions AVANT Stripe
+    // 💾 Marque l'inscription avec le trace_id AVANT Stripe (comme avant)
     const { error: updateErr } = await supabase
       .from("inscriptions")
       .update({ paiement_trace_id: trace_id })
       .eq("id", inscription_id);
-
     if (updateErr) {
       console.error("❌ Erreur maj paiement_trace_id:", updateErr.message);
     }
+
+    // 🔎 Récup organiser -> compte Stripe
+    // courses.organisateur_id -> profils_utilisateurs.stripe_account_id
+    const { data: course, error: cErr } = await supabase
+      .from("courses")
+      .select("organisateur_id, nom")
+      .eq("id", course_id)
+      .single();
+    if (cErr || !course) {
+      console.error("❌ Course non trouvée", cErr);
+      return new Response(JSON.stringify({ error: "Course introuvable" }), { status: 404, headers });
+    }
+
+    const { data: profil, error: pErr } = await supabase
+      .from("profils_utilisateurs")
+      .select("stripe_account_id, email")
+      .eq("user_id", course.organisateur_id)
+      .maybeSingle();
+    if (pErr) {
+      console.error("❌ Erreur lecture profil organisateur", pErr);
+      return new Response(JSON.stringify({ error: "Profil organisateur introuvable" }), { status: 500, headers });
+    }
+
+    const destinationAccount = profil?.stripe_account_id ?? null;
+
+    // 🧯 Sécurité : si l'organisateur n'a pas encore configuré Stripe, on bloque (409)
+    if (!destinationAccount) {
+      console.warn("⚠️ Organisateur sans stripe_account_id → paiement indisponible");
+      return new Response(JSON.stringify({
+        error: "L'organisateur n'a pas encore configuré Stripe.",
+        code: "ORGANISER_STRIPE_NOT_CONFIGURED",
+      }), { status: 409, headers });
+    }
+
+    // 💸 Commission 5%
+    const applicationFee = Math.round(unitAmount * 0.05);
 
     // URLs
     const SU_URL = (successUrl || "https://www.tickrace.com/merci") + "?session_id={CHECKOUT_SESSION_ID}";
     const CA_URL = (cancelUrl  || "https://www.tickrace.com/paiement-annule") + "?session_id={CHECKOUT_SESSION_ID}";
 
-    // ✅ metadata sur Session + PaymentIntent
+    // ✅ metadata sur Session + PaymentIntent (comme avant)
     const commonMetadata = {
       inscription_id: String(inscription_id),
       user_id: String(user_id),
@@ -113,6 +149,7 @@ serve(async (req) => {
       trace_id, // 👈 toujours présent
     };
 
+    // 🧾 Création de la Session Checkout (destination charges)
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
@@ -129,30 +166,34 @@ serve(async (req) => {
       customer_email: String(email),
       payment_intent_data: {
         receipt_email: String(email),
-        metadata: commonMetadata, // 👈 PI.metadata
+        application_fee_amount: applicationFee,          // 👈 préleve 5% pour Tickrace
+        transfer_data: { destination: destinationAccount }, // 👈 envoie le reste à l'orga
+        on_behalf_of: destinationAccount,                // 👈 optim. tarification côté orga
+        metadata: commonMetadata,                        // 👈 PI.metadata
       },
       success_url: SU_URL,
       cancel_url: CA_URL,
-      metadata: commonMetadata,     // 👈 Session.metadata
+      metadata: commonMetadata,                          // 👈 Session.metadata
     });
 
-    console.log("✅ Session Stripe créée :", {
+    console.log("✅ Session Stripe créée (Connect) :", {
       session_id: session.id,
       url: session.url,
       amount_total_preview: unitAmount,
+      application_fee: applicationFee,
+      destination: destinationAccount,
       trace_id,
     });
 
-    // On renvoie aussi le trace_id au front (pratique pour logger côté client)
     return new Response(JSON.stringify({ url: session.url, trace_id }), {
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers,
       status: 200,
     });
   } catch (e: any) {
-    console.error("💥 Erreur create-checkout-session :", e?.message ?? e, e?.stack);
+    console.error("💥 Erreur create-checkout-session (Connect):", e?.message ?? e, e?.stack);
     return new Response(JSON.stringify({ error: "Erreur serveur" }), {
       status: 500,
-      headers: { ...headers, "Content-Type": "application/json" },
+      headers,
     });
   }
 });

@@ -1,111 +1,90 @@
+// src/pages/MonInscription.jsx
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import CalculCreditAnnulation from "../components/CalculCreditAnnulation";
 
 export default function MonInscription() {
   const { id } = useParams();
-  const navigate = useNavigate();
   const [inscription, setInscription] = useState(null);
   const [format, setFormat] = useState(null);
   const [loading, setLoading] = useState(true);
 
+  const [openCancelModal, setOpenCancelModal] = useState(false);
+
   useEffect(() => {
-    const fetchInscription = async () => {
+    let abort = false;
+
+    async function fetchInscription() {
+      setLoading(true);
       const { data, error } = await supabase
         .from("inscriptions")
         .select("*")
         .eq("id", id)
         .single();
 
-      if (!error && data) {
-        setInscription(data);
+      if (!abort) {
+        if (!error && data) setInscription(data);
+        setLoading(false);
       }
-      setLoading(false);
-    };
+    }
 
     fetchInscription();
+    return () => { abort = true; };
   }, [id]);
 
   useEffect(() => {
-    const fetchFormat = async () => {
+    let abort = false;
+
+    async function fetchFormat() {
       if (!inscription?.format_id) return;
       const { data, error } = await supabase
         .from("formats")
         .select("id, date, prix")
         .eq("id", inscription.format_id)
         .single();
-      if (!error) setFormat(data);
-    };
+
+      if (!abort && !error) setFormat(data);
+    }
 
     fetchFormat();
+    return () => { abort = true; };
   }, [inscription]);
 
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setInscription({
-      ...inscription,
+    setInscription((prev) => ({
+      ...prev,
       [name]: type === "checkbox" ? checked : value,
-    });
+    }));
   };
 
   const handleSave = async () => {
-    await supabase
-      .from("inscriptions")
-      .update(inscription)
-      .eq("id", id);
+    if (!inscription) return;
+    await supabase.from("inscriptions").update(inscription).eq("id", id);
     alert("Modifications enregistrées");
   };
 
-  const handleCancel = async () => {
-    const confirm = window.confirm("Confirmer l’annulation de votre inscription ?");
-    if (!confirm) return;
+  const canCancel =
+    inscription &&
+    inscription.statut !== "annulé" &&
+    inscription.statut !== "remboursé";
 
-    const { error: annulationError } = await supabase.functions.invoke("annuler_inscription", {
-      body: { inscription_id: id },
-    });
-
-    if (annulationError) {
-      alert("Erreur lors de l'annulation");
-      return;
-    }
-
-    // Récupération du crédit lié
-    const { data: credit, error: creditError } = await supabase
-      .from("credits_annulation")
-      .select("id")
-      .eq("inscription_id", id)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (creditError || !credit?.id) {
-      alert("Crédit d’annulation non trouvé.");
-      return;
-    }
-
-    // Appel remboursement Stripe
-    const { error: refundError } = await supabase.functions.invoke("rembourser_credit_annulation", {
-      body: { credit_id: credit.id },
-    });
-
-    if (refundError) {
-      alert("Erreur lors du remboursement Stripe.");
-      return;
-    }
-
-    alert("Inscription annulée et remboursée !");
-    navigate("/mes-inscriptions");
-  };
-
-  if (loading || !inscription) return <p>Chargement...</p>;
+  if (loading || !inscription) return <p className="p-6">Chargement...</p>;
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white shadow-md rounded">
       <h1 className="text-3xl font-bold mb-2 text-center text-gray-800">
         Modifier mon inscription
       </h1>
-      <p className={`text-center text-sm mb-6 font-medium ${inscription.statut === "annulé" ? "text-red-600" : "text-green-600"}`}>
+
+      <p
+        className={`text-center text-sm mb-6 font-medium ${
+          inscription.statut === "annulé" || inscription.statut === "remboursé"
+            ? "text-red-600"
+            : "text-green-600"
+        }`}
+      >
         Statut de l’inscription : {inscription.statut}
       </p>
 
@@ -145,7 +124,7 @@ export default function MonInscription() {
           <input
             type="checkbox"
             name="apparaitre_resultats"
-            checked={inscription.apparaitre_resultats}
+            checked={!!inscription.apparaitre_resultats}
             onChange={handleChange}
           />
           <label>Apparaître dans les résultats</label>
@@ -160,37 +139,54 @@ export default function MonInscription() {
           className="w-full p-3 border border-gray-300 rounded"
         />
 
-        {/* Simulation de crédit d'annulation */}
-        {format && (
-          <CalculCreditAnnulation
-            prixInscription={(inscription.prix_total_coureur || 0) - (inscription.prix_total_repas || 0)}
-            prixRepas={inscription.prix_total_repas || 0}
-            dateCourse={format.date}
-            dateAnnulation={new Date()}
-          />
-        )}
-
-        <div className="flex justify-center space-x-6 mt-6">
-          <button
-            onClick={handleSave}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded"
-          >
-            Enregistrer les modifications
-          </button>
-          {inscription.statut === "annulé" ? (
-            <p className="text-red-600 font-semibold self-center">
-              Cette inscription a déjà été annulée.
-            </p>
-          ) : (
-            <button
-              onClick={handleCancel}
-              className="bg-red-600 hover:bg-red-700 text-white font-semibold px-6 py-3 rounded"
-            >
-              Annuler mon inscription
-            </button>
-          )}
-        </div>
+        {/* NOTE : l’ancien "CalculCreditAnnulation" en simulation avec des props prix/date
+           n’est plus nécessaire. Le nouveau composant gère tout via l’inscriptionId
+           et fait l’aperçu + confirmation dans une modale. */}
       </div>
+
+      <div className="flex justify-center gap-3 mt-6">
+        <button
+          onClick={handleSave}
+          className="bg-blue-600 hover:bg-blue-700 text-white font-semibold px-6 py-3 rounded"
+        >
+          Enregistrer les modifications
+        </button>
+
+        {canCancel ? (
+          <button
+            onClick={() => setOpenCancelModal(true)}
+            className="bg-purple-600 hover:bg-purple-700 text-white font-semibold px-6 py-3 rounded"
+          >
+            Annuler & rembourser (95 %)
+          </button>
+        ) : (
+          <p className="text-red-600 font-semibold self-center">
+            Cette inscription est déjà {inscription.statut}.
+          </p>
+        )}
+      </div>
+
+      {/* Modal Annulation + Remboursement */}
+      {openCancelModal && (
+        <div className="fixed inset-0 z-50 grid place-items-center bg-black/40 p-4">
+          <div className="w-full max-w-3xl rounded-xl bg-white shadow-lg p-4">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-lg font-semibold">Annulation & remboursement</h3>
+              <button
+                onClick={() => setOpenCancelModal(false)}
+                className="px-2 py-1 rounded hover:bg-gray-100"
+                aria-label="Fermer"
+                title="Fermer"
+              >
+                ✕
+              </button>
+            </div>
+
+            {/* Le composant gère l’aperçu + appel RPC + Edge Function refund */}
+            <CalculCreditAnnulation inscriptionId={id} />
+          </div>
+        </div>
+      )}
     </div>
   );
 }
