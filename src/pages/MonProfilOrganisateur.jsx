@@ -5,14 +5,21 @@ import { supabase } from "../supabase";
 export default function MonProfilOrganisateur() {
   const [profil, setProfil] = useState({});
   const [message, setMessage] = useState("");
+  const [loading, setLoading] = useState(true);
+
+  // Stripe Connect UI
+  const [onboardingBusy, setOnboardingBusy] = useState(false);
+  const [onboardingMsg, setOnboardingMsg] = useState("");
 
   const pays = ["France", "Belgique", "Suisse", "Espagne", "Italie", "Portugal", "Autre"];
 
   useEffect(() => {
-    const fetchProfil = async () => {
+    let abort = false;
+    async function fetchProfil() {
+      setLoading(true);
       const { data: sessionData } = await supabase.auth.getSession();
       const user = sessionData?.session?.user;
-      if (!user) return;
+      if (!user) { setLoading(false); return; }
 
       const { data, error } = await supabase
         .from("profils_utilisateurs")
@@ -20,12 +27,13 @@ export default function MonProfilOrganisateur() {
         .eq("user_id", user.id)
         .single();
 
-      if (!error && data) {
-        setProfil(data);
+      if (!abort) {
+        if (!error && data) setProfil(data);
+        setLoading(false);
       }
-    };
-
+    }
     fetchProfil();
+    return () => { abort = true; };
   }, []);
 
   const handleChange = (e) => {
@@ -46,9 +54,96 @@ export default function MonProfilOrganisateur() {
     setMessage(error ? "Erreur lors de la mise à jour." : "Profil mis à jour !");
   };
 
+  async function handleConnectStripe() {
+    setOnboardingMsg("");
+    setOnboardingBusy(true);
+    try {
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
+      if (!user) {
+        setOnboardingMsg("Vous devez être connecté.");
+        return;
+      }
+
+      // On prend l'email du profil si présent, sinon celui du compte auth
+      const email = (profil.email || user.email || "").trim();
+      if (!email) {
+        setOnboardingMsg("Renseignez et sauvegardez votre email avant de continuer.");
+        return;
+      }
+
+      // Appelle l’Edge Function : crée/récupère le compte Connect + génère l’URL d’onboarding
+      const { data, error } = await supabase.functions.invoke("connect-onboarding", {
+        body: { user_id: user.id, email, country: "FR" },
+      });
+      if (error) {
+        setOnboardingMsg(error.message || "Erreur lors de la création du lien d’onboarding.");
+        return;
+      }
+
+      const url = data?.url;
+      if (!url) {
+        setOnboardingMsg("Lien d’onboarding introuvable.");
+        return;
+      }
+
+      // Redirection vers Stripe
+      window.location.href = url;
+    } catch (e) {
+      setOnboardingMsg(e?.message || "Erreur inattendue.");
+    } finally {
+      setOnboardingBusy(false);
+    }
+  }
+
+  if (loading) return <div className="p-6">Chargement…</div>;
+
+  const stripeConfigured = !!profil?.stripe_account_id;
+
   return (
     <div className="p-6 max-w-3xl mx-auto">
       <h1 className="text-2xl font-bold mb-4">Mon profil organisateur</h1>
+
+      {/* Bloc Stripe Connect */}
+      <div className="mb-5 p-4 rounded-lg border bg-gray-50">
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="font-semibold">Stripe Connect</div>
+            <div className="text-sm text-gray-700">
+              {stripeConfigured ? (
+                <>
+                  Compte connecté : <span className="font-mono">{profil.stripe_account_id}</span>
+                </>
+              ) : (
+                "Aucun compte connecté pour le moment."
+              )}
+            </div>
+          </div>
+
+          <button
+            type="button"
+            disabled={onboardingBusy}
+            onClick={handleConnectStripe}
+            className={`px-4 py-2 rounded text-white ${onboardingBusy ? "bg-gray-400" : "bg-purple-600 hover:bg-purple-700"}`}
+            title={stripeConfigured ? "Gérer / finaliser votre compte Stripe" : "Configurer votre compte Stripe"}
+          >
+            {onboardingBusy
+              ? "Ouverture…"
+              : (stripeConfigured ? "Gérer mon compte Stripe" : "Configurer mon compte Stripe")}
+          </button>
+        </div>
+
+        {onboardingMsg && (
+          <div className="mt-2 text-sm text-red-600">{onboardingMsg}</div>
+        )}
+
+        {!stripeConfigured && (
+          <p className="mt-2 text-xs text-gray-600">
+            Vous serez redirigé vers Stripe pour compléter votre profil (identité, IBAN, CGU). Sans cela,
+            les paiements ne pourront pas être versés automatiquement.
+          </p>
+        )}
+      </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="flex gap-4">
