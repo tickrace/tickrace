@@ -65,85 +65,33 @@ serve(async (req) => {
       (typeof session.payment_intent === "object" &&
         session.payment_intent?.status === "succeeded");
 
-    // 2) Si on a un PaymentIntent, on va chercher les détails utiles “destination charges”
+    // 2) Détails “destination charges” (robuste pour fee_total)
     let receipt_url: string | null = null;
     let charge_id: string | null = null;
-    let application_fee_amount: number | null = null;     // en cents
+    let application_fee_amount: number | null = null;     // cents
     let destination_account_id: string | null = null;     // acct_...
-    let fee_total: number | null = null;                  // frais Stripe sur la charge (en cents)
+    let fee_total: number | null = null;                  // cents (frais Stripe)
     let balance_transaction_id: string | null = null;
 
     try {
-      if (session.payment_intent && typeof session.payment_intent === "object") {
-        const piId = session.payment_intent.id;
-        const pi = await stripe.paymentIntents.retrieve(piId, {
-          expand: ["latest_charge.balance_transaction", "charges.data.balance_transaction", "transfer_data.destination"],
-        });
+      // PaymentIntent ID quelle que soit sa forme
+      const piId =
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : (session.payment_intent as any)?.id;
 
+      if (piId) {
+        // 1) PI “simple” pour lire la fee d’appli et la destination
+        const pi = await stripe.paymentIntents.retrieve(piId);
         application_fee_amount = (pi as any).application_fee_amount ?? null;
         destination_account_id = (pi.transfer_data as any)?.destination ?? null;
 
-        const charge = (pi.charges?.data?.[0]) as any;
-        if (charge) {
-          charge_id = charge.id ?? null;
-          receipt_url = charge.receipt_url ?? null;
+        // 2) Identifie la charge la plus récente
+        const latestChargeId =
+          (pi.latest_charge as string) ||
+          (pi.charges?.data?.[0]?.id ?? null);
 
-          const bt = charge.balance_transaction as any;
-          if (bt) {
-            fee_total = typeof bt.fee === "number" ? bt.fee : null;
-            balance_transaction_id = bt.id ?? null;
-          }
-        }
-      } else {
-        // fallback (rare en pratique avec Checkout)
-        // On tente latest_charge depuis la session.payment_intent id s’il est string
-        if (typeof session.payment_intent === "string") {
-          const pi = await stripe.paymentIntents.retrieve(session.payment_intent, {
-            expand: ["latest_charge.balance_transaction", "charges.data.balance_transaction", "transfer_data.destination"],
-          });
-          application_fee_amount = (pi as any).application_fee_amount ?? null;
-          destination_account_id = (pi.transfer_data as any)?.destination ?? null;
-
-          const charge = (pi.charges?.data?.[0]) as any;
-          if (charge) {
-            charge_id = charge.id ?? null;
-            receipt_url = charge.receipt_url ?? null;
-
-            const bt = charge.balance_transaction as any;
-            if (bt) {
-              fee_total = typeof bt.fee === "number" ? bt.fee : null;
-              balance_transaction_id = bt.id ?? null;
-            }
-          }
-        }
-      }
-    } catch (_) {
-      // On ne casse pas la vérification si la récupération détaillée échoue
-    }
-
-    const resp = {
-      paid,
-      status: session.status,
-      payment_status: session.payment_status,
-      amount_total: (session.amount_total ?? 0) / 100,
-      currency: session.currency,
-      metadata: session.metadata ?? {},
-      // + infos utiles pour destination charges
-      application_fee_amount,      // cents
-      destination_account_id,      // acct_...
-      charge_id,
-      receipt_url,
-      fee_total,                   // cents (frais Stripe)
-      balance_transaction_id,
-    };
-
-    return new Response(JSON.stringify(resp), {
-      headers: { ...headers, "Content-Type": "application/json" },
-    });
-  } catch (e: any) {
-    return new Response(JSON.stringify({ paid: false, error: "Erreur serveur" }), {
-      status: 500,
-      headers: { ...headers, "Content-Type": "application/json" },
-    });
-  }
-});
+        if (latestChargeId) {
+          // 3) Recharge la charge avec balance_transaction (assure fee_total)
+          const fullCharge = await stripe.charges.retrieve(latestChargeId, {
+            expand
