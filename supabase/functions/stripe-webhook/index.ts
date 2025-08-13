@@ -211,6 +211,42 @@ serve(async (req) => {
     } catch {}
 
     const details = extractPaymentDetails(session, pi, charge);
+    // 🔁 Fallback robuste : si fee_total/BT manquent, on recharge la charge avec balance_transaction
+try {
+  let cid = details.charge_id;
+
+  // Si on n'a pas d'id de charge, on le dérive depuis le PI basique
+  if (!cid) {
+    const piBasic = await stripe.paymentIntents.retrieve(args.payment_intent_id);
+    // @ts-ignore
+    cid = (piBasic.latest_charge as string) || (piBasic.charges?.data?.[0]?.id ?? null);
+  }
+
+  if (cid) {
+    const full = await stripe.charges.retrieve(cid, { expand: ["balance_transaction"] });
+
+    // Complète les champs manquants
+    if (!details.charge_id) details.charge_id = full.id;
+    // @ts-ignore
+    if (!details.receipt_url && full.receipt_url) details.receipt_url = full.receipt_url;
+
+    // @ts-ignore
+    const bt = full.balance_transaction as any;
+    if (bt) {
+      if (details.fee_total == null && typeof bt.fee === "number") details.fee_total = bt.fee; // cents
+      if (!details.balance_transaction_id && bt.id) details.balance_transaction_id = bt.id;
+      // fallback currency
+      // @ts-ignore
+      if (!details.currency && (bt.currency || full.currency)) {
+        // @ts-ignore
+        details.currency = bt.currency || full.currency;
+      }
+    }
+  }
+} catch (e) {
+  console.warn("⚠️ Fallback charge.retrieve pour fee_total a échoué:", e);
+}
+
 
     // 1) Valider inscriptions
     const { error: updErr } = await supabase
