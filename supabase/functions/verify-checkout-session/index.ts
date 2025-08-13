@@ -38,7 +38,9 @@ serve(async (req) => {
     try {
       const body = await req.json();
       sessionId = body?.sessionId ?? body?.session_id ?? null;
-    } catch {/* noop */}
+    } catch {
+      // noop
+    }
   } else {
     return new Response(JSON.stringify({ error: "Méthode non autorisée" }), {
       status: 405,
@@ -68,9 +70,9 @@ serve(async (req) => {
     // 2) Détails “destination charges” (robuste pour fee_total)
     let receipt_url: string | null = null;
     let charge_id: string | null = null;
-    let application_fee_amount: number | null = null;     // cents
-    let destination_account_id: string | null = null;     // acct_...
-    let fee_total: number | null = null;                  // cents (frais Stripe)
+    let application_fee_amount: number | null = null; // cents
+    let destination_account_id: string | null = null; // acct_...
+    let fee_total: number | null = null;              // cents (frais Stripe)
     let balance_transaction_id: string | null = null;
 
     try {
@@ -94,4 +96,47 @@ serve(async (req) => {
         if (latestChargeId) {
           // 3) Recharge la charge avec balance_transaction (assure fee_total)
           const fullCharge = await stripe.charges.retrieve(latestChargeId, {
-            expand
+            expand: ["balance_transaction"],
+          });
+
+          charge_id = fullCharge.id;
+          // @ts-ignore
+          receipt_url = fullCharge.receipt_url ?? null;
+
+          // @ts-ignore
+          const bt = fullCharge.balance_transaction as any;
+          if (bt) {
+            fee_total = typeof bt.fee === "number" ? bt.fee : null; // cents
+            balance_transaction_id = bt.id ?? null;
+          }
+        }
+      }
+    } catch {
+      // ne casse pas la vérification si ça échoue
+    }
+
+    const resp = {
+      paid,
+      status: session.status,
+      payment_status: session.payment_status,
+      amount_total: (session.amount_total ?? 0) / 100,
+      currency: session.currency,
+      metadata: session.metadata ?? {},
+      application_fee_amount,      // cents
+      destination_account_id,      // acct_...
+      charge_id,
+      receipt_url,
+      fee_total,                   // cents
+      balance_transaction_id,
+    };
+
+    return new Response(JSON.stringify(resp), {
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  } catch (e: any) {
+    return new Response(JSON.stringify({ paid: false, error: "Erreur serveur" }), {
+      status: 500,
+      headers: { ...headers, "Content-Type": "application/json" },
+    });
+  }
+});
