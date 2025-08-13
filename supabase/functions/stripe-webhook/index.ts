@@ -9,7 +9,9 @@ const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 const PLATFORM_CUT_PCT = 0.05; // 5 % du net après frais Stripe
 
 // --- Resend via HTTP (pas de SDK Node)
-async function sendResendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text: string }) {
+async function sendResendEmail({
+  to, subject, html, text,
+}: { to: string; subject: string; html: string; text: string }) {
   const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
   const from = "Tickrace <noreply@tickrace.com>";
   const r = await fetch("https://api.resend.com/emails", {
@@ -28,7 +30,7 @@ async function sendWithRetry(fn: () => Promise<void>, max = 2) {
     catch (e) {
       lastErr = e;
       const wait = 500 * Math.pow(2, attempt);
-      console.warn(`⚠️ Email fail attempt ${attempt+1}/${max+1}, retry in ${wait}ms`, e);
+      console.warn(`⚠️ Email fail attempt ${attempt + 1}/${max + 1}, retry in ${wait}ms`, e);
       await new Promise(r => setTimeout(r, wait));
     }
   }
@@ -53,6 +55,73 @@ function pickMeta(md?: Record<string, string>) {
   };
 }
 
+// --- Stripe helpers
+async function expandPI(piId: string) {
+  return await stripe.paymentIntents.retrieve(piId, {
+    expand: [
+      "latest_charge.balance_transaction",
+      "charges.data.balance_transaction",
+      "transfer_data.destination",
+    ],
+  });
+}
+
+function extractPaymentDetails(
+  session: Stripe.Checkout.Session | null,
+  pi: Stripe.PaymentIntent | null,
+  charge: Stripe.Charge | null
+) {
+  let application_fee_amount: number | null = null;
+  let destination_account_id: string | null = null; // acct_...
+  let transfer_id: string | null = null;
+  let charge_id: string | null = null;
+  let receipt_url: string | null = null;
+  let fee_total: number | null = null;
+  let balance_transaction_id: string | null = null;
+  let amount_total: number | null = null;
+  let amount_subtotal: number | null = null;
+  let currency: string | null = null;
+
+  if (session) {
+    amount_total = session.amount_total ?? null;
+    amount_subtotal = session.amount_subtotal ?? null;
+    currency = session.currency ?? null;
+  }
+  if (pi) {
+    // @ts-ignore
+    application_fee_amount = (pi as any).application_fee_amount ?? null;
+    // @ts-ignore
+    destination_account_id = (pi.transfer_data as any)?.destination ?? null;
+  }
+  if (charge) {
+    charge_id = charge.id ?? null;
+    // @ts-ignore
+    receipt_url = charge.receipt_url ?? null;
+    // @ts-ignore
+    transfer_id = (charge.transfer as string) ?? null;
+    const bt = charge.balance_transaction as any;
+    if (bt) {
+      balance_transaction_id = bt.id ?? null;
+      fee_total = typeof bt.fee === "number" ? bt.fee : null; // cents
+      // @ts-ignore
+      currency = currency ?? bt.currency ?? (charge as any).currency ?? currency;
+    }
+  }
+
+  return {
+    application_fee_amount,
+    destination_account_id,
+    transfer_id,
+    charge_id,
+    receipt_url,
+    fee_total,
+    balance_transaction_id,
+    amount_total,
+    amount_subtotal,
+    currency,
+  };
+}
+
 serve(async (req) => {
   const sig = req.headers.get("stripe-signature");
   const raw = await req.text();
@@ -66,86 +135,11 @@ serve(async (req) => {
     return new Response("bad signature", { status: 400 });
   }
 
-  // Helpers Stripe
-  async function expandPI(piId: string) {
-    // Récupère PI + charge + fees + destination (Connect)
-    return await stripe.paymentIntents.retrieve(piId, {
-      expand: [
-        "latest_charge.balance_transaction",
-        "charges.data.balance_transaction",
-        "transfer_data.destination",
-      ],
-    });
-  }
-
-  function extractPaymentDetails(
-    session: Stripe.Checkout.Session | null,
-    pi: Stripe.PaymentIntent | null,
-    charge: Stripe.Charge | null
-  ) {
-    // Valeurs par défaut
-    let application_fee_amount: number | null = null;
-    let destination_account_id: string | null = null; // acct_...
-    let transfer_id: string | null = null;
-    let charge_id: string | null = null;
-    let receipt_url: string | null = null;
-    let fee_total: number | null = null;
-    let balance_transaction_id: string | null = null;
-    let amount_total: number | null = null;
-    let amount_subtotal: number | null = null;
-    let currency: string | null = null;
-
-    // Depuis session (amount_total/subtotal/currency)
-    if (session) {
-      amount_total = session.amount_total ?? null;
-      amount_subtotal = session.amount_subtotal ?? null;
-      currency = session.currency ?? null;
-    }
-
-    // Depuis PI (application_fee_amount, destination) — en Separate C&T, destination sera souvent null
-    if (pi) {
-      // @ts-ignore
-      application_fee_amount = (pi as any).application_fee_amount ?? null;
-      // @ts-ignore
-      destination_account_id = (pi.transfer_data as any)?.destination ?? null;
-    }
-
-    // Depuis charge (receipt_url, transfer, fees via balance_transaction)
-    if (charge) {
-      charge_id = charge.id ?? null;
-      // @ts-ignore
-      receipt_url = charge.receipt_url ?? null;
-      // @ts-ignore - sur destination charges, le champ "transfer" est sur la charge (ici souvent null en Separate C&T)
-      transfer_id = (charge.transfer as string) ?? null;
-
-      const bt = charge.balance_transaction as any;
-      if (bt) {
-        balance_transaction_id = bt.id ?? null;
-        fee_total = typeof bt.fee === "number" ? bt.fee : null; // en cents
-        // fallback currency si besoin
-        currency = currency ?? bt.currency ?? currency;
-      }
-    }
-
-    return {
-      application_fee_amount,
-      destination_account_id,
-      transfer_id,
-      charge_id,
-      receipt_url,
-      fee_total,
-      balance_transaction_id,
-      amount_total,
-      amount_subtotal,
-      currency,
-    };
-  }
-
   async function processPayment(args: {
     inscription_id?: string | null;
     inscription_ids?: string[] | string | null;
     user_id?: string | null;
-    course_id?: string | null;                 // 👈 new
+    course_id?: string | null;
     prix_total?: string | number | null;
     payment_intent_id: string;
     fallbackEmail?: string | null;
@@ -157,156 +151,128 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    // Normalisation IDs
+    // ---- Normalisation des IDs d'inscriptions
     let ids: string[] = [];
     if (args.inscription_id) ids = [args.inscription_id];
     else if (args.inscription_ids) {
-      try { 
-        ids = Array.isArray(args.inscription_ids) ? args.inscription_ids : JSON.parse(String(args.inscription_ids)); 
+      try {
+        ids = Array.isArray(args.inscription_ids)
+          ? args.inscription_ids
+          : JSON.parse(String(args.inscription_ids));
       } catch {}
     }
-
-    // Fallback via trace_id if needed
     if (ids.length === 0 && args.trace_id) {
-      console.log("🔍 Recherche des inscriptions par trace_id:", args.trace_id);
-      const { data: found, error: findErr } = await supabase
-        .from("inscriptions")
-        .select("id")
+      const { data: found } = await supabase
+        .from("inscriptions").select("id")
         .eq("paiement_trace_id", args.trace_id);
-
-      if (findErr) {
-        console.warn("⚠️ Erreur recherche par trace_id :", findErr.message);
-      } else if (found?.length) {
-        ids = found.map(row => row.id);
-        console.log(`✅ ${found.length} inscription(s) trouvée(s) via trace_id`);
-      }
+      if (found?.length) ids = found.map(r => r.id);
     }
 
-    const montant_total_num = Number(args.prix_total ?? 0);
-    const montant_total = Number.isFinite(montant_total_num) ? montant_total_num : null;
-
-    // Idempotence
-    const { data: exist } = await supabase
-      .from("paiements")
-      .select("id")
-      .eq("stripe_payment_intent_id", args.payment_intent_id)
-      .maybeSingle();
-    if (exist) {
-      console.log("ℹ️ Paiement déjà enregistré (idempotence):", exist.id);
-      return new Response("ok", { status: 200 });
-    }
-
-    // --- Récup Stripe details (PI + charge + fees + destination + receipt)
+    // ---- Récup Stripe (session, PI, charge)
     let session: Stripe.Checkout.Session | null = null;
     try {
       const list = await stripe.checkout.sessions.list({ payment_intent: args.payment_intent_id, limit: 1 });
       session = list.data?.[0] ?? null;
     } catch {}
-
     let pi: Stripe.PaymentIntent | null = null;
     try { pi = await expandPI(args.payment_intent_id); } catch {}
-
     let charge: Stripe.Charge | null = null;
-    try { 
-      // @ts-ignore
-      charge = (pi?.charges?.data?.[0] as Stripe.Charge) ?? null; 
-    } catch {}
+    try { /* @ts-ignore */ charge = (pi?.charges?.data?.[0] as Stripe.Charge) ?? null; } catch {}
 
-    const details = extractPaymentDetails(session, pi, charge);
+    let details = extractPaymentDetails(session, pi, charge);
 
-    // 🔁 Fallback robuste : si fee_total/BT manquent, on recharge la charge avec balance_transaction
+    // 🔁 Fallback fort : si fee_total / BT manquent, recharge la charge expandue
     try {
       let cid = details.charge_id;
-
-      // Si on n'a pas d'id de charge, on le dérive depuis le PI basique
       if (!cid) {
         const piBasic = await stripe.paymentIntents.retrieve(args.payment_intent_id);
         // @ts-ignore
         cid = (piBasic.latest_charge as string) || (piBasic.charges?.data?.[0]?.id ?? null);
       }
-
       if (cid) {
         const full = await stripe.charges.retrieve(cid, { expand: ["balance_transaction"] });
-
-        // Complète les champs manquants
         if (!details.charge_id) details.charge_id = full.id;
         // @ts-ignore
         if (!details.receipt_url && full.receipt_url) details.receipt_url = full.receipt_url;
-
         // @ts-ignore
         const bt = full.balance_transaction as any;
         if (bt) {
-          if (details.fee_total == null && typeof bt.fee === "number") details.fee_total = bt.fee; // cents
+          if (details.fee_total == null && typeof bt.fee === "number") details.fee_total = bt.fee;
           if (!details.balance_transaction_id && bt.id) details.balance_transaction_id = bt.id;
-          // fallback currency
           // @ts-ignore
           if (!details.currency && (bt.currency || full.currency)) {
             // @ts-ignore
             details.currency = bt.currency || full.currency;
           }
         }
-
-        // récupérer transfer_id si présent sur la charge (destination charges) — souvent null en Separate C&T
         // @ts-ignore
         if (!details.transfer_id && full.transfer) details.transfer_id = full.transfer as string;
       }
     } catch (e) {
-      console.warn("⚠️ Fallback charge.retrieve pour fee_total a échoué:", e);
+      console.warn("⚠️ Fallback charge.retrieve a échoué:", e);
     }
 
-    // ---------------------------
-    // Separate charges & transfers
-    // ---------------------------
+    // ---- Idempotence "intelligente": si un paiement COMPLET existe déjà, stop.
+    const { data: existing } = await supabase
+      .from("paiements")
+      .select("id, fee_total, transfer_id")
+      .eq("stripe_payment_intent_id", args.payment_intent_id)
+      .maybeSingle();
 
-    // 1) Calcul des montants (en cents)
-    const gross = details.amount_total ?? 0;            // ex: 10000
-    const stripeFee = details.fee_total ?? 0;           // ex: 350
-    const net = Math.max(0, gross - stripeFee);         // ex: 9650
-    const platformCut = Math.round(net * PLATFORM_CUT_PCT); // ex: 483 (= 5% net)
-    const toOrganizer = Math.max(0, net - platformCut);     // ex: 9167
+    const alreadyComplete = !!(existing && existing.fee_total != null && existing.transfer_id);
+    if (alreadyComplete) {
+      console.log("ℹ️ Paiement déjà complet (idempotence):", existing.id);
+      return new Response("ok", { status: 200 });
+    }
 
-    // 2) Trouver le compte connecté (en Separate C&T, PI.transfer_data.destination est souvent null)
-    let destinationAccount = details.destination_account_id;
+    // ⛔ Si on n'a pas encore les frais/charge, on attend charge.succeeded
+    if (details.fee_total == null || details.charge_id == null) {
+      console.log("⏳ Fee/Charge pas prêts → on attend charge.succeeded", {
+        pi: args.payment_intent_id, src: args.meta_source,
+      });
+      return new Response("defer", { status: 202 });
+    }
+
+    // ---- Calculs (cents)
+    const gross = details.amount_total ?? 0;
+    const stripeFee = details.fee_total ?? 0;
+    const net = Math.max(0, gross - stripeFee);
+    const platformCut = Math.round(net * PLATFORM_CUT_PCT);
+    const toOrganizer = Math.max(0, net - platformCut);
+
+    // ---- Destination account (via course → profil)
+    let destinationAccount = details.destination_account_id ?? null;
     if (!destinationAccount) {
-      // a) si on a course_id en metadata/event
       let courseId = args.course_id ?? null;
-
-      // b) sinon remonter via l'inscription -> course_id
       if (!courseId && ids.length > 0) {
         const { data: one } = await supabase
-          .from("inscriptions")
-          .select("course_id")
-          .eq("id", ids[0])
-          .maybeSingle();
+          .from("inscriptions").select("course_id").eq("id", ids[0]).maybeSingle();
         courseId = one?.course_id ?? null;
       }
-
       if (courseId) {
         const { data: courseRow } = await supabase
-          .from("courses")
-          .select("organisateur_id")
-          .eq("id", courseId)
-          .maybeSingle();
+          .from("courses").select("organisateur_id").eq("id", courseId).maybeSingle();
         if (courseRow?.organisateur_id) {
           const { data: profil } = await supabase
-            .from("profils_utilisateurs")
-            .select("stripe_account_id")
-            .eq("user_id", courseRow.organisateur_id)
-            .maybeSingle();
+            .from("profils_utilisateurs").select("stripe_account_id")
+            .eq("user_id", courseRow.organisateur_id).maybeSingle();
           destinationAccount = profil?.stripe_account_id ?? null;
         }
       }
     }
 
-    // 3) Créer le transfer vers l'organisateur (lié à la charge)
+    // ---- Créer le transfer si absent
     let transferId: string | null = details.transfer_id ?? null;
+    // si un enregistrement partiel existe déjà avec transfer_id, on le réutilise
+    if (!transferId && existing?.transfer_id) transferId = existing.transfer_id as any;
+
     if (!transferId && destinationAccount && details.charge_id && toOrganizer > 0) {
       try {
         const tr = await stripe.transfers.create({
           amount: toOrganizer,
           currency: details.currency || "eur",
           destination: destinationAccount,
-          source_transaction: details.charge_id, // très important pour reverse auto lors d’un refund
+          source_transaction: details.charge_id, // clé pour reverse auto au refund
           transfer_group: `grp_${args.trace_id || details.charge_id}`,
         });
         transferId = tr.id;
@@ -316,27 +282,29 @@ serve(async (req) => {
       }
     }
 
-    // 4) Valider inscriptions
-    const { error: updErr } = await supabase
-      .from("inscriptions")
-      .update({
-        statut: "validé",
-        paiement_trace_id: args.trace_id ?? null
-      })
-      .in("id", ids);
-
-    if (updErr) {
-      console.error("❌ Update inscriptions :", updErr.message);
-      return new Response("update fail", { status: 500 });
+    // ---- Valider inscriptions
+    if (ids.length > 0) {
+      const { error: updErr } = await supabase
+        .from("inscriptions")
+        .update({ statut: "validé", paiement_trace_id: args.trace_id ?? null })
+        .in("id", ids);
+      if (updErr) {
+        console.error("❌ Update inscriptions :", updErr.message);
+        return new Response("update fail", { status: 500 });
+      }
     }
-    console.log("✅ Inscriptions validées :", ids);
 
-    // 5) Insérer paiement enrichi (Separate C&T)
+    // ---- Insert/Update paiement enrichi
+    const montant_total_num = Number(args.prix_total ?? 0);
+    const montant_total = Number.isFinite(montant_total_num)
+      ? montant_total_num
+      : ((details.amount_total ?? 0) / 100.0);
+
     const paiementRow: any = {
       user_id: args.user_id ?? null,
       inscription_id: ids.length === 1 ? ids[0] : null,
       inscription_ids: ids.length > 1 ? ids : null,
-      montant_total: montant_total ?? ((details.amount_total ?? 0) / 100.0),
+      montant_total,
       devise: (details.currency ?? "eur").toUpperCase(),
       stripe_payment_intent_id: args.payment_intent_id,
       status: "succeeded",
@@ -344,32 +312,41 @@ serve(async (req) => {
       type: ids.length > 1 ? "groupé" : "individuel",
       trace_id: args.trace_id ?? null,
 
-      // Traçabilité Stripe
+      // Traçabilité Stripe / Separate C&T
       charge_id: details.charge_id,
-      // ⚠️ on réutilise application_fee_amount pour stocker la commission nette Tickrace (en cents)
-      application_fee_amount: platformCut,
+      application_fee_amount: platformCut,            // ← TA commission nette (cents)
       destination_account_id: destinationAccount,
       transfer_id: transferId,
-      amount_subtotal: details.amount_subtotal ?? null, // cents
-      amount_total: details.amount_total ?? null,       // cents (gross)
-      fee_total: details.fee_total ?? null,             // cents (frais Stripe)
+      amount_subtotal: details.amount_subtotal ?? null,
+      amount_total: details.amount_total ?? null,     // brut (cents)
+      fee_total: details.fee_total ?? null,           // frais Stripe (cents)
       balance_transaction_id: details.balance_transaction_id,
       receipt_url: details.receipt_url ?? null,
     };
 
-    const { error: payErr } = await supabase.from("paiements").insert(paiementRow);
-    if (payErr) {
-      console.error("❌ Insert paiement :", payErr.message);
-      return new Response("insert fail", { status: 500 });
+    if (existing?.id) {
+      const { error: upErr } = await supabase
+        .from("paiements").update(paiementRow)
+        .eq("id", existing.id);
+      if (upErr) {
+        console.error("❌ Update paiement :", upErr.message);
+        return new Response("update fail", { status: 500 });
+      }
+      console.log("✅ Paiement complété (update) :", existing.id);
+    } else {
+      const { error: insErr } = await supabase.from("paiements").insert(paiementRow);
+      if (insErr) {
+        console.error("❌ Insert paiement :", insErr.message);
+        return new Response("insert fail", { status: 500 });
+      }
+      console.log("✅ Paiement enregistré (insert) :", { ...paiementRow, inscription_ids: ids });
     }
-    console.log("✅ Paiement enregistré :", { ...paiementRow, inscription_ids: ids });
 
-    // 6) Email(s)
-    const { data: inscriptions, error: inscErr } = await supabase
+    // ---- Emails (une seule fois, au moment "complet")
+    const { data: inscriptions } = await supabase
       .from("inscriptions")
       .select("id, nom, prenom, email, course_id, format_id")
       .in("id", ids);
-    if (inscErr) console.warn("⚠️ Lecture inscriptions email :", inscErr.message);
 
     const courseCache = new Map<string, { nom: string | null }>();
     const formatCache = new Map<string, { nom: string | null }>();
@@ -392,11 +369,10 @@ serve(async (req) => {
 
     for (const insc of inscriptions || []) {
       const to = (insc.email || args.fallbackEmail || "").trim();
-      if (!to) { console.warn("⚠️ Pas d’email pour", insc.id); continue; }
-
+      if (!to) continue;
       const courseNom = (await getCourseName(insc.course_id)) ?? "votre course";
       const formatNom = await getFormatName(insc.format_id);
-      const amountTxt = ((montant_total ?? ((details.amount_total ?? 0) / 100.0)) as number).toFixed(2);
+      const amountTxt = (montant_total as number).toFixed(2);
       const urlInscription = `https://www.tickrace.com/mon-inscription/${insc.id}`;
 
       const subject = "✅ Confirmation d'inscription";
@@ -418,26 +394,21 @@ L'équipe Tickrace`;
           <p style="margin-top:24px">Sportivement,<br/>L'équipe Tickrace</p>
         </div>
       `;
-
       await sendWithRetry(() => sendResendEmail({ to, subject, html, text }), 2);
-      console.log(`📧 Email envoyé à ${to} (inscription ${insc.id})`);
     }
 
     return new Response("ok", { status: 200 });
   }
 
   // ---- Handlers d’événements ----
-
-  // Flux 1: checkout.session.completed
   if (event.type === "checkout.session.completed") {
     const s = event.data.object as Stripe.Checkout.Session;
     const md = pickMeta((s.metadata || {}) as any);
-    console.log("🧾 session.metadata keys:", Object.keys((s.metadata || {}) as any));
     return await processPayment({
       inscription_id: md.inscription_id,
       inscription_ids: md.inscription_ids as any,
       user_id: md.user_id,
-      course_id: md.course_id, // 👈 new
+      course_id: md.course_id,
       prix_total: md.prix_total ?? (s.amount_total ?? 0) / 100,
       payment_intent_id: String(s.payment_intent || ""),
       fallbackEmail: (s.customer_details?.email || s.customer_email || "") as string,
@@ -446,22 +417,18 @@ L'équipe Tickrace`;
     });
   }
 
-  // Flux 2: charge.succeeded (sécu / redondance)
   if (event.type === "charge.succeeded") {
     const c = event.data.object as Stripe.Charge;
     const piId = String(c.payment_intent || "");
-    console.log("💳 charge.id:", c.id, "pi:", piId);
-
     try {
       const pi = await stripe.paymentIntents.retrieve(piId);
       const md = pickMeta((pi.metadata || {}) as any);
-      console.log("🧾 PI.metadata keys:", Object.keys(((pi as any).metadata || {}) as any));
       if (md.inscription_id || md.inscription_ids) {
         return await processPayment({
           inscription_id: md.inscription_id,
           inscription_ids: md.inscription_ids as any,
           user_id: md.user_id,
-          course_id: md.course_id, // 👈 new
+          course_id: md.course_id,
           prix_total: md.prix_total ?? (pi.amount ?? 0) / 100,
           payment_intent_id: piId,
           fallbackEmail: c.receipt_email || c.billing_details?.email || null,
@@ -473,17 +440,16 @@ L'équipe Tickrace`;
       console.warn("⚠️ PI.metadata read failed:", e);
     }
 
-    // dernier recours: session via PI
     try {
       const list = await stripe.checkout.sessions.list({ payment_intent: piId, limit: 1 });
       const s = list.data?.[0];
       if (s) {
         const md = pickMeta((s.metadata || {}) as any);
-        console.log("🧾 session(by PI) metadata keys:", Object.keys((s.metadata || {}) as any));
         return await processPayment({
           inscription_id: md.inscription_id,
           inscription_ids: md.inscription_ids as any,
           user_id: md.user_id,
+          course_id: md.course_id,
           prix_total: md.prix_total ?? (s.amount_total ?? 0) / 100,
           payment_intent_id: piId,
           fallbackEmail: (s.customer_details?.email || s.customer_email || "") as string,
@@ -499,6 +465,5 @@ L'équipe Tickrace`;
     return new Response("missing meta", { status: 400 });
   }
 
-  // Autres événements: noop
   return new Response("ok", { status: 200 });
 });
