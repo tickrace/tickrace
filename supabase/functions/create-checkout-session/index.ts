@@ -50,7 +50,7 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const origin = req.headers.get("origin");
-    console.log("📥 create-checkout-session (Connect) :: origin =", origin);
+    console.log("📥 create-checkout-session (Separate charges & transfers) :: origin =", origin);
     console.log("📥 Données reçues:", body);
 
     const {
@@ -124,7 +124,7 @@ serve(async (req) => {
 
     const destinationAccount = profil?.stripe_account_id ?? null;
 
-    // 🧯 Sécurité : si l'organisateur n'a pas encore configuré Stripe, on bloque (409)
+    // 🧯 Sécurité : on bloque si pas de compte Connect (sinon on encaisse sans pouvoir transférer ensuite)
     if (!destinationAccount) {
       console.warn("⚠️ Organisateur sans stripe_account_id → paiement indisponible");
       return new Response(JSON.stringify({
@@ -133,14 +133,11 @@ serve(async (req) => {
       }), { status: 409, headers });
     }
 
-    // 💸 Commission 5%
-    //const applicationFee = Math.round(unitAmount * 0.05);
-
     // URLs
     const SU_URL = (successUrl || "https://www.tickrace.com/merci") + "?session_id={CHECKOUT_SESSION_ID}";
     const CA_URL = (cancelUrl  || "https://www.tickrace.com/paiement-annule") + "?session_id={CHECKOUT_SESSION_ID}";
 
-    // ✅ metadata sur Session + PaymentIntent (comme avant)
+    // ✅ metadata sur Session + PaymentIntent
     const commonMetadata = {
       inscription_id: String(inscription_id),
       user_id: String(user_id),
@@ -149,7 +146,9 @@ serve(async (req) => {
       trace_id, // 👈 toujours présent
     };
 
-    // 🧾 Création de la Session Checkout (destination charges)
+    // 🧾 Création de la Session Checkout (Separate charges & transfers)
+    // 👉 Pas de application_fee_amount, pas de transfer_data
+    // 👉 On ajoute un transfer_group et (optionnel) on_behalf_of
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
@@ -165,25 +164,21 @@ serve(async (req) => {
       ],
       customer_email: String(email),
       payment_intent_data: {
-  receipt_email: String(email),
-  // On garde on_behalf_of si tu veux les descripteurs "au nom de" (facultatif)
-  on_behalf_of: destinationAccount,
-  // Ajoute un transfer_group pour relier charge/transfer
-  transfer_group: `grp_${trace_id}`,
-  metadata: commonMetadata, // PI.metadata
-},
-
+        receipt_email: String(email),
+        on_behalf_of: destinationAccount,     // facultatif mais utile pour le descriptor
+        transfer_group: `grp_${trace_id}`,    // pour lier ensuite le transfer à la charge
+        metadata: commonMetadata,             // PI.metadata
+      },
       success_url: SU_URL,
       cancel_url: CA_URL,
-      metadata: commonMetadata,                          // 👈 Session.metadata
+      metadata: commonMetadata,               // Session.metadata
     });
 
-    console.log("✅ Session Stripe créée (Connect) :", {
+    console.log("✅ Session Stripe créée (Separate C&T) :", {
       session_id: session.id,
       url: session.url,
       amount_total_preview: unitAmount,
-      application_fee: applicationFee,
-      destination: destinationAccount,
+      destination_for_behalf_of: destinationAccount,
       trace_id,
     });
 
@@ -192,7 +187,7 @@ serve(async (req) => {
       status: 200,
     });
   } catch (e: any) {
-    console.error("💥 Erreur create-checkout-session (Connect):", e?.message ?? e, e?.stack);
+    console.error("💥 Erreur create-checkout-session (Separate C&T):", e?.message ?? e, e?.stack);
     return new Response(JSON.stringify({ error: "Erreur serveur" }), {
       status: 500,
       headers,
