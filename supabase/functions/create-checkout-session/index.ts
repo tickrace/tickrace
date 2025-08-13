@@ -134,7 +134,7 @@ serve(async (req) => {
     }
 
     // 💸 Commission 5%
-    const applicationFee = Math.round(unitAmount * 0.05);
+    //const applicationFee = Math.round(unitAmount * 0.05);
 
     // URLs
     const SU_URL = (successUrl || "https://www.tickrace.com/merci") + "?session_id={CHECKOUT_SESSION_ID}";
@@ -165,12 +165,14 @@ serve(async (req) => {
       ],
       customer_email: String(email),
       payment_intent_data: {
-        receipt_email: String(email),
-        application_fee_amount: applicationFee,          // 👈 préleve 5% pour Tickrace
-        transfer_data: { destination: destinationAccount }, // 👈 envoie le reste à l'orga
-        on_behalf_of: destinationAccount,                // 👈 optim. tarification côté orga
-        metadata: commonMetadata,                        // 👈 PI.metadata
-      },
+  receipt_email: String(email),
+  // On garde on_behalf_of si tu veux les descripteurs "au nom de" (facultatif)
+  on_behalf_of: destinationAccount,
+  // Ajoute un transfer_group pour relier charge/transfer
+  transfer_group: `grp_${trace_id}`,
+  metadata: commonMetadata, // PI.metadata
+},
+
       success_url: SU_URL,
       cancel_url: CA_URL,
       metadata: commonMetadata,                          // 👈 Session.metadata
