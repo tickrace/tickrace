@@ -6,6 +6,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.5";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const endpointSecret = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
+const PLATFORM_CUT_PCT = 0.05; // 5 % du net après frais Stripe
 
 // --- Resend via HTTP (pas de SDK Node)
 async function sendResendEmail({ to, subject, html, text }: { to: string; subject: string; html: string; text: string }) {
@@ -101,9 +102,9 @@ serve(async (req) => {
       currency = session.currency ?? null;
     }
 
-    // Depuis PI (application_fee_amount, destination)
+    // Depuis PI (application_fee_amount, destination) — en Separate C&T, destination sera souvent null
     if (pi) {
-      // @ts-ignore - champs présents pour destination charges
+      // @ts-ignore
       application_fee_amount = (pi as any).application_fee_amount ?? null;
       // @ts-ignore
       destination_account_id = (pi.transfer_data as any)?.destination ?? null;
@@ -114,7 +115,7 @@ serve(async (req) => {
       charge_id = charge.id ?? null;
       // @ts-ignore
       receipt_url = charge.receipt_url ?? null;
-      // @ts-ignore - sur destination charges, le champ "transfer" est sur la charge
+      // @ts-ignore - sur destination charges, le champ "transfer" est sur la charge (ici souvent null en Separate C&T)
       transfer_id = (charge.transfer as string) ?? null;
 
       const bt = charge.balance_transaction as any;
@@ -144,6 +145,7 @@ serve(async (req) => {
     inscription_id?: string | null;
     inscription_ids?: string[] | string | null;
     user_id?: string | null;
+    course_id?: string | null;                 // 👈 new
     prix_total?: string | number | null;
     payment_intent_id: string;
     fallbackEmail?: string | null;
@@ -211,44 +213,110 @@ serve(async (req) => {
     } catch {}
 
     const details = extractPaymentDetails(session, pi, charge);
+
     // 🔁 Fallback robuste : si fee_total/BT manquent, on recharge la charge avec balance_transaction
-try {
-  let cid = details.charge_id;
+    try {
+      let cid = details.charge_id;
 
-  // Si on n'a pas d'id de charge, on le dérive depuis le PI basique
-  if (!cid) {
-    const piBasic = await stripe.paymentIntents.retrieve(args.payment_intent_id);
-    // @ts-ignore
-    cid = (piBasic.latest_charge as string) || (piBasic.charges?.data?.[0]?.id ?? null);
-  }
-
-  if (cid) {
-    const full = await stripe.charges.retrieve(cid, { expand: ["balance_transaction"] });
-
-    // Complète les champs manquants
-    if (!details.charge_id) details.charge_id = full.id;
-    // @ts-ignore
-    if (!details.receipt_url && full.receipt_url) details.receipt_url = full.receipt_url;
-
-    // @ts-ignore
-    const bt = full.balance_transaction as any;
-    if (bt) {
-      if (details.fee_total == null && typeof bt.fee === "number") details.fee_total = bt.fee; // cents
-      if (!details.balance_transaction_id && bt.id) details.balance_transaction_id = bt.id;
-      // fallback currency
-      // @ts-ignore
-      if (!details.currency && (bt.currency || full.currency)) {
+      // Si on n'a pas d'id de charge, on le dérive depuis le PI basique
+      if (!cid) {
+        const piBasic = await stripe.paymentIntents.retrieve(args.payment_intent_id);
         // @ts-ignore
-        details.currency = bt.currency || full.currency;
+        cid = (piBasic.latest_charge as string) || (piBasic.charges?.data?.[0]?.id ?? null);
+      }
+
+      if (cid) {
+        const full = await stripe.charges.retrieve(cid, { expand: ["balance_transaction"] });
+
+        // Complète les champs manquants
+        if (!details.charge_id) details.charge_id = full.id;
+        // @ts-ignore
+        if (!details.receipt_url && full.receipt_url) details.receipt_url = full.receipt_url;
+
+        // @ts-ignore
+        const bt = full.balance_transaction as any;
+        if (bt) {
+          if (details.fee_total == null && typeof bt.fee === "number") details.fee_total = bt.fee; // cents
+          if (!details.balance_transaction_id && bt.id) details.balance_transaction_id = bt.id;
+          // fallback currency
+          // @ts-ignore
+          if (!details.currency && (bt.currency || full.currency)) {
+            // @ts-ignore
+            details.currency = bt.currency || full.currency;
+          }
+        }
+
+        // récupérer transfer_id si présent sur la charge (destination charges) — souvent null en Separate C&T
+        // @ts-ignore
+        if (!details.transfer_id && full.transfer) details.transfer_id = full.transfer as string;
+      }
+    } catch (e) {
+      console.warn("⚠️ Fallback charge.retrieve pour fee_total a échoué:", e);
+    }
+
+    // ---------------------------
+    // Separate charges & transfers
+    // ---------------------------
+
+    // 1) Calcul des montants (en cents)
+    const gross = details.amount_total ?? 0;            // ex: 10000
+    const stripeFee = details.fee_total ?? 0;           // ex: 350
+    const net = Math.max(0, gross - stripeFee);         // ex: 9650
+    const platformCut = Math.round(net * PLATFORM_CUT_PCT); // ex: 483 (= 5% net)
+    const toOrganizer = Math.max(0, net - platformCut);     // ex: 9167
+
+    // 2) Trouver le compte connecté (en Separate C&T, PI.transfer_data.destination est souvent null)
+    let destinationAccount = details.destination_account_id;
+    if (!destinationAccount) {
+      // a) si on a course_id en metadata/event
+      let courseId = args.course_id ?? null;
+
+      // b) sinon remonter via l'inscription -> course_id
+      if (!courseId && ids.length > 0) {
+        const { data: one } = await supabase
+          .from("inscriptions")
+          .select("course_id")
+          .eq("id", ids[0])
+          .maybeSingle();
+        courseId = one?.course_id ?? null;
+      }
+
+      if (courseId) {
+        const { data: courseRow } = await supabase
+          .from("courses")
+          .select("organisateur_id")
+          .eq("id", courseId)
+          .maybeSingle();
+        if (courseRow?.organisateur_id) {
+          const { data: profil } = await supabase
+            .from("profils_utilisateurs")
+            .select("stripe_account_id")
+            .eq("user_id", courseRow.organisateur_id)
+            .maybeSingle();
+          destinationAccount = profil?.stripe_account_id ?? null;
+        }
       }
     }
-  }
-} catch (e) {
-  console.warn("⚠️ Fallback charge.retrieve pour fee_total a échoué:", e);
-}
 
+    // 3) Créer le transfer vers l'organisateur (lié à la charge)
+    let transferId: string | null = details.transfer_id ?? null;
+    if (!transferId && destinationAccount && details.charge_id && toOrganizer > 0) {
+      try {
+        const tr = await stripe.transfers.create({
+          amount: toOrganizer,
+          currency: details.currency || "eur",
+          destination: destinationAccount,
+          source_transaction: details.charge_id, // très important pour reverse auto lors d’un refund
+          transfer_group: `grp_${args.trace_id || details.charge_id}`,
+        });
+        transferId = tr.id;
+        console.log("🔁 Transfer créé:", { transferId, toOrganizer, destinationAccount });
+      } catch (e) {
+        console.warn("⚠️ Échec création transfer:", e);
+      }
+    }
 
-    // 1) Valider inscriptions
+    // 4) Valider inscriptions
     const { error: updErr } = await supabase
       .from("inscriptions")
       .update({
@@ -263,7 +331,7 @@ try {
     }
     console.log("✅ Inscriptions validées :", ids);
 
-    // 2) Insérer paiement enrichi (destination charges)
+    // 5) Insérer paiement enrichi (Separate C&T)
     const paiementRow: any = {
       user_id: args.user_id ?? null,
       inscription_id: ids.length === 1 ? ids[0] : null,
@@ -276,14 +344,15 @@ try {
       type: ids.length > 1 ? "groupé" : "individuel",
       trace_id: args.trace_id ?? null,
 
-      // Ajouts Connect
+      // Traçabilité Stripe
       charge_id: details.charge_id,
-      application_fee_amount: details.application_fee_amount ?? null, // cents
-      destination_account_id: details.destination_account_id,
-      transfer_id: details.transfer_id,
-      amount_subtotal: details.amount_subtotal ?? null,               // cents
-      amount_total: details.amount_total ?? null,                     // cents
-      fee_total: details.fee_total ?? null,                           // cents
+      // ⚠️ on réutilise application_fee_amount pour stocker la commission nette Tickrace (en cents)
+      application_fee_amount: platformCut,
+      destination_account_id: destinationAccount,
+      transfer_id: transferId,
+      amount_subtotal: details.amount_subtotal ?? null, // cents
+      amount_total: details.amount_total ?? null,       // cents (gross)
+      fee_total: details.fee_total ?? null,             // cents (frais Stripe)
       balance_transaction_id: details.balance_transaction_id,
       receipt_url: details.receipt_url ?? null,
     };
@@ -295,14 +364,13 @@ try {
     }
     console.log("✅ Paiement enregistré :", { ...paiementRow, inscription_ids: ids });
 
-    // 3) Email(s)
+    // 6) Email(s)
     const { data: inscriptions, error: inscErr } = await supabase
       .from("inscriptions")
       .select("id, nom, prenom, email, course_id, format_id")
       .in("id", ids);
     if (inscErr) console.warn("⚠️ Lecture inscriptions email :", inscErr.message);
 
-    // caches
     const courseCache = new Map<string, { nom: string | null }>();
     const formatCache = new Map<string, { nom: string | null }>();
     async function getCourseName(id: string | null) {
@@ -369,6 +437,7 @@ L'équipe Tickrace`;
       inscription_id: md.inscription_id,
       inscription_ids: md.inscription_ids as any,
       user_id: md.user_id,
+      course_id: md.course_id, // 👈 new
       prix_total: md.prix_total ?? (s.amount_total ?? 0) / 100,
       payment_intent_id: String(s.payment_intent || ""),
       fallbackEmail: (s.customer_details?.email || s.customer_email || "") as string,
@@ -392,6 +461,7 @@ L'équipe Tickrace`;
           inscription_id: md.inscription_id,
           inscription_ids: md.inscription_ids as any,
           user_id: md.user_id,
+          course_id: md.course_id, // 👈 new
           prix_total: md.prix_total ?? (pi.amount ?? 0) / 100,
           payment_intent_id: piId,
           fallbackEmail: c.receipt_email || c.billing_details?.email || null,
