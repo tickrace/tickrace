@@ -24,6 +24,7 @@ import ForgotPassword from "./pages/ForgotPassword";
 import MonInscription from "./pages/MonInscription";
 import MesInscriptions from "./pages/MesInscriptions";
 import Merci from "./pages/Merci";
+import PaiementAnnule from "./pages/PaiementAnnule";
 
 function AppContent() {
   const { currentRole } = useUser(); // 👈 récupération du rôle
@@ -53,6 +54,8 @@ function AppContent() {
 
 <Route path="/mesinscriptions" element={<MesInscriptions />} />
 <Route path="/merci" element={<Merci />} />
+<Route path="/paiement-annule" element={<PaiementAnnule />} />
+
 
 
 </Routes>

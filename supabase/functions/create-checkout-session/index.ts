@@ -14,6 +14,8 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 
+const DEBUG = (Deno.env.get("DEBUG") ?? "false") === "true";
+
 const ALLOWLIST = [
   "https://www.tickrace.com",
   "http://localhost:5173",
@@ -75,26 +77,40 @@ serve(async (req) => {
     const unitAmount = Number.isFinite(prixNumber) ? Math.round(prixNumber * 100) : NaN;
 
     // 🔐 Validation
-    if (
-      !isUUID(user_id) ||
-      !isUUID(course_id) ||
-      !isUUID(inscription_id) ||
-      !email ||
-      !Number.isFinite(prixNumber) ||
-      unitAmount <= 0
-    ) {
-      console.error("❌ Paramètre manquant/invalid", {
-        has_user_id: isUUID(user_id),
-        has_course_id: isUUID(course_id),
-        has_inscription_id: isUUID(inscription_id),
-        has_email: !!email,
-        prix_total,
-        unitAmount,
-      });
-      return new Response(JSON.stringify({ error: "Paramètre manquant ou invalide" }), {
-        status: 400,
-        headers,
-      });
+    if (!isUUID(user_id)) {
+      return new Response(JSON.stringify({
+        error: "Paramètre manquant ou invalide",
+        code: "BAD_USER_ID",
+        detail: "user_id invalide (UUID requis)"
+      }), { status: 400, headers });
+    }
+    if (!isUUID(course_id)) {
+      return new Response(JSON.stringify({
+        error: "Paramètre manquant ou invalide",
+        code: "BAD_COURSE_ID",
+        detail: "course_id invalide (UUID requis)"
+      }), { status: 400, headers });
+    }
+    if (!isUUID(inscription_id)) {
+      return new Response(JSON.stringify({
+        error: "Paramètre manquant ou invalide",
+        code: "BAD_INSCRIPTION_ID",
+        detail: "inscription_id invalide (UUID requis)"
+      }), { status: 400, headers });
+    }
+    if (!email) {
+      return new Response(JSON.stringify({
+        error: "Paramètre manquant ou invalide",
+        code: "BAD_EMAIL",
+        detail: "email requis"
+      }), { status: 400, headers });
+    }
+    if (!Number.isFinite(prixNumber) || unitAmount <= 0) {
+      return new Response(JSON.stringify({
+        error: "Paramètre manquant ou invalide",
+        code: "BAD_PRICE",
+        detail: "prix_total doit être un nombre > 0 (en euros)"
+      }), { status: 400, headers });
     }
 
     // 🧭 trace_id
@@ -126,11 +142,11 @@ serve(async (req) => {
       .eq("id", course_id)
       .single();
     if (cErr || !course) {
-      console.error("❌ Course non trouvée", cErr);
-      return new Response(JSON.stringify({ error: "Course introuvable" }), {
-        status: 404,
-        headers,
-      });
+      return new Response(JSON.stringify({
+        error: "Course introuvable",
+        code: "COURSE_NOT_FOUND",
+        detail: cErr?.message ?? null
+      }), { status: 404, headers });
     }
 
     const { data: profil, error: pErr } = await supabase
@@ -139,25 +155,22 @@ serve(async (req) => {
       .eq("user_id", course.organisateur_id)
       .maybeSingle();
     if (pErr) {
-      console.error("❌ Erreur lecture profil organisateur", pErr);
-      return new Response(JSON.stringify({ error: "Profil organisateur introuvable" }), {
-        status: 500,
-        headers,
-      });
+      return new Response(JSON.stringify({
+        error: "Profil organisateur introuvable",
+        code: "ORGANISER_PROFILE_ERROR",
+        detail: pErr?.message ?? null
+      }), { status: 500, headers });
     }
 
     const destinationAccount = profil?.stripe_account_id ?? null;
 
     // 🧯 Sécurité : si l'organisateur n'a pas configuré Stripe, on bloque
     if (!destinationAccount) {
-      console.warn("⚠️ Organisateur sans stripe_account_id → paiement indisponible");
-      return new Response(
-        JSON.stringify({
-          error: "L'organisateur n'a pas encore configuré Stripe.",
-          code: "ORGANISER_STRIPE_NOT_CONFIGURED",
-        }),
-        { status: 409, headers }
-      );
+      return new Response(JSON.stringify({
+        error: "L'organisateur n'a pas encore configuré Stripe.",
+        code: "ORGANISER_STRIPE_NOT_CONFIGURED",
+        detail: "stripe_account_id manquant pour l'organisateur"
+      }), { status: 409, headers });
     }
 
     // URLs de redirection
@@ -198,8 +211,6 @@ serve(async (req) => {
     const applicationFeeCents = Math.round(unitAmount * 0.05);
 
     // 🧾 Création de la Session Checkout (DESTINATION CHARGES)
-    // -> charge créée sur le COMPTE CONNECTÉ
-    // -> application_fee_amount pour la plateforme (Tickrace)
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
@@ -218,17 +229,17 @@ serve(async (req) => {
         receipt_email: String(email),
         transfer_data: { destination: destinationAccount },
         application_fee_amount: applicationFeeCents,
-        metadata: commonMetadata, // PI.metadata (sur la plateforme)
+        metadata: commonMetadata,
       },
       success_url: SU_URL,
       cancel_url: CA_URL,
-      metadata: commonMetadata,   // Session.metadata
+      metadata: commonMetadata,
     });
 
     console.log("✅ Session Stripe créée (Destination charges) :", {
       session_id: session.id,
       url: session.url,
-      unit_amount,
+      unit_amount: unitAmount,
       application_fee_cents: applicationFeeCents,
       destination: destinationAccount,
       trace_id,
@@ -240,9 +251,9 @@ serve(async (req) => {
     });
   } catch (e: any) {
     console.error("💥 Erreur create-checkout-session (Destination charges):", e?.message ?? e, e?.stack);
-    return new Response(JSON.stringify({ error: "Erreur serveur" }), {
-      status: 500,
-      headers,
-    });
+    const payload = DEBUG
+      ? { error: "Erreur serveur", detail: e?.message ?? String(e) }
+      : { error: "Erreur serveur" };
+    return new Response(JSON.stringify(payload), { status: 500, headers });
   }
 });
