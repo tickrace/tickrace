@@ -56,7 +56,7 @@ serve(async (req) => {
   try {
     const body = await req.json();
     const origin = req.headers.get("origin");
-    console.log("📥 create-checkout-session (Separate C&T) :: origin =", origin);
+    console.log("📥 create-checkout-session (Destination charges) :: origin =", origin);
     console.log("📥 Données reçues:", body);
 
     const {
@@ -119,7 +119,7 @@ serve(async (req) => {
       console.error("❌ Erreur maj paiement_trace_id:", updateErr.message);
     }
 
-    // 🔎 Récup organiser -> compte Stripe (courses.organisateur_id -> profils_utilisateurs.stripe_account_id)
+    // 🔎 Organisateur -> compte Stripe (DESTINATION)
     const { data: course, error: cErr } = await supabase
       .from("courses")
       .select("organisateur_id, nom")
@@ -148,7 +148,7 @@ serve(async (req) => {
 
     const destinationAccount = profil?.stripe_account_id ?? null;
 
-    // 🧯 Sécurité : si l'organisateur n'a pas encore configuré Stripe, on bloque
+    // 🧯 Sécurité : si l'organisateur n'a pas configuré Stripe, on bloque
     if (!destinationAccount) {
       console.warn("⚠️ Organisateur sans stripe_account_id → paiement indisponible");
       return new Response(
@@ -177,28 +177,29 @@ serve(async (req) => {
       trace_id, // 👈 toujours présent
     };
 
-    // 🗃️ Pré-enregistrer un paiement (statut "created") pour tracer dès maintenant
-    // Postgres UNIQUE sur stripe_payment_intent_id n'empêche pas les NULL
+    // 🗃️ Pré-enregistrer le paiement (statut "created")
     const { error: preErr } = await supabase.from("paiements").insert({
       inscription_id,
       user_id,
-      montant_total: prixNumber,          // euros (numeric)
+      montant_total: prixNumber,     // euros (numeric)
       devise: "eur",
       status: "created",
       type: "individuel",
       inscription_ids: [inscription_id],
-      trace_id,                           // uuid
-      amount_subtotal: unitAmount,        // cents
-      amount_total: unitAmount,           // cents
-      // fee_total / application_fee_amount / charge_id / transfer_id complétés au webhook
+      trace_id,
+      amount_subtotal: unitAmount,   // cents
+      amount_total: unitAmount,      // cents
     });
     if (preErr) {
       console.error("⚠️ Pré-enregistrement paiements échoué (non bloquant):", preErr.message);
     }
 
-    // 🧾 Création de la Session Checkout (Separate charges & transfers)
-    // -> charge sur la PLATEFORME (pas de transfer_data, pas d'application_fee_amount)
-    // -> on_behalf_of + transfer_group pour relier le futur transfer
+    // 💸 Commission plateforme 5%
+    const applicationFeeCents = Math.round(unitAmount * 0.05);
+
+    // 🧾 Création de la Session Checkout (DESTINATION CHARGES)
+    // -> charge créée sur le COMPTE CONNECTÉ
+    // -> application_fee_amount pour la plateforme (Tickrace)
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
@@ -207,7 +208,7 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             product_data: { name: "Inscription à la course" },
-            unit_amount: unitAmount, // en cents
+            unit_amount: unitAmount,
           },
           quantity: 1,
         },
@@ -215,20 +216,21 @@ serve(async (req) => {
       customer_email: String(email),
       payment_intent_data: {
         receipt_email: String(email),
-        on_behalf_of: destinationAccount,     // optionnel: descriptor "au nom de"
-        transfer_group: `grp_${trace_id}`,    // pour lier ensuite le transfer à la charge
-        metadata: commonMetadata,             // PI.metadata
+        transfer_data: { destination: destinationAccount },
+        application_fee_amount: applicationFeeCents,
+        metadata: commonMetadata, // PI.metadata (sur la plateforme)
       },
       success_url: SU_URL,
       cancel_url: CA_URL,
-      metadata: commonMetadata,               // Session.metadata
+      metadata: commonMetadata,   // Session.metadata
     });
 
-    console.log("✅ Session Stripe créée (Separate C&T) :", {
+    console.log("✅ Session Stripe créée (Destination charges) :", {
       session_id: session.id,
       url: session.url,
-      amount_total_preview: unitAmount,
-      destination_for_behalf_of: destinationAccount,
+      unit_amount,
+      application_fee_cents: applicationFeeCents,
+      destination: destinationAccount,
       trace_id,
     });
 
@@ -237,11 +239,7 @@ serve(async (req) => {
       status: 200,
     });
   } catch (e: any) {
-    console.error(
-      "💥 Erreur create-checkout-session (Separate C&T):",
-      e?.message ?? e,
-      e?.stack
-    );
+    console.error("💥 Erreur create-checkout-session (Destination charges):", e?.message ?? e, e?.stack);
     return new Response(JSON.stringify({ error: "Erreur serveur" }), {
       status: 500,
       headers,

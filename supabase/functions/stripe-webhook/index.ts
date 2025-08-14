@@ -8,15 +8,17 @@ import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
   apiVersion: "2024-04-10",
 });
+
+const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
+const TICKRACE_BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
+
 const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
+
 const resendApiKey = Deno.env.get("RESEND_API_KEY") || null;
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
-
-const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
-const TICKRACE_BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
 
 const ALLOWLIST = [
   "https://www.tickrace.com",
@@ -47,9 +49,7 @@ function isUUID(v: unknown) {
 serve(async (req) => {
   const headers = cors(req.headers.get("origin"));
 
-  // Préflight CORS
   if (req.method === "OPTIONS") return new Response("ok", { headers });
-
   if (req.method !== "POST") {
     return new Response(JSON.stringify({ error: "Méthode non autorisée" }), {
       status: 405,
@@ -57,6 +57,7 @@ serve(async (req) => {
     });
   }
 
+  // 🔐 Vérif signature
   let event: Stripe.Event;
   try {
     const sig = req.headers.get("stripe-signature")!;
@@ -71,27 +72,30 @@ serve(async (req) => {
   }
 
   try {
-    if (
-      event.type === "checkout.session.completed" ||
-      event.type === "payment_intent.succeeded"
-    ) {
+    if (event.type === "checkout.session.completed" || event.type === "payment_intent.succeeded") {
       let pi: Stripe.PaymentIntent;
       let session: Stripe.Checkout.Session | null = null;
 
       if (event.type === "checkout.session.completed") {
         session = event.data.object as Stripe.Checkout.Session;
         pi = await stripe.paymentIntents.retrieve(
-          session.payment_intent as string,
-          { expand: ["latest_charge.balance_transaction"] },
+          session.payment_intent as string
         );
       } else {
         pi = event.data.object as Stripe.PaymentIntent;
-        // (optionnel) récupérer la session si nécessaire
       }
 
+      // Sur destination charges :
+      // - la charge est sur le compte connecté (destination)
+      // - application_fee_amount est sur le PI (plateforme)
       const amountTotalCents = (session?.amount_total ?? pi.amount) ?? 0;
       const currency = (pi.currency ?? "eur");
+      const applicationFeeCents = (pi.application_fee_amount ?? 0);
 
+      // Destination account depuis PI.transfer_data
+      const destinationAccount = (pi.transfer_data as any)?.destination ?? null;
+
+      // Metadata
       const md = {
         ...(session?.metadata || {}),
         ...(pi.metadata || {}),
@@ -110,9 +114,11 @@ serve(async (req) => {
         });
       }
 
-      console.log("🧭 TRACE stripe-webhook", { trace_id, inscription_id, course_id, user_id, amountTotalCents, currency });
+      console.log("🧭 TRACE stripe-webhook (Destination charges)", {
+        trace_id, inscription_id, course_id, user_id, amountTotalCents, currency, destinationAccount, applicationFeeCents
+      });
 
-      // Idempotence: si le PI est déjà enregistré, on valide l'inscription et on sort
+      // Idempotence via PI
       const { data: exists } = await supabase
         .from("paiements")
         .select("id")
@@ -124,80 +130,34 @@ serve(async (req) => {
         return new Response(JSON.stringify({ ok: true, duplicated: true }), { status: 200, headers });
       }
 
-      // Infos charge + frais stripe + receipt url
+      // Récup charge (sur le compte connecté) pour :
+      // - frais Stripe réels du compte connecté (fee_total),
+      // - receipt_url,
+      // - balance_transaction_id
       let stripeFeeCents: number | null = null;
       let balanceTxId: string | null = null;
       let chargeId: string | null = null;
       let receiptUrl: string | null = null;
 
-      if (pi.latest_charge) {
+      if (pi.latest_charge && destinationAccount) {
         const ch = await stripe.charges.retrieve(
           pi.latest_charge as string,
-          { expand: ["balance_transaction"] },
+          { stripeAccount: destinationAccount, expand: ["balance_transaction"] },
         );
         chargeId = ch.id;
-        receiptUrl = (ch as any).receipt_url ?? null; // dispo sur charge
+        receiptUrl = (ch as any).receipt_url ?? null;
         const bt = ch.balance_transaction as unknown as Stripe.BalanceTransaction;
         stripeFeeCents = bt?.fee ?? null;
         balanceTxId = bt?.id ?? null;
       }
 
-      // Récup compte destination (organisateur)
-      const { data: course, error: cErr } = await supabase
-        .from("courses")
-        .select("organisateur_id, nom")
-        .eq("id", course_id)
-        .single();
-      if (cErr || !course) {
-        console.error("❌ Course introuvable", cErr);
-        return new Response(JSON.stringify({ error: "Course introuvable" }), {
-          status: 404,
-          headers,
-        });
-      }
-
-      const { data: profil, error: pErr } = await supabase
-        .from("profils_utilisateurs")
-        .select("stripe_account_id")
-        .eq("user_id", course.organisateur_id)
-        .maybeSingle();
-      if (pErr) {
-        console.error("❌ Erreur lecture profil organisateur", pErr);
-        return new Response(JSON.stringify({ error: "Profil organisateur introuvable" }), {
-          status: 500,
-          headers,
-        });
-      }
-      const destinationAccount = profil?.stripe_account_id ?? null;
-
-      // Commission 5% (reporting) + transfert 95% si destination disponible
-      const applicationFeeCents = Math.round(amountTotalCents * 0.05);
-      let transferId: string | null = null;
-
-      if (destinationAccount) {
-        const transfer = await stripe.transfers.create(
-          {
-            amount: Math.round(amountTotalCents * 0.95),
-            currency,
-            destination: destinationAccount,
-            transfer_group: `grp_${trace_id}`,
-          },
-          { idempotencyKey: `transfer_${trace_id}` },
-        );
-        transferId = transfer.id;
-      } else {
-        console.warn("⚠️ Pas de stripe_account_id (organisateur). Pas de transfer créé.");
-      }
-
       // MAJ inscription -> validé
       await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", inscription_id);
 
-      // Upsert dans paiements :
-      // - si le pré-enregistrement existe (trace_id), on complète
-      // - sinon on insère une nouvelle ligne
-      const paiementRow = {
+      // Upsert paiements (compléter le pré-insert par trace_id si existant)
+      const row = {
         inscription_id,
-        montant_total: amountTotalCents / 100,   // euros (numeric)
+        montant_total: amountTotalCents / 100,  // euros
         devise: currency,
         stripe_payment_intent_id: String(pi.id),
         status: pi.status ?? "succeeded",
@@ -210,14 +170,14 @@ serve(async (req) => {
         charge_id: chargeId,
         application_fee_amount: applicationFeeCents,
         destination_account_id: destinationAccount,
-        transfer_id: transferId,
-        amount_subtotal: amountTotalCents,       // cents
-        amount_total: amountTotalCents,          // cents
-        fee_total: stripeFeeCents,               // frais Stripe sur la charge plateforme
+        transfer_id: null,                      // pas de transfer manuel en destination charges
+        amount_subtotal: amountTotalCents,      // cents
+        amount_total: amountTotalCents,         // cents
+        fee_total: stripeFeeCents,              // frais Stripe (compte connecté)
         balance_transaction_id: balanceTxId,
       };
 
-      // On tente un update sur trace_id d'abord (si le pre-insert existe)
+      // Compléter la ligne pré-enregistrée si elle existe
       const { data: pre } = await supabase
         .from("paiements")
         .select("id")
@@ -225,23 +185,14 @@ serve(async (req) => {
         .maybeSingle();
 
       if (pre?.id) {
-        const { error: upErr } = await supabase
-          .from("paiements")
-          .update(paiementRow)
-          .eq("id", pre.id);
-        if (upErr) {
-          console.error("❌ Erreur update paiements:", upErr);
-        }
+        const { error: upErr } = await supabase.from("paiements").update(row).eq("id", pre.id);
+        if (upErr) console.error("❌ Erreur update paiements:", upErr);
       } else {
-        const { error: insErr } = await supabase
-          .from("paiements")
-          .insert(paiementRow);
-        if (insErr) {
-          console.error("❌ Erreur insert paiements:", insErr);
-        }
+        const { error: insErr } = await supabase.from("paiements").insert(row);
+        if (insErr) console.error("❌ Erreur insert paiements:", insErr);
       }
 
-      // Email de confirmation (si Resend configuré)
+      // Email (optionnel)
       try {
         if (resend) {
           const { data: insc } = await supabase
