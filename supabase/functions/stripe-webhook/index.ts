@@ -120,31 +120,50 @@ serve(async (req) => {
 
     const amountTotalCents = (session?.amount_total ?? pi.amount) ?? 0;
     const currency = (pi.currency ?? "eur");
-    // App fee (5%) : en direct charges, PI.application_fee_amount est renseigné ; on garde un fallback
+    // App fee (5 %) : en direct charges, PI.application_fee_amount est renseigné ; on garde un fallback
     const applicationFeeCents =
       typeof pi.application_fee_amount === "number" ? pi.application_fee_amount : Math.round(amountTotalCents * 0.05);
 
-    // Frais Stripe (sur le compte connecté) + charge/receipt
+    // 🔧 Frais Stripe (sur le compte connecté) + charge/receipt
     let stripeFeeCents = 0;
     let balanceTxId: string | null = null;
     let chargeId: string | null = null;
     let receiptUrl: string | null = null;
 
     if (pi.latest_charge) {
-      // latest_charge peut déjà contenir balance_transaction si expand ok
-      const ch: any =
-        typeof (pi.latest_charge as any).balance_transaction !== "undefined"
-          ? (pi.latest_charge as any)
-          : await stripe.charges.retrieve(pi.latest_charge as string, {
-              stripeAccount: connectedAccount,
-              expand: ["balance_transaction"],
-            });
+      // 4.1 Lire la CHARGE sur le compte connecté avec expand
+      const charge = await stripe.charges.retrieve(pi.latest_charge as string, {
+        stripeAccount: connectedAccount,
+        expand: ["balance_transaction"],
+      });
 
-      chargeId = ch.id ?? null;
-      receiptUrl = ch.receipt_url ?? null;
-      const bt = ch.balance_transaction as Stripe.BalanceTransaction | undefined;
-      stripeFeeCents = bt?.fee ?? 0;
-      balanceTxId = bt?.id ?? null;
+      chargeId = charge.id ?? null;
+      receiptUrl = (charge as any).receipt_url ?? null;
+
+      // 4.2 Récupérer la balance transaction (deux cas : objet ou ID)
+      const btMaybe = (charge as any).balance_transaction;
+
+      if (btMaybe && typeof btMaybe === "object" && "fee" in btMaybe) {
+        // ✅ déjà étendu
+        const bt = btMaybe as Stripe.BalanceTransaction;
+        stripeFeeCents = bt.fee ?? 0;
+        balanceTxId = bt.id ?? null;
+      } else if (typeof btMaybe === "string") {
+        // ✅ fallback : on va chercher la BT par son ID
+        try {
+          const bt = await stripe.balanceTransactions.retrieve(btMaybe, {
+            stripeAccount: connectedAccount,
+          });
+          stripeFeeCents = bt.fee ?? 0;
+          balanceTxId = bt.id ?? null;
+        } catch (err: any) {
+          console.warn("⚠️ Impossible de récupérer balance_transaction sur compte connecté:", err?.message ?? err);
+        }
+      } else {
+        console.warn("⚠️ balance_transaction absent sur la charge (connected account).");
+      }
+    } else {
+      console.warn("⚠️ PaymentIntent sans latest_charge.");
     }
 
     // 5) Idempotence (si déjà en base, on valide l’inscription et on sort)
@@ -175,8 +194,8 @@ serve(async (req) => {
       transfer_id: null, // Direct charges: pas de transfer
       amount_subtotal: amountTotalCents,
       amount_total: amountTotalCents,
-      fee_total: stripeFeeCents, // frais Stripe du compte connecté
-      balance_transaction_id: balanceTxId,
+      fee_total: stripeFeeCents,            // ✅ frais Stripe du compte connecté
+      balance_transaction_id: balanceTxId,  // ✅ id de la BT (si accessible)
     };
 
     if (exists?.id) {
