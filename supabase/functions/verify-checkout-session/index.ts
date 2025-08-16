@@ -69,4 +69,84 @@ serve(async (req) => {
       }
     }
 
-    // M
+    // Métadonnées utiles (trace, course, user)
+    const md = { ...(session.metadata || {}), ...(pi.metadata || {}) } as Record<string,string>;
+    const trace_id = isUUID(md["trace_id"]) ? md["trace_id"] : null;
+    const course_id = isUUID(md["course_id"]) ? md["course_id"] : null;
+    const user_id = isUUID(md["user_id"]) ? md["user_id"] : null;
+
+    // Récup organiser -> compte connecté (destination des transfers J+1)
+    let destinationAccount: string | null = null;
+    if (course_id) {
+      const { data: course } = await supabase.from("courses").select("organisateur_id").eq("id", course_id).single();
+      if (course?.organisateur_id) {
+        const { data: profil } = await supabase.from("profils_utilisateurs").select("stripe_account_id").eq("user_id", course.organisateur_id).maybeSingle();
+        destinationAccount = profil?.stripe_account_id ?? null;
+      }
+    }
+
+    // Commission Tickrace (5%) en cents (en SCT on la retient au moment du transfer)
+    const platformFeeCents = Math.round(amountTotalCents * 0.05);
+
+    // ✅ Valider l’inscription (idempotent)
+    await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", inscription_id);
+
+    // ✅ Upsert paiement (complète le pré-insert)
+    const row = {
+      inscription_id,
+      montant_total: amountTotalCents / 100,
+      devise: currency,
+      stripe_payment_intent_id: String(pi.id),
+      status: pi.status ?? "succeeded",
+      reversement_effectue: false,
+      user_id,
+      type: "individuel",
+      inscription_ids: [inscription_id],
+      trace_id,
+      receipt_url: receiptUrl,
+      charge_id: chargeId,
+      destination_account_id: destinationAccount,
+      amount_subtotal: amountTotalCents,
+      amount_total: amountTotalCents,
+      fee_total: stripeFeeCents,             // frais Stripe (plateforme, SCT)
+      platform_fee_amount: platformFeeCents, // 5% Tickrace
+      balance_transaction_id: balanceTxId,
+    };
+
+    let upsertDone = false;
+    if (trace_id) {
+      const { data: pre } = await supabase.from("paiements").select("id").eq("trace_id", trace_id).maybeSingle();
+      if (pre?.id) { await supabase.from("paiements").update(row).eq("id", pre.id); upsertDone = true; }
+    }
+    if (!upsertDone) {
+      const { data: byPI } = await supabase.from("paiements").select("id").eq("stripe_payment_intent_id", row.stripe_payment_intent_id).maybeSingle();
+      if (byPI?.id) await supabase.from("paiements").update(row).eq("id", byPI.id);
+      else          await supabase.from("paiements").insert(row);
+    }
+
+    // ✅ Enfile le virement J+1 si pas déjà en file
+    if (destinationAccount) {
+      const { data: payRow } = await supabase.from("paiements")
+        .select("id").eq("stripe_payment_intent_id", String(pi.id)).maybeSingle();
+
+      const netToTransfer = Math.max(0, amountTotalCents - platformFeeCents - stripeFeeCents);
+      if (payRow?.id && netToTransfer > 0) {
+        const { data: existsQ } = await supabase.from("payout_queue")
+          .select("id").eq("paiement_id", payRow.id).eq("status","pending").maybeSingle();
+        if (!existsQ) {
+          await supabase.from("payout_queue").insert({
+            paiement_id: payRow.id,
+            due_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(), // J+1
+            amount_cents: netToTransfer,
+            status: "pending",
+          });
+        }
+      }
+    }
+
+    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
+  } catch (e: any) {
+    console.error("verify-checkout-session (SCT) error:", e?.message ?? e, e?.stack);
+    return new Response(JSON.stringify({ error: "Erreur serveur" }), { status: 500, headers });
+  }
+});
