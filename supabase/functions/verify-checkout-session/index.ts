@@ -30,115 +30,43 @@ serve(async (req) => {
     if (!session_id) return new Response(JSON.stringify({ error: "session_id requis" }), { status: 400, headers });
     if (!isUUID(inscription_id)) return new Response(JSON.stringify({ error: "inscription_id invalide" }), { status: 400, headers });
 
-    // 1) Retrouver le compte connecté (via l’inscription -> course -> organisateur)
-    const { data: insc, error: eInsc } = await supabase
-      .from("inscriptions")
-      .select("id, course_id")
-      .eq("id", inscription_id)
-      .single();
-    if (eInsc || !insc) return new Response(JSON.stringify({ error: "Inscription introuvable" }), { status: 404, headers });
-
-    const { data: course, error: eCourse } = await supabase
-      .from("courses")
-      .select("organisateur_id")
-      .eq("id", insc.course_id)
-      .single();
-    if (eCourse || !course) return new Response(JSON.stringify({ error: "Course introuvable" }), { status: 404, headers });
-
-    const { data: profil, error: eProfil } = await supabase
-      .from("profils_utilisateurs")
-      .select("stripe_account_id")
-      .eq("user_id", course.organisateur_id)
-      .maybeSingle();
-    if (eProfil) return new Response(JSON.stringify({ error: "Profil organisateur introuvable" }), { status: 500, headers });
-
-    const connectedAcct = profil?.stripe_account_id ?? null;
-    if (!connectedAcct) {
-      return new Response(JSON.stringify({ error: "Organisateur non configuré Stripe", code: "ORGANISER_STRIPE_NOT_CONFIGURED" }), { status: 409, headers });
-    }
-
-    // 2) Récupérer la session + PI sur le compte connecté
-    const session = await stripe.checkout.sessions.retrieve(session_id, { stripeAccount: connectedAcct });
+    // 📌 SCT: tout se lit côté PLATEFORME (pas de stripeAccount)
+    const session = await stripe.checkout.sessions.retrieve(session_id);
     if (!session) return new Response(JSON.stringify({ error: "Session introuvable" }), { status: 404, headers });
 
-    // Statut payé ?
     const paid = session.payment_status === "paid" || session.status === "complete";
     if (!paid) {
       return new Response(JSON.stringify({ ok: false, status: session.payment_status ?? session.status }), { status: 200, headers });
     }
 
+    // PI + charge + balance transaction
     const pi = await stripe.paymentIntents.retrieve(session.payment_intent as string, {
-      stripeAccount: connectedAcct,
       expand: ["latest_charge.balance_transaction"],
     });
 
-    // 3) Données financières
     const amountTotalCents = (session.amount_total ?? pi.amount) ?? 0;
     const currency = (pi.currency ?? "eur");
-    const appFeeCents = typeof pi.application_fee_amount === "number"
-      ? pi.application_fee_amount
-      : Math.round(amountTotalCents * 0.05); // fallback 5%
 
-    // Frais Stripe (sur le compte connecté)
+    // Frais Stripe (plateforme) via balance transaction
     let stripeFeeCents = 0, balanceTxId: string | null = null, chargeId: string | null = null, receiptUrl: string | null = null;
     if (pi.latest_charge) {
-      const ch = typeof (pi.latest_charge as any).balance_transaction !== "undefined"
-        ? (pi.latest_charge as any)
-        : await stripe.charges.retrieve(pi.latest_charge as string, { stripeAccount: connectedAcct, expand: ["balance_transaction"] });
-      chargeId = ch.id;
+      const ch: any =
+        typeof (pi.latest_charge as any).balance_transaction !== "undefined"
+          ? (pi.latest_charge as any)
+          : await stripe.charges.retrieve(pi.latest_charge as string, { expand: ["balance_transaction"] });
+
+      chargeId = ch.id ?? null;
       receiptUrl = ch.receipt_url ?? null;
-      const bt = ch.balance_transaction as Stripe.BalanceTransaction | undefined;
-      stripeFeeCents = bt?.fee ?? 0;
-      balanceTxId = bt?.id ?? null;
-    }
 
-    // 4) Métadonnées pour upsert
-    const md = { ...(session.metadata || {}), ...(pi.metadata || {}) } as Record<string, string>;
-    const user_id = isUUID(md["user_id"]) ? md["user_id"] : null;
-    const trace_id = isUUID(md["trace_id"]) ? md["trace_id"] : null;
-
-    // 5) MAJ inscription -> validé (idempotent)
-    await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", inscription_id);
-
-    // 6) Upsert paiements (d’abord par trace_id si présent, sinon par PI)
-    const row = {
-      inscription_id,
-      montant_total: amountTotalCents / 100, devise: currency,
-      stripe_payment_intent_id: String(pi.id),
-      status: pi.status ?? "succeeded",
-      reversement_effectue: false,
-      user_id,
-      type: "individuel",
-      inscription_ids: [inscription_id],
-      trace_id,
-      receipt_url: receiptUrl,
-      charge_id: chargeId,
-      application_fee_amount: appFeeCents,
-      destination_account_id: connectedAcct,
-      transfer_id: null, // direct charges: pas de transfer
-      amount_subtotal: amountTotalCents,
-      amount_total: amountTotalCents,
-      fee_total: stripeFeeCents,
-      balance_transaction_id: balanceTxId,
-    };
-
-    let upsertDone = false;
-    if (trace_id) {
-      const { data: pre } = await supabase.from("paiements").select("id").eq("trace_id", trace_id).maybeSingle();
-      if (pre?.id) {
-        await supabase.from("paiements").update(row).eq("id", pre.id);
-        upsertDone = true;
+      const bt = ch.balance_transaction;
+      if (bt && typeof bt === "object" && "fee" in bt) {
+        stripeFeeCents = bt.fee ?? 0;
+        balanceTxId = bt.id ?? null;
+      } else if (typeof bt === "string") {
+        const bt2 = await stripe.balanceTransactions.retrieve(bt);
+        stripeFeeCents = bt2?.fee ?? 0;
+        balanceTxId = bt2?.id ?? null;
       }
     }
-    if (!upsertDone) {
-      const { data: byPI } = await supabase.from("paiements").select("id").eq("stripe_payment_intent_id", row.stripe_payment_intent_id).maybeSingle();
-      if (byPI?.id) await supabase.from("paiements").update(row).eq("id", byPI.id);
-      else          await supabase.from("paiements").insert(row);
-    }
 
-    return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
-  } catch (e: any) {
-    console.error("verify-checkout-session (direct) error:", e?.message ?? e, e?.stack);
-    return new Response(JSON.stringify({ error: "Erreur serveur" }), { status: 500, headers });
-  }
-});
+    // M
