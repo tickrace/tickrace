@@ -1,4 +1,5 @@
-import React from "react";
+﻿import React from "react";
+import Payouts from './pages/admin/Payouts';
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Courses from "./pages/Courses";
@@ -25,14 +26,13 @@ import MonInscription from "./pages/MonInscription";
 import MesInscriptions from "./pages/MesInscriptions";
 import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Payouts from "./pages/admin/Payouts";
 
 function AppContent() {
-  const { currentRole } = useUser(); // 👈 récupération du rôle
+  const { currentRole } = useUser(); // ðŸ‘ˆ rÃ©cupÃ©ration du rÃ´le
   return (
     <>
-      <Navbar key={currentRole} /> {/* 👈 force le re-render */}
+      <Navbar key={currentRole} /> {/* ðŸ‘ˆ force le re-render */}
       <Routes>
         <Route path="/" element={<Courses />} />
         <Route path="/courses" element={<Courses />} />
