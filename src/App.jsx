@@ -26,7 +26,6 @@ import MonInscription from "./pages/MonInscription";
 import MesInscriptions from "./pages/MesInscriptions";
 import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
-import Payouts from "./pages/admin/Payouts";
 
 function AppContent() {
   const { currentRole } = useUser(); // ðŸ‘ˆ rÃ©cupÃ©ration du rÃ´le
