@@ -25,6 +25,8 @@ import MonInscription from "./pages/MonInscription";
 import MesInscriptions from "./pages/MesInscriptions";
 import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Payouts from "./pages/admin/Payouts";
 
 function AppContent() {
   const { currentRole } = useUser(); // 👈 récupération du rôle
@@ -56,7 +58,7 @@ function AppContent() {
 <Route path="/merci" element={<Merci />} />
 <Route path="/paiement-annule" element={<PaiementAnnule />} />
 
-
+<Route path="/admin/payouts" element={<Payouts />} />
 
 </Routes>
 

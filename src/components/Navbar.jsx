@@ -1,3 +1,4 @@
+//navbar
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -43,6 +44,12 @@ export default function Navbar() {
     <Link to="/mesinscriptions" className="block px-3 py-2 hover:bg-gray-800 rounded">
       Mes Inscriptions
     </Link>
+  </>
+)}
+{session && currentRole === "admin" && (
+  <>
+    <Link to="/admin" className="block px-3 py-2 hover:bg-gray-800 rounded">Admin</Link>
+    <Link to="/admin/payouts" className="block px-3 py-2 hover:bg-gray-800 rounded">Reversements</Link>
   </>
 )}
 
