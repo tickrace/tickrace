@@ -2,26 +2,14 @@
 
 import React, { useEffect, useMemo, useState } from "react";
 import { createClient } from "@supabase/supabase-js";
-import { Loader2, RefreshCw, Send, ShieldCheck, Percent, Wallet } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { useToast } from "@/components/ui/use-toast";
 
-// ✅ Supabase client (navigateur)
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string;
-const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string;
-if (!supabaseUrl || !supabaseAnon) {
-  // Cela s'affiche en dev si les variables sont manquantes
-  // (évite un crash build-time)
-  // eslint-disable-next-line no-console
-  console.warn("[Admin Payouts] NEXT_PUBLIC_SUPABASE_URL / ANON_KEY manquantes");
-}
-const supabase = createClient(supabaseUrl, supabaseAnon);
+/**
+ * ✅ Page minimale, sans dépendances UI externes (pas de shadcn, pas d'icônes)
+ * À placer dans app/admin/payouts/page.tsx
+ * Affiche clairement les erreurs (env manquantes, non authentifié, RLS, etc.).
+ */
 
-// ---- Types
-export type Paiement = {
+type Paiement = {
   id: string;
   created_at: string;
   inscription_id: string | null;
@@ -43,51 +31,76 @@ function eur(c: number) {
   return (c / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
 
-export default function AdminPayoutsPage() {
-  const { toast } = useToast();
-  const [loading, setLoading] = useState(true);
+export default function Page() {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL as string | undefined;
+  const supabaseAnon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY as string | undefined;
+
+  const [envError, setEnvError] = useState<string | null>(null);
+  const [authInfo, setAuthInfo] = useState<string>("(non vérifié)");
   const [rows, setRows] = useState<Paiement[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<Record<string, boolean>>({});
-  const [platformPct, setPlatformPct] = useState<number>(5); // % que garde Tickrace
-  const [depositPct, setDepositPct] = useState<number>(50); // % du net restant à verser maintenant
-  const [updating, setUpdating] = useState(false);
-  const [transferring, setTransferring] = useState(false);
-  const [filter, setFilter] = useState("");
+  const [platformPct, setPlatformPct] = useState<number>(5);
+  const [depositPct, setDepositPct] = useState<number>(50);
+  const [busy, setBusy] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    const { data, error } = await supabase
-      .from("paiements")
-      .select(
-        "id, created_at, inscription_id, destination_account_id, amount_total, fee_total, platform_fee_amount, transferred_total_cents, balance_transaction_id, charge_id, devise, status"
-      )
-      .order("created_at", { ascending: false })
-      .limit(500);
-
-    if (error) {
-      toast({ title: "Erreur lecture", description: error.message, variant: "destructive" });
-    } else {
-      setRows(data || []);
+  // 1) Vérif env
+  useEffect(() => {
+    if (!supabaseUrl || !supabaseAnon) {
+      setEnvError(
+        "Variables d'environnement manquantes : NEXT_PUBLIC_SUPABASE_URL et/ou NEXT_PUBLIC_SUPABASE_ANON_KEY. Configure-les en prod et dans .env.local."
+      );
     }
-    setLoading(false);
+  }, [supabaseUrl, supabaseAnon]);
+
+  // 2) Client Supabase (seulement si env OK)
+  const supabase = useMemo(() => {
+    if (!supabaseUrl || !supabaseAnon) return null;
+    return createClient(supabaseUrl, supabaseAnon);
+  }, [supabaseUrl, supabaseAnon]);
+
+  // 3) Chargement données + statut auth
+  async function load() {
+    if (!supabase) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const { data: auth } = await supabase.auth.getSession();
+      const isLogged = !!auth?.session?.user;
+      setAuthInfo(isLogged ? `connecté: ${auth!.session!.user!.email}` : "non connecté");
+
+      const { data, error } = await supabase
+        .from("paiements")
+        .select(
+          "id, created_at, inscription_id, destination_account_id, amount_total, fee_total, platform_fee_amount, transferred_total_cents, balance_transaction_id, charge_id, devise, status"
+        )
+        .order("created_at", { ascending: false })
+        .limit(200);
+
+      if (error) throw error;
+      setRows(data || []);
+    } catch (e: any) {
+      setError(e?.message ?? String(e));
+    } finally {
+      setLoading(false);
+    }
   }
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [supabase]);
 
-  // Calculs par ligne selon % courants (prévisualisation)
+  // 4) Calculs
   const computed = useMemo(() => {
     return rows.map((p) => {
       const gross = cents(p.amount_total);
       const stripe = cents(p.fee_total);
       const already = cents(p.transferred_total_cents);
-
       const desiredPlatformFee = Math.round((platformPct / 100) * gross);
       const remaining = Math.max(0, gross - stripe - desiredPlatformFee - already);
       const depositNow = Math.max(0, Math.min(remaining, Math.round((depositPct / 100) * remaining)));
-
       return {
         ...p,
         gross,
@@ -101,20 +114,8 @@ export default function AdminPayoutsPage() {
     });
   }, [rows, platformPct, depositPct]);
 
-  const filtered = useMemo(() => {
-    const f = filter.trim().toLowerCase();
-    if (!f) return computed;
-    return computed.filter(
-      (r) =>
-        r.id.toLowerCase().includes(f) ||
-        (r.inscription_id ?? "").toLowerCase().includes(f) ||
-        (r.destination_account_id ?? "").toLowerCase().includes(f) ||
-        (r.charge_id ?? "").toLowerCase().includes(f)
-    );
-  }, [computed, filter]);
-
   const totals = useMemo(() => {
-    const sel = filtered.filter((r) => selected[r.id]);
+    const sel = computed.filter((r) => selected[r.id]);
     const count = sel.length;
     const gross = sel.reduce((a, r) => a + r.gross, 0);
     const stripe = sel.reduce((a, r) => a + r.stripe, 0);
@@ -123,55 +124,51 @@ export default function AdminPayoutsPage() {
     const remaining = sel.reduce((a, r) => a + r.remaining, 0);
     const deposit = sel.reduce((a, r) => a + r.depositNow, 0);
     return { count, gross, stripe, curPlat, newPlat, remaining, deposit };
-  }, [filtered, selected]);
+  }, [computed, selected]);
 
-  function toggleAll(on: boolean) {
-    const obj: Record<string, boolean> = {};
-    filtered.forEach((r) => (obj[r.id] = on));
-    setSelected(obj);
-  }
-
-  async function savePlatformFeesForSelection() {
-    const sel = filtered.filter((r) => selected[r.id]);
+  // 5) Actions
+  async function savePlatformFees() {
+    if (!supabase) return;
+    const sel = computed.filter((r) => selected[r.id]);
     if (sel.length === 0) {
-      toast({ title: "Sélection vide", description: "Choisis au moins un paiement." });
+      alert("Sélection vide");
       return;
     }
-    setUpdating(true);
+    setBusy(true);
     try {
       const updates = sel.map((r) =>
         supabase.from("paiements").update({ platform_fee_amount: r.platformFeeDesired }).eq("id", r.id)
       );
-      const results = await Promise.all(updates);
-      const err = results.find((r: any) => r.error)?.error;
+      const res = await Promise.all(updates);
+      const err = res.find((x: any) => x.error)?.error;
       if (err) throw new Error(err.message);
-      toast({ title: "OK", description: `${sel.length} paiement(s) mis à jour.` });
       await load();
+      alert(`Commission plateforme mise à jour sur ${sel.length} paiement(s).`);
     } catch (e: any) {
-      toast({ title: "Erreur mise à jour", description: e?.message ?? String(e), variant: "destructive" });
+      alert("Erreur: " + (e?.message ?? String(e)));
     } finally {
-      setUpdating(false);
+      setBusy(false);
     }
   }
 
-  async function transferSelection(mode: "deposit" | "full") {
-    const sel = filtered.filter((r) => selected[r.id]);
+  async function transfer(mode: "deposit" | "full") {
+    if (!supabase) return;
+    const sel = computed.filter((r) => selected[r.id]);
     if (sel.length === 0) {
-      toast({ title: "Sélection vide", description: "Choisis au moins un paiement." });
+      alert("Sélection vide");
       return;
     }
 
-    // Auth headers (JWT admin)
     const { data: auth } = await supabase.auth.getSession();
     const headers: Record<string, string> = {
       "Content-Type": "application/json",
-      apikey: supabaseAnon,
+      apikey: supabaseAnon!,
     };
     if (auth?.session?.access_token) headers["Authorization"] = `Bearer ${auth.session.access_token}`;
 
-    setTransferring(true);
-    let ok = 0, ko = 0;
-
+    setBusy(true);
+    let ok = 0,
+      ko = 0;
     for (const r of sel) {
       const amount = mode === "full" ? r.remaining : r.depositNow;
       if (amount <= 0) continue;
@@ -186,179 +183,152 @@ export default function AdminPayoutsPage() {
           throw new Error(j?.error || res.statusText);
         }
         ok++;
-      } catch (e: any) {
+      } catch (e) {
         ko++;
       }
     }
-
-    setTransferring(false);
-    toast({
-      title: "Transferts terminés",
-      description: `${ok} OK, ${ko} échec(s).`,
-      variant: ko ? "destructive" : "default",
-    });
+    setBusy(false);
     await load();
+    alert(`Transferts terminés: ${ok} OK, ${ko} échec(s).`);
   }
 
+  // 6) UI
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-semibold flex items-center gap-2">
-          <Wallet className="h-6 w-6" /> Admin — Reversements
-        </h1>
-        <div className="flex items-center gap-2">
-          <Button onClick={load} variant="secondary">
-            <RefreshCw className="h-4 w-4 mr-2" />
-            Actualiser
-          </Button>
+    <div style={{ padding: 24, fontFamily: "system-ui, -apple-system, Segoe UI, Roboto, sans-serif" }}>
+      <h1 style={{ fontSize: 24, marginBottom: 8 }}>Admin — Reversements (Minimal)</h1>
+      <div style={{ marginBottom: 12, color: "#666" }}>
+        Env: <code>NEXT_PUBLIC_SUPABASE_URL</code> = <b>{supabaseUrl || "(manquante)"}</b>,
+        <span style={{ marginLeft: 8 }}>
+          <code>ANON_KEY</code> = <b>{supabaseAnon ? "OK" : "(manquante)"} </b>
+        </span>
+      </div>
+      <div style={{ marginBottom: 12, color: "#666" }}>Auth: {authInfo}</div>
+
+      {envError && (
+        <div style={{ background: "#ffe8e8", border: "1px solid #ffb3b3", padding: 12, marginBottom: 16 }}>
+          <b>Erreur d'environnement :</b> {envError}
         </div>
+      )}
+
+      {error && (
+        <div style={{ background: "#fff7cc", border: "1px solid #ffeb99", padding: 12, marginBottom: 16 }}>
+          <b>Erreur :</b> {error}
+        </div>
+      )}
+
+      <div style={{ display: "flex", gap: 16, marginBottom: 16, alignItems: "center" }}>
+        <label>
+          % Tickrace : {platformPct}%
+          <input
+            type="number"
+            min={0}
+            max={50}
+            step={0.1}
+            value={platformPct}
+            onChange={(e) => setPlatformPct(Number(e.target.value))}
+            style={{ marginLeft: 8, width: 100 }}
+          />
+        </label>
+        <button onClick={savePlatformFees} disabled={busy}>
+          Enregistrer ce % sur la sélection
+        </button>
+        <label style={{ marginLeft: 24 }}>
+          % d'acompte : {depositPct}% (du net restant)
+          <input
+            type="number"
+            min={0}
+            max={100}
+            step={1}
+            value={depositPct}
+            onChange={(e) => setDepositPct(Number(e.target.value))}
+            style={{ marginLeft: 8, width: 100 }}
+          />
+        </label>
+        <button onClick={() => transfer("deposit")} disabled={busy} style={{ marginLeft: 8 }}>
+          Verser l'acompte
+        </button>
+        <button onClick={() => transfer("full")} disabled={busy} style={{ marginLeft: 8 }}>
+          Tout transférer
+        </button>
+        <button onClick={load} disabled={busy} style={{ marginLeft: 8 }}>
+          Actualiser
+        </button>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <ShieldCheck className="h-5 w-5" /> Paramètres de calcul (prévisualisation)
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground flex items-center gap-2">
-              <Percent className="h-4 w-4" /> % commission Tickrace (appliquée sur le brut)
-            </label>
-            <div className="flex items-center gap-2">
-              <Input
-                type="number"
-                step={0.1}
-                min={0}
-                max={50}
-                value={platformPct}
-                onChange={(e) => setPlatformPct(Number(e.target.value))}
-                className="w-32"
-              />
-              <Button variant="outline" onClick={savePlatformFeesForSelection} disabled={updating}>
-                {updating && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                Enregistrer ce % sur la sélection
-              </Button>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Met à jour <code>paiements.platform_fee_amount</code> pour les paiements cochés.
-            </p>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">% d’acompte à verser maintenant (du net restant)</label>
-            <Input
-              type="number"
-              step={1}
-              min={0}
-              max={100}
-              value={depositPct}
-              onChange={(e) => setDepositPct(Number(e.target.value))}
-              className="w-32"
-            />
-            <p className="text-xs text-muted-foreground">“Tout transférer” ignore ce % et verse le net intégral.</p>
-          </div>
-
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">Filtre (id, inscription, compte, charge)</label>
-            <Input placeholder="Rechercher…" value={filter} onChange={(e) => setFilter(e.target.value)} />
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>À reverser</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Checkbox
-                checked={filtered.every((r) => selected[r.id]) && filtered.length > 0}
-                onCheckedChange={(v) => toggleAll(Boolean(v))}
-              />
-              <span className="text-sm text-muted-foreground">
-                {totals.count} paiement(s) sélectionné(s) — Brut {eur(totals.gross)} · Frais Stripe {eur(totals.stripe)} · Plateforme actuelle {eur(totals.curPlat)} → nouvelle {eur(totals.newPlat)} · Net restant {eur(totals.remaining)} · Acompte prévu {eur(totals.deposit)}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={() => transferSelection("deposit")} disabled={transferring || totals.count === 0}>
-                {transferring && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                <Send className="h-4 w-4 mr-2" /> Verser l’acompte
-              </Button>
-              <Button onClick={() => transferSelection("full")} disabled={transferring || totals.count === 0}>
-                {transferring && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-                <Send className="h-4 w-4 mr-2" /> Tout transférer
-              </Button>
-            </div>
-          </div>
-
-          <div className="overflow-auto rounded-lg border">
-            <table className="min-w-full text-sm">
-              <thead className="bg-muted/40">
-                <tr>
-                  <th className="p-2"></th>
-                  <th className="p-2 text-left">Date</th>
-                  <th className="p-2 text-left">Paiement</th>
-                  <th className="p-2 text-left">Inscription</th>
-                  <th className="p-2 text-left">Compte connecté</th>
-                  <th className="p-2 text-right">Brut</th>
-                  <th className="p-2 text-right">Frais Stripe</th>
-                  <th className="p-2 text-right">Plateforme (actuelle → nouvelle)</th>
-                  <th className="p-2 text-right">Déjà versé</th>
-                  <th className="p-2 text-right">Net restant</th>
-                  <th className="p-2 text-right">Acompte (prévu)</th>
-                  <th className="p-2 text-left">Charge</th>
+      <div style={{ overflowX: "auto", border: "1px solid #ddd", borderRadius: 8 }}>
+        <table style={{ minWidth: 900, borderCollapse: "collapse", width: "100%" }}>
+          <thead style={{ background: "#f5f5f5" }}>
+            <tr>
+              <th style={{ padding: 8 }}>
+                <input
+                  type="checkbox"
+                  checked={computed.length > 0 && computed.every((r) => selected[r.id])}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    const obj: Record<string, boolean> = {};
+                    computed.forEach((r) => (obj[r.id] = on));
+                    setSelected(obj);
+                  }}
+                />
+              </th>
+              <th style={{ padding: 8, textAlign: "left" }}>Date</th>
+              <th style={{ padding: 8, textAlign: "left" }}>Paiement</th>
+              <th style={{ padding: 8, textAlign: "left" }}>Inscription</th>
+              <th style={{ padding: 8, textAlign: "left" }}>Compte connecté</th>
+              <th style={{ padding: 8, textAlign: "right" }}>Brut</th>
+              <th style={{ padding: 8, textAlign: "right" }}>Frais Stripe</th>
+              <th style={{ padding: 8, textAlign: "right" }}>Plateforme (actuelle → nouvelle)</th>
+              <th style={{ padding: 8, textAlign: "right" }}>Déjà versé</th>
+              <th style={{ padding: 8, textAlign: "right" }}>Net restant</th>
+              <th style={{ padding: 8, textAlign: "right" }}>Acompte (prévu)</th>
+              <th style={{ padding: 8, textAlign: "left" }}>Charge</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr>
+                <td colSpan={12} style={{ padding: 16, color: "#666" }}>
+                  Chargement…
+                </td>
+              </tr>
+            ) : computed.length === 0 ? (
+              <tr>
+                <td colSpan={12} style={{ padding: 16, color: "#666" }}>
+                  Aucun paiement (ou accès refusé). Vérifie que ton compte est <code>is_admin=true</code> et que les RLS sont en place.
+                </td>
+              </tr>
+            ) : (
+              computed.map((r) => (
+                <tr key={r.id} style={{ borderTop: "1px solid #eee" }}>
+                  <td style={{ padding: 8 }}>
+                    <input
+                      type="checkbox"
+                      checked={!!selected[r.id]}
+                      onChange={(e) => setSelected((s) => ({ ...s, [r.id]: e.target.checked }))}
+                    />
+                  </td>
+                  <td style={{ padding: 8 }}>{new Date(r.created_at).toLocaleString("fr-FR")}</td>
+                  <td style={{ padding: 8, fontFamily: "monospace" }}>{r.id.slice(0, 8)}…</td>
+                  <td style={{ padding: 8, fontFamily: "monospace" }}>{r.inscription_id?.slice(0, 8) ?? "-"}…</td>
+                  <td style={{ padding: 8, fontFamily: "monospace" }}>{r.destination_account_id ?? "-"}</td>
+                  <td style={{ padding: 8, textAlign: "right" }}>{eur((r as any).gross)}</td>
+                  <td style={{ padding: 8, textAlign: "right" }}>{eur((r as any).stripe)}</td>
+                  <td style={{ padding: 8, textAlign: "right" }}>
+                    <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end" }}>
+                      <span style={{ color: "#888", textDecoration: "line-through" }}>{eur((r as any).platformFeeCurrent)}</span>
+                      <span style={{ fontWeight: 600 }}>{eur((r as any).platformFeeDesired)}</span>
+                    </div>
+                  </td>
+                  <td style={{ padding: 8, textAlign: "right" }}>{eur((r as any).already)}</td>
+                  <td style={{ padding: 8, textAlign: "right", fontWeight: 600 }}>{eur((r as any).remaining)}</td>
+                  <td style={{ padding: 8, textAlign: "right" }}>{eur((r as any).depositNow)}</td>
+                  <td style={{ padding: 8, fontFamily: "monospace" }}>{r.charge_id ?? "-"}</td>
                 </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr>
-                    <td className="p-4" colSpan={12}>
-                      <div className="flex items-center gap-2 text-muted-foreground">
-                        <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
-                      </div>
-                    </td>
-                  </tr>
-                ) : filtered.length === 0 ? (
-                  <tr>
-                    <td className="p-4 text-muted-foreground" colSpan={12}>
-                      Aucun paiement à afficher.
-                    </td>
-                  </tr>
-                ) : (
-                  filtered.map((r) => (
-                    <tr key={r.id} className="border-t hover:bg-muted/20">
-                      <td className="p-2">
-                        <Checkbox
-                          checked={!!selected[r.id]}
-                          onCheckedChange={(v) => setSelected((s) => ({ ...s, [r.id]: Boolean(v) }))}
-                        />
-                      </td>
-                      <td className="p-2">{new Date(r.created_at).toLocaleString("fr-FR")}</td>
-                      <td className="p-2 font-mono">{r.id.slice(0, 8)}…</td>
-                      <td className="p-2 font-mono">{r.inscription_id?.slice(0, 8)}…</td>
-                      <td className="p-2 font-mono">{r.destination_account_id ?? "-"}</td>
-                      <td className="p-2 text-right">{eur((r as any).gross)}</td>
-                      <td className="p-2 text-right">{eur((r as any).stripe)}</td>
-                      <td className="p-2 text-right">
-                        <div className="flex flex-col items-end">
-                          <span className="line-through text-muted-foreground">{eur((r as any).platformFeeCurrent)}</span>
-                          <span className="font-medium">{eur((r as any).platformFeeDesired)}</span>
-                        </div>
-                      </td>
-                      <td className="p-2 text-right">{eur((r as any).already)}</td>
-                      <td className="p-2 text-right font-semibold">{eur((r as any).remaining)}</td>
-                      <td className="p-2 text-right">{eur((r as any).depositNow)}</td>
-                      <td className="p-2 font-mono">{r.charge_id ?? "-"}</td>
-                    </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
-          </div>
-        </CardContent>
-      </Card>
+              ))
+            )}
+          </tbody>
+        </table>
+      </div>
     </div>
   );
 }
