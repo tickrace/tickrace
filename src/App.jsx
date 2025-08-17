@@ -11,7 +11,6 @@ import InscriptionCourse from "./pages/InscriptionCourse";
 import ProfilCoureur from "./pages/ProfilCoureur";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import Admin from "./pages/Admin";
 import MonProfilCoureur from "./pages/MonProfilCoureur";
 import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import { UserProvider, useUser } from "./contexts/UserContext";
