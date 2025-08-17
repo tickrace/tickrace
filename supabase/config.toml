@@ -38,3 +38,15 @@ secure_password_change = false
 max_frequency = "1m0s"
 otp_length = 6
 otp_expiry = 86400
+
+[functions.admin-stats]
+verify_jwt = true
+
+[functions.admin-ca]
+verify_jwt = true
+
+[functions.set-admin]
+verify_jwt = false
+
+[functions.admin-courses-kpis]
+verify_jwt = true
