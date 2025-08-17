@@ -1,9 +1,11 @@
 import React from "react";
+import AdminLayout from "./admin/AdminLayout";
+import AdminDashboard from "./admin/AdminDashboard";
+
 export default function Admin() {
   return (
-    <div className="p-6">
-      <h1 className="text-2xl font-bold">Espace Admin</h1>
-      <p>Gestion des utilisateurs, paiements et épreuves.</p>
-    </div>
+    <AdminLayout>
+      <AdminDashboard />
+    </AdminLayout>
   );
 }
