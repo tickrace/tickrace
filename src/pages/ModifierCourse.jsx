@@ -74,7 +74,6 @@ export default function ModifierCourse() {
         date: "",
         heure_depart: "",
         presentation_parcours: "",
-        gpx_url: null,
         gpx_url: "",
         type_epreuve: "",
         distance_km: "",
