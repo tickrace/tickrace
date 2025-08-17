@@ -26,6 +26,9 @@ import MonInscription from "./pages/MonInscription";
 import MesInscriptions from "./pages/MesInscriptions";
 import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
+import CGVOrganisateurs from "./pages/legal/CGVOrganisateurs";
+import Remboursements from "./pages/legal/Remboursements";
+import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 
 function AppContent() {
   const { currentRole } = useUser(); // ðŸ‘ˆ rÃ©cupÃ©ration du rÃ´le
@@ -51,15 +54,15 @@ function AppContent() {
         <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
-<Route path="/mon-inscription/:id" element={<MonInscription />} />
-
-<Route path="/mesinscriptions" element={<MesInscriptions />} />
-<Route path="/merci" element={<Merci />} />
-<Route path="/paiement-annule" element={<PaiementAnnule />} />
-
-<Route path="/admin/payouts" element={<Payouts />} />
-
-</Routes>
+        <Route path="/mon-inscription/:id" element={<MonInscription />} />
+        <Route path="/mesinscriptions" element={<MesInscriptions />} />
+        <Route path="/merci" element={<Merci />} />
+        <Route path="/paiement-annule" element={<PaiementAnnule />} />
+        <Route path="/admin/payouts" element={<Payouts />} />
+        <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
+        <Route path="/legal/remboursements" element={<Remboursements />} />
+        <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
+      </Routes>
 
 
     </>
