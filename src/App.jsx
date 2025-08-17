@@ -65,6 +65,7 @@ function AppContent() {
         <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
         <Route path="/legal/remboursements" element={<Remboursements />} />
         <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
+<Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
 
         {/* Admin (protégé & invisible) */}
         <Route
