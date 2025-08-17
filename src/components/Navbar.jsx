@@ -35,7 +35,6 @@ export default function Navbar() {
     navigate("/login");
   };
 
-  // Menus selon rôle (hors “Courses” affiché à part)
   const menuCoureur = [
     { to: "/mesinscriptions", label: "Mes inscriptions", priv: true },
     { to: "/monprofilcoureur", label: "Mon profil", priv: true },
@@ -84,7 +83,7 @@ export default function Navbar() {
   return (
     <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
       <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
-        {/* Left: Logo + main nav (desktop) */}
+        {/* Left: Logo + nav desktop */}
         <div className="flex items-center gap-3">
           <Link to="/" className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-xl bg-black text-white flex items-center justify-center font-bold">T</div>
@@ -106,31 +105,7 @@ export default function Navbar() {
           </nav>
         </div>
 
-        {/* Middle: Role pills (desktop) */}
-        <div className="hidden md:flex items-center p-1 rounded-2xl border">
-          <button
-            type="button"
-            onClick={() => setRole("coureur")}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-sm",
-              currentRole === "coureur" ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100"
-            )}
-          >
-            Coureur
-          </button>
-          <button
-            type="button"
-            onClick={() => setRole("organisateur")}
-            className={cn(
-              "px-3 py-1.5 rounded-xl text-sm",
-              currentRole === "organisateur" ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100"
-            )}
-          >
-            Organisateur
-          </button>
-        </div>
-
-        {/* Right: Auth + user menu + burger */}
+        {/* Right: User menu */}
         <div className="flex items-center gap-2">
           {!isLoggedIn ? (
             <div className="hidden md:flex items-center gap-2">
@@ -192,7 +167,7 @@ export default function Navbar() {
             </div>
           )}
 
-          {/* Burger */}
+          {/* Burger mobile */}
           <button
             className="md:hidden p-2 rounded-xl hover:bg-gray-100"
             onClick={() => setOpenMobile(v => !v)}
@@ -210,7 +185,6 @@ export default function Navbar() {
         "md:hidden fixed inset-0 z-40 transition",
         openMobile ? "pointer-events-auto" : "pointer-events-none"
       )}>
-        {/* Overlay */}
         <div
           className={cn(
             "absolute inset-0 bg-black/20 transition-opacity",
@@ -218,7 +192,6 @@ export default function Navbar() {
           )}
           onClick={() => setOpenMobile(false)}
         />
-        {/* Panel */}
         <div
           className={cn(
             "absolute right-0 top-0 h-full w-80 max-w-[85%] bg-white border-l shadow-xl p-4 transition-transform",
@@ -239,7 +212,7 @@ export default function Navbar() {
             </button>
           </div>
 
-          {/* Switch role (mobile) */}
+          {/* Switch rôle dans le menu mobile */}
           {isLoggedIn && (
             <div className="mt-3 p-1 rounded-2xl border flex">
               <button
