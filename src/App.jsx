@@ -29,6 +29,9 @@ import PaiementAnnule from "./pages/PaiementAnnule";
 import CGVOrganisateurs from "./pages/legal/CGVOrganisateurs";
 import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
+import AdminRoute from "./components/AdminRoute";
+import AdminLayout from "./pages/admin/AdminLayout";
+import AdminCourses from "./pages/admin/AdminCourses";
 
 function AppContent() {
   const { currentRole } = useUser(); // ðŸ‘ˆ rÃ©cupÃ©ration du rÃ´le
@@ -62,6 +65,16 @@ function AppContent() {
         <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
         <Route path="/legal/remboursements" element={<Remboursements />} />
         <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
+        <Route
+  path="/admin/courses"
+  element={
+    <AdminRoute>
+      <AdminLayout>
+        <AdminCourses />
+      </AdminLayout>
+    </AdminRoute>
+  }
+/>
       </Routes>
 
 
