@@ -1,268 +1,247 @@
-// src/pages/MonProfilOrganisateur.jsx
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
+import { useNavigate, useLocation } from "react-router-dom";
+
+const CONDITIONS_VERSION = "2025-08-17";
 
 export default function MonProfilOrganisateur() {
-  const [profil, setProfil] = useState({});
-  const [message, setMessage] = useState("");
+  const navigate = useNavigate();
+  const { search } = useLocation();
+  const [user, setUser] = useState(null);
+
   const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [profil, setProfil] = useState(null);
 
-  // Stripe Connect UI
-  const [onboardingBusy, setOnboardingBusy] = useState(false);
-  const [onboardingMsg, setOnboardingMsg] = useState("");
+  const [organisationNom, setOrganisationNom] = useState("");
+  const [siteWeb, setSiteWeb] = useState("");
+  const [telephone, setTelephone] = useState("");
 
-  const pays = ["France", "Belgique", "Suisse", "Espagne", "Italie", "Portugal", "Autre"];
+  const [stripeStatus, setStripeStatus] = useState({
+    has_account: false,
+    charges_enabled: false,
+    payouts_enabled: false,
+    details_submitted: false,
+    requirements_due: [],
+  });
+  const [checkingStripe, setCheckingStripe] = useState(false);
+  const [cgvAccepted, setCgvAccepted] = useState(false);
 
   useEffect(() => {
-    let abort = false;
-    async function fetchProfil() {
-      setLoading(true);
-      const { data: sessionData } = await supabase.auth.getSession();
-      const user = sessionData?.session?.user;
-      if (!user) { setLoading(false); return; }
+    const p = new URLSearchParams(search);
+    if (p.get("stripe_onboarding") === "done") console.log("Stripe onboarding terminé.");
+    if (p.get("stripe_onboarding") === "refresh") console.log("Stripe onboarding refresh.");
+  }, [search]);
 
-      const { data, error } = await supabase
-        .from("profils_utilisateurs")
-        .select("*")
-        .eq("user_id", user.id)
-        .single();
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: s } = await supabase.auth.getSession();
+        if (!s?.session?.user) { navigate("/login"); return; }
+        setUser(s.session.user);
 
-      if (!abort) {
-        if (!error && data) setProfil(data);
+        const { data, error } = await supabase
+          .from("profils_utilisateurs")
+          .select(`
+            user_id, email, organisation_nom, site_web, telephone,
+            stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, stripe_details_submitted, stripe_requirements_due,
+            conditions_acceptees, conditions_acceptees_at, conditions_version
+          `)
+          .eq("user_id", s.session.user.id)
+          .maybeSingle();
+        if (error) throw error;
+
+        setProfil(data);
+        setOrganisationNom(data?.organisation_nom || "");
+        setSiteWeb(data?.site_web || "");
+        setTelephone(data?.telephone || "");
+        setCgvAccepted(Boolean(data?.conditions_acceptees));
+
+        setStripeStatus({
+          has_account: Boolean(data?.stripe_account_id),
+          charges_enabled: Boolean(data?.stripe_charges_enabled),
+          payouts_enabled: Boolean(data?.stripe_payouts_enabled),
+          details_submitted: Boolean(data?.stripe_details_submitted),
+          requirements_due: Array.isArray(data?.stripe_requirements_due) ? data?.stripe_requirements_due : [],
+        });
+      } catch (e) {
+        setErr(e?.message ?? String(e));
+      } finally {
         setLoading(false);
       }
+    })();
+  }, [navigate]);
+
+  async function handleSave() {
+    try {
+      if (!cgvAccepted) { alert("Vous devez accepter les conditions pour continuer."); return; }
+      const payload = {
+        organisation_nom: organisationNom || null,
+        site_web: siteWeb || null,
+        telephone: telephone || null,
+        conditions_acceptees: true,
+        conditions_acceptees_at: new Date().toISOString(),
+        conditions_version: CONDITIONS_VERSION,
+      };
+      const { error } = await supabase.from("profils_utilisateurs").update(payload).eq("user_id", user.id);
+      if (error) throw error;
+      alert("Profil sauvegardé ✅");
+    } catch (e) {
+      alert("Erreur: " + (e?.message ?? String(e)));
     }
-    fetchProfil();
-    return () => { abort = true; };
-  }, []);
-
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setProfil((prev) => ({ ...prev, [name]: value }));
-  };
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData?.session?.user;
-    if (!user) return;
-
-    const { error } = await supabase
-      .from("profils_utilisateurs")
-      .upsert({ ...profil, user_id: user.id });
-
-    setMessage(error ? "Erreur lors de la mise à jour." : "Profil mis à jour !");
-  };
-
-  async function handleConnectStripe() {
-  setOnboardingMsg("");
-  setOnboardingBusy(true);
-  try {
-    const { data: sessionData } = await supabase.auth.getSession();
-    const user = sessionData?.session?.user;
-    if (!user) {
-      setOnboardingMsg("Vous devez être connecté.");
-      return;
-    }
-
-    const email = (profil.email || user.email || "").trim();
-    if (!email) {
-      setOnboardingMsg("Renseignez et sauvegardez votre email avant de continuer.");
-      return;
-    }
-
-    // S'il y a déjà un compte, on ouvre le Dashboard Express
-    if (profil?.stripe_account_id) {
-      const { data, error } = await supabase.functions.invoke("connect-login-link", {
-        body: { user_id: user.id },
-      });
-      if (error) {
-        setOnboardingMsg(error.message || "Erreur lors de la génération du lien de connexion Stripe.");
-        return;
-      }
-      const url = data?.url;
-      if (!url) {
-        setOnboardingMsg("Lien de connexion Stripe indisponible.");
-        return;
-      }
-      window.location.href = url;
-      return;
-    }
-
-    // Sinon: démarrer l'onboarding
-    const { data, error } = await supabase.functions.invoke("connect-onboarding", {
-      body: { user_id: user.id, email, country: "FR" },
-    });
-    if (error) {
-      setOnboardingMsg(error.message || "Erreur lors de la création du lien d’onboarding.");
-      return;
-    }
-
-    const url = data?.url;
-    if (!url) {
-      setOnboardingMsg("Lien d’onboarding introuvable.");
-      return;
-    }
-    window.location.href = url;
-  } catch (e) {
-    setOnboardingMsg(e?.message || "Erreur inattendue.");
-  } finally {
-    setOnboardingBusy(false);
   }
-}
 
+  async function startStripeOnboarding() {
+    try {
+      const base = window.location.origin;
+      const body = {
+        returnUrl: `${base}/monprofilorganisateur?stripe_onboarding=done`,
+        refreshUrl: `${base}/monprofilorganisateur?stripe_onboarding=refresh`,
+      };
+      const { data, error } = await supabase.functions.invoke("connect-onboarding", { body });
+      if (error) throw error;
+      window.location.href = data.url;
+    } catch (e) {
+      alert("Erreur Stripe Onboarding: " + (e?.message ?? String(e)));
+    }
+  }
 
-  if (loading) return <div className="p-6">Chargement…</div>;
+  async function refreshStripeStatus() {
+    try {
+      setCheckingStripe(true);
+      const { data, error } = await supabase.functions.invoke("connect-account-status", { body: {} });
+      if (error) throw error;
+      setStripeStatus({
+        has_account: !!data?.has_account,
+        charges_enabled: !!data?.charges_enabled,
+        payouts_enabled: !!data?.payouts_enabled,
+        details_submitted: !!data?.details_submitted,
+        requirements_due: Array.isArray(data?.requirements_due) ? data.requirements_due : [],
+      });
+    } catch (e) {
+      alert("Erreur statut Stripe: " + (e?.message ?? String(e)));
+    } finally {
+      setCheckingStripe(false);
+    }
+  }
 
-  const stripeConfigured = !!profil?.stripe_account_id;
+  if (loading) return <div style={{ padding: 24 }}>Chargement…</div>;
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Mon profil organisateur</h1>
-
-      {/* Bloc Stripe Connect */}
-      <div className="mb-5 p-4 rounded-lg border bg-gray-50">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="font-semibold">Stripe Connect</div>
-            <div className="text-sm text-gray-700">
-              {stripeConfigured ? (
-                <>
-                  Compte connecté : <span className="font-mono">{profil.stripe_account_id}</span>
-                </>
-              ) : (
-                "Aucun compte connecté pour le moment."
-              )}
-            </div>
-          </div>
-
-          <button
-            type="button"
-            disabled={onboardingBusy}
-            onClick={handleConnectStripe}
-            className={`px-4 py-2 rounded text-white ${onboardingBusy ? "bg-gray-400" : "bg-purple-600 hover:bg-purple-700"}`}
-            title={stripeConfigured ? "Gérer / finaliser votre compte Stripe" : "Configurer votre compte Stripe"}
-          >
-            {onboardingBusy
-              ? "Ouverture…"
-              : (stripeConfigured ? "Gérer mon compte Stripe" : "Configurer mon compte Stripe")}
-          </button>
-        </div>
-
-        {onboardingMsg && (
-          <div className="mt-2 text-sm text-red-600">{onboardingMsg}</div>
-        )}
-
-        {!stripeConfigured && (
-          <p className="mt-2 text-xs text-gray-600">
-            Vous serez redirigé vers Stripe pour compléter votre profil (identité, IBAN, CGU). Sans cela,
-            les paiements ne pourront pas être versés automatiquement.
-          </p>
-        )}
+    <div className="max-w-3xl mx-auto p-4">
+      {/* Bandeau explicatif */}
+      <div className="rounded-md border border-blue-200 bg-blue-50 p-3 mb-4 text-sm">
+        <b>Compte Stripe requis :</b> Pour encaisser les inscriptions et recevoir vos reversements,
+        vous devez <u>configurer votre compte Stripe Express</u>. Sans cela, les paiements seront bloqués.
       </div>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div className="flex gap-4">
-          <input
-            type="text"
-            name="nom"
-            placeholder="Nom"
-            value={profil.nom || ""}
-            onChange={handleChange}
-            className="border p-2 w-1/2"
-          />
-          <input
-            type="text"
-            name="prenom"
-            placeholder="Prénom"
-            value={profil.prenom || ""}
-            onChange={handleChange}
-            className="border p-2 w-1/2"
-          />
+      {/* Bloc Stripe */}
+      <section className="mb-6 border rounded-md p-4">
+        <h2 className="text-lg font-semibold mb-2">Paiements & compte Stripe</h2>
+
+        <div className="text-sm mb-3">
+          <div>
+            Statut :{" "}
+            {stripeStatus.has_account ? (
+              <span className="text-green-700">Compte trouvé</span>
+            ) : (
+              <span className="text-red-700">Non configuré</span>
+            )}
+          </div>
+          {stripeStatus.has_account && (
+            <>
+              <div>Charges activées : {stripeStatus.charges_enabled ? "Oui ✅" : "Non ❌"}</div>
+              <div>Payouts activés : {stripeStatus.payouts_enabled ? "Oui ✅" : "Non ❌"}</div>
+              <div>Dossier soumis : {stripeStatus.details_submitted ? "Oui ✅" : "Non ❌"}</div>
+              {stripeStatus.requirements_due?.length > 0 && (
+                <div className="mt-2">
+                  <div className="font-medium">Éléments à compléter :</div>
+                  <ul className="list-disc ml-6">
+                    {stripeStatus.requirements_due.map((k, i) => (
+                      <li key={i}><code>{k}</code></li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </>
+          )}
         </div>
 
-        <input
-          type="text"
-          name="structure"
-          placeholder="Structure / association / société"
-          value={profil.structure || ""}
-          onChange={handleChange}
-          className="border p-2 w-full"
-        />
+        <div className="flex gap-2">
+          <button
+            onClick={startStripeOnboarding}
+            className="px-3 py-2 rounded bg-black text-white hover:bg-gray-800"
+          >
+            {stripeStatus.has_account ? "Continuer la configuration Stripe" : "Configurer mon compte Stripe"}
+          </button>
+          <button
+            onClick={refreshStripeStatus}
+            disabled={checkingStripe}
+            className="px-3 py-2 rounded border"
+          >
+            {checkingStripe ? "Vérification…" : "Vérifier le statut"}
+          </button>
+        </div>
+      </section>
 
-        <input
-          type="email"
-          name="email"
-          placeholder="Email"
-          value={profil.email || ""}
-          onChange={handleChange}
-          className="border p-2 w-full"
-        />
+      {/* Formulaire profil */}
+      <section className="mb-6 border rounded-md p-4">
+        <h2 className="text-lg font-semibold mb-3">Informations organisateur</h2>
+        <div className="grid gap-3">
+          <label className="flex flex-col">
+            <span className="text-sm text-gray-700">Nom de l’organisation</span>
+            <input className="border rounded px-2 py-1" value={organisationNom} onChange={e => setOrganisationNom(e.target.value)} />
+          </label>
+          <label className="flex flex-col">
+            <span className="text-sm text-gray-700">Site web</span>
+            <input className="border rounded px-2 py-1" value={siteWeb} onChange={e => setSiteWeb(e.target.value)} placeholder="https://…" />
+          </label>
+          <label className="flex flex-col">
+            <span className="text-sm text-gray-700">Téléphone</span>
+            <input className="border rounded px-2 py-1" value={telephone} onChange={e => setTelephone(e.target.value)} />
+          </label>
+        </div>
+      </section>
 
-        <input
-          type="text"
-          name="telephone"
-          placeholder="Téléphone"
-          value={profil.telephone || ""}
-          onChange={handleChange}
-          className="border p-2 w-full"
-        />
-
-        <input
-          type="text"
-          name="adresse"
-          placeholder="Adresse"
-          value={profil.adresse || ""}
-          onChange={handleChange}
-          className="border p-2 w-full"
-        />
-
-        <div className="flex gap-4">
-          <input
-            type="text"
-            name="code_postal"
-            placeholder="Code postal"
-            value={profil.code_postal || ""}
-            onChange={handleChange}
-            className="border p-2 w-1/2"
-          />
-          <input
-            type="text"
-            name="ville"
-            placeholder="Ville"
-            value={profil.ville || ""}
-            onChange={handleChange}
-            className="border p-2 w-1/2"
-          />
+      {/* Conditions */}
+      <section className="mb-6 border rounded-md p-4">
+        <h2 className="text-lg font-semibold mb-3">Conditions & conformité</h2>
+        <div className="text-sm text-gray-700 mb-2">
+          Avant d’enregistrer votre profil, vous devez accepter nos termes :
+          <ul className="list-disc ml-6 mt-2">
+            <li><a className="underline" href="/legal/cgv-organisateurs" target="_blank" rel="noreferrer">CGV Organisateurs</a></li>
+            <li><a className="underline" href="/legal/remboursements" target="_blank" rel="noreferrer">Politique de remboursement</a></li>
+            <li><a className="underline" href="/legal/charte-organisateur" target="_blank" rel="noreferrer">Charte anti-fraude</a></li>
+          </ul>
         </div>
 
-        <select
-          name="pays"
-          value={profil.pays || ""}
-          onChange={handleChange}
-          className="border p-2 w-full"
+        <label className="flex items-start gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={cgvAccepted}
+            onChange={(e) => setCgvAccepted(e.target.checked)}
+            disabled={profil?.conditions_acceptees === true}
+          />
+          <span>
+            J’accepte les documents ci-dessus (version {CONDITIONS_VERSION}).{" "}
+            {profil?.conditions_acceptees && profil.conditions_acceptees_at ? (
+              <em>Accepté le {new Date(profil.conditions_acceptees_at).toLocaleString("fr-FR")}.</em>
+            ) : null}
+          </span>
+        </label>
+      </section>
+
+      {/* Sauvegarde */}
+      <div className="flex gap-2">
+        <button
+          onClick={handleSave}
+          className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+          disabled={!cgvAccepted}
+          title={!cgvAccepted ? "Vous devez accepter les conditions" : ""}
         >
-          <option value="">-- Choisir un pays --</option>
-          {pays.map((p) => (
-            <option key={p} value={p}>{p}</option>
-          ))}
-        </select>
-
-        <input
-          type="text"
-          name="site_web"
-          placeholder="Site web (optionnel)"
-          value={profil.site_web || ""}
-          onChange={handleChange}
-          className="border p-2 w-full"
-        />
-
-        <button type="submit" className="bg-blue-600 text-white px-4 py-2 rounded">
-          Sauvegarder
+          Sauvegarder le profil
         </button>
-
-        {message && <p className="text-sm text-green-700 mt-2">{message}</p>}
-      </form>
+      </div>
     </div>
   );
 }
