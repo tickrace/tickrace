@@ -1,4 +1,4 @@
-//navbar
+// src/components/Navbar.jsx
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -6,9 +6,17 @@ import toast from "react-hot-toast";
 import { useUser } from "../contexts/UserContext";
 
 export default function Navbar() {
-  const { session, currentRole, switchRole } = useUser();
+  const { session, currentRole, switchRole, setCurrentRole } = useUser();
   const navigate = useNavigate();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const isLoggedIn = !!session;
+  const isAdmin = !!session?.user?.app_metadata?.roles?.includes?.("admin");
+
+  const setRole = (role) => {
+    if (typeof switchRole === "function") switchRole(role);
+    else if (typeof setCurrentRole === "function") setCurrentRole(role);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
@@ -16,10 +24,21 @@ export default function Navbar() {
     navigate("/login");
   };
 
-  const handleRoleChange = (e) => {
-    const selectedRole = e.target.value;
-    switchRole(selectedRole);
-  };
+  // Menus par rôle (hors admin)
+  const coureurMenu = [
+    { to: "/courses", label: "Courses", pub: true },
+    { to: "/monprofilcoureur", label: "Mon Profil", priv: true },
+    { to: "/mesinscriptions", label: "Mes Inscriptions", priv: true },
+  ];
+
+  const organisateurMenu = [
+    { to: "/organisateur/mon-espace", label: "Mon espace", priv: true },
+    { to: "/organisateur/nouvelle-course", label: "Créer une course", priv: true },
+    { to: "/formats", label: "Formats", priv: true },
+    { to: "/monprofilorganisateur", label: "Mon Profil", priv: true },
+  ];
+
+  const activeMenu = currentRole === "organisateur" ? organisateurMenu : coureurMenu;
 
   return (
     <nav className="bg-black text-white px-4 py-3 flex items-center justify-between flex-wrap">
@@ -28,58 +47,57 @@ export default function Navbar() {
       <button
         onClick={() => setIsMenuOpen(!isMenuOpen)}
         className="lg:hidden text-white focus:outline-none"
+        aria-label="Ouvrir le menu"
       >
         ☰
       </button>
 
       <div className={`w-full lg:flex lg:items-center lg:w-auto ${isMenuOpen ? "block" : "hidden"}`}>
+        {/* Switch Coureur / Organisateur */}
+        {isLoggedIn && (
+          <div className="mt-2 lg:mt-0 lg:mr-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setRole("coureur")}
+              className={`px-3 py-1 rounded ${currentRole === "coureur" ? "bg-white text-black" : "bg-gray-800"}`}
+            >
+              Coureur
+            </button>
+            <button
+              type="button"
+              onClick={() => setRole("organisateur")}
+              className={`px-3 py-1 rounded ${currentRole === "organisateur" ? "bg-white text-black" : "bg-gray-800"}`}
+            >
+              Organisateur
+            </button>
+          </div>
+        )}
+
+        {/* Liens principaux */}
         <div className="mt-2 lg:mt-0 lg:flex lg:space-x-4">
+          {/* Lien Courses toujours visible */}
           <Link to="/courses" className="block px-3 py-2 hover:bg-gray-800 rounded">Courses</Link>
 
-          {session && currentRole === "coureur" && (
-  <>
-    <Link to="/monprofilcoureur" className="block px-3 py-2 hover:bg-gray-800 rounded">
-      Mon Profil
-    </Link>
-    <Link to="/mesinscriptions" className="block px-3 py-2 hover:bg-gray-800 rounded">
-      Mes Inscriptions
-    </Link>
-  </>
-)}
-{session && currentRole === "admin" && (
-  <>
-    <Link to="/admin" className="block px-3 py-2 hover:bg-gray-800 rounded">Admin</Link>
-    <Link to="/admin/payouts" className="block px-3 py-2 hover:bg-gray-800 rounded">Reversements</Link>
-  </>
-)}
+          {activeMenu
+            .filter(item => (item.pub || (item.priv && isLoggedIn)))
+            .map((item) => (
+              <Link key={item.to} to={item.to} className="block px-3 py-2 hover:bg-gray-800 rounded">
+                {item.label}
+              </Link>
+            ))}
 
-          {session && currentRole === "organisateur" && (
+          {/* Espace Admin (visible uniquement si admin via app_metadata) */}
+          {isAdmin && (
             <>
-              <Link to="/organisateur/mon-espace" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon espace</Link>
-              <Link to="/organisateur/nouvelle-course" className="block px-3 py-2 hover:bg-gray-800 rounded">Créer une course</Link>
-              <Link to="/monprofilorganisateur" className="block px-3 py-2 hover:bg-gray-800 rounded">Mon Profil</Link>
+              <Link to="/admin" className="block px-3 py-2 hover:bg-gray-800 rounded">Admin</Link>
+              <Link to="/admin/payouts" className="block px-3 py-2 hover:bg-gray-800 rounded">Reversements</Link>
             </>
-          )}
-
-          {session && currentRole === "admin" && (
-            <Link to="/admin" className="block px-3 py-2 hover:bg-gray-800 rounded">Admin</Link>
           )}
         </div>
 
+        {/* Connexion / Déconnexion */}
         <div className="mt-3 lg:mt-0 lg:ml-4 flex flex-col lg:flex-row lg:items-center lg:space-x-4">
-          {session && (
-            <select
-              onChange={handleRoleChange}
-              value={currentRole}
-              className="text-black px-2 py-1 rounded"
-            >
-              <option value="coureur">Coureur</option>
-              <option value="organisateur">Organisateur</option>
-              <option value="admin">Admin</option>
-            </select>
-          )}
-
-          {!session ? (
+          {!isLoggedIn ? (
             <>
               <Link to="/login" className="block px-3 py-2 hover:bg-gray-800 rounded">Connexion</Link>
               <Link to="/signup" className="block px-3 py-2 hover:bg-gray-800 rounded">Inscription</Link>
