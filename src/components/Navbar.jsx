@@ -1,179 +1,298 @@
-import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { supabase } from "../supabase";
-import toast from "react-hot-toast";
+import React, { useEffect, useRef, useState } from "react";
+import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
 import { useUser } from "../contexts/UserContext";
+import { supabase } from "../supabase";
+
+function cn(...cls) { return cls.filter(Boolean).join(" "); }
 
 export default function Navbar() {
-  const { session, currentRole, switchRole } = useUser();
+  const { session, currentRole, switchRole, setCurrentRole } = useUser();
+  const isLoggedIn = !!session;
+  const isAdmin = !!session?.user?.app_metadata?.roles?.includes?.("admin");
   const navigate = useNavigate();
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const location = useLocation();
+
+  const [openMobile, setOpenMobile] = useState(false);
+  const [openUser, setOpenUser] = useState(false);
+
+  const userMenuRef = useRef(null);
+  useEffect(() => { setOpenMobile(false); setOpenUser(false); }, [location.pathname]);
+  useEffect(() => {
+    const onClick = (e) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setOpenUser(false);
+    };
+    document.addEventListener("click", onClick);
+    return () => document.removeEventListener("click", onClick);
+  }, []);
+
+  const setRole = (role) => {
+    if (typeof switchRole === "function") switchRole(role);
+    else if (typeof setCurrentRole === "function") setCurrentRole(role);
+  };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    toast.success("Déconnecté !");
     navigate("/login");
   };
 
-  const handleRoleChange = (e) => {
-    const selectedRole = e.target.value;
-    switchRole(selectedRole);
+  // Menus selon rôle (hors “Courses” affiché à part)
+  const menuCoureur = [
+    { to: "/mesinscriptions", label: "Mes inscriptions", priv: true },
+    { to: "/monprofilcoureur", label: "Mon profil", priv: true },
+  ];
+
+  const menuOrganisateur = [
+    { to: "/organisateur/mon-espace", label: "Mon espace", priv: true },
+    { to: "/organisateur/nouvelle-course", label: "Créer une course", priv: true, forceOrg: true },
+    { to: "/monprofilorganisateur", label: "Mon profil", priv: true },
+  ];
+
+  const activeMenu = currentRole === "organisateur" ? menuOrganisateur : menuCoureur;
+
+  const LinkItem = ({ to, children }) => (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        cn(
+          "px-3 py-2 rounded-xl text-sm transition",
+          isActive ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100"
+        )
+      }
+    >
+      {children}
+    </NavLink>
+  );
+
+  const RoleAwareItem = ({ item }) => {
+    if (item.forceOrg) {
+      return (
+        <button
+          type="button"
+          onClick={() => { setRole("organisateur"); navigate(item.to); }}
+          className="px-3 py-2 rounded-xl text-sm hover:bg-gray-100"
+        >
+          {item.label}
+        </button>
+      );
+    }
+    return <LinkItem to={item.to}>{item.label}</LinkItem>;
   };
 
-  // Avatar lettre (première lettre de l'email)
-  const avatarLetter = session?.user?.email
-    ? session.user.email.charAt(0).toUpperCase()
-    : "?";
+  const avatarLetter = session?.user?.email?.[0]?.toUpperCase?.() || "U";
+  const email = session?.user?.email || "";
 
   return (
-    <nav className="bg-black text-white px-4 py-3 flex items-center justify-between flex-wrap">
-      {/* Logo */}
-      <Link to="/" className="text-xl font-bold tracking-wide">
-        Tickrace
-      </Link>
-
-      {/* Bouton hamburger (mobile) */}
-      <button
-        onClick={() => setIsMenuOpen(!isMenuOpen)}
-        className="lg:hidden text-white focus:outline-none"
-      >
-        ☰
-      </button>
-
-      {/* Menu */}
-      <div
-        className={`w-full lg:flex lg:items-center lg:w-auto ${
-          isMenuOpen ? "block" : "hidden"
-        }`}
-      >
-        <div className="mt-2 lg:mt-0 lg:flex lg:space-x-4">
-          {/* Lien commun */}
-          <Link
-            to="/courses"
-            className="block px-3 py-2 hover:bg-gray-800 rounded"
-          >
-            Courses
+    <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur">
+      <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
+        {/* Left: Logo + main nav (desktop) */}
+        <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-2">
+            <div className="w-8 h-8 rounded-xl bg-black text-white flex items-center justify-center font-bold">T</div>
+            <span className="font-semibold tracking-tight">Tickrace</span>
           </Link>
 
-          {/* Menu coureur */}
-          {session && currentRole === "coureur" && (
-            <>
-              <Link
-                to="/monprofilcoureur"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Mon Profil
-              </Link>
-              <Link
-                to="/mesinscriptions"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Mes Inscriptions
-              </Link>
-            </>
-          )}
-
-          {/* Menu organisateur */}
-          {session && currentRole === "organisateur" && (
-            <>
-              <Link
-                to="/organisateur/mon-espace"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Mon espace
-              </Link>
-              <Link
-                to="/organisateur/nouvelle-course"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Créer une course
-              </Link>
-              <Link
-                to="/monprofilorganisateur"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Mon Profil
-              </Link>
-            </>
-          )}
-
-          {/* Menu admin */}
-          {session && currentRole === "admin" && (
-            <>
-              <Link
-                to="/admin"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Admin
-              </Link>
-              <Link
-                to="/admin/payouts"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Reversements
-              </Link>
-              <Link
-                to="/admin/courses"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Courses Admin
-              </Link>
-            </>
-          )}
+          <nav className="hidden md:flex items-center gap-1 ml-2">
+            <LinkItem to="/courses">Courses</LinkItem>
+            {activeMenu
+              .filter(i => i.priv ? isLoggedIn : true)
+              .map(i => <RoleAwareItem key={i.to} item={i} />)}
+            {isAdmin && (
+              <>
+                <LinkItem to="/admin">Admin</LinkItem>
+                <LinkItem to="/admin/courses">Courses Admin</LinkItem>
+                <LinkItem to="/admin/payouts">Reversements</LinkItem>
+              </>
+            )}
+          </nav>
         </div>
 
-        {/* Section droite : role + email + avatar + auth */}
-        <div className="mt-3 lg:mt-0 lg:ml-4 flex flex-col lg:flex-row lg:items-center lg:space-x-4">
-          {session && (
-            <>
-              {/* Sélecteur de rôle */}
-              <select
-                onChange={handleRoleChange}
-                value={currentRole}
-                className="text-black px-2 py-1 rounded"
-              >
-                <option value="coureur">Coureur</option>
-                <option value="organisateur">Organisateur</option>
-                <option value="admin">Admin</option>
-              </select>
+        {/* Middle: Role pills (desktop) */}
+        <div className="hidden md:flex items-center p-1 rounded-2xl border">
+          <button
+            type="button"
+            onClick={() => setRole("coureur")}
+            className={cn(
+              "px-3 py-1.5 rounded-xl text-sm",
+              currentRole === "coureur" ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100"
+            )}
+          >
+            Coureur
+          </button>
+          <button
+            type="button"
+            onClick={() => setRole("organisateur")}
+            className={cn(
+              "px-3 py-1.5 rounded-xl text-sm",
+              currentRole === "organisateur" ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100"
+            )}
+          >
+            Organisateur
+          </button>
+        </div>
 
-              {/* Avatar + email */}
-              <div className="flex items-center space-x-2">
-                <div className="w-8 h-8 flex items-center justify-center bg-gray-700 rounded-full text-white font-bold">
+        {/* Right: Auth + user menu + burger */}
+        <div className="flex items-center gap-2">
+          {!isLoggedIn ? (
+            <div className="hidden md:flex items-center gap-2">
+              <Link to="/login" className="px-3 py-1.5 rounded-xl border text-sm hover:bg-gray-50">Connexion</Link>
+              <Link to="/signup" className="px-3 py-1.5 rounded-xl border text-sm hover:bg-gray-50">Inscription</Link>
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center gap-3" ref={userMenuRef}>
+              <button
+                type="button"
+                onClick={() => setOpenUser(v => !v)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-100"
+              >
+                <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
                   {avatarLetter}
                 </div>
-                <span className="text-gray-300 text-sm truncate max-w-[150px]">
-                  {session.user?.email}
-                </span>
-              </div>
-            </>
+                <div className="text-left">
+                  <div className="text-xs text-gray-500 leading-none">Connecté</div>
+                  <div className="text-sm leading-none max-w-[180px] truncate">{email}</div>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 20 20" className="opacity-60">
+                  <path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" />
+                </svg>
+              </button>
+              {openUser && (
+                <div className="absolute right-4 top-14 w-64 rounded-2xl border bg-white shadow-lg p-2">
+                  <div className="px-3 py-2">
+                    <div className="text-xs text-gray-500">Connecté en tant que</div>
+                    <div className="text-sm font-medium truncate">{email}</div>
+                  </div>
+                  <div className="my-1 h-px bg-gray-100" />
+                  <button
+                    onClick={() => setRole("coureur")}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50",
+                      currentRole === "coureur" && "bg-gray-100"
+                    )}
+                  >
+                    Mode coureur
+                  </button>
+                  <button
+                    onClick={() => setRole("organisateur")}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50",
+                      currentRole === "organisateur" && "bg-gray-100"
+                    )}
+                  >
+                    Mode organisateur
+                  </button>
+                  <div className="my-1 h-px bg-gray-100" />
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50"
+                  >
+                    Déconnexion
+                  </button>
+                </div>
+              )}
+            </div>
           )}
 
-          {!session ? (
-            <>
-              <Link
-                to="/login"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Connexion
-              </Link>
-              <Link
-                to="/signup"
-                className="block px-3 py-2 hover:bg-gray-800 rounded"
-              >
-                Inscription
-              </Link>
-            </>
-          ) : (
-            <button
-              onClick={handleLogout}
-              className="bg-red-600 hover:bg-red-700 text-white px-3 py-2 rounded"
-            >
-              Déconnexion
-            </button>
-          )}
+          {/* Burger */}
+          <button
+            className="md:hidden p-2 rounded-xl hover:bg-gray-100"
+            onClick={() => setOpenMobile(v => !v)}
+            aria-label="Ouvrir le menu"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
         </div>
       </div>
-    </nav>
+
+      {/* Drawer mobile */}
+      <div className={cn(
+        "md:hidden fixed inset-0 z-40 transition",
+        openMobile ? "pointer-events-auto" : "pointer-events-none"
+      )}>
+        {/* Overlay */}
+        <div
+          className={cn(
+            "absolute inset-0 bg-black/20 transition-opacity",
+            openMobile ? "opacity-100" : "opacity-0"
+          )}
+          onClick={() => setOpenMobile(false)}
+        />
+        {/* Panel */}
+        <div
+          className={cn(
+            "absolute right-0 top-0 h-full w-80 max-w-[85%] bg-white border-l shadow-xl p-4 transition-transform",
+            openMobile ? "translate-x-0" : "translate-x-full"
+          )}
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
+                {avatarLetter}
+              </div>
+              <div className="text-sm">{isLoggedIn ? email : "Invité"}</div>
+            </div>
+            <button className="p-2 rounded-xl hover:bg-gray-100" onClick={() => setOpenMobile(false)} aria-label="Fermer">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            </button>
+          </div>
+
+          {/* Switch role (mobile) */}
+          {isLoggedIn && (
+            <div className="mt-3 p-1 rounded-2xl border flex">
+              <button
+                className={cn(
+                  "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                  currentRole === "coureur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
+                )}
+                onClick={() => setRole("coureur")}
+              >
+                Coureur
+              </button>
+              <button
+                className={cn(
+                  "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                  currentRole === "organisateur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
+                )}
+                onClick={() => setRole("organisateur")}
+              >
+                Organisateur
+              </button>
+            </div>
+          )}
+
+          <div className="mt-4 grid gap-1">
+            <LinkItem to="/courses">Courses</LinkItem>
+            {activeMenu
+              .filter(i => i.priv ? isLoggedIn : true)
+              .map(i => (
+                <RoleAwareItem key={i.to} item={i} />
+              ))}
+            {isAdmin && (
+              <>
+                <LinkItem to="/admin">Admin</LinkItem>
+                <LinkItem to="/admin/courses">Courses Admin</LinkItem>
+                <LinkItem to="/admin/payouts">Reversements</LinkItem>
+              </>
+            )}
+          </div>
+
+          <div className="mt-4">
+            {!isLoggedIn ? (
+              <div className="grid gap-2">
+                <Link to="/login" className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50">Connexion</Link>
+                <Link to="/signup" className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50">Inscription</Link>
+              </div>
+            ) : (
+              <button onClick={handleLogout} className="w-full px-3 py-2 rounded-xl border text-center hover:bg-gray-50">
+                Déconnexion
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    </header>
   );
 }
