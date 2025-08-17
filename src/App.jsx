@@ -32,6 +32,8 @@ import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 import AdminRoute from "./components/AdminRoute";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminCourses from "./pages/admin/AdminCourses";
+import AdminDashboard from "./pages/admin/AdminDashboard";
+
 
 function AppContent() {
   const { currentRole } = useUser(); // ðŸ‘ˆ rÃ©cupÃ©ration du rÃ´le
@@ -71,6 +73,16 @@ function AppContent() {
     <AdminRoute>
       <AdminLayout>
         <AdminCourses />
+      </AdminLayout>
+    </AdminRoute>
+  }
+/>
+<Route
+  path="/admin"
+  element={
+    <AdminRoute>
+      <AdminLayout>
+        <AdminDashboard />
       </AdminLayout>
     </AdminRoute>
   }
