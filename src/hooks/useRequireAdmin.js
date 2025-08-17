@@ -9,27 +9,31 @@ export default function useRequireAdmin() {
 
   useEffect(() => {
     let abort = false;
-
     (async () => {
       if (!session) { setAllowed(false); setLoading(false); return; }
 
-      // Vérif rapide via app_metadata
+      // 1) Check app_metadata
       const roles = session?.user?.app_metadata?.roles || [];
-      if (!roles.includes("admin")) { setAllowed(false); setLoading(false); return; }
+      const hasRole = roles.includes("admin");
+      if (!hasRole) { setAllowed(false); setLoading(false); return; }
 
-      // Double-check DB (optionnel côté front)
-      const { data, error } = await supabase
-        .from("admins")
-        .select("user_id")
-        .eq("user_id", session.user.id)
-        .maybeSingle();
+      // 2) Double-check DB, mais en mode "best effort"
+      try {
+        const { data, error } = await supabase
+          .from("admins")
+          .select("user_id")
+          .eq("user_id", session.user.id)
+          .maybeSingle();
 
-      if (!abort) {
-        setAllowed(Boolean(data) && !error);
-        setLoading(false);
+        if (!abort) {
+          // si pas d'erreur → on suit la DB ; si erreur (RLS/permissions), on Fallback au rôle
+          setAllowed(error ? true : !!data);
+          setLoading(false);
+        }
+      } catch {
+        if (!abort) { setAllowed(true); setLoading(false); }
       }
     })();
-
     return () => { abort = true; };
   }, [session]);
 
