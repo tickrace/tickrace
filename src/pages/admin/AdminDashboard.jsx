@@ -1,16 +1,16 @@
 import React, { useEffect, useState } from "react";
-import { callAdminFn } from "../../utils/callAdminFn";
+import { getAdminStats } from "../../utils/adminApi";
 
 export default function AdminDashboard() {
-  const [data, setData] = useState(null);
+  const [stats, setStats] = useState(null);
   const [err, setErr] = useState("");
 
   useEffect(() => {
     let alive = true;
     (async () => {
       try {
-        const json = await callAdminFn("admin-stats", {});
-        if (alive) setData(json);
+        const s = await getAdminStats();
+        if (alive) setStats(s);
       } catch (e) {
         if (alive) setErr(e.message || String(e));
       }
@@ -19,15 +19,22 @@ export default function AdminDashboard() {
   }, []);
 
   if (err) return <div className="p-4 text-red-600">Erreur: {err}</div>;
-  if (!data) return <div className="p-4">Chargement…</div>;
+  if (!stats) return <div className="p-4">Chargement…</div>;
 
-  // Affichage simple des KPI
+  const items = [
+    { label: "Courses", value: stats.nb_courses },
+    { label: "Formats", value: stats.nb_formats },
+    { label: "Inscriptions", value: stats.nb_inscriptions },
+    { label: "Organisateurs", value: stats.nb_organisateurs },
+    { label: "CA brut (€)", value: stats.ca_brut },
+  ];
+
   return (
     <div className="p-4 grid gap-4 md:grid-cols-3">
-      {Object.entries(data).map(([k, v]) => (
-        <div key={k} className="rounded-xl border p-4">
-          <div className="text-sm text-gray-500">{k}</div>
-          <div className="text-2xl font-semibold">{String(v)}</div>
+      {items.map((it) => (
+        <div key={it.label} className="rounded-xl border p-4">
+          <div className="text-sm text-gray-500">{it.label}</div>
+          <div className="text-2xl font-semibold">{it.value ?? "-"}</div>
         </div>
       ))}
     </div>

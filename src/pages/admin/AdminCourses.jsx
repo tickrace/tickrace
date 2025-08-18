@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { callAdminFn } from "../../utils/callAdminFn";
+import { getAdminCoursesKpis } from "../../utils/adminApi";
 
 export default function AdminCourses() {
   const [rows, setRows] = useState([]);
@@ -11,10 +11,8 @@ export default function AdminCourses() {
     (async () => {
       setLoading(true);
       try {
-        // adapte si ta fonction renvoie {rows,total} vs tableau simple
-        const data = await callAdminFn("admin-courses-kpis", { limit: 50, offset: 0 });
-        const list = Array.isArray(data?.rows) ? data.rows : Array.isArray(data) ? data : [];
-        if (alive) setRows(list);
+        const data = await getAdminCoursesKpis({ limit: 100, offset: 0 });
+        if (alive) setRows(data);
       } catch (e) {
         if (alive) setErr(e.message || String(e));
       } finally {
@@ -42,7 +40,7 @@ export default function AdminCourses() {
           <tbody>
             {rows.map((r) => (
               <tr key={r.course_id} className="border-t">
-                <td className="px-3 py-2">{r.course_nom ?? r.nom ?? r.course_id}</td>
+                <td className="px-3 py-2">{r.course_nom ?? r.course_id}</td>
                 <td className="px-3 py-2 text-right">{r.total_inscriptions ?? "-"}</td>
                 <td className="px-3 py-2 text-right">{r.inscriptions_validees ?? "-"}</td>
                 <td className="px-3 py-2 text-right">{r.ca_brut ?? "-"}</td>
