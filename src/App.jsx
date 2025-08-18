@@ -35,6 +35,8 @@ import AdminLayout from "./pages/admin/AdminLayout";
 import AdminCourses from "./pages/admin/AdminCourses";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminInscriptions from "./pages/admin/AdminInscriptions";
+import AdminPaiements from "./pages/admin/AdminPaiements";
+import AdminHome from "./pages/admin"; // 👈 import de la nouvelle page
 
 function AppContent() {
   const { currentRole } = useUser();
@@ -44,6 +46,8 @@ function AppContent() {
       <Navbar key={currentRole} />
       <Routes>
         {/* Public */}
+        <Route path="/admin" element={<AdminHome />} />
+
         <Route path="/" element={<Courses />} />
         <Route path="/courses" element={<Courses />} />
         <Route path="/courses/:id" element={<CourseDetail />} />
@@ -67,6 +71,7 @@ function AppContent() {
         <Route path="/legal/remboursements" element={<Remboursements />} />
         <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
+
 
         {/* Admin (protégé & invisible) */}
         <Route
