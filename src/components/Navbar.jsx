@@ -1,15 +1,18 @@
+// src/components/Navbar.jsx
 import React, { useEffect, useRef, useState } from "react";
 import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
 import { useUser } from "../contexts/UserContext";
 import { supabase } from "../supabase";
 import useIsAdmin from "../hooks/useIsAdmin";
 
-function cn(...cls) { return cls.filter(Boolean).join(" "); }
+function cn(...cls) {
+  return cls.filter(Boolean).join(" ");
+}
 
 export default function Navbar() {
   const { session, currentRole, switchRole, setCurrentRole } = useUser();
   const isLoggedIn = !!session;
-  const { isAdmin } = useIsAdmin(); // au lieu de lire app_metadata
+  const { isAdmin } = useIsAdmin(); // check admin depuis hook
 
   const navigate = useNavigate();
   const location = useLocation();
@@ -18,10 +21,16 @@ export default function Navbar() {
   const [openUser, setOpenUser] = useState(false);
 
   const userMenuRef = useRef(null);
-  useEffect(() => { setOpenMobile(false); setOpenUser(false); }, [location.pathname]);
+  useEffect(() => {
+    setOpenMobile(false);
+    setOpenUser(false);
+  }, [location.pathname]);
+
   useEffect(() => {
     const onClick = (e) => {
-      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) setOpenUser(false);
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
+        setOpenUser(false);
+      }
     };
     document.addEventListener("click", onClick);
     return () => document.removeEventListener("click", onClick);
@@ -69,7 +78,10 @@ export default function Navbar() {
       return (
         <button
           type="button"
-          onClick={() => { setRole("organisateur"); navigate(item.to); }}
+          onClick={() => {
+            setRole("organisateur");
+            navigate(item.to);
+          }}
           className="px-3 py-2 rounded-xl text-sm hover:bg-gray-100"
         >
           {item.label}
@@ -92,7 +104,15 @@ export default function Navbar() {
             <span className="font-semibold tracking-tight">Tickrace</span>
           </Link>
 
-        
+          <nav className="hidden md:flex items-center gap-1 ml-2">
+            <LinkItem to="/courses">Courses</LinkItem>
+            {activeMenu
+              .filter((i) => (i.priv ? isLoggedIn : true))
+              .map((i) => (
+                <RoleAwareItem key={i.to} item={i} />
+              ))}
+            {/* ❌ Admin supprimé de la navbar du haut */}
+          </nav>
         </div>
 
         {/* Right: User menu */}
@@ -106,7 +126,7 @@ export default function Navbar() {
             <div className="hidden md:flex items-center gap-3" ref={userMenuRef}>
               <button
                 type="button"
-                onClick={() => setOpenUser(v => !v)}
+                onClick={() => setOpenUser((v) => !v)}
                 className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-100"
               >
                 <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
@@ -160,7 +180,7 @@ export default function Navbar() {
           {/* Burger mobile */}
           <button
             className="md:hidden p-2 rounded-xl hover:bg-gray-100"
-            onClick={() => setOpenMobile(v => !v)}
+            onClick={() => setOpenMobile((v) => !v)}
             aria-label="Ouvrir le menu"
           >
             <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
@@ -171,10 +191,12 @@ export default function Navbar() {
       </div>
 
       {/* Drawer mobile */}
-      <div className={cn(
-        "md:hidden fixed inset-0 z-40 transition",
-        openMobile ? "pointer-events-auto" : "pointer-events-none"
-      )}>
+      <div
+        className={cn(
+          "md:hidden fixed inset-0 z-40 transition",
+          openMobile ? "pointer-events-auto" : "pointer-events-none"
+        )}
+      >
         <div
           className={cn(
             "absolute inset-0 bg-black/20 transition-opacity",
@@ -195,7 +217,11 @@ export default function Navbar() {
               </div>
               <div className="text-sm">{isLoggedIn ? email : "Invité"}</div>
             </div>
-            <button className="p-2 rounded-xl hover:bg-gray-100" onClick={() => setOpenMobile(false)} aria-label="Fermer">
+            <button
+              className="p-2 rounded-xl hover:bg-gray-100"
+              onClick={() => setOpenMobile(false)}
+              aria-label="Fermer"
+            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
                 <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" />
               </svg>
@@ -229,16 +255,15 @@ export default function Navbar() {
           <div className="mt-4 grid gap-1">
             <LinkItem to="/courses">Courses</LinkItem>
             {activeMenu
-              .filter(i => i.priv ? isLoggedIn : true)
-              .map(i => (
+              .filter((i) => (i.priv ? isLoggedIn : true))
+              .map((i) => (
                 <RoleAwareItem key={i.to} item={i} />
               ))}
             {isAdmin && (
               <>
                 <LinkItem to="/admin">Admin</LinkItem>
-                <LinkItem to="/admin/inscriptions">Inscriptions</LinkItem>
-                <LinkItem to="/admin/payouts">Paiements</LinkItem>
                 <LinkItem to="/admin/courses">Courses Admin</LinkItem>
+                <LinkItem to="/admin/payouts">Reversements</LinkItem>
               </>
             )}
           </div>
@@ -246,11 +271,18 @@ export default function Navbar() {
           <div className="mt-4">
             {!isLoggedIn ? (
               <div className="grid gap-2">
-                <Link to="/login" className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50">Connexion</Link>
-                <Link to="/signup" className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50">Inscription</Link>
+                <Link to="/login" className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50">
+                  Connexion
+                </Link>
+                <Link to="/signup" className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50">
+                  Inscription
+                </Link>
               </div>
             ) : (
-              <button onClick={handleLogout} className="w-full px-3 py-2 rounded-xl border text-center hover:bg-gray-50">
+              <button
+                onClick={handleLogout}
+                className="w-full px-3 py-2 rounded-xl border text-center hover:bg-gray-50"
+              >
                 Déconnexion
               </button>
             )}
