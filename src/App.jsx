@@ -6,6 +6,7 @@ import Navbar from "./components/Navbar";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
 import NouvelleCourse from "./pages/NouvelleCourse";
+import ErrorBoundary from "./components/ErrorBoundary";
 import ModifierCourse from "./pages/ModifierCourse";
 import ListeFormats from "./pages/ListeFormats";
 import InscriptionCourse from "./pages/InscriptionCourse";
@@ -48,7 +49,14 @@ function AppContent() {
       <Routes>
         {/* Public */}
         <Route path="/admin" element={<AdminHome />} />
-
+<Route
+  path="/modifier-course/:id"
+  element={
+    <ErrorBoundary>
+      <ModifierCourse />
+    </ErrorBoundary>
+  }
+/>
         <Route path="/" element={<Courses />} />
         <Route path="/courses" element={<Courses />} />
         <Route path="/courses/:id" element={<CourseDetail />} />
