@@ -3,17 +3,27 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.4";
 import { assertIsAdmin } from "../_shared/isAdmin.ts";
 
+// --- CORS helpers ---
+const ALLOWED_ORIGINS = new Set([
+  "https://www.tickrace.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+]);
+function corsHeaders(req: Request) {
+  const origin = req.headers.get("origin") ?? "";
+  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "*";
+  const reqHeaders = req.headers.get("access-control-request-headers") || "authorization, content-type";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Vary": "Origin",
+    "Access-Control-Allow-Headers": reqHeaders,
+    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
+  };
+}
+
 serve(async (req) => {
-  // CORS
   if (req.method === "OPTIONS") {
-    return new Response("ok", {
-      status: 204,
-      headers: {
-        "Access-Control-Allow-Origin": "*",
-        "Access-Control-Allow-Headers": "authorization, content-type",
-        "Access-Control-Allow-Methods": "POST,GET,OPTIONS",
-      },
-    });
+    return new Response("ok", { status: 204, headers: corsHeaders(req) });
   }
 
   const supabase = createClient(
@@ -24,27 +34,17 @@ serve(async (req) => {
   try {
     await assertIsAdmin(req, supabase);
 
-    const body = await req.json().catch(() => ({}));
-    const { course_id, organiser_id, start, end } = body;
-
-    const { data, error } = await supabase.rpc("admin_ca_brut", {
-      p_course_id: course_id ?? null,
-      p_organisateur_id: organiser_id ?? null,
-      p_start: start ? new Date(start).toISOString() : null,
-      p_end: end ? new Date(end).toISOString() : null,
-    });
-
-    if (error) return new Response(error.message, { status: 500 });
+    const { data, error } = await supabase.rpc("admin_chiffre_affaires");
+    if (error) throw new Error(error.message);
 
     return new Response(JSON.stringify(data), {
       status: 200,
-      headers: {
-        "content-type": "application/json",
-        "Access-Control-Allow-Origin": "*",
-      },
+      headers: { "content-type": "application/json", ...corsHeaders(req) },
     });
-  } catch (resp) {
-    if (resp instanceof Response) return resp;
-    return new Response("Unexpected error", { status: 500 });
+  } catch (err) {
+    return new Response(err.message ?? "Unexpected error", {
+      status: 500,
+      headers: corsHeaders(req),
+    });
   }
 });
