@@ -40,13 +40,13 @@ otp_length = 6
 otp_expiry = 86400
 
 [functions.admin-stats]
-verify_jwt = true
+verify_jwt = false
 
 [functions.admin-ca]
-verify_jwt = true
+verify_jwt = false
 
 [functions.set-admin]
 verify_jwt = false
 
 [functions.admin-courses-kpis]
-verify_jwt = true
+verify_jwt = false
