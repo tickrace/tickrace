@@ -50,14 +50,8 @@ function AppContent() {
         {/* Public */}
         <Route path="/admin" element={<AdminHome />} />
 
-        <Route
-          path="/modifier-course/:id"
-          element={
-            <ErrorBoundary>
-              <ModifierCourse />
-            </ErrorBoundary>
-          }
-        />
+        <Route path="/modifier-course/:id" element={<ModifierCourse />} />
+
 
         <Route path="/" element={<Courses />} />
         <Route path="/courses" element={<Courses />} />
