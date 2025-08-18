@@ -38,7 +38,7 @@ import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminInscriptions from "./pages/admin/AdminInscriptions";
 import Payouts from "./pages/admin/Payouts";
 
-import AdminHome from "./pages/admin"; // 👈 import de la nouvelle page
+import AdminHome from "./pages/admin"; // 👈 page admin d'accueil
 
 function AppContent() {
   const { currentRole } = useUser();
@@ -49,14 +49,16 @@ function AppContent() {
       <Routes>
         {/* Public */}
         <Route path="/admin" element={<AdminHome />} />
-<Route
-  path="/modifier-course/:id"
-  element={
-    <ErrorBoundary>
-      <ModifierCourse />
-    </ErrorBoundary>
-  }
-/>
+
+        <Route
+          path="/modifier-course/:id"
+          element={
+            <ErrorBoundary>
+              <ModifierCourse />
+            </ErrorBoundary>
+          }
+        />
+
         <Route path="/" element={<Courses />} />
         <Route path="/courses" element={<Courses />} />
         <Route path="/courses/:id" element={<CourseDetail />} />
@@ -67,8 +69,14 @@ function AppContent() {
         <Route path="/monprofilorganisateur" element={<MonProfilOrganisateur />} />
         <Route path="/login" element={<Login />} />
         <Route path="/signup" element={<Signup />} />
+
+        {/* Espace organisateur */}
         <Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
+        {/* 👉 Alias pour éviter la page blanche si navigate('/mon-espace-organisateur') est utilisé */}
+        <Route path="/mon-espace-organisateur" element={<MonEspaceOrganisateur />} />
+
         <Route path="/organisateur/inscriptions/:format_id" element={<ListeInscriptions />} />
+
         <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
         <Route path="/reset-password" element={<ResetPassword />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -76,23 +84,25 @@ function AppContent() {
         <Route path="/mesinscriptions" element={<MesInscriptions />} />
         <Route path="/merci" element={<Merci />} />
         <Route path="/paiement-annule" element={<PaiementAnnule />} />
+
+        {/* Légal */}
         <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
         <Route path="/legal/remboursements" element={<Remboursements />} />
         <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
-<Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
 
+        <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
 
-        {/* Admin (protégé & invisible) */}
+        {/* Admin (protégé) */}
         <Route
-  path="/admin/dashboard"
-  element={
-    <AdminRoute>
-      <AdminLayout>
-        <AdminDashboard />
-      </AdminLayout>
-    </AdminRoute>
-  }
-/>
+          path="/admin/dashboard"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <AdminDashboard />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
         <Route
           path="/admin/courses"
           element={
@@ -114,15 +124,26 @@ function AppContent() {
           }
         />
         <Route
-  path="/admin/inscriptions"
-  element={
-    <AdminRoute>
-      <AdminLayout>
-        <AdminInscriptions />
-      </AdminLayout>
-    </AdminRoute>
-  }
-/>
+          path="/admin/inscriptions"
+          element={
+            <AdminRoute>
+              <AdminLayout>
+                <AdminInscriptions />
+              </AdminLayout>
+            </AdminRoute>
+          }
+        />
+
+        {/* Fallback anti-page-blanche */}
+        <Route
+          path="*"
+          element={
+            <div style={{ padding: 24 }}>
+              <h2>Page non trouvée</h2>
+              <p>Cette URL ne correspond à aucune route connue.</p>
+            </div>
+          }
+        />
       </Routes>
     </>
   );
