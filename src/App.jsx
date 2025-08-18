@@ -35,7 +35,8 @@ import AdminLayout from "./pages/admin/AdminLayout";
 import AdminCourses from "./pages/admin/AdminCourses";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminInscriptions from "./pages/admin/AdminInscriptions";
-import AdminPaiements from "./pages/admin/AdminPaiements";
+import Payouts from "./pages/admin/Payouts";
+
 import AdminHome from "./pages/admin"; // 👈 import de la nouvelle page
 
 function AppContent() {
