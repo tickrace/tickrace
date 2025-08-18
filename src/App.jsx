@@ -98,6 +98,16 @@ function AppContent() {
             </AdminRoute>
           }
         />
+        <Route
+  path="/admin/inscriptions"
+  element={
+    <AdminRoute>
+      <AdminLayout>
+        <AdminInscriptions />
+      </AdminLayout>
+    </AdminRoute>
+  }
+/>
       </Routes>
     </>
   );
