@@ -1,298 +1,497 @@
 // src/pages/ModifierCourse.jsx
-import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
+
+const emptyFormat = () => ({
+  id: null, // null => nouveau format
+  nom: "",
+  prix: 0,
+  date: "",
+  distance_km: "",
+  denivele_dplus: "",
+  nb_max_coureurs: "",
+  stock_repas: 0,          // si tu n'utilises pas, laisse 0
+  prix_repas: 0,           // si tu n'utilises pas, laisse 0
+  // champs optionnels si présents dans ta table:
+  // nombre_repas: 0,
+  // prix_total_repas: 0,
+  // prix_total_inscription: 0,
+});
 
 export default function ModifierCourse() {
   const { id } = useParams();
   const navigate = useNavigate();
+
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState(null);
+
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
   const [newImageFile, setNewImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
+
+  // garde mémoire des formats initiaux pour détecter ceux supprimés
+  const initialFormatIdsRef = useRef(new Set());
+
+  const validCourse = useMemo(() => !!course && !!course.id, [course]);
 
   useEffect(() => {
-    const fetchData = async () => {
-      const { data: courseData } = await supabase
-        .from("courses")
-        .select("*")
-        .eq("id", id)
-        .single();
+    let cancelled = false;
 
-      const { data: formatsData } = await supabase
-        .from("formats")
-        .select("*, id")
-        .eq("course_id", id);
+    async function fetchAll() {
+      setLoading(true);
+      setError(null);
+      try {
+        if (!id) {
+          throw new Error("Identifiant d’épreuve manquant dans l’URL.");
+        }
 
-      const formatsWithInscrits = await Promise.all(
-        formatsData.map(async (format) => {
-          const { count } = await supabase
-            .from("inscriptions")
-            .select("*", { count: "exact", head: true })
-            .eq("format_id", format.id);
+        // 1) Course
+        const { data: courseData, error: courseErr } = await supabase
+          .from("courses")
+          .select("*")
+          .eq("id", id)
+          .single();
 
-          return {
-            ...format,
-            nb_inscrits: count || 0,
-            localId: uuidv4(),
-            propose_repas: format.prix_repas ? true : false,
-          };
-        })
-      );
+        if (courseErr) throw courseErr;
+        if (!courseData) throw new Error("Épreuve introuvable.");
 
-      setCourse(courseData);
-      setFormats(formatsWithInscrits);
+        // 2) Formats
+        const { data: formatsData, error: formatsErr } = await supabase
+          .from("formats")
+          .select("*")
+          .eq("course_id", id)
+          .order("date", { ascending: true });
+
+        if (formatsErr) throw formatsErr;
+
+        if (!cancelled) {
+          setCourse(courseData);
+          const safeFormats =
+            (formatsData || []).map((f) => ({
+              ...emptyFormat(),
+              ...f,
+            })) || [];
+          setFormats(safeFormats);
+          initialFormatIdsRef.current = new Set(
+            safeFormats.filter((f) => !!f.id).map((f) => f.id)
+          );
+        }
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setError(e.message || "Erreur de chargement.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+
+    fetchAll();
+    return () => {
+      cancelled = true;
     };
-
-    fetchData();
   }, [id]);
 
-  const handleCourseChange = (e) => {
-    const { name, value, files } = e.target;
-    if (files) setNewImageFile(files[0]);
-    else setCourse((prev) => ({ ...prev, [name]: value }));
+  // ------------------ handlers ------------------
+
+  const handleCourseChange = (field, value) => {
+    setCourse((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleFormatChange = (index, e) => {
-    const { name, value, files, type, checked } = e.target;
+  const handleFormatChange = (idx, field, value) => {
     setFormats((prev) => {
-      const updated = [...prev];
-      updated[index] = {
-        ...updated[index],
-        [name]: type === "checkbox" ? checked : files ? files[0] : value,
-      };
-      return updated;
+      const next = [...prev];
+      next[idx] = { ...next[idx], [field]: value };
+      return next;
     });
   };
 
   const addFormat = () => {
-    setFormats((prev) => [
-      ...prev,
-      {
-        localId: uuidv4(),
-        nom: "",
-        date: "",
-        heure_depart: "",
-        presentation_parcours: "",
-        gpx_url: "",
-        type_epreuve: "",
-        distance_km: "",
-        denivele_dplus: "",
-        denivele_dmoins: "",
-        adresse_depart: "",
-        adresse_arrivee: "",
-        prix: "",
-        ravitaillements: "",
-        remise_dossards: "",
-        dotation: "",
-        fichier_reglement: null,
-        reglement_pdf_url: "",
-        nb_max_coureurs: "",
-        age_minimum: "",
-        hebergements: "",
-        imageFile: null,
-        image_url: "",
-        nb_inscrits: 0,
-        propose_repas: false,
-        prix_repas: "",
-        stock_repas: "",
-      },
-    ]);
+    setFormats((prev) => [...prev, { ...emptyFormat(), course_id: id }]);
   };
 
-  const duplicateFormat = (index) => {
-    const original = formats[index];
-    const duplicated = {
-      ...original,
-      localId: uuidv4(),
-      id: undefined,
-      nb_inscrits: 0,
-      propose_repas: !!original.prix_repas,
-    };
-    setFormats((prev) => [...prev, duplicated]);
+  const removeFormat = (idx) => {
+    setFormats((prev) => prev.filter((_, i) => i !== idx));
   };
 
-  const removeFormat = async (index) => {
-  if (!window.confirm("Supprimer ce format ? Cette action est irréversible.")) return;
-
-  const formatToRemove = formats[index];
-
-  // Si le format est déjà en base, le supprimer côté Supabase
-  if (formatToRemove.id) {
-    const { error } = await supabase
-      .from("formats")
-      .delete()
-      .eq("id", formatToRemove.id);
-
-    if (error) {
-      alert("Erreur lors de la suppression du format : " + error.message);
-      return;
+  const onSelectImage = (file) => {
+    setNewImageFile(file || null);
+    if (file) {
+      const url = URL.createObjectURL(file);
+      setImagePreview(url);
+    } else {
+      setImagePreview(null);
     }
-  }
+  };
 
-  // Ensuite : suppression locale dans le state React
-  setFormats((prev) => prev.filter((_, i) => i !== index));
-};
+  // Upload image vers bucket 'courses' et retourne l'URL publique si ton bucket est public
+  const uploadImageIfNeeded = async () => {
+    if (!newImageFile) return course?.image_url || null;
+    const fileExt = newImageFile.name.split(".").pop()?.toLowerCase() || "jpg";
+    const path = `${id}/${uuidv4()}.${fileExt}`;
 
-
-  const handleSubmit = async (e) => {
-    e.preventDefault();
-
-    let imageCourseUrl = course.image_url;
-    if (newImageFile) {
-      const { data, error } = await supabase.storage
-        .from("courses")
-        .upload(`course-${Date.now()}.jpg`, newImageFile);
-      if (!error) {
-        imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
-      }
-    }
-
-    await supabase
+    const { error: upErr } = await supabase.storage
       .from("courses")
-      .update({
-        nom: course.nom,
-        lieu: course.lieu,
-        departement: course.departement,
-        presentation: course.presentation,
-        image_url: imageCourseUrl,
-      })
-      .eq("id", id);
+      .upload(path, newImageFile, {
+        upsert: false,
+        contentType: newImageFile.type || "image/*",
+      });
 
-    for (const format of formats) {
-      let image_url = format.image_url;
-      let gpx_url = format.gpx_url;
-      let reglement_pdf_url = format.reglement_pdf_url;
+    if (upErr) throw upErr;
 
-      if (format.imageFile) {
-        const { data } = await supabase.storage
-          .from("formats")
-          .upload(`format-${Date.now()}-${format.nom}.jpg`, format.imageFile);
-        image_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
-      }
-      if (format.gpx_url) {
-        const { data } = await supabase.storage
-          .from("formats")
-          .upload(`gpx-${Date.now()}-${format.nom}.gpx`, format.gpx_url);
-        gpx_url = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
-      }
-      if (format.fichier_reglement) {
-        const { data } = await supabase.storage
-          .from("reglements")
-          .upload(`reglement-${Date.now()}-${format.nom}.pdf`, format.fichier_reglement);
-        reglement_pdf_url = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
-      }
+    const { data } = supabase.storage.from("courses").getPublicUrl(path);
+    const publicUrl = data?.publicUrl || null;
+    return publicUrl;
+  };
 
-      const prix = parseFloat(format.prix || 0);
-      const prix_repas = format.propose_repas ? parseFloat(format.prix_repas || 0) : 0;
-      const prix_total_inscription = prix + prix_repas;
+  const handleSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      if (!validCourse) throw new Error("Épreuve invalide.");
 
-      const formatData = {
-        ...format,
-        course_id: id,
-        image_url,
-        gpx_url,
-        reglement_pdf_url,
-        prix,
-        prix_repas: format.propose_repas ? prix_repas : null,
-        prix_total_repas: prix_repas,
-        prix_total_inscription,
-        stock_repas: format.propose_repas ? parseInt(format.stock_repas || 0) : 0,
+      // 1) Image
+      const image_url = await uploadImageIfNeeded();
+
+      // 2) Update course
+      const coursePayload = {
+        ...course,
+        image_url: image_url ?? course?.image_url ?? null,
+        updated_at: new Date().toISOString(),
       };
 
-      delete formatData.localId;
-      delete formatData.nb_inscrits;
-      delete formatData.imageFile;
-      delete formatData.gpx_url;
-      delete formatData.fichier_reglement;
-      delete formatData.propose_repas;
+      const { error: updErr } = await supabase
+        .from("courses")
+        .update(coursePayload)
+        .eq("id", course.id);
 
-      if (format.id) {
-        await supabase.from("formats").update(formatData).eq("id", format.id);
-      } else {
-        const { id: _, ...formatSansId } = formatData;
-        await supabase.from("formats").insert(formatSansId);
+      if (updErr) throw updErr;
+
+      // 3) Upsert formats restants
+      const withCourseId = formats.map((f) => ({
+        ...f,
+        course_id: id,
+        prix: f.prix === "" ? 0 : Number(f.prix),
+        distance_km:
+          f.distance_km === "" || f.distance_km === null
+            ? null
+            : Number(f.distance_km),
+        denivele_dplus:
+          f.denivele_dplus === "" || f.denivele_dplus === null
+            ? null
+            : Number(f.denivele_dplus),
+        nb_max_coureurs:
+          f.nb_max_coureurs === "" || f.nb_max_coureurs === null
+            ? null
+            : Number(f.nb_max_coureurs),
+        stock_repas:
+          f.stock_repas === "" || f.stock_repas === null
+            ? 0
+            : Number(f.stock_repas),
+        prix_repas:
+          f.prix_repas === "" || f.prix_repas === null
+            ? 0
+            : Number(f.prix_repas),
+      }));
+
+      if (withCourseId.length > 0) {
+        const { error: upsertErr } = await supabase.from("formats").upsert(
+          withCourseId.map((f) => {
+            // Supprime les clefs non-colonnes si besoin
+            const { __typename, ...rest } = f;
+            return rest;
+          }),
+          { onConflict: "id" }
+        );
+        if (upsertErr) throw upsertErr;
       }
-    }
 
-    alert("Épreuve modifiée avec succès !");
-    navigate("/organisateur/mon-espace");
+      // 4) Delete formats supprimés
+      const currentIds = new Set(withCourseId.filter((f) => !!f.id).map((f) => f.id));
+      const toDelete = [...initialFormatIdsRef.current].filter(
+        (fid) => !currentIds.has(fid)
+      );
+      if (toDelete.length > 0) {
+        const { error: delErr } = await supabase
+          .from("formats")
+          .delete()
+          .in("id", toDelete);
+        if (delErr) throw delErr;
+      }
+
+      // succès => on peut rafraîchir l’état "initial"
+      initialFormatIdsRef.current = new Set(
+        withCourseId.filter((f) => !!f.id).map((f) => f.id)
+      );
+
+      alert("Épreuve et formats sauvegardés avec succès.");
+      navigate("/mon-espace-organisateur"); // ajuste la route si besoin
+    } catch (e) {
+      console.error(e);
+      setError(e.message || "Erreur lors de l’enregistrement.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  if (!course) return <div>Chargement...</div>;
+  // ------------------ Render ------------------
+
+  if (loading) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h2>Chargement…</h2>
+        <p>Récupération de l’épreuve #{id}</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div style={{ padding: 24, maxWidth: 720 }}>
+        <h2>Impossible d’afficher la page</h2>
+        <p style={{ color: "crimson" }}>{error}</p>
+        <p>
+          <Link to="/mon-espace-organisateur">Retour à mon espace organisateur</Link>
+        </p>
+      </div>
+    );
+  }
+
+  if (!course) {
+    return (
+      <div style={{ padding: 24 }}>
+        <h2>Épreuve introuvable</h2>
+        <p>
+          L’identifiant “{id}” ne correspond à aucune épreuve.
+          <br />
+          <Link to="/mon-espace-organisateur">Retour</Link>
+        </p>
+      </div>
+    );
+  }
 
   return (
-    <div className="p-6 max-w-5xl mx-auto">
-      <h1 className="text-2xl font-bold mb-4">Modifier l’épreuve</h1>
-      <form onSubmit={handleSubmit} className="space-y-6">
-        <input name="nom" value={course.nom} onChange={handleCourseChange} className="border p-2 w-full" placeholder="Nom de l’épreuve" />
-        <input name="lieu" value={course.lieu} onChange={handleCourseChange} className="border p-2 w-full" placeholder="Lieu" />
-        <input name="departement" value={course.departement} onChange={handleCourseChange} className="border p-2 w-full" placeholder="Département" />
-        <textarea name="presentation" value={course.presentation} onChange={handleCourseChange} className="border p-2 w-full" placeholder="Présentation" />
-        <input type="file" name="image" onChange={handleCourseChange} />
+    <div style={{ padding: 24, maxWidth: 900, margin: "0 auto" }}>
+      <div style={{ display: "flex", alignItems: "baseline", gap: 12 }}>
+        <h1>Modifier l’épreuve</h1>
+        <code style={{ opacity: 0.6 }}>#{course.id}</code>
+      </div>
 
-        <h2 className="text-xl font-semibold mt-6">Formats</h2>
-        {formats.map((f, index) => (
-          <div key={f.localId} className="border p-4 space-y-2 bg-gray-50">
-            <input name="nom" value={f.nom} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nom du format" />
-            <input type="file" name="imageFile" onChange={(e) => handleFormatChange(index, e)} />
-            <input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <input type="time" name="heure_depart" value={f.heure_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" />
-            <textarea name="presentation_parcours" value={f.presentation_parcours} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Présentation du parcours" />
-            
-            {/* GPX */}
-            <label>
-              Fichier GPX (trace du parcours) :
-              <input type="file" name="gpx_url" accept=".gpx" onChange={(e) => handleFormatChange(index, e)} />
+      <section style={{ marginTop: 16 }}>
+        <h2>Informations générales</h2>
+
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr" }}>
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span>Nom</span>
+            <input
+              type="text"
+              value={course.nom || ""}
+              onChange={(e) => handleCourseChange("nom", e.target.value)}
+              placeholder="Nom de l’épreuve"
+            />
+          </label>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span>Lieu</span>
+            <input
+              type="text"
+              value={course.lieu || ""}
+              onChange={(e) => handleCourseChange("lieu", e.target.value)}
+              placeholder="Ville / Site"
+            />
+          </label>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span>Date (si unique / principale)</span>
+            <input
+              type="date"
+              value={course.date || ""}
+              onChange={(e) => handleCourseChange("date", e.target.value)}
+            />
+          </label>
+
+          <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+            <span>Tarifs (info libre)</span>
+            <input
+              type="text"
+              value={course.tarifs || ""}
+              onChange={(e) => handleCourseChange("tarifs", e.target.value)}
+              placeholder="Ex : de 20€ à 50€"
+            />
+          </label>
+        </div>
+
+        <label style={{ display: "flex", flexDirection: "column", gap: 6, marginTop: 12 }}>
+          <span>Description</span>
+          <textarea
+            rows={5}
+            value={course.description || ""}
+            onChange={(e) => handleCourseChange("description", e.target.value)}
+            placeholder="Description courte de l’épreuve"
+          />
+        </label>
+
+        <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr", marginTop: 12 }}>
+          <div>
+            <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <span>Image de couverture</span>
+              <input
+                type="file"
+                accept="image/*"
+                onChange={(e) => onSelectImage(e.target.files?.[0] || null)}
+              />
             </label>
-
-            <input name="type_epreuve" value={f.type_epreuve} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Type d’épreuve" />
-            <input name="distance_km" value={f.distance_km} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Distance (km)" />
-            <input name="denivele_dplus" value={f.denivele_dplus} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="D+" />
-            <input name="denivele_dmoins" value={f.denivele_dmoins} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="D-" />
-            <input name="adresse_depart" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse de départ" />
-            <input name="adresse_arrivee" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Adresse d’arrivée" />
-            <input name="prix" value={f.prix} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix (€)" />
-
-            {/* Repas */}
-            <label className="flex items-center gap-2">
-              <input type="checkbox" name="propose_repas" checked={f.propose_repas || false} onChange={(e) => handleFormatChange(index, e)} /> Proposez-vous des repas ?
-            </label>
-            {f.propose_repas && (
-              <>
-                <input name="stock_repas" value={f.stock_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre total de repas disponibles" />
-                <input name="prix_repas" value={f.prix_repas || ""} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Prix d’un repas (€)" />
-              </>
-            )}
-
-            <input name="ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Ravitaillements" />
-            <input name="remise_dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Remise des dossards" />
-            <input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Dotation" />
-
-            {/* PDF */}
-            <label>
-              Règlement (PDF) :
-              <input type="file" name="fichier_reglement" accept=".pdf" onChange={(e) => handleFormatChange(index, e)} />
-            </label>
-
-            <input name="nb_max_coureurs" value={f.nb_max_coureurs} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Nombre max de coureurs" />
-            <p className="text-sm text-gray-700">
-              Inscriptions : {f.nb_inscrits} / {f.nb_max_coureurs || "non défini"}
-              {f.nb_max_coureurs && f.nb_inscrits >= parseInt(f.nb_max_coureurs) && (
-                <span className="text-red-600 font-bold"> — Limite atteinte</span>
-              )}
+            <p style={{ fontSize: 12, opacity: 0.7, marginTop: 8 }}>
+              Bucket Supabase : <code>courses</code>
             </p>
-            <input name="age_minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Âge minimum" />
-            <textarea name="hebergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} className="border p-2 w-full" placeholder="Hébergements" />
-            <div className="flex gap-4">
-              <button type="button" onClick={() => duplicateFormat(index)} className="bg-blue-500 text-white px-3 py-1 rounded">Dupliquer</button>
-              <button type="button" onClick={() => removeFormat(index)} className="bg-red-500 text-white px-3 py-1 rounded">Supprimer</button>
+          </div>
+
+          <div>
+            <span>Aperçu</span>
+            <div
+              style={{
+                marginTop: 8,
+                width: "100%",
+                aspectRatio: "16/9",
+                border: "1px solid #ddd",
+                borderRadius: 8,
+                overflow: "hidden",
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                background: "#fafafa",
+              }}
+            >
+              {imagePreview ? (
+                <img src={imagePreview} alt="preview" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : course.image_url ? (
+                <img src={course.image_url} alt="course" style={{ width: "100%", height: "100%", objectFit: "cover" }} />
+              ) : (
+                <span style={{ opacity: 0.6 }}>Pas d’image</span>
+              )}
             </div>
           </div>
-        ))}
-        <button type="button" onClick={addFormat} className="bg-blue-600 text-white px-4 py-2 rounded">+ Ajouter un format</button>
-        <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded">✅ Enregistrer les modifications</button>
-      </form>
+        </div>
+      </section>
+
+      <section style={{ marginTop: 24 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <h2>Formats</h2>
+          <button type="button" onClick={addFormat}>+ Ajouter un format</button>
+        </div>
+
+        {formats.length === 0 && (
+          <p style={{ opacity: 0.7, marginTop: 8 }}>Aucun format pour le moment.</p>
+        )}
+
+        <div style={{ display: "grid", gap: 16, marginTop: 12 }}>
+          {formats.map((f, idx) => (
+            <div key={f.id || `new-${idx}`} style={{ padding: 12, border: "1px solid #e5e5e5", borderRadius: 8 }}>
+              <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
+                <strong>Format {idx + 1}</strong>
+                <div style={{ display: "flex", gap: 8 }}>
+                  {f.id && <code style={{ opacity: 0.6 }}>id: {f.id}</code>}
+                  <button type="button" onClick={() => removeFormat(idx)} title="Supprimer ce format">
+                    Supprimer
+                  </button>
+                </div>
+              </div>
+
+              <div style={{ display: "grid", gap: 12, gridTemplateColumns: "1fr 1fr 1fr" , marginTop: 12}}>
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>Nom du format</span>
+                  <input
+                    type="text"
+                    value={f.nom || ""}
+                    onChange={(e) => handleFormatChange(idx, "nom", e.target.value)}
+                    placeholder="Ex : 32 km / 1300 D+"
+                  />
+                </label>
+
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>Prix (€)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={f.prix ?? 0}
+                    onChange={(e) => handleFormatChange(idx, "prix", e.target.value)}
+                  />
+                </label>
+
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>Date</span>
+                  <input
+                    type="date"
+                    value={f.date || ""}
+                    onChange={(e) => handleFormatChange(idx, "date", e.target.value)}
+                  />
+                </label>
+
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>Distance (km)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={f.distance_km ?? ""}
+                    onChange={(e) => handleFormatChange(idx, "distance_km", e.target.value)}
+                  />
+                </label>
+
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>D+ (m)</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={f.denivele_dplus ?? ""}
+                    onChange={(e) => handleFormatChange(idx, "denivele_dplus", e.target.value)}
+                  />
+                </label>
+
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>Places max</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={f.nb_max_coureurs ?? ""}
+                    onChange={(e) => handleFormatChange(idx, "nb_max_coureurs", e.target.value)}
+                  />
+                </label>
+
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>Stock repas (optionnel)</span>
+                  <input
+                    type="number"
+                    inputMode="numeric"
+                    value={f.stock_repas ?? 0}
+                    onChange={(e) => handleFormatChange(idx, "stock_repas", e.target.value)}
+                  />
+                </label>
+
+                <label style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                  <span>Prix repas (€)</span>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    value={f.prix_repas ?? 0}
+                    onChange={(e) => handleFormatChange(idx, "prix_repas", e.target.value)}
+                  />
+                </label>
+              </div>
+            </div>
+          ))}
+        </div>
+      </section>
+
+      <div style={{ display: "flex", gap: 12, marginTop: 24 }}>
+        <button type="button" onClick={handleSave} disabled={saving}>
+          {saving ? "Enregistrement…" : "Enregistrer les modifications"}
+        </button>
+        <Link to="/mon-espace-organisateur">
+          <button type="button" disabled={saving}>Annuler</button>
+        </Link>
+      </div>
     </div>
   );
 }
