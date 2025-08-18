@@ -111,7 +111,8 @@ export default function Navbar() {
               .map((i) => (
                 <RoleAwareItem key={i.to} item={i} />
               ))}
-            {/* ❌ Admin supprimé de la navbar du haut */}
+            {/* ✅ Lien Admin visible en haut uniquement si admin */}
+            {isAdmin && <LinkItem to="/admin">Admin</LinkItem>}
           </nav>
         </div>
 
@@ -264,6 +265,7 @@ export default function Navbar() {
                 <LinkItem to="/admin">Admin</LinkItem>
                 <LinkItem to="/admin/courses">Courses Admin</LinkItem>
                 <LinkItem to="/admin/payouts">Reversements</LinkItem>
+                <LinkItem to="/admin/inscriptions">Inscriptions</LinkItem>
               </>
             )}
           </div>
