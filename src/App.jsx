@@ -34,6 +34,7 @@ import AdminRoute from "./components/AdminRoute";
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminCourses from "./pages/admin/AdminCourses";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminInscriptions from "./pages/admin/AdminInscriptions";
 
 function AppContent() {
   const { currentRole } = useUser();
