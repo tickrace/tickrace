@@ -92,20 +92,7 @@ export default function Navbar() {
             <span className="font-semibold tracking-tight">Tickrace</span>
           </Link>
 
-          <nav className="hidden md:flex items-center gap-1 ml-2">
-            <LinkItem to="/courses">Courses</LinkItem>
-            {activeMenu
-              .filter(i => i.priv ? isLoggedIn : true)
-              .map(i => <RoleAwareItem key={i.to} item={i} />)}
-            {isAdmin && (
-              <>
-                <LinkItem to="/admin">Admin</LinkItem>
-                <LinkItem to="/admin/inscriptions">Inscriptions</LinkItem>
-                <LinkItem to="/admin/payouts">Paiements</LinkItem>
-                <LinkItem to="/admin/courses">Courses Admin</LinkItem>
-              </>
-            )}
-          </nav>
+        
         </div>
 
         {/* Right: User menu */}
