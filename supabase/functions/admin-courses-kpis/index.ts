@@ -2,29 +2,10 @@
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.4";
 import { assertIsAdmin } from "../_shared/isAdmin.ts";
-
-// --- CORS helpers ---
-const ALLOWED_ORIGINS = new Set([
-  "https://www.tickrace.com",
-  "http://localhost:5173",
-  "http://127.0.0.1:5173",
-]);
-function corsHeaders(req: Request) {
-  const origin = req.headers.get("origin") ?? "";
-  const allowOrigin = ALLOWED_ORIGINS.has(origin) ? origin : "*";
-  const reqHeaders = req.headers.get("access-control-request-headers") || "authorization, content-type";
-  return {
-    "Access-Control-Allow-Origin": allowOrigin,
-    "Vary": "Origin",
-    "Access-Control-Allow-Headers": reqHeaders,
-    "Access-Control-Allow-Methods": "GET,POST,OPTIONS",
-  };
-}
+import { handlePreflight, jsonWithCors, errorWithCors, withCors } from "../_shared/cors.ts";
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { status: 204, headers: corsHeaders(req) });
-  }
+  if (req.method === "OPTIONS") return handlePreflight(req);
 
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -35,19 +16,16 @@ serve(async (req) => {
     await assertIsAdmin(req, supabase);
 
     const { data, error } = await supabase
-      .from("courses")
-      .select("id, nom, created_at")
-      .order("created_at", { ascending: false });
-    if (error) throw new Error(error.message);
+      .from("admin_courses_kpis")
+      .select("*")
+      .order("course_nom", { ascending: true })
+      .limit(50);
 
-    return new Response(JSON.stringify(data), {
-      status: 200,
-      headers: { "content-type": "application/json", ...corsHeaders(req) },
-    });
-  } catch (err) {
-    return new Response(err.message ?? "Unexpected error", {
-      status: 500,
-      headers: corsHeaders(req),
-    });
+    if (error) return errorWithCors(req, error.message, 500);
+
+    return jsonWithCors(req, data ?? [], 200);
+  } catch (e) {
+    if (e instanceof Response) return withCors(req, e);
+    return errorWithCors(req, "Unexpected error", 500);
   }
 });
