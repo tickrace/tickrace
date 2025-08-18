@@ -76,15 +76,15 @@ function AppContent() {
 
         {/* Admin (protégé & invisible) */}
         <Route
-          path="/admin"
-          element={
-            <AdminRoute>
-              <AdminLayout>
-                <AdminDashboard />
-              </AdminLayout>
-            </AdminRoute>
-          }
-        />
+  path="/admin/dashboard"
+  element={
+    <AdminRoute>
+      <AdminLayout>
+        <AdminDashboard />
+      </AdminLayout>
+    </AdminRoute>
+  }
+/>
         <Route
           path="/admin/courses"
           element={
