@@ -149,7 +149,7 @@ export default function MonEspaceOrganisateur() {
 
               <div className="flex flex-wrap gap-2">
                 <Link
-                  to={`/organisateur/modifier-course/${course.id}`}
+                  to={`/modifier-course/${course.id}`}
                   className="bg-blue-600 text-white px-3 py-1 rounded hover:bg-blue-700"
                 >
                   ✏️ Modifier
