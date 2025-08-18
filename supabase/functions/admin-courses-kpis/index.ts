@@ -3,7 +3,6 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.4";
 import { assertIsAdmin } from "../_shared/isAdmin.ts";
 
-// Champs autorisés pour le tri
 const ALLOWED_ORDER_BY = new Set([
   "course_nom",
   "total_inscriptions",
@@ -13,7 +12,7 @@ const ALLOWED_ORDER_BY = new Set([
 ]);
 
 serve(async (req) => {
-  // CORS preflight
+  // CORS
   if (req.method === "OPTIONS") {
     return new Response("ok", {
       status: 204,
@@ -35,44 +34,34 @@ serve(async (req) => {
 
     const body = await req.json().catch(() => ({}));
     const {
-      search,            // string (recherche nom de course)
-      organiser_id,      // uuid
-      order_by = "course_nom",         // champ de tri
-      order_dir = "asc",               // 'asc' | 'desc'
-      limit = 25,                      // pagination
-      offset = 0,                      // pagination
+      search,
+      organiser_id,
+      order_by = "course_nom",
+      order_dir = "asc",
+      limit = 25,
+      offset = 0,
     } = body || {};
 
-    const dir = (String(order_dir).toLowerCase() === "desc") ? "desc" : "asc";
+    const dir = String(order_dir).toLowerCase() === "desc" ? "desc" : "asc";
     const ord = ALLOWED_ORDER_BY.has(order_by) ? order_by : "course_nom";
 
-    // ---------- COUNT ----------
+    // COUNT
     let countQuery = supabase
       .from("admin_courses_kpis")
       .select("course_id", { count: "exact", head: true });
 
     if (organiser_id) countQuery = countQuery.eq("organisateur_id", organiser_id);
-    if (search && String(search).trim().length > 0) {
-      countQuery = countQuery.ilike("course_nom", `%${String(search).trim()}%`);
-    }
+    if (search?.trim()) countQuery = countQuery.ilike("course_nom", `%${search.trim()}%`);
 
     const { count, error: countErr } = await countQuery;
     if (countErr) return new Response(countErr.message, { status: 500 });
 
-    // ---------- DATA ----------
-    let dataQuery = supabase
-      .from("admin_courses_kpis")
-      .select("*");
-
+    // DATA
+    let dataQuery = supabase.from("admin_courses_kpis").select("*");
     if (organiser_id) dataQuery = dataQuery.eq("organisateur_id", organiser_id);
-    if (search && String(search).trim().length > 0) {
-      dataQuery = dataQuery.ilike("course_nom", `%${String(search).trim()}%`);
-    }
-
-    // Tri
+    if (search?.trim()) dataQuery = dataQuery.ilike("course_nom", `%${search.trim()}%`);
     dataQuery = dataQuery.order(ord as any, { ascending: dir === "asc", nullsFirst: true });
 
-    // Pagination
     const from = Math.max(0, Number(offset));
     const to = from + Math.max(1, Number(limit)) - 1;
     dataQuery = dataQuery.range(from, to);
@@ -82,7 +71,10 @@ serve(async (req) => {
 
     return new Response(JSON.stringify({ rows: data ?? [], total: count ?? 0 }), {
       status: 200,
-      headers: { "content-type": "application/json", "Access-Control-Allow-Origin": "*" },
+      headers: {
+        "content-type": "application/json",
+        "Access-Control-Allow-Origin": "*",
+      },
     });
   } catch (resp) {
     if (resp instanceof Response) return resp;
