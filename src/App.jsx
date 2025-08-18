@@ -1,6 +1,6 @@
 ﻿// src/App.jsx
 import React from "react";
-import Payouts from "./pages/admin/Payouts";
+
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Courses from "./pages/Courses";
