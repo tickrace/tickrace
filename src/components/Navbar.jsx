@@ -2,13 +2,16 @@ import React, { useEffect, useRef, useState } from "react";
 import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
 import { useUser } from "../contexts/UserContext";
 import { supabase } from "../supabase";
+import useIsAdmin from "../hooks/useIsAdmin";
 
 function cn(...cls) { return cls.filter(Boolean).join(" "); }
 
 export default function Navbar() {
   const { session, currentRole, switchRole, setCurrentRole } = useUser();
   const isLoggedIn = !!session;
-  const isAdmin = !!session?.user?.app_metadata?.roles?.includes?.("admin");
+//  const isAdmin = !!session?.user?.app_metadata?.roles?.includes?.("admin");
+  const { isAdmin } = useIsAdmin(); // au lieu de lire app_metadata
+
   const navigate = useNavigate();
   const location = useLocation();
 
