@@ -9,7 +9,6 @@ function cn(...cls) { return cls.filter(Boolean).join(" "); }
 export default function Navbar() {
   const { session, currentRole, switchRole, setCurrentRole } = useUser();
   const isLoggedIn = !!session;
-//  const isAdmin = !!session?.user?.app_metadata?.roles?.includes?.("admin");
   const { isAdmin } = useIsAdmin(); // au lieu de lire app_metadata
 
   const navigate = useNavigate();
@@ -101,8 +100,9 @@ export default function Navbar() {
             {isAdmin && (
               <>
                 <LinkItem to="/admin">Admin</LinkItem>
+                <LinkItem to="/admin/inscriptions">Inscriptions</LinkItem>
+                <LinkItem to="/admin/payouts">Paiements</LinkItem>
                 <LinkItem to="/admin/courses">Courses Admin</LinkItem>
-                <LinkItem to="/admin/payouts">Reversements</LinkItem>
               </>
             )}
           </nav>
@@ -249,8 +249,9 @@ export default function Navbar() {
             {isAdmin && (
               <>
                 <LinkItem to="/admin">Admin</LinkItem>
+                <LinkItem to="/admin/inscriptions">Inscriptions</LinkItem>
+                <LinkItem to="/admin/payouts">Paiements</LinkItem>
                 <LinkItem to="/admin/courses">Courses Admin</LinkItem>
-                <LinkItem to="/admin/payouts">Reversements</LinkItem>
               </>
             )}
           </div>
