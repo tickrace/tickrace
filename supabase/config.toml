@@ -50,3 +50,6 @@ verify_jwt = false
 
 [functions.admin-courses-kpis]
 verify_jwt = false
+
+[functions.cors-ping]
+verify_jwt = false
