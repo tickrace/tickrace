@@ -1,11 +1,12 @@
-// src/components/AdminRoute.jsx
 import React from "react";
 import { Navigate } from "react-router-dom";
-import useRequireAdmin from "../hooks/useRequireAdmin";
+import useIsAdmin from "../hooks/useIsAdmin";
 
 export default function AdminRoute({ children }) {
-  const { loading, allowed } = useRequireAdmin();
-  if (loading) return null;
-  if (!allowed) return <Navigate to="/" replace />;
+  const { isAdmin, loading } = useIsAdmin();
+
+  if (loading) return null;            // tu peux mettre un loader si tu veux
+  if (!isAdmin) return <Navigate to="/" replace />;
+
   return children;
 }
