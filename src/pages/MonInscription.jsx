@@ -8,7 +8,7 @@ function eur(cents) {
   return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
 
-// Seuls ces champs seront mis à jour côté DB
+// Seuls ces champs seront mis à jour côté DB (⚠️ sans nombre_repas)
 const MODIFIABLE_FIELDS = [
   "nom",
   "prenom",
@@ -106,7 +106,6 @@ export default function MonInscription() {
     try {
       setSaving(true);
       setSaveMsg(null);
-      // Payload sécurisé: uniquement les champs autorisés
       const payload = {};
       for (const key of MODIFIABLE_FIELDS) {
         if (Object.prototype.hasOwnProperty.call(inscription, key)) {
@@ -127,7 +126,6 @@ export default function MonInscription() {
   // 4) États d'annulation/ remboursements
   const statut = inscription?.statut || "";
   const isAlreadyCancelled = useMemo(() => {
-    // Couvre anciens et nouveaux statuts
     const doneStatuses = new Set([
       "annulé",
       "remboursé",
@@ -155,122 +153,176 @@ export default function MonInscription() {
 
   // Badge statut
   const statusBadge = useMemo(() => {
-    const base = "inline-flex items-center gap-1 px-2 py-1 rounded text-xs font-semibold";
+    const base = "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-semibold";
     switch (statut) {
       case "remboursée_totalement":
-        return <span className={`${base} bg-green-100 text-green-800`}>Remboursée totalement</span>;
+        return <span className={`${base} bg-emerald-100 text-emerald-800`}>Remboursée totalement</span>;
       case "remboursée_partiellement":
         return <span className={`${base} bg-amber-100 text-amber-800`}>Remboursée partiellement</span>;
       case "annulée":
       case "annulé":
       case "remboursé":
-        return <span className={`${base} bg-red-100 text-red-800`}>Annulée</span>;
+        return <span className={`${base} bg-rose-100 text-rose-800`}>Annulée</span>;
       default:
-        return <span className={`${base} bg-emerald-100 text-emerald-800`}>Active</span>;
+        return <span className={`${base} bg-neutral-200 text-neutral-900`}>Active</span>;
     }
   }, [statut]);
 
-  if (loading || !inscription) return <p className="p-6">Chargement...</p>;
+  if (loading || !inscription) {
+    return (
+      <div className="max-w-4xl mx-auto px-4 py-16 text-neutral-600">
+        Chargement…
+      </div>
+    );
+  }
 
   return (
-    <div className="max-w-3xl mx-auto p-6 bg-white shadow-md rounded">
-      <h1 className="text-3xl font-bold mb-2 text-center text-gray-800">Mon inscription</h1>
-
-      <div className="text-center mb-6">{statusBadge}</div>
-
-      {/* Message de sauvegarde */}
-      {saveMsg && (
-        <div
-          className={`mb-4 rounded border p-3 text-sm ${
-            saveMsg.type === "success"
-              ? "bg-green-50 border-green-200 text-green-800"
-              : "bg-red-50 border-red-200 text-red-800"
-          }`}
-        >
-          {saveMsg.text}
+    <div className="mx-auto max-w-4xl">
+      {/* HERO — titre + slogan TickRace */}
+      <header className="px-4 sm:px-6 md:px-8 pt-8">
+        <div className="inline-flex items-center gap-2 rounded-full bg-neutral-900 text-white ring-1 ring-black/10 px-3 py-1 text-xs">
+          • Espace coureur
         </div>
-      )}
+        <h1 className="mt-3 text-3xl sm:text-4xl font-black tracking-tight">
+          Mon <span className="text-orange-500">inscription</span>
+        </h1>
+        <p className="mt-2 text-neutral-600 max-w-2xl">
+          Mettez à jour vos informations, choisissez votre visibilité résultats et gérez
+          une éventuelle annulation — <span className="font-semibold">simple et transparent</span>.
+        </p>
+      </header>
 
-      <div className="grid grid-cols-1 gap-4">
-        {[
-          "nom",
-          "prenom",
-          "genre",
-          "date_naissance",
-          "nationalite",
-          "email",
-          "telephone",
-          "adresse",
-          "adresse_complement",
-          "code_postal",
-          "ville",
-          "pays",
-          "club",
-          "justificatif_type",
-          "numero_licence",
-          "contact_urgence_nom",
-          "contact_urgence_telephone",
-          "pps_identifier",
-        ].map((field) => (
-          <input
-            key={field}
-            type="text"
-            name={field}
-            value={inscription[field] || ""}
-            onChange={handleChange}
-            placeholder={field.replace(/_/g, " ").toUpperCase()}
-            className="w-full p-3 border border-gray-300 rounded disabled:bg-gray-50"
-            disabled={isLocked}
-          />
-        ))}
-
-        <div className="flex items-center space-x-2">
-          <input
-            type="checkbox"
-            name="apparaitre_resultats"
-            checked={!!inscription.apparaitre_resultats}
-            onChange={handleChange}
-            disabled={isLocked}
-          />
-          <label>Apparaître dans les résultats</label>
-        </div>
-      </div>
-
-      {/* Encadré barème (pédagogique) */}
-      <div className="mt-4 text-sm text-gray-600">
-        <b>Barème de remboursement :</b> &gt;30j : 90% • 15–29j : 50% • 7–14j : 25% • &lt;7j : 0%<br />
-        Le remboursement s’applique sur le montant payé <i>déduction faite des frais non remboursables</i> (Stripe + Tickrace).
-      </div>
-
-      <div className="flex justify-center gap-3 mt-6">
-        <button
-          onClick={handleSave}
-          className={`${
-            isLocked ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-          } text-white font-semibold px-6 py-3 rounded`}
-          disabled={isLocked || saving}
-        >
-          {saving ? "Enregistrement…" : "Enregistrer les modifications"}
-        </button>
-
-        {canCancel ? (
-          <button
-            onClick={() => setOpenCancelModal(true)}
-            className={`${
-              quote && (quote.percent === 0 || quote.refund_cents <= 0)
-                ? "bg-gray-400 cursor-not-allowed"
-                : "bg-purple-600 hover:bg-purple-700"
-            } text-white font-semibold px-6 py-3 rounded`}
-            disabled={quoteLoading || (quote && (quote.percent === 0 || quote.refund_cents <= 0))}
-            title={quote && quote.percent === 0 ? "Aucun remboursement à ce stade" : ""}
+      {/* CARD PRINCIPALE */}
+      <div className="px-4 sm:px-6 md:px-8 pb-10">
+        {/* Message de sauvegarde */}
+        {saveMsg && (
+          <div
+            className={`mt-6 mb-4 rounded-xl border p-3 text-sm ${
+              saveMsg.type === "success"
+                ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                : "bg-rose-50 border-rose-200 text-rose-800"
+            }`}
           >
-            {cancelLabel}
-          </button>
-        ) : (
-          <p className="text-red-600 font-semibold self-center">
-            Cette inscription est déjà {statut}.
-          </p>
+            {saveMsg.text}
+          </div>
         )}
+
+        <div className="mt-6 rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          {/* En-tête statut */}
+          <div className="flex items-center justify-between gap-4 border-b border-neutral-200 px-4 sm:px-6 py-4">
+            <div className="text-sm text-neutral-600">
+              Statut de l’inscription
+            </div>
+            {statusBadge}
+          </div>
+
+          {/* Formulaire */}
+          <div className="px-4 sm:px-6 py-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {[
+                { name: "nom", label: "Nom" },
+                { name: "prenom", label: "Prénom" },
+                { name: "genre", label: "Genre" },
+                { name: "date_naissance", label: "Date de naissance", type: "date" },
+                { name: "nationalite", label: "Nationalité" },
+                { name: "email", label: "Email", type: "email" },
+                { name: "telephone", label: "Téléphone" },
+                { name: "adresse", label: "Adresse", full: true },
+                { name: "adresse_complement", label: "Complément d'adresse", full: true },
+                { name: "code_postal", label: "Code postal" },
+                { name: "ville", label: "Ville" },
+                { name: "pays", label: "Pays" },
+                { name: "club", label: "Club (facultatif)", full: true },
+                { name: "justificatif_type", label: "Justificatif (licence / pps)" },
+                { name: "numero_licence", label: "N° de licence" },
+                { name: "contact_urgence_nom", label: "Contact d'urgence - Nom", full: true },
+                { name: "contact_urgence_telephone", label: "Contact d'urgence - Téléphone" },
+                { name: "pps_identifier", label: "Identifiant PPS" },
+              ].map((f) => (
+                <label
+                  key={f.name}
+                  className={`flex flex-col ${f.full ? "sm:col-span-2" : ""}`}
+                >
+                  <span className="text-xs font-semibold text-neutral-600">
+                    {f.label}
+                  </span>
+                  <input
+                    type={f.type || "text"}
+                    name={f.name}
+                    value={inscription[f.name] || ""}
+                    onChange={handleChange}
+                    disabled={isLocked}
+                    className="mt-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300 disabled:bg-neutral-50"
+                    placeholder={f.label}
+                  />
+                </label>
+              ))}
+
+              {/* Visibilité résultats */}
+              <div className="sm:col-span-2">
+                <label className="inline-flex items-center gap-2 text-sm select-none">
+                  <input
+                    type="checkbox"
+                    name="apparaitre_resultats"
+                    checked={!!inscription.apparaitre_resultats}
+                    onChange={handleChange}
+                    disabled={isLocked}
+                    className="h-4 w-4 rounded border-neutral-300 accent-orange-500"
+                  />
+                    <span className="text-neutral-800">
+                      J’accepte d’apparaître dans les résultats officiels
+                    </span>
+                </label>
+                <p className="mt-1 text-xs text-neutral-500">
+                  Conformément à la réglementation FFA, vous pouvez choisir d’apparaître ou non.
+                </p>
+              </div>
+            </div>
+
+            {/* Barème de remboursement */}
+            <div className="mt-6 rounded-xl border border-dashed border-neutral-300 p-4 text-sm text-neutral-700">
+              <b>Barème de remboursement :</b> &gt;30j : 90% • 15–29j : 50% • 7–14j : 25% • &lt;7j : 0%
+              <br />
+              Calculé sur le montant payé, <i>déduction faite des frais non remboursables</i> (Stripe + TickRace).
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 flex flex-col sm:flex-row gap-3 sm:items-center">
+              <button
+                onClick={handleSave}
+                className={`inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white ${
+                  isLocked
+                    ? "bg-neutral-400 cursor-not-allowed"
+                    : "bg-orange-500 hover:brightness-110"
+                }`}
+                disabled={isLocked || saving}
+              >
+                {saving ? "Enregistrement…" : "Enregistrer les modifications"}
+              </button>
+
+              {canCancel ? (
+                <button
+                  onClick={() => setOpenCancelModal(true)}
+                  className={`inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-neutral-900 border ${
+                    quote && (quote.percent === 0 || quote.refund_cents <= 0)
+                      ? "bg-neutral-100 border-neutral-200 cursor-not-allowed"
+                      : "bg-white border-neutral-300 hover:bg-neutral-50"
+                  }`}
+                  disabled={quoteLoading || (quote && (quote.percent === 0 || quote.refund_cents <= 0))}
+                  title={quote && quote.percent === 0 ? "Aucun remboursement à ce stade" : ""}
+                >
+                  {quoteLoading ? "Calcul du remboursement…" : (quote
+                    ? (quote.percent === 0 || quote.refund_cents <= 0
+                        ? "Annuler — aucun remboursement (barème)"
+                        : `Annuler — recevoir ~${eur(quote.refund_cents)}`)
+                    : "Annuler mon inscription")}
+                </button>
+              ) : (
+                <p className="text-rose-700 font-medium">Cette inscription est déjà {statut}.</p>
+              )}
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* Modal Annulation + Remboursement */}
