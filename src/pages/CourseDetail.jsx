@@ -27,6 +27,21 @@ const fmtDate = (d) =>
         year: "numeric",
       }).format(typeof d === "string" ? new Date(d) : d)
     : "";
+// Helper téléchargement GPX
+const downloadFile = (url, filename = "parcours.gpx") => {
+  try {
+    const a = document.createElement("a");
+    a.href = url;
+    a.setAttribute("download", filename);
+    a.setAttribute("rel", "noopener");
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  } catch {
+    // Fallback si le navigateur bloque le download programmatique
+    window.open(url, "_blank", "noopener");
+  }
+};
 
 export default function CourseDetail() {
   const { id } = useParams();
@@ -344,14 +359,36 @@ export default function CourseDetail() {
                     </div>
 
                     {selectedFormat?.gpx_url ? (
-                      <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-                        <Suspense fallback={<div className="p-4 text-gray-600">Chargement de la carte…</div>}>
-                          <GPXViewer gpxUrl={selectedFormat.gpx_url} height={420} allowDownload responsive />
-                        </Suspense>
-                      </div>
-                    ) : (
-                      <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
-                    )}
+  <>
+    <div className="flex items-center justify-between mb-2">
+      <div className="text-sm text-gray-600">
+        GPX du format <strong>{selectedFormat.nom}</strong>
+        {selectedFormat.date ? <> — {fmtDate(selectedFormat.date)}</> : null}
+      </div>
+      <button
+        onClick={() =>
+          downloadFile(
+            selectedFormat.gpx_url,
+            `gpx-${(course.nom || "epreuve").replace(/[^\w-]+/g, "_")}-${(selectedFormat.nom || "format").replace(/[^\w-]+/g, "_")}.gpx`
+          )
+        }
+        className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+        title="Télécharger le tracé GPX"
+      >
+        ⬇ Télécharger le GPX
+      </button>
+    </div>
+
+    <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
+      <Suspense fallback={<div className="p-4 text-gray-600">Chargement de la carte…</div>}>
+        <GPXViewer gpxUrl={selectedFormat.gpx_url} height={420} allowDownload responsive />
+      </Suspense>
+    </div>
+  </>
+) : (
+  <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
+)}
+
 
                     {selectedFormat?.presentation_parcours && (
                       <p className="text-gray-700">{selectedFormat.presentation_parcours}</p>
