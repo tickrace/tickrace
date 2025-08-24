@@ -1,6 +1,6 @@
 ﻿// src/App.jsx
 import React from "react";
-
+import Home from "./pages/Home";  
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
 import Courses from "./pages/Courses";
@@ -48,6 +48,7 @@ function AppContent() {
       <Navbar key={currentRole} />
       <Routes>
         {/* Public */}
+        <Route path="/" element={<Home />} />
         <Route path="/admin" element={<AdminHome />} />
 
         <Route path="/modifier-course/:id" element={<ModifierCourse />} />
