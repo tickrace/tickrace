@@ -1,232 +1,334 @@
-import React, { useEffect, useState, useRef } from "react";
-import {
-  MapContainer,
-  TileLayer,
-  Polyline,
-  Marker,
-  Popup,
-  useMap,
-} from "react-leaflet";
+// src/components/GPXViewer.jsx
+import React, { useEffect, useRef, useState } from "react";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-} from "recharts";
 
-const startIcon = new L.Icon({
-iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
-
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
+// Icônes simples départ/arrivée
+const startIcon = new L.DivIcon({
+  className: "gpx-start-marker",
+  html: '<div style="background:#10b981;border:2px solid #fff;width:12px;height:12px;border-radius:9999px;box-shadow:0 0 0 2px #10b98155"></div>',
+  iconSize: [12, 12],
+  iconAnchor: [6, 6],
+});
+const finishIcon = new L.DivIcon({
+  className: "gpx-finish-marker",
+  html: '<div style="background:#ef4444;border:2px solid #fff;width:12px;height:12px;border-radius:2px;transform:rotate(45deg);box-shadow:0 0 0 2px #ef444455"></div>',
+  iconSize: [12, 12],
+  iconAnchor: [6, 6],
 });
 
-const endIcon = new L.Icon({
- iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
+function metersToKm(m) { return (m / 1000); }
+function fmtKm(km) { return `${km.toFixed(km >= 100 ? 0 : 1)} km`; }
+function fmtMeters(m) { return `${Math.round(m)} m`; }
 
-  iconSize: [25, 41],
-  iconAnchor: [12, 41],
-});
-
-const waypointIcon = new L.Icon({
-iconUrl: "https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-red.png",
-
-  iconSize: [24, 24],
-  iconAnchor: [12, 24],
-});
-
-function ResetViewButton({ bounds }) {
-  const map = useMap();
-  return (
-    <button
-      onClick={() => map.fitBounds(bounds)}
-      className="absolute top-2 right-2 z-[1000] bg-white p-2 shadow rounded text-sm hover:bg-gray-200"
-    >
-      🔄 Centrer
-    </button>
-  );
+function haversine(lat1, lon1, lat2, lon2) {
+  const R = 6371000;
+  const φ1 = lat1 * Math.PI/180, φ2 = lat2 * Math.PI/180;
+  const dφ = (lat2-lat1) * Math.PI/180;
+  const dλ = (lon2-lon1) * Math.PI/180;
+  const a = Math.sin(dφ/2)**2 + Math.cos(φ1)*Math.cos(φ2)*Math.sin(dλ/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
 }
 
-export default function GPXViewer({ gpxUrl }) {
-  const [positions, setPositions] = useState([]);
-  const [bounds, setBounds] = useState(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [profileData, setProfileData] = useState([]);
-  const [stats, setStats] = useState({ distance: 0, elevationGain: 0 });
-  const [waypoints, setWaypoints] = useState([]);
-  const [activePoint, setActivePoint] = useState(null);
-  const [mapLayer, setMapLayer] = useState("osm");
-  const dynamicMarkerRef = useRef();
-  const mapRef = useRef();
+// Lissage simple pour D+/D-
+function clampDelta(d) { if (!isFinite(d)) return 0; if (Math.abs(d) < 0.5) return 0; return d; }
 
+export default function GPXViewer({
+  gpxUrl,
+  height = 420,
+  responsive = true,
+  allowDownload = false,
+  allowBaseMapChoice = true
+}) {
+  const mapEl = useRef(null);
+  const mapRef = useRef(null);
+  const layerRefs = useRef({}); // basemaps
+  const [loading, setLoading] = useState(true);
+  const [track, setTrack] = useState([]); // [{lat, lon, ele?}]
+  const [stats, setStats] = useState(null); // {dist, dplus, dminus, amin, amax, avgGrade}
+  const [error, setError] = useState(null);
+
+  // fetch + parse GPX
   useEffect(() => {
-    if (!gpxUrl) return;
-
-    const fetchGPX = async () => {
+    let cancelled = false;
+    async function load() {
+      setLoading(true); setError(null); setTrack([]); setStats(null);
       try {
-        setIsLoading(true);
         const res = await fetch(gpxUrl);
-        if (!res.ok) throw new Error("Impossible de charger le GPX");
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
         const text = await res.text();
-
+        if (cancelled) return;
         const parser = new DOMParser();
-        const xmlDoc = parser.parseFromString(text, "application/xml");
+        const xml = parser.parseFromString(text, "application/xml");
+        const pts = Array.from(xml.querySelectorAll("trkpt")).map((n) => ({
+          lat: parseFloat(n.getAttribute("lat")),
+          lon: parseFloat(n.getAttribute("lon")),
+          ele: n.querySelector("ele") ? parseFloat(n.querySelector("ele").textContent) : null,
+        })).filter(p => Number.isFinite(p.lat) && Number.isFinite(p.lon));
 
-        const trkpts = xmlDoc.getElementsByTagName("trkpt");
-        const coords = [];
-        const profile = [];
-        let dist = 0;
-        let elevationGain = 0;
+        if (pts.length < 2) throw new Error("Trace insuffisante");
 
-        for (let i = 0; i < trkpts.length; i++) {
-          const lat = parseFloat(trkpts[i].getAttribute("lat"));
-          const lon = parseFloat(trkpts[i].getAttribute("lon"));
-          const ele = parseFloat(trkpts[i].getElementsByTagName("ele")[0]?.textContent || "0");
-          coords.push([lat, lon, ele]);
-
-          if (i > 0) {
-            const [lat1, lon1, ele1] = coords[i - 1];
-            const R = 6371e3;
-            const φ1 = (lat1 * Math.PI) / 180;
-            const φ2 = (lat * Math.PI) / 180;
-            const Δφ = ((lat - lat1) * Math.PI) / 180;
-            const Δλ = ((lon - lon1) * Math.PI) / 180;
-            const a = Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
-            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-            dist += R * c;
-
-            if (ele > ele1) elevationGain += ele - ele1;
+        // stats
+        let dist = 0, dplus = 0, dminus = 0, amin = Infinity, amax = -Infinity;
+        for (let i=1;i<pts.length;i++) {
+          dist += haversine(pts[i-1].lat, pts[i-1].lon, pts[i].lat, pts[i].lon);
+        }
+        for (let i=1;i<pts.length;i++) {
+          const a1 = pts[i-1].ele, a2 = pts[i].ele;
+          if (a1 != null && a2 != null) {
+            const delta = clampDelta(a2 - a1);
+            if (delta > 0) dplus += delta;
+            else dminus += Math.abs(delta);
+            amin = Math.min(amin, a1, a2);
+            amax = Math.max(amax, a1, a2);
           }
-          profile.push({ km: dist / 1000, ele, lat, lon });
         }
+        if (amin === Infinity) { amin = null; amax = null; } // pas d’altitude dispo
+        const avgGrade = amin != null && amax != null && dist > 0
+          ? ((dplus - dminus) / dist) * 100
+          : null;
 
-        setPositions(coords);
-        if (coords.length > 0) setBounds(L.latLngBounds(coords));
-        setProfileData(profile);
-        setStats({ distance: dist / 1000, elevationGain });
-
-        const wpts = xmlDoc.getElementsByTagName("wpt");
-        const wptsArray = [];
-        for (let i = 0; i < wpts.length; i++) {
-          const lat = parseFloat(wpts[i].getAttribute("lat"));
-          const lon = parseFloat(wpts[i].getAttribute("lon"));
-          const name = wpts[i].getElementsByTagName("name")[0]?.textContent || "Waypoint";
-          const desc = wpts[i].getElementsByTagName("desc")[0]?.textContent || "";
-          wptsArray.push({ lat, lon, name, desc });
+        if (!cancelled) {
+          setTrack(pts);
+          setStats({ dist, dplus, dminus, amin, amax, avgGrade });
         }
-        setWaypoints(wptsArray);
-      } catch (error) {
-        console.error("Erreur GPX:", error);
+      } catch (e) {
+        if (!cancelled) setError(e.message || "Impossible de charger le GPX");
       } finally {
-        setIsLoading(false);
+        if (!cancelled) setLoading(false);
       }
-    };
-
-    fetchGPX();
+    }
+    if (gpxUrl) load();
+    return () => { cancelled = true; };
   }, [gpxUrl]);
 
+  // init Leaflet
   useEffect(() => {
-    if (!bounds) return;
-    const map = mapRef.current;
-    if (map) {
-      map.fitBounds(bounds);
+    if (!mapEl.current) return;
+    if (mapRef.current) return; // init once
+
+    const map = L.map(mapEl.current, {
+      zoomControl: false,
+      attributionControl: true,
+    });
+    mapRef.current = map;
+
+    // Basemaps
+    const osmLight = L.tileLayer(
+      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+      { maxZoom: 19, attribution: "&copy; OpenStreetMap" }
+    ).addTo(map);
+
+    const osmDark = L.tileLayer(
+      "https://{s}.basemaptile.openstreetmap.de/black_white/{z}/{x}/{y}.png",
+      { maxZoom: 18, attribution: "&copy; OpenStreetMap" }
+    );
+
+    const esriSat = L.tileLayer(
+      "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+      { maxZoom: 19, attribution: "&copy; Esri" }
+    );
+
+    layerRefs.current = { "OSM Clair": osmLight, "OSM Dark": osmDark, "Satellite": esriSat };
+
+    if (allowBaseMapChoice) {
+      L.control.layers(layerRefs.current, {}, { position: "topright" }).addTo(map);
     }
-  }, [bounds]);
 
-  const start = positions[0];
-  const end = positions[positions.length - 1];
+    L.control.zoom({ position: "topright" }).addTo(map);
 
-  const tileURLs = {
-    osm: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-    satellite: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-  };
+    // Cleanup à l’unmount
+    return () => {
+      map.remove();
+      mapRef.current = null;
+    };
+  }, [allowBaseMapChoice]);
+
+  // afficher la trace
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || track.length < 2) return;
+
+    // clear anciens layers trace
+    const toRemove = [];
+    map.eachLayer((l) => {
+      // ne pas retirer les tuiles
+      if (!(l instanceof L.TileLayer)) toRemove.push(l);
+    });
+    toRemove.forEach((l) => map.removeLayer(l));
+
+    const latlngs = track.map((p) => [p.lat, p.lon]);
+    const line = L.polyline(latlngs, {
+      color: "#111827", // gray-900
+      weight: 4,
+      opacity: 0.9,
+    }).addTo(map);
+
+    const start = latlngs[0];
+    const end   = latlngs[latlngs.length - 1];
+    L.marker(start, { icon: startIcon }).addTo(map).bindTooltip("Départ");
+    L.marker(end,   { icon: finishIcon }).addTo(map).bindTooltip("Arrivée");
+
+    map.fitBounds(line.getBounds(), { padding: [20, 20] });
+
+    // bouton recadrer
+    L.control.custom = L.Control.extend({
+      options: { position: "topright" },
+      onAdd: function() {
+        const btn = L.DomUtil.create("button", "leaflet-bar");
+        btn.innerHTML = "↺";
+        btn.title = "Recentrer la trace";
+        btn.style.cursor = "pointer";
+        btn.style.padding = "6px 10px";
+        L.DomEvent.on(btn, "click", (e) => {
+          L.DomEvent.stopPropagation(e);
+          map.fitBounds(line.getBounds(), { padding: [20, 20] });
+        });
+        return btn;
+      }
+    });
+    const recenter = new L.control.custom();
+    recenter.addTo(map);
+
+    // Cleanup local (on retire seulement nos layers non-tile)
+    return () => {
+      try { map.removeControl(recenter); } catch {}
+      try { map.removeLayer(line); } catch {}
+    };
+  }, [track]);
 
   return (
-    <div className="space-y-4">
-      <div className="relative h-96">
-        <MapContainer
-          ref={mapRef}
-          bounds={bounds || [[0, 0], [0, 0]]}
-          style={{ height: "100%", width: "100%" }}
-        >
-          <TileLayer
-            url={tileURLs[mapLayer]}
-            attribution={
-              mapLayer === "osm"
-                ? "&copy; OpenStreetMap"
-                : "Tiles &copy; Esri &mdash; Source: Esri"
-            }
-          />
-
-          <Polyline positions={positions.map(([lat, lon]) => [lat, lon])} color="blue" />
-
-          {start && <Marker position={[start[0], start[1]]} icon={startIcon}><Popup>Départ</Popup></Marker>}
-          {end && <Marker position={[end[0], end[1]]} icon={endIcon}><Popup>Arrivée</Popup></Marker>}
-
-          {waypoints.map((w, idx) => (
-            <Marker key={idx} position={[w.lat, w.lon]} icon={waypointIcon}>
-              <Popup><strong>{w.name}</strong><div className="text-xs text-gray-600">{w.desc}</div></Popup>
-            </Marker>
-          ))}
-
-          {activePoint && (
-            <Marker
-              ref={dynamicMarkerRef}
-              position={[activePoint.lat, activePoint.lon]}
-              icon={new L.DivIcon({
-                className: 'custom-icon',
-                html: '<div style="width:10px;height:10px;border-radius:50%;background:red;"></div>'
-              })}
-            />
+    <div className="w-full">
+      {/* Header infos + actions */}
+      <div className="mb-2 flex flex-wrap items-center gap-3">
+        <StatsPill stats={stats} loading={loading} />
+        <div className="ml-auto flex items-center gap-2">
+          {allowDownload && gpxUrl && (
+            <a
+              href={gpxUrl}
+              download
+              className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-800 hover:bg-gray-50"
+              title="Télécharger le GPX"
+            >
+              ⬇ Télécharger
+            </a>
           )}
-
-          <ResetViewButton bounds={bounds} />
-        </MapContainer>
-
-        {/* Bouton de fond de carte */}
-        <div className="absolute top-2 left-2 bg-white shadow rounded z-[1000] text-sm">
-          <select
-            value={mapLayer}
-            onChange={(e) => setMapLayer(e.target.value)}
-            className="p-1 text-sm border-none bg-white rounded"
-          >
-            <option value="osm">OpenStreetMap</option>
-            <option value="satellite">Satellite</option>
-          </select>
-        </div>
-
-        <div className="absolute bottom-2 left-2 bg-white p-1 text-xs rounded shadow">
-          {stats.distance.toFixed(2)} km — D+ {Math.round(stats.elevationGain)} m
         </div>
       </div>
 
+      {/* Map */}
+      <div
+        ref={mapEl}
+        className="w-full rounded-2xl border bg-white shadow-sm"
+        style={{ height: responsive ? `${height}px` : `${height}px`, minHeight: 240 }}
+      >
+        {!gpxUrl && (
+          <div className="h-full w-full flex items-center justify-center text-gray-500">
+            Aucun GPX
+          </div>
+        )}
+      </div>
+
       {/* Profil altimétrique */}
-      {profileData.length > 0 && (
-        <div className="h-48 bg-white shadow rounded p-2">
-          <h4 className="text-sm font-semibold mb-1">Profil altimétrique</h4>
-          <ResponsiveContainer width="100%" height="90%">
-            <LineChart
-              data={profileData}
-              onMouseMove={(e) => {
-                if (e && e.activePayload && e.activePayload[0]) {
-                  const { lat, lon } = e.activePayload[0].payload;
-                  setActivePoint({ lat, lon });
-                }
-              }}
-              onMouseLeave={() => setActivePoint(null)}
-            >
-              <XAxis dataKey="km" tickFormatter={(v) => v.toFixed(1) + " km"} />
-              <YAxis dataKey="ele" unit=" m" />
-              <Tooltip formatter={(value) => `${Math.round(value)} m`} labelFormatter={(label) => `${label.toFixed(2)} km`} />
-              <Line type="monotone" dataKey="ele" stroke="#3b82f6" strokeWidth={2} dot={false} />
-            </LineChart>
-          </ResponsiveContainer>
+      <div className="mt-3">
+        <ElevationChart points={track} />
+      </div>
+
+      {/* Erreur */}
+      {error && (
+        <div className="mt-3 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-800">
+          {error}
         </div>
       )}
+    </div>
+  );
+}
+
+/* ====== Sous-composants ====== */
+
+function StatsPill({ stats, loading }) {
+  if (loading) {
+    return (
+      <div className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-600">
+        Chargement GPX…
+      </div>
+    );
+  }
+  if (!stats) return null;
+  const items = [
+    stats.dist != null ? `Distance ${fmtKm(metersToKm(stats.dist))}` : null,
+    stats.dplus != null ? `D+ ${fmtMeters(stats.dplus)}` : null,
+    stats.dminus != null ? `D- ${fmtMeters(stats.dminus)}` : null,
+    stats.amin != null && stats.amax != null ? `Alt ${Math.round(stats.amin)}–${Math.round(stats.amax)} m` : null,
+  ].filter(Boolean);
+  if (items.length === 0) return null;
+  return (
+    <div className="inline-flex flex-wrap items-center gap-2 rounded-full bg-gray-100 px-3 py-1.5 text-sm text-gray-700">
+      {items.join(" • ")}
+    </div>
+  );
+}
+
+// Profil altimétrique (SVG pur)
+function ElevationChart({ points, height = 120 }) {
+  const hasEle = points?.some((p) => Number.isFinite(p.ele));
+  if (!hasEle || points.length < 2) {
+    return (
+      <div className="rounded-xl border bg-white p-3 text-sm text-gray-500">
+        Profil altimétrique indisponible.
+      </div>
+    );
+  }
+
+  // x = distance cumulée, y = élévation
+  let dist = 0;
+  const xs = [0];
+  const ys = [points[0].ele];
+  for (let i = 1; i < points.length; i++) {
+    dist += haversine(points[i-1].lat, points[i-1].lon, points[i].lat, points[i].lon);
+    xs.push(dist);
+    ys.push(points[i].ele);
+  }
+
+  const w = 800; // largeur logique (sera responsive via CSS)
+  const h = height;
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  const minX = 0;
+  const maxX = xs[xs.length - 1];
+
+  const px = (x) => (x - minX) / (maxX - minX || 1) * (w - 40) + 20; // padding 20
+  const py = (y) => (1 - (y - minY) / (maxY - minY || 1)) * (h - 30) + 10; // padding 10/20
+
+  const d = xs.map((x, i) => `${i === 0 ? "M" : "L"} ${px(x)} ${py(ys[i])}`).join(" ");
+  const area = `${d} L ${px(maxX)} ${py(minY)} L ${px(minX)} ${py(minY)} Z`;
+
+  return (
+    <div className="rounded-2xl border bg-white shadow-sm p-3 overflow-hidden">
+      <div className="text-xs text-gray-600 mb-2">
+        Profil altimétrique — Distance {fmtKm(metersToKm(maxX))} • Dénivelé visuel
+      </div>
+      <div className="w-full overflow-x-auto">
+        <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-[${h}px]">
+          <defs>
+            <linearGradient id="gpxElev" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="#111827" stopOpacity="0.25" />
+              <stop offset="100%" stopColor="#111827" stopOpacity="0.05" />
+            </linearGradient>
+          </defs>
+          <path d={area} fill="url(#gpxElev)" />
+          <path d={d} fill="none" stroke="#111827" strokeWidth="2" />
+          {/* graduations simples */}
+          <text x="20" y={h - 6} fontSize="10" fill="#6b7280">{fmtKm(metersToKm(minX))}</text>
+          <text x={w - 40} y={h - 6} fontSize="10" fill="#6b7280">{fmtKm(metersToKm(maxX))}</text>
+          {Number.isFinite(minY) && Number.isFinite(maxY) && (
+            <>
+              <text x={w - 36} y={py(maxY)} fontSize="10" fill="#6b7280">{Math.round(maxY)} m</text>
+              <text x={w - 36} y={py(minY)} fontSize="10" fill="#6b7280">{Math.round(minY)} m</text>
+            </>
+          )}
+        </svg>
+      </div>
     </div>
   );
 }
