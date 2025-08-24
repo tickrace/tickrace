@@ -11,6 +11,7 @@ export default function MonEspaceOrganisateur() {
   const [copiedId, setCopiedId] = useState(null);
   const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
   const [repasParFormat, setRepasParFormat] = useState({});
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -20,12 +21,14 @@ export default function MonEspaceOrganisateur() {
   }, [session]);
 
   const fetchCoursesAndFormats = async () => {
+    setLoading(true);
     const { data: coursesData, error } = await supabase
       .from("courses")
       .select("*, formats(*)")
-      .eq("organisateur_id", session.user.id);
+      .eq("organisateur_id", session.user.id)
+      .order("created_at", { ascending: false });
 
-    if (!error) {
+    if (!error && coursesData) {
       setCourses(coursesData);
 
       const allFormatIds = coursesData.flatMap((c) =>
@@ -52,6 +55,7 @@ export default function MonEspaceOrganisateur() {
         }
       }
     }
+    setLoading(false);
   };
 
   const handleDelete = async (id) => {
@@ -71,25 +75,43 @@ export default function MonEspaceOrganisateur() {
     setTimeout(() => setCopiedId(null), 2000);
   };
 
+  const togglePublication = async (course) => {
+    const newState = !course.en_ligne;
+    const { error } = await supabase
+      .from("courses")
+      .update({ en_ligne: newState })
+      .eq("id", course.id);
+
+    if (error) {
+      console.error(error);
+      return alert("Impossible de changer l’état de publication.");
+    }
+
+    setCourses((prev) =>
+      prev.map((c) => (c.id === course.id ? { ...c, en_ligne: newState } : c))
+    );
+  };
+
   const handleDuplicate = async (course) => {
-    // Important : retirer les champs non insérables ET la relation `formats`
+    // retirer les champs non insérables ET la relation `formats`
     const {
       id,
       created_at,
-      updated_at,         // si présent en base
-      formats,            // relation à exclure absolument
-      slug,               // si slug unique, mieux vaut le retirer
+      updated_at,
+      formats,
+      slug, // si slug unique
       ...fieldsToCopy
     } = course;
 
-    // Forcer le nom + conserver l'organisateur courant
+    // Forcer la copie en HORS-LIGNE par sécurité
     const payload = {
       ...fieldsToCopy,
       nom: `${course.nom} (copie)`,
+      en_ligne: false,
       organisateur_id: session?.user?.id || fieldsToCopy.organisateur_id,
     };
 
-    // 1) Créer la nouvelle course SANS `formats`
+    // 1) Créer la nouvelle course
     const { data: duplicatedCourse, error: courseError } = await supabase
       .from("courses")
       .insert(payload)
@@ -101,7 +123,7 @@ export default function MonEspaceOrganisateur() {
       return alert("Erreur duplication épreuve");
     }
 
-    // 2) Récupérer les formats source (si tu veux éviter d'utiliser course.formats)
+    // 2) Dupliquer les formats
     const { data: srcFormats, error: formatsError } = await supabase
       .from("formats")
       .select("*")
@@ -109,7 +131,6 @@ export default function MonEspaceOrganisateur() {
 
     if (formatsError) {
       console.error(formatsError);
-      // La duplication de la course est OK, on sort proprement
       return fetchCoursesAndFormats();
     }
 
@@ -133,28 +154,43 @@ export default function MonEspaceOrganisateur() {
       }
     }
 
-    // 3) Rafraîchir la liste
     fetchCoursesAndFormats();
   };
 
   return (
     <div className="p-6 max-w-5xl mx-auto">
       <h1 className="text-2xl font-bold mb-6">Mon espace organisateur</h1>
+
+      {loading && <p className="text-sm text-gray-600 mb-4">Chargement…</p>}
+
       {courses.length === 0 ? (
         <p>Aucune épreuve créée.</p>
       ) : (
         <div className="space-y-6">
           {courses.map((course) => (
-            <div
-              key={course.id}
-              className="border rounded-lg p-4 bg-white shadow"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <h2 className="text-xl font-semibold">{course.nom}</h2>
-                <span className="text-sm text-gray-600">
-                  {course.lieu} ({course.departement})
+            <div key={course.id} className="border rounded-lg p-4 bg-white shadow">
+              <div className="flex items-start justify-between gap-4 mb-2">
+                <div>
+                  <h2 className="text-xl font-semibold">{course.nom}</h2>
+                  <span className="text-sm text-gray-600">
+                    {course.lieu} ({course.departement})
+                  </span>
+                </div>
+
+                {/* Badge état publication */}
+                <span
+                  className={
+                    "text-xs px-2 py-1 rounded self-start " +
+                    (course.en_ligne
+                      ? "bg-green-100 text-green-700"
+                      : "bg-gray-100 text-gray-700")
+                  }
+                  title={course.en_ligne ? "Publiée" : "Hors-ligne"}
+                >
+                  {course.en_ligne ? "🟢 Publiée" : "🔒 Hors-ligne"}
                 </span>
               </div>
+
               <p className="text-gray-700 mb-3">{course.presentation}</p>
 
               {/* Formats + indicateurs */}
@@ -165,17 +201,10 @@ export default function MonEspaceOrganisateur() {
                     const max = f.nb_max_coureurs;
                     const repas = repasParFormat[f.id] || 0;
                     return (
-                      <div
-                        key={f.id}
-                        className="text-sm text-gray-800 bg-gray-50 p-2 rounded"
-                      >
-                        🏁 <strong>{f.nom}</strong> – {f.date} – {f.distance_km} km /{" "}
-                        {f.denivele_dplus} m D+<br />
-                        👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}
-                        <br />
-                        🍽️ Repas réservés : {repas}{" "}
-                        {f.stock_repas ? `/ ${f.stock_repas}` : ""}
-                        <br />
+                      <div key={f.id} className="text-sm text-gray-800 bg-gray-50 p-2 rounded">
+                        🏁 <strong>{f.nom}</strong> – {f.date} – {f.distance_km} km / {f.denivele_dplus} m D+<br />
+                        👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}<br />
+                        🍽️ Repas réservés : {repas} {f.stock_repas ? `/ ${f.stock_repas}` : ""}<br />
                         <Link
                           to={`/organisateur/inscriptions/${f.id}`}
                           className="text-blue-600 underline text-sm"
@@ -201,6 +230,20 @@ export default function MonEspaceOrganisateur() {
                 >
                   🔍 Voir la page publique
                 </Link>
+
+                {/* Toggle Publier / Hors ligne */}
+                <button
+                  onClick={() => togglePublication(course)}
+                  className={
+                    (course.en_ligne
+                      ? "bg-purple-600 hover:bg-purple-700"
+                      : "bg-gray-700 hover:bg-gray-800") +
+                    " text-white px-3 py-1 rounded"
+                  }
+                >
+                  {course.en_ligne ? "Mettre hors-ligne" : "Publier"}
+                </button>
+
                 <button
                   onClick={() => handleDuplicate(course)}
                   className="bg-yellow-500 text-white px-3 py-1 rounded hover:bg-yellow-600"
