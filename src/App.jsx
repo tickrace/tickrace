@@ -1,8 +1,9 @@
 ﻿// src/App.jsx
 import React from "react";
-import Home from "./pages/Home";  
+import Home from "./pages/Home";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
+import Footer from "./components/Footer"; // ⬅️ ajout
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
 import NouvelleCourse from "./pages/NouvelleCourse";
@@ -37,110 +38,111 @@ import AdminCourses from "./pages/admin/AdminCourses";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminInscriptions from "./pages/admin/AdminInscriptions";
 import Payouts from "./pages/admin/Payouts";
-
-import AdminHome from "./pages/admin"; // 👈 page admin d'accueil
+import AdminHome from "./pages/admin"; // page admin d'accueil
 
 function AppContent() {
   const { currentRole } = useUser();
 
   return (
-    <>
+    <div className="min-h-screen flex flex-col"> {/* layout global */}
       <Navbar key={currentRole} />
-      <Routes>
-        {/* Public */}
-        <Route path="/" element={<Home />} />
-        <Route path="/admin" element={<AdminHome />} />
+      <main className="flex-1"> {/* pousse le footer en bas */}
+        <Routes>
+          {/* Public */}
+          <Route path="/" element={<Home />} />
+          <Route path="/admin" element={<AdminHome />} />
 
-        <Route path="/modifier-course/:id" element={<ModifierCourse />} />
+          <Route path="/modifier-course/:id" element={<ModifierCourse />} />
 
+          {/* ⚠️ On enlève la route dupliquée "/" qui pointait vers <Courses /> */}
+          <Route path="/courses" element={<Courses />} />
+          <Route path="/courses/:id" element={<CourseDetail />} />
+          <Route path="/formats" element={<ListeFormats />} />
+          <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
+          <Route path="/coureur" element={<ProfilCoureur />} />
+          <Route path="/monprofilcoureur" element={<MonProfilCoureur />} />
+          <Route path="/monprofilorganisateur" element={<MonProfilOrganisateur />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/signup" element={<Signup />} />
 
-        <Route path="/" element={<Courses />} />
-        <Route path="/courses" element={<Courses />} />
-        <Route path="/courses/:id" element={<CourseDetail />} />
-        <Route path="/formats" element={<ListeFormats />} />
-        <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
-        <Route path="/coureur" element={<ProfilCoureur />} />
-        <Route path="/monprofilcoureur" element={<MonProfilCoureur />} />
-        <Route path="/monprofilorganisateur" element={<MonProfilOrganisateur />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/signup" element={<Signup />} />
+          {/* Espace organisateur */}
+          <Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
+          {/* Alias anti-404 */}
+          <Route path="/mon-espace-organisateur" element={<MonEspaceOrganisateur />} />
 
-        {/* Espace organisateur */}
-        <Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
-        {/* 👉 Alias pour éviter la page blanche si navigate('/mon-espace-organisateur') est utilisé */}
-        <Route path="/mon-espace-organisateur" element={<MonEspaceOrganisateur />} />
+          <Route path="/organisateur/inscriptions/:format_id" element={<ListeInscriptions />} />
 
-        <Route path="/organisateur/inscriptions/:format_id" element={<ListeInscriptions />} />
+          <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/mon-inscription/:id" element={<MonInscription />} />
+          <Route path="/mesinscriptions" element={<MesInscriptions />} />
+          <Route path="/merci" element={<Merci />} />
+          <Route path="/paiement-annule" element={<PaiementAnnule />} />
 
-        <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
-        <Route path="/reset-password" element={<ResetPassword />} />
-        <Route path="/forgot-password" element={<ForgotPassword />} />
-        <Route path="/mon-inscription/:id" element={<MonInscription />} />
-        <Route path="/mesinscriptions" element={<MesInscriptions />} />
-        <Route path="/merci" element={<Merci />} />
-        <Route path="/paiement-annule" element={<PaiementAnnule />} />
+          {/* Légal */}
+          <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
+          <Route path="/legal/remboursements" element={<Remboursements />} />
+          <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 
-        {/* Légal */}
-        <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
-        <Route path="/legal/remboursements" element={<Remboursements />} />
-        <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
+          <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
 
-        <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
+          {/* Admin (protégé) */}
+          <Route
+            path="/admin/dashboard"
+            element={
+              <AdminRoute>
+                <AdminLayout>
+                  <AdminDashboard />
+                </AdminLayout>
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/courses"
+            element={
+              <AdminRoute>
+                <AdminLayout>
+                  <AdminCourses />
+                </AdminLayout>
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/payouts"
+            element={
+              <AdminRoute>
+                <AdminLayout>
+                  <Payouts />
+                </AdminLayout>
+              </AdminRoute>
+            }
+          />
+          <Route
+            path="/admin/inscriptions"
+            element={
+              <AdminRoute>
+                <AdminLayout>
+                  <AdminInscriptions />
+                </AdminLayout>
+              </AdminRoute>
+            }
+          />
 
-        {/* Admin (protégé) */}
-        <Route
-          path="/admin/dashboard"
-          element={
-            <AdminRoute>
-              <AdminLayout>
-                <AdminDashboard />
-              </AdminLayout>
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/courses"
-          element={
-            <AdminRoute>
-              <AdminLayout>
-                <AdminCourses />
-              </AdminLayout>
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/payouts"
-          element={
-            <AdminRoute>
-              <AdminLayout>
-                <Payouts />
-              </AdminLayout>
-            </AdminRoute>
-          }
-        />
-        <Route
-          path="/admin/inscriptions"
-          element={
-            <AdminRoute>
-              <AdminLayout>
-                <AdminInscriptions />
-              </AdminLayout>
-            </AdminRoute>
-          }
-        />
-
-        {/* Fallback anti-page-blanche */}
-        <Route
-          path="*"
-          element={
-            <div style={{ padding: 24 }}>
-              <h2>Page non trouvée</h2>
-              <p>Cette URL ne correspond à aucune route connue.</p>
-            </div>
-          }
-        />
-      </Routes>
-    </>
+          {/* Fallback anti-page-blanche */}
+          <Route
+            path="*"
+            element={
+              <div style={{ padding: 24 }}>
+                <h2>Page non trouvée</h2>
+                <p>Cette URL ne correspond à aucune route connue.</p>
+              </div>
+            }
+          />
+        </Routes>
+      </main>
+      <Footer /> {/* ⬅️ footer statique */}
+    </div>
   );
 }
 
