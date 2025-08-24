@@ -1,3 +1,4 @@
+// src/pages/MonProfilOrganisateur.jsx
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { useNavigate, useLocation } from "react-router-dom";
@@ -125,123 +126,155 @@ export default function MonProfilOrganisateur() {
     }
   }
 
-  if (loading) return <div style={{ padding: 24 }}>Chargement…</div>;
+  if (loading) return <div className="p-6">Chargement…</div>;
 
   return (
-    <div className="max-w-3xl mx-auto p-4">
-      {/* Bandeau explicatif */}
-      <div className="rounded-md border border-blue-200 bg-blue-50 p-3 mb-4 text-sm">
-        <b>Compte Stripe requis :</b> Pour encaisser les inscriptions et recevoir vos reversements,
-        vous devez <u>configurer votre compte Stripe Express</u>. Sans cela, les paiements seront bloqués.
-      </div>
+    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+      {/* Header */}
+      <section className="bg-white border-b border-neutral-200">
+        <div className="mx-auto max-w-5xl px-4 py-10 text-center">
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight">
+            Profil Organisateur{" "}
+            <span className="font-black">
+              <span className="text-orange-600">Tick</span>Race
+            </span>
+          </h1>
+          <p className="mt-2 text-neutral-600 text-base">
+            Gérez vos informations, configurez Stripe et validez les conditions pour pouvoir publier vos épreuves.
+          </p>
+        </div>
+      </section>
 
-      {/* Bloc Stripe */}
-      <section className="mb-6 border rounded-md p-4">
-        <h2 className="text-lg font-semibold mb-2">Paiements & compte Stripe</h2>
+      <div className="mx-auto max-w-3xl px-4 py-8 space-y-8">
+        {/* Bandeau explicatif */}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+          <b>💳 Compte Stripe requis :</b> Pour encaisser les inscriptions et recevoir vos reversements,
+          vous devez configurer votre compte Stripe Express. Sans cela, les paiements seront bloqués.
+        </div>
 
-        <div className="text-sm mb-3">
-          <div>
-            Statut :{" "}
-            {stripeStatus.has_account ? (
-              <span className="text-green-700">Compte trouvé</span>
-            ) : (
-              <span className="text-red-700">Non configuré</span>
+        {/* Bloc Stripe */}
+        <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
+          <h2 className="text-lg font-semibold mb-3">Paiements & compte Stripe</h2>
+          <div className="text-sm mb-4 space-y-1">
+            <div>
+              Statut :{" "}
+              {stripeStatus.has_account ? (
+                <span className="text-green-700 font-medium">Compte trouvé ✅</span>
+              ) : (
+                <span className="text-red-700 font-medium">Non configuré ❌</span>
+              )}
+            </div>
+            {stripeStatus.has_account && (
+              <>
+                <div>Charges activées : {stripeStatus.charges_enabled ? "Oui ✅" : "Non ❌"}</div>
+                <div>Payouts activés : {stripeStatus.payouts_enabled ? "Oui ✅" : "Non ❌"}</div>
+                <div>Dossier soumis : {stripeStatus.details_submitted ? "Oui ✅" : "Non ❌"}</div>
+                {stripeStatus.requirements_due?.length > 0 && (
+                  <div className="mt-2">
+                    <div className="font-medium">Éléments à compléter :</div>
+                    <ul className="list-disc ml-6">
+                      {stripeStatus.requirements_due.map((k, i) => (
+                        <li key={i}><code>{k}</code></li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </>
             )}
           </div>
-          {stripeStatus.has_account && (
-            <>
-              <div>Charges activées : {stripeStatus.charges_enabled ? "Oui ✅" : "Non ❌"}</div>
-              <div>Payouts activés : {stripeStatus.payouts_enabled ? "Oui ✅" : "Non ❌"}</div>
-              <div>Dossier soumis : {stripeStatus.details_submitted ? "Oui ✅" : "Non ❌"}</div>
-              {stripeStatus.requirements_due?.length > 0 && (
-                <div className="mt-2">
-                  <div className="font-medium">Éléments à compléter :</div>
-                  <ul className="list-disc ml-6">
-                    {stripeStatus.requirements_due.map((k, i) => (
-                      <li key={i}><code>{k}</code></li>
-                    ))}
-                  </ul>
-                </div>
-              )}
-            </>
-          )}
-        </div>
 
-        <div className="flex gap-2">
-          <button
-            onClick={startStripeOnboarding}
-            className="px-3 py-2 rounded bg-black text-white hover:bg-gray-800"
-          >
-            {stripeStatus.has_account ? "Continuer la configuration Stripe" : "Configurer mon compte Stripe"}
-          </button>
-          <button
-            onClick={refreshStripeStatus}
-            disabled={checkingStripe}
-            className="px-3 py-2 rounded border"
-          >
-            {checkingStripe ? "Vérification…" : "Vérifier le statut"}
-          </button>
-        </div>
-      </section>
+          <div className="flex flex-wrap gap-3">
+            <button
+              onClick={startStripeOnboarding}
+              className="px-4 py-2 rounded-xl bg-black text-white text-sm font-semibold hover:bg-neutral-800"
+            >
+              {stripeStatus.has_account ? "Continuer la configuration Stripe" : "Configurer mon compte Stripe"}
+            </button>
+            <button
+              onClick={refreshStripeStatus}
+              disabled={checkingStripe}
+              className="px-4 py-2 rounded-xl border text-sm font-medium hover:bg-neutral-50 disabled:opacity-50"
+            >
+              {checkingStripe ? "Vérification…" : "Vérifier le statut"}
+            </button>
+          </div>
+        </section>
 
-      {/* Formulaire profil */}
-      <section className="mb-6 border rounded-md p-4">
-        <h2 className="text-lg font-semibold mb-3">Informations organisateur</h2>
-        <div className="grid gap-3">
-          <label className="flex flex-col">
-            <span className="text-sm text-gray-700">Nom de l’organisation</span>
-            <input className="border rounded px-2 py-1" value={organisationNom} onChange={e => setOrganisationNom(e.target.value)} />
-          </label>
-          <label className="flex flex-col">
-            <span className="text-sm text-gray-700">Site web</span>
-            <input className="border rounded px-2 py-1" value={siteWeb} onChange={e => setSiteWeb(e.target.value)} placeholder="https://…" />
-          </label>
-          <label className="flex flex-col">
-            <span className="text-sm text-gray-700">Téléphone</span>
-            <input className="border rounded px-2 py-1" value={telephone} onChange={e => setTelephone(e.target.value)} />
-          </label>
-        </div>
-      </section>
+        {/* Formulaire profil */}
+        <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
+          <h2 className="text-lg font-semibold mb-3">Informations organisateur</h2>
+          <div className="grid gap-4">
+            <Field label="Nom de l’organisation">
+              <Input value={organisationNom} onChange={e => setOrganisationNom(e.target.value)} placeholder="Ex. Association Les Trails du Sud" />
+            </Field>
+            <Field label="Site web">
+              <Input value={siteWeb} onChange={e => setSiteWeb(e.target.value)} placeholder="https://…" />
+            </Field>
+            <Field label="Téléphone">
+              <Input value={telephone} onChange={e => setTelephone(e.target.value)} placeholder="06 12 34 56 78" />
+            </Field>
+          </div>
+        </section>
 
-      {/* Conditions */}
-      <section className="mb-6 border rounded-md p-4">
-        <h2 className="text-lg font-semibold mb-3">Conditions & conformité</h2>
-        <div className="text-sm text-gray-700 mb-2">
-          Avant d’enregistrer votre profil, vous devez accepter nos termes :
-          <ul className="list-disc ml-6 mt-2">
-            <li><a className="underline" href="/legal/cgv-organisateurs" target="_blank" rel="noreferrer">CGV Organisateurs</a></li>
-            <li><a className="underline" href="/legal/remboursements" target="_blank" rel="noreferrer">Politique de remboursement</a></li>
-            <li><a className="underline" href="/legal/charte-organisateur" target="_blank" rel="noreferrer">Charte anti-fraude</a></li>
+        {/* Conditions */}
+        <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
+          <h2 className="text-lg font-semibold mb-3">Conditions & conformité</h2>
+          <p className="text-sm text-neutral-700 mb-3">
+            Avant d’enregistrer votre profil, vous devez accepter nos documents :
+          </p>
+          <ul className="list-disc ml-6 mb-4 text-sm text-neutral-700">
+            <li><a className="underline text-orange-600" href="/legal/cgv-organisateurs" target="_blank" rel="noreferrer">CGV Organisateurs</a></li>
+            <li><a className="underline text-orange-600" href="/legal/remboursements" target="_blank" rel="noreferrer">Politique de remboursement</a></li>
+            <li><a className="underline text-orange-600" href="/legal/charte-organisateur" target="_blank" rel="noreferrer">Charte anti-fraude</a></li>
           </ul>
+
+          <label className="flex items-start gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={cgvAccepted}
+              onChange={(e) => setCgvAccepted(e.target.checked)}
+              disabled={profil?.conditions_acceptees === true}
+              className="mt-1"
+            />
+            <span>
+              J’accepte les documents ci-dessus (version {CONDITIONS_VERSION}).{" "}
+              {profil?.conditions_acceptees && profil.conditions_acceptees_at ? (
+                <em>Accepté le {new Date(profil.conditions_acceptees_at).toLocaleString("fr-FR")}.</em>
+              ) : null}
+            </span>
+          </label>
+        </section>
+
+        {/* Sauvegarde */}
+        <div className="flex">
+          <button
+            onClick={handleSave}
+            className="px-5 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50"
+            disabled={!cgvAccepted}
+          >
+            Sauvegarder le profil
+          </button>
         </div>
-
-        <label className="flex items-start gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={cgvAccepted}
-            onChange={(e) => setCgvAccepted(e.target.checked)}
-            disabled={profil?.conditions_acceptees === true}
-          />
-          <span>
-            J’accepte les documents ci-dessus (version {CONDITIONS_VERSION}).{" "}
-            {profil?.conditions_acceptees && profil.conditions_acceptees_at ? (
-              <em>Accepté le {new Date(profil.conditions_acceptees_at).toLocaleString("fr-FR")}.</em>
-            ) : null}
-          </span>
-        </label>
-      </section>
-
-      {/* Sauvegarde */}
-      <div className="flex gap-2">
-        <button
-          onClick={handleSave}
-          className="px-4 py-2 rounded bg-emerald-600 text-white hover:bg-emerald-700"
-          disabled={!cgvAccepted}
-          title={!cgvAccepted ? "Vous devez accepter les conditions" : ""}
-        >
-          Sauvegarder le profil
-        </button>
       </div>
     </div>
+  );
+}
+
+/* ---------- UI helpers ---------- */
+function Field({ label, children }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-neutral-600">{label}</span>
+      <div className="mt-1">{children}</div>
+    </label>
+  );
+}
+
+function Input(props) {
+  return (
+    <input
+      {...props}
+      className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+    />
   );
 }
