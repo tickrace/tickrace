@@ -15,6 +15,7 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
   const [accepted, setAccepted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
+  // Charger le devis quand le modal s'ouvre
   useEffect(() => {
     let abort = false;
     if (!open) return;
@@ -37,10 +38,18 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
         if (!abort) setLoading(false);
       }
     })();
+
+    // ESC pour fermer
+    const onKey = (e) => {
+      if (e.key === "Escape") onClose?.();
+    };
+    document.addEventListener("keydown", onKey);
+
     return () => {
       abort = true;
+      document.removeEventListener("keydown", onKey);
     };
-  }, [open, inscriptionId]);
+  }, [open, inscriptionId, onClose]);
 
   async function confirmRefund() {
     try {
@@ -64,55 +73,86 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
   const disabledByTier = quote && (quote.percent === 0 || quote.refund_cents <= 0);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="bg-white rounded-lg shadow-xl w-full max-w-xl">
-        <div className="flex items-center justify-between border-b px-4 py-3">
-          <h2 className="text-lg font-semibold">Annuler et demander un remboursement</h2>
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-neutral-900/60 p-0 sm:p-4"
+      aria-modal="true"
+      role="dialog"
+    >
+      {/* Backdrop click to close */}
+      <button
+        className="absolute inset-0 cursor-default"
+        onClick={onClose}
+        aria-label="Fermer"
+        tabIndex={-1}
+      />
+
+      <div className="relative w-full sm:max-w-xl bg-white rounded-2xl shadow-2xl ring-1 ring-neutral-200 overflow-hidden">
+        {/* Header */}
+        <div className="px-4 sm:px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <div className="inline-flex items-center gap-2 rounded-full bg-neutral-900 text-white px-3 py-1 text-[11px] ring-1 ring-black/10">
+              Remboursement
+            </div>
+            <h2 className="mt-2 text-lg sm:text-xl font-bold tracking-tight">
+              Annuler mon inscription
+            </h2>
+            <p className="text-sm text-neutral-600">
+              Barème transparent, confirmation en un clic.
+            </p>
+          </div>
           <button
             onClick={onClose}
-            className="text-gray-500 hover:text-gray-900"
-            aria-label="Fermer"
+            className="h-9 w-9 grid place-items-center rounded-xl hover:bg-neutral-100 text-neutral-600"
+            aria-label="Fermer la fenêtre"
             title="Fermer"
           >
             ✕
           </button>
         </div>
 
-        <div className="p-4">
+        {/* Body */}
+        <div className="px-4 sm:px-5 py-5">
           {loading ? (
-            <div className="py-8 text-center text-gray-600">Calcul du montant…</div>
+            <div className="py-10 text-center text-neutral-600">Calcul du montant…</div>
           ) : error ? (
-            <div className="bg-red-50 border border-red-200 text-red-700 p-3 rounded">{error}</div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 p-3 text-sm">
+              {error}
+            </div>
           ) : quote ? (
             <>
-              <div className="text-sm text-gray-700 space-y-1 mb-4">
-                <div>Montant payé : <b>{eur(quote.amount_total_cents)}</b></div>
-                <div>Frais non remboursables (Stripe + Tickrace) : <b>{eur(quote.non_refundable_cents)}</b></div>
-                <div>Base remboursable : <b>{eur(quote.base_cents)}</b></div>
-                <div>
-                  Palier appliqué : <b>{quote.percent}%</b>{" "}
-                  <span className="text-gray-500">
-                    (barème : &gt;30j 90% • 15–29j 50% • 7–14j 25% • &lt;7j 0%)
-                  </span>
+              {/* Récap montant */}
+              <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <Fact label="Montant payé" value={eur(quote.amount_total_cents)} />
+                  <Fact label="Frais non remboursables" value={eur(quote.non_refundable_cents)} />
+                  <Fact label="Base remboursable" value={eur(quote.base_cents)} />
+                  <Fact label="Palier appliqué" value={`${quote.percent}%`} hint=">30j 90% • 15–29j 50% • 7–14j 25% • <7j 0%" />
                 </div>
-                <div className="text-lg">
-                  Montant remboursé : <b>{eur(quote.refund_cents)}</b>
+                <div className="mt-3 rounded-xl bg-orange-50 border border-orange-200 px-3 py-2">
+                  <div className="text-sm">
+                    Montant remboursé estimé :{" "}
+                    <b className="text-orange-700">{eur(quote.refund_cents)}</b>
+                  </div>
+                  {Number.isFinite(quote?.days_before) && (
+                    <div className="text-xs text-neutral-600">
+                      Jours avant l’épreuve : {quote.days_before}
+                    </div>
+                  )}
                 </div>
-                {quote.days_before !== undefined && (
-                  <div className="text-xs text-gray-500">Jours restants avant l’épreuve : {quote.days_before}</div>
-                )}
+
                 {disabledByTier && (
-                  <div className="mt-2 text-sm text-amber-700 bg-amber-50 border border-amber-200 p-2 rounded">
+                  <div className="mt-3 rounded-xl bg-amber-50 border border-amber-200 px-3 py-2 text-amber-800 text-sm">
                     À ce stade du barème, aucun remboursement n’est prévu.
                   </div>
                 )}
               </div>
 
-              <div className="grid gap-3 mb-3">
-                <label className="block text-sm">
+              {/* Form controls */}
+              <div className="mt-5 grid gap-3">
+                <label className="text-sm">
                   Motif (facultatif)
                   <select
-                    className="mt-1 w-full border rounded px-2 py-1"
+                    className="mt-1 w-full rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
                     value={reason}
                     onChange={(e) => setReason(e.target.value)}
                   >
@@ -124,47 +164,61 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
                   </select>
                 </label>
 
-                <label className="flex items-start gap-2 text-sm">
+                <label className="inline-flex items-start gap-2 text-sm">
                   <input
                     type="checkbox"
                     checked={accepted}
                     onChange={(e) => setAccepted(e.target.checked)}
+                    className="h-4 w-4 rounded border-neutral-300 accent-orange-500"
                   />
-                  <span>
+                  <span className="text-neutral-800">
                     J’ai lu et j’accepte la{" "}
                     <a
                       href="/legal/remboursements"
                       target="_blank"
                       rel="noreferrer"
-                      className="underline"
+                      className="underline hover:text-neutral-900"
                     >
                       Politique de remboursement
-                    </a>
-                    .
+                    </a>.
                   </span>
                 </label>
-              </div>
-
-              <div className="flex justify-end gap-2 pt-2">
-                <button onClick={onClose} className="px-3 py-2 rounded border">
-                  Retour
-                </button>
-                <button
-                  onClick={confirmRefund}
-                  className={`px-3 py-2 rounded text-white ${
-                    disabledByTier || !accepted || submitting
-                      ? "bg-gray-400 cursor-not-allowed"
-                      : "bg-black hover:bg-gray-800"
-                  }`}
-                  disabled={disabledByTier || !accepted || submitting}
-                >
-                  {submitting ? "Traitement…" : "Confirmer l’annulation"}
-                </button>
               </div>
             </>
           ) : null}
         </div>
+
+        {/* Footer */}
+        <div className="px-4 sm:px-5 py-4 border-t border-neutral-200 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+          >
+            Retour
+          </button>
+          <button
+            onClick={confirmRefund}
+            className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white ${
+              disabledByTier || !accepted || submitting
+                ? "bg-neutral-400 cursor-not-allowed"
+                : "bg-orange-500 hover:brightness-110"
+            }`}
+            disabled={disabledByTier || !accepted || submitting}
+          >
+            {submitting ? "Traitement…" : "Confirmer l’annulation"}
+          </button>
+        </div>
       </div>
+    </div>
+  );
+}
+
+function Fact({ label, value, hint }) {
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2">
+      <div className="text-[11px] text-neutral-600">{label}</div>
+      <div className="text-sm font-semibold text-neutral-900">{value}</div>
+      {hint ? <div className="text-[10px] text-neutral-500 mt-0.5">{hint}</div> : null}
     </div>
   );
 }
