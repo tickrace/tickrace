@@ -28,8 +28,8 @@ export default function MonEspaceOrganisateur() {
     if (!error) {
       setCourses(coursesData);
 
-      const allFormatIds = coursesData.flatMap(c =>
-        (c.formats || []).map(f => f.id)
+      const allFormatIds = coursesData.flatMap((c) =>
+        (c.formats || []).map((f) => f.id)
       );
 
       if (allFormatIds.length > 0) {
@@ -72,26 +72,54 @@ export default function MonEspaceOrganisateur() {
   };
 
   const handleDuplicate = async (course) => {
-    const { id, created_at, ...fieldsToCopy } = course;
+    // Important : retirer les champs non insérables ET la relation `formats`
+    const {
+      id,
+      created_at,
+      updated_at,         // si présent en base
+      formats,            // relation à exclure absolument
+      slug,               // si slug unique, mieux vaut le retirer
+      ...fieldsToCopy
+    } = course;
 
+    // Forcer le nom + conserver l'organisateur courant
+    const payload = {
+      ...fieldsToCopy,
+      nom: `${course.nom} (copie)`,
+      organisateur_id: session?.user?.id || fieldsToCopy.organisateur_id,
+    };
+
+    // 1) Créer la nouvelle course SANS `formats`
     const { data: duplicatedCourse, error: courseError } = await supabase
       .from("courses")
-      .insert({ ...fieldsToCopy, nom: course.nom + " (copie)" })
+      .insert(payload)
       .select()
       .single();
 
-    if (courseError) return alert("Erreur duplication épreuve");
+    if (courseError) {
+      console.error(courseError);
+      return alert("Erreur duplication épreuve");
+    }
 
-    const { data: formats, error: formatsError } = await supabase
+    // 2) Récupérer les formats source (si tu veux éviter d'utiliser course.formats)
+    const { data: srcFormats, error: formatsError } = await supabase
       .from("formats")
       .select("*")
       .eq("course_id", id);
 
-    if (!formatsError && formats.length > 0) {
-      const cleanedFormats = formats.map(({ id, created_at, ...f }) => ({
-        ...f,
-        course_id: duplicatedCourse.id,
-      }));
+    if (formatsError) {
+      console.error(formatsError);
+      // La duplication de la course est OK, on sort proprement
+      return fetchCoursesAndFormats();
+    }
+
+    if (srcFormats && srcFormats.length > 0) {
+      const cleanedFormats = srcFormats.map(
+        ({ id, created_at, updated_at, course_id, ...f }) => ({
+          ...f,
+          course_id: duplicatedCourse.id,
+        })
+      );
 
       const { error: insertFormatsError } = await supabase
         .from("formats")
@@ -99,10 +127,13 @@ export default function MonEspaceOrganisateur() {
 
       if (insertFormatsError) {
         console.error("Erreur insertion formats :", insertFormatsError);
-        alert("Épreuve copiée sans les formats (erreur insertion).");
+        alert(
+          "Épreuve copiée, mais les formats n'ont pas pu être dupliqués (voir console)."
+        );
       }
     }
 
+    // 3) Rafraîchir la liste
     fetchCoursesAndFormats();
   };
 
@@ -114,7 +145,10 @@ export default function MonEspaceOrganisateur() {
       ) : (
         <div className="space-y-6">
           {courses.map((course) => (
-            <div key={course.id} className="border rounded-lg p-4 bg-white shadow">
+            <div
+              key={course.id}
+              className="border rounded-lg p-4 bg-white shadow"
+            >
               <div className="flex items-center justify-between mb-2">
                 <h2 className="text-xl font-semibold">{course.nom}</h2>
                 <span className="text-sm text-gray-600">
@@ -123,7 +157,7 @@ export default function MonEspaceOrganisateur() {
               </div>
               <p className="text-gray-700 mb-3">{course.presentation}</p>
 
-              {/* Affichage des formats avec inscrits, max, repas */}
+              {/* Formats + indicateurs */}
               {course.formats && course.formats.length > 0 && (
                 <div className="space-y-2 mb-3">
                   {course.formats.map((f) => {
@@ -131,10 +165,17 @@ export default function MonEspaceOrganisateur() {
                     const max = f.nb_max_coureurs;
                     const repas = repasParFormat[f.id] || 0;
                     return (
-                      <div key={f.id} className="text-sm text-gray-800 bg-gray-50 p-2 rounded">
-                        🏁 <strong>{f.nom}</strong> – {f.date} – {f.distance_km} km / {f.denivele_dplus} m D+<br />
-                        👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}<br />
-                        🍽️ Repas réservés : {repas} {f.stock_repas ? `/ ${f.stock_repas}` : ""}<br />
+                      <div
+                        key={f.id}
+                        className="text-sm text-gray-800 bg-gray-50 p-2 rounded"
+                      >
+                        🏁 <strong>{f.nom}</strong> – {f.date} – {f.distance_km} km /{" "}
+                        {f.denivele_dplus} m D+<br />
+                        👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}
+                        <br />
+                        🍽️ Repas réservés : {repas}{" "}
+                        {f.stock_repas ? `/ ${f.stock_repas}` : ""}
+                        <br />
                         <Link
                           to={`/organisateur/inscriptions/${f.id}`}
                           className="text-blue-600 underline text-sm"
