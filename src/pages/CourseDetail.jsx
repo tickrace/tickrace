@@ -9,7 +9,6 @@ import {
   Mountain,
   UtensilsCrossed,
   Share2,
-  ExternalLink,
   ArrowRight,
   AlertCircle,
   Loader2,
@@ -27,6 +26,7 @@ const fmtDate = (d) =>
         year: "numeric",
       }).format(typeof d === "string" ? new Date(d) : d)
     : "";
+
 // Helper téléchargement GPX
 const downloadFile = (url, filename = "parcours.gpx") => {
   try {
@@ -38,7 +38,6 @@ const downloadFile = (url, filename = "parcours.gpx") => {
     a.click();
     a.remove();
   } catch {
-    // Fallback si le navigateur bloque le download programmatique
     window.open(url, "_blank", "noopener");
   }
 };
@@ -61,10 +60,12 @@ export default function CourseDetail() {
       setLoading(true);
       setError(null);
 
-      // 1) Course — sélection "safe"
+      // 1) Course
       const { data: c, error: e1 } = await supabase
         .from("courses")
-        .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
+        .select(
+          "id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at"
+        )
         .eq("id", id)
         .maybeSingle();
 
@@ -85,7 +86,7 @@ export default function CourseDetail() {
 
       setCourse(c);
 
-      // 2) Formats (toutes les colonnes que tu utilises déjà)
+      // 2) Formats
       const { data: fmts, error: e2 } = await supabase
         .from("formats")
         .select(
@@ -175,12 +176,22 @@ export default function CourseDetail() {
       ? (new Date().getTime() - new Date(course.created_at).getTime()) / 86400000 < 14
       : false;
 
-    return { next_date, min_prix, min_dist, max_dist, min_dplus, max_dplus, has_repas, is_full, is_new };
+    return {
+      next_date,
+      min_prix,
+      min_dist,
+      max_dist,
+      min_dplus,
+      max_dplus,
+      has_repas,
+      is_full,
+      is_new,
+    };
   }, [formats, countsByFormat, course?.created_at]);
 
   if (loading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 py-16 flex items-center gap-3 text-gray-600">
+      <div className="max-w-7xl mx-auto px-4 py-16 flex items-center gap-3 text-neutral-600">
         <Loader2 className="w-5 h-5 animate-spin" />
         Chargement de l’épreuve…
       </div>
@@ -192,8 +203,11 @@ export default function CourseDetail() {
       <div className="max-w-4xl mx-auto px-4 py-16 text-center">
         <AlertCircle className="w-8 h-8 text-rose-600 mx-auto mb-2" />
         <h1 className="text-xl font-semibold">Épreuve introuvable</h1>
-        <p className="text-gray-600 mt-1">Vérifiez le lien ou revenez à la liste.</p>
-        <Link to="/courses" className="inline-flex mt-4 items-center gap-2 rounded-xl border px-4 py-2">
+        <p className="text-neutral-600 mt-1">Vérifiez le lien ou revenez à la liste.</p>
+        <Link
+          to="/courses"
+          className="inline-flex mt-4 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+        >
           ← Retour aux épreuves
         </Link>
       </div>
@@ -212,9 +226,13 @@ export default function CourseDetail() {
       {/* HERO */}
       <div className="relative h-[260px] sm:h-[360px] md:h-[420px] w-full overflow-hidden">
         {course.image_url ? (
-          <img src={course.image_url} alt={`Image de ${course.nom}`} className="h-full w-full object-cover" />
+          <img
+            src={course.image_url}
+            alt={`Image de ${course.nom}`}
+            className="h-full w-full object-cover"
+          />
         ) : (
-          <div className="h-full w-full bg-gray-200 flex items-center justify-center text-gray-500">
+          <div className="h-full w-full bg-neutral-200 flex items-center justify-center text-neutral-500">
             <Mountain className="w-10 h-10" />
           </div>
         )}
@@ -256,7 +274,7 @@ export default function CourseDetail() {
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Link
                 to={`/inscription/${course.id}`}
-                className="inline-flex items-center gap-2 rounded-xl bg-white/95 px-4 py-2 text-gray-900 text-sm font-semibold hover:bg-white"
+                className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-white text-sm font-semibold hover:brightness-110"
               >
                 S’inscrire <ArrowRight className="w-4 h-4" />
               </Link>
@@ -297,7 +315,9 @@ export default function CourseDetail() {
                     onClick={() => setTab(t.key)}
                     className={[
                       "rounded-full px-4 py-2 text-sm",
-                      tab === t.key ? "bg-gray-900 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200",
+                      tab === t.key
+                        ? "bg-neutral-900 text-white"
+                        : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200",
                     ].join(" ")}
                   >
                     {t.label}
@@ -310,18 +330,33 @@ export default function CourseDetail() {
             {tab === "aperçu" && (
               <section className="mt-6 space-y-4">
                 {course.presentation ? (
-                  <p className="text-gray-800 leading-relaxed whitespace-pre-line">
+                  <p className="text-neutral-800 leading-relaxed whitespace-pre-line">
                     {course.presentation}
                   </p>
                 ) : (
-                  <p className="text-gray-500">La présentation de l’épreuve sera bientôt disponible.</p>
+                  <p className="text-neutral-500">
+                    La présentation de l’épreuve sera bientôt disponible.
+                  </p>
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
-                  <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
-                  <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
-                  <Fact title="Repas" value={aggregates.has_repas ? "Disponible" : "—"} Icon={UtensilsCrossed} />
+                  <Fact
+                    title="Distance"
+                    value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")}
+                  />
+                  <Fact
+                    title="D+"
+                    value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")}
+                  />
+                  <Fact
+                    title="Prochaine date"
+                    value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"}
+                  />
+                  <Fact
+                    title="Repas"
+                    value={aggregates.has_repas ? "Disponible" : "—"}
+                    Icon={UtensilsCrossed}
+                  />
                 </div>
               </section>
             )}
@@ -331,7 +366,11 @@ export default function CourseDetail() {
                 {formats.length === 0 ? (
                   <EmptyBox text="Les formats seront publiés bientôt." />
                 ) : (
-                  <FormatsTable courseId={course.id} formats={formats} countsByFormat={countsByFormat} />
+                  <FormatsTable
+                    courseId={course.id}
+                    formats={formats}
+                    countsByFormat={countsByFormat}
+                  />
                 )}
               </section>
             )}
@@ -344,11 +383,11 @@ export default function CourseDetail() {
                   <>
                     {/* Sélecteur de format pour afficher le GPX de ce format */}
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="text-sm text-gray-700">Choisir un format :</label>
+                      <label className="text-sm text-neutral-700">Choisir un format :</label>
                       <select
                         value={selectedFormatId || ""}
                         onChange={(e) => setSelectedFormatId(e.target.value)}
-                        className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                        className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
                       >
                         {formats.map((f) => (
                           <option key={f.id} value={f.id}>
@@ -359,39 +398,40 @@ export default function CourseDetail() {
                     </div>
 
                     {selectedFormat?.gpx_url ? (
-  <>
-    <div className="flex items-center justify-between mb-2">
-      <div className="text-sm text-gray-600">
-        GPX du format <strong>{selectedFormat.nom}</strong>
-        {selectedFormat.date ? <> — {fmtDate(selectedFormat.date)}</> : null}
-      </div>
-      <button
-        onClick={() =>
-          downloadFile(
-            selectedFormat.gpx_url,
-            `gpx-${(course.nom || "epreuve").replace(/[^\w-]+/g, "_")}-${(selectedFormat.nom || "format").replace(/[^\w-]+/g, "_")}.gpx`
-          )
-        }
-        className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
-        title="Télécharger le tracé GPX"
-      >
-        ⬇ Télécharger le GPX
-      </button>
-    </div>
+                      <>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="text-sm text-neutral-600">
+                            GPX du format <strong>{selectedFormat.nom}</strong>
+                            {selectedFormat.date ? <> — {fmtDate(selectedFormat.date)}</> : null}
+                          </div>
+                          <button
+                            onClick={() =>
+                              downloadFile(
+                                selectedFormat.gpx_url,
+                                `gpx-${(course.nom || "epreuve")
+                                  .replace(/[^\w-]+/g, "_")}-${(selectedFormat.nom || "format")
+                                  .replace(/[^\w-]+/g, "_")}.gpx`
+                              )
+                            }
+                            className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+                            title="Télécharger le tracé GPX"
+                          >
+                            ⬇ Télécharger le GPX
+                          </button>
+                        </div>
 
-    <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-      <Suspense fallback={<div className="p-4 text-gray-600">Chargement de la carte…</div>}>
-        <GPXViewer gpxUrl={selectedFormat.gpx_url} height={420} allowDownload responsive />
-      </Suspense>
-    </div>
-  </>
-) : (
-  <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
-)}
-
+                        <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
+                          <Suspense fallback={<div className="p-4 text-neutral-600">Chargement de la carte…</div>}>
+                            <GPXViewer gpxUrl={selectedFormat.gpx_url} height={420} allowDownload responsive />
+                          </Suspense>
+                        </div>
+                      </>
+                    ) : (
+                      <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
+                    )}
 
                     {selectedFormat?.presentation_parcours && (
-                      <p className="text-gray-700">{selectedFormat.presentation_parcours}</p>
+                      <p className="text-neutral-700">{selectedFormat.presentation_parcours}</p>
                     )}
                   </>
                 )}
@@ -422,17 +462,11 @@ export default function CourseDetail() {
                     />
                     <InfoCard
                       title="Dotation"
-                      lines={[
-                        selectedFormat?.dotation || formats[0]?.dotation || "Non communiqué",
-                      ]}
+                      lines={[selectedFormat?.dotation || formats[0]?.dotation || "Non communiqué"]}
                     />
                     <InfoCard
                       title="Type d’épreuve"
-                      lines={[
-                        selectedFormat?.type_epreuve ||
-                          formats[0]?.type_epreuve ||
-                          "Non communiqué",
-                      ]}
+                      lines={[selectedFormat?.type_epreuve || formats[0]?.type_epreuve || "Non communiqué"]}
                     />
                   </div>
                 )}
@@ -446,7 +480,9 @@ export default function CourseDetail() {
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">S’inscrire</h3>
                 {formats.length === 0 ? (
-                  <p className="text-sm text-gray-600 mt-2">Les formats seront publiés bientôt.</p>
+                  <p className="text-sm text-neutral-600 mt-2">
+                    Les formats seront publiés bientôt.
+                  </p>
                 ) : (
                   <div className="mt-3 space-y-2">
                     {formats.map((f) => {
@@ -459,7 +495,7 @@ export default function CourseDetail() {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="font-medium">{f.nom}</div>
-                              <div className="text-xs text-gray-600 mt-0.5 flex flex-wrap gap-2">
+                              <div className="text-xs text-neutral-600 mt-0.5 flex flex-wrap gap-2">
                                 {f.date && (
                                   <span className="inline-flex items-center gap-1">
                                     <CalendarDays className="w-3 h-3" />
@@ -467,21 +503,29 @@ export default function CourseDetail() {
                                     {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                                   </span>
                                 )}
-                                {Number.isFinite(Number(f.distance_km)) && <span>{Number(f.distance_km)} km</span>}
-                                {Number.isFinite(Number(f.denivele_dplus)) && <span>{Number(f.denivele_dplus)} m D+</span>}
+                                {Number.isFinite(Number(f.distance_km)) && (
+                                  <span>{Number(f.distance_km)} km</span>
+                                )}
+                                {Number.isFinite(Number(f.denivele_dplus)) && (
+                                  <span>{Number(f.denivele_dplus)} m D+</span>
+                                )}
                               </div>
-                              <div className="mt-1 text-sm text-gray-800">
+                              <div className="mt-1 text-sm text-neutral-800">
                                 {Number.isFinite(Number(f.prix)) ? (
-                                  <>Prix : <strong>{Number(f.prix).toFixed(2)} €</strong></>
+                                  <>
+                                    Prix : <strong>{Number(f.prix).toFixed(2)} €</strong>
+                                  </>
                                 ) : (
                                   <>Prix : —</>
                                 )}
                               </div>
                               {max && (
-                                <div className="mt-1 text-xs text-gray-600">
+                                <div className="mt-1 text-xs text-neutral-600">
                                   Places : {inscrit} / {max}{" "}
                                   {remaining !== null && remaining <= 10 && !full && (
-                                    <span className="ml-1 text-amber-700 font-medium">({remaining} restantes)</span>
+                                    <span className="ml-1 text-amber-700 font-medium">
+                                      ({remaining} restantes)
+                                    </span>
                                   )}
                                 </div>
                               )}
@@ -494,7 +538,7 @@ export default function CourseDetail() {
                             ) : (
                               <Link
                                 to={`/inscription/${course.id}?format=${f.id}`}
-                                className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-gray-900 px-3 py-2 text-white text-sm font-semibold hover:bg-black"
+                                className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
                               >
                                 S’inscrire <ArrowRight className="w-4 h-4" />
                               </Link>
@@ -511,10 +555,23 @@ export default function CourseDetail() {
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Faits rapides</h3>
                 <div className="mt-3 grid grid-cols-2 gap-3">
-                  <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
-                  <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
-                  <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"} />
-                  <Fact title="Repas" value={aggregates.has_repas ? "Disponible" : "—"} Icon={UtensilsCrossed} />
+                  <Fact
+                    title="Distance"
+                    value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")}
+                  />
+                  <Fact
+                    title="D+"
+                    value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")}
+                  />
+                  <Fact
+                    title="Prochaine date"
+                    value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"}
+                  />
+                  <Fact
+                    title="Repas"
+                    value={aggregates.has_repas ? "Disponible" : "—"}
+                    Icon={UtensilsCrossed}
+                  />
                 </div>
               </div>
 
@@ -529,7 +586,7 @@ export default function CourseDetail() {
                         alert("Lien copié !");
                       } catch {}
                     }}
-                    className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
+                    className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
                   >
                     <Share2 className="w-4 h-4" />
                     Copier le lien
@@ -551,14 +608,16 @@ export default function CourseDetail() {
 
               {/* Alerte hors-ligne pour l'organisateur */}
               {!course.en_ligne && course.organisateur_id === session?.user?.id && (
-                <div className="rounded-2xl border bg-yellow-50 text-yellow-900 shadow-sm p-4">
+                <div className="rounded-2xl border bg-amber-50 text-amber-900 shadow-sm p-4">
                   <div className="flex items-center gap-2">
                     <AlertCircle className="w-5 h-5" />
-                    Cette épreuve est en **brouillon** (hors-ligne).
+                    <span>Cette épreuve est en </span>
+                    <strong>brouillon</strong>
+                    <span> (hors-ligne).</span>
                   </div>
                   <Link
                     to={`/modifier-course/${course.id}`}
-                    className="inline-flex items-center gap-2 mt-3 rounded-xl bg-yellow-600 px-3 py-2 text-white text-sm font-semibold hover:bg-yellow-700"
+                    className="inline-flex items-center gap-2 mt-3 rounded-xl bg-amber-600 px-3 py-2 text-white text-sm font-semibold hover:bg-amber-700"
                   >
                     Modifier l’épreuve
                   </Link>
@@ -568,7 +627,7 @@ export default function CourseDetail() {
           </div>
         </div>
 
-        {/* Message d’erreur éventuel (ex: hors-ligne pour public) */}
+        {/* Message d’erreur éventuel */}
         {error && (
           <div className="mt-8 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
             <div className="flex items-center gap-2">
@@ -590,7 +649,7 @@ function Badge({ text, color = "gray" }) {
     amber: "bg-amber-100/90 text-amber-800",
     rose: "bg-rose-100/90 text-rose-800",
     blue: "bg-blue-100/90 text-blue-800",
-    gray: "bg-gray-200/90 text-gray-800",
+    gray: "bg-neutral-200/90 text-neutral-800",
   }[color];
   return <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${bg}`}>{text}</span>;
 }
@@ -598,9 +657,9 @@ function Badge({ text, color = "gray" }) {
 function Fact({ title, value, Icon }) {
   return (
     <div className="rounded-xl border bg-white p-3 text-center">
-      {Icon ? <Icon className="w-4 h-4 mx-auto text-gray-700" /> : null}
-      <div className="text-[11px] text-gray-500 mt-1">{title}</div>
-      <div className="text-sm font-semibold text-gray-900">{value || "—"}</div>
+      {Icon ? <Icon className="w-4 h-4 mx-auto text-neutral-700" /> : null}
+      <div className="text-[11px] text-neutral-500 mt-1">{title}</div>
+      <div className="text-sm font-semibold text-neutral-900">{value || "—"}</div>
     </div>
   );
 }
@@ -617,7 +676,7 @@ function formatRange(min, max, unit = "") {
 
 function EmptyBox({ text }) {
   return (
-    <div className="rounded-2xl border border-dashed border-gray-300 p-8 text-center text-gray-600">
+    <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">
       {text}
     </div>
   );
@@ -628,7 +687,7 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
   return (
     <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
       <table className="min-w-full text-sm">
-        <thead className="bg-gray-50 text-gray-600">
+        <thead className="bg-neutral-50 text-neutral-700">
           <tr>
             <th className="text-left px-4 py-3">Format</th>
             <th className="text-left px-4 py-3">Date</th>
@@ -646,28 +705,31 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
             const remaining = max ? Math.max(0, max - inscrit) : null;
             const full = max ? inscrit >= max : false;
             return (
-              <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-gray-50/50"}>
-                <td className="px-4 py-3 font-medium text-gray-900">{f.nom}</td>
-                <td className="px-4 py-3 text-gray-700">
-                  {f.date ? fmtDate(f.date) : "—"}{f.heure_depart ? ` • ${f.heure_depart}` : ""}
+              <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}>
+                <td className="px-4 py-3 font-medium text-neutral-900">{f.nom}</td>
+                <td className="px-4 py-3 text-neutral-700">
+                  {f.date ? fmtDate(f.date) : "—"}
+                  {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                 </td>
-                <td className="px-4 py-3 text-gray-700">{numOrDash(f.distance_km)} km</td>
-                <td className="px-4 py-3 text-gray-700">
+                <td className="px-4 py-3 text-neutral-700">{numOrDash(f.distance_km)} km</td>
+                <td className="px-4 py-3 text-neutral-700">
                   {numOrDash(f.denivele_dplus)} / {numOrDash(f.denivele_dmoins)} m
                 </td>
-                <td className="px-4 py-3 text-gray-700">
+                <td className="px-4 py-3 text-neutral-700">
                   {max ? (
                     <>
                       {inscrit} / {max}{" "}
                       {remaining !== null && remaining <= 10 && !full && (
-                        <span className="ml-1 text-amber-700 font-medium">({remaining} restantes)</span>
+                        <span className="ml-1 text-amber-700 font-medium">
+                          ({remaining} restantes)
+                        </span>
                       )}
                     </>
                   ) : (
                     "—"
                   )}
                 </td>
-                <td className="px-4 py-3 text-gray-900">
+                <td className="px-4 py-3 text-neutral-900">
                   {Number.isFinite(Number(f.prix)) ? `${Number(f.prix).toFixed(2)} €` : "—"}
                 </td>
                 <td className="px-4 py-3 text-right">
@@ -678,7 +740,7 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
                   ) : (
                     <Link
                       to={`/inscription/${courseId}?format=${f.id}`}
-                      className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-3 py-2 text-white text-sm font-semibold hover:bg-black"
+                      className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
                     >
                       S’inscrire <ArrowRight className="w-4 h-4" />
                     </Link>
