@@ -329,22 +329,28 @@ export default function Courses() {
   /** UI */
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
-      {/* Header */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Épreuves à venir</h1>
-          <p className="text-gray-600 mt-1">
-            Découvrez les épreuves publiées. Filtrez par date, distance, D+, type, etc.
-          </p>
-        </div>
+     {/* Header */}
+<div className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
+  <div>
+    <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-neutral-900">
+      Courses <span className="font-black">
+        <span className="text-orange-600">Tick</span>Race
+      </span>
+    </h1>
+    <p className="mt-2 text-neutral-600 text-base">
+      Inscrivez-vous. Courez. Partagez.
+    </p>
+  </div>
 
-        <button
-          onClick={() => setViewMode(viewMode === "list" ? "map" : "list")}
-          className="self-start inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-semibold hover:bg-blue-700"
-        >
-          {viewMode === "list" ? "🌍 Vue carte" : "📃 Vue liste"}
-        </button>
-      </div>
+  <button
+    onClick={() => setViewMode(viewMode === "list" ? "map" : "list")}
+    className="self-start inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-white text-sm font-semibold hover:brightness-110"
+    title={viewMode === "list" ? "Passer en vue carte" : "Passer en vue liste"}
+  >
+    {viewMode === "list" ? "🌍 Vue carte" : "📃 Vue liste"}
+  </button>
+</div>
+
 
       {/* Filtres (uniquement en vue liste) */}
       {viewMode === "list" && (
