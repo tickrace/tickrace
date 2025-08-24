@@ -29,7 +29,6 @@ const MODIFIABLE_FIELDS = [
   "contact_urgence_telephone",
   "pps_identifier",
   "apparaitre_resultats",
-  "nombre_repas",
 ];
 
 export default function MonInscription() {
@@ -62,7 +61,9 @@ export default function MonInscription() {
         setLoading(false);
       }
     })();
-    return () => { abort = true; };
+    return () => {
+      abort = true;
+    };
   }, [id]);
 
   // 2) Récupérer un devis (quote) pour afficher le montant estimé sur le bouton
@@ -74,7 +75,7 @@ export default function MonInscription() {
       setQuoteErr(null);
       try {
         const { data, error } = await supabase.functions.invoke("refunds", {
-          body: { inscription_id: id, action: "quote" }
+          body: { inscription_id: id, action: "quote" },
         });
         if (!abort) {
           if (error) throw error;
@@ -86,7 +87,9 @@ export default function MonInscription() {
         if (!abort) setQuoteLoading(false);
       }
     })();
-    return () => { abort = true; };
+    return () => {
+      abort = true;
+    };
   }, [id]);
 
   // 3) Édition des champs
@@ -110,10 +113,7 @@ export default function MonInscription() {
           payload[key] = inscription[key];
         }
       }
-      const { error } = await supabase
-        .from("inscriptions")
-        .update(payload)
-        .eq("id", id);
+      const { error } = await supabase.from("inscriptions").update(payload).eq("id", id);
       if (error) throw error;
       setSaveMsg({ type: "success", text: "Modifications enregistrées ✅" });
     } catch (e) {
@@ -174,13 +174,9 @@ export default function MonInscription() {
 
   return (
     <div className="max-w-3xl mx-auto p-6 bg-white shadow-md rounded">
-      <h1 className="text-3xl font-bold mb-2 text-center text-gray-800">
-        Mon inscription
-      </h1>
+      <h1 className="text-3xl font-bold mb-2 text-center text-gray-800">Mon inscription</h1>
 
-      <div className="text-center mb-6">
-        {statusBadge}
-      </div>
+      <div className="text-center mb-6">{statusBadge}</div>
 
       {/* Message de sauvegarde */}
       {saveMsg && (
@@ -238,16 +234,6 @@ export default function MonInscription() {
           />
           <label>Apparaître dans les résultats</label>
         </div>
-
-        <input
-          type="number"
-          name="nombre_repas"
-          value={inscription.nombre_repas || 0}
-          onChange={handleChange}
-          placeholder="Nombre de repas"
-          className="w-full p-3 border border-gray-300 rounded disabled:bg-gray-50"
-          disabled={isLocked}
-        />
       </div>
 
       {/* Encadré barème (pédagogique) */}
@@ -260,9 +246,7 @@ export default function MonInscription() {
         <button
           onClick={handleSave}
           className={`${
-            isLocked
-              ? "bg-gray-400 cursor-not-allowed"
-              : "bg-blue-600 hover:bg-blue-700"
+            isLocked ? "bg-gray-400 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
           } text-white font-semibold px-6 py-3 rounded`}
           disabled={isLocked || saving}
         >
