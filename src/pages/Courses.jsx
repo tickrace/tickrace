@@ -63,7 +63,6 @@ export default function Courses() {
       setLoading(true);
 
       // 1) Courses publiées (en_ligne = true)
-      //   On ne charge pas tout formats ici pour alléger, on fera une 2e requête ciblée.
       let query = supabase
         .from("courses")
         .select("id, nom, lieu, departement, created_at, image_url")
@@ -96,7 +95,7 @@ export default function Courses() {
         return;
       }
 
-      // 2) Formats (légers) rattachés aux courses publiées
+      // 2) Formats (légers)
       const { data: fmts, error: fmtErr } = await supabase
         .from("formats")
         .select(
@@ -112,7 +111,6 @@ export default function Courses() {
         (fmts || []).forEach((f) => {
           (map[f.course_id] = map[f.course_id] || []).push(f);
         });
-        // Tri local des formats par date croissante
         Object.keys(map).forEach((k) =>
           map[k].sort(
             (a, b) =>
@@ -188,7 +186,7 @@ export default function Courses() {
         return d && d >= new Date(now.toDateString());
       });
 
-      // Prochaine date : la plus proche à venir sinon plus proche historique
+      // Prochaine date
       const next = (upcoming.length ? upcoming : fList)[0]?.date || null;
 
       // Prix mini
@@ -328,223 +326,225 @@ export default function Courses() {
 
   /** UI */
   return (
-    <div className="mx-auto max-w-7xl px-4 py-8">
-     {/* Header */}
-<div className="mb-6 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4">
-  <div>
-    <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-neutral-900">
-      Courses <span className="font-black">
-        <span className="text-orange-600">Tick</span>Race
-      </span>
-    </h1>
-    <p className="mt-2 text-neutral-600 text-base">
-      Inscrivez-vous. Courez. Partagez.
-    </p>
-  </div>
+    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+      {/* Header */}
+      <section className="bg-white border-b border-neutral-200">
+        <div className="mx-auto max-w-7xl px-4 py-10 text-center">
+          <h1 className="text-3xl sm:text-4xl font-black tracking-tight text-neutral-900">
+            Courses <span className="font-black"><span className="text-orange-600">Tick</span>Race</span>
+          </h1>
+          <p className="mt-2 text-neutral-600 text-base">Inscrivez-vous. Courez. Partagez.</p>
 
-  <button
-    onClick={() => setViewMode(viewMode === "list" ? "map" : "list")}
-    className="self-start inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-white text-sm font-semibold hover:brightness-110"
-    title={viewMode === "list" ? "Passer en vue carte" : "Passer en vue liste"}
-  >
-    {viewMode === "list" ? "🌍 Vue carte" : "📃 Vue liste"}
-  </button>
-</div>
-
-
-      {/* Filtres (uniquement en vue liste) */}
-      {viewMode === "list" && (
-        <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-            {/* Ligne 1 : recherche + dates */}
-            <div className="flex flex-1 flex-col md:flex-row gap-3">
+          <div className="mt-4 max-w-2xl mx-auto">
+            <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-2 flex flex-col md:flex-row gap-2">
               <input
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Rechercher (nom, lieu, département)…"
-                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
               />
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500">Du</label>
-                <input
-                  type="date"
-                  value={dateFrom}
-                  onChange={(e) => setDateFrom(e.target.value)}
-                  className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-              <div className="flex items-center gap-2">
-                <label className="text-xs text-gray-500">Au</label>
-                <input
-                  type="date"
-                  value={dateTo}
-                  onChange={(e) => setDateTo(e.target.value)}
-                  className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-                />
-              </div>
-            </div>
-
-            {/* Ligne 2 : selects & switches */}
-            <div className="flex flex-1 flex-col md:flex-row gap-3">
-              <select
-                value={departement}
-                onChange={(e) => setDepartement(e.target.value)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">Tous les départements</option>
-                {departements.map((dep) => (
-                  <option key={dep} value={dep}>
-                    {dep}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={type}
-                onChange={(e) => setType(e.target.value)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="all">Tous les types</option>
-                {typesDisponibles.map((t) => (
-                  <option key={t} value={t}>
-                    {t}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={distKey}
-                onChange={(e) => setDistKey(e.target.value)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                {DIST_BUCKETS.map((b) => (
-                  <option key={b.key} value={b.key}>
-                    {b.label}
-                  </option>
-                ))}
-              </select>
-
-              <select
-                value={dplusKey}
-                onChange={(e) => setDplusKey(e.target.value)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-              >
-                {DPLUS_BUCKETS.map((b) => (
-                  <option key={b.key} value={b.key}>
-                    {b.label}
-                  </option>
-                ))}
-              </select>
-
-              <label className="inline-flex items-center gap-2 select-none">
-                <input
-                  type="checkbox"
-                  checked={onlyRepas}
-                  onChange={(e) => setOnlyRepas(e.target.checked)}
-                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-sm text-gray-700 flex items-center gap-1">
-                  🍽️ Repas disponibles
-                </span>
-              </label>
-
-              <select
-                value={sortBy}
-                onChange={(e) => setSortBy(e.target.value)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-                title="Trier par"
-              >
-                <option value="date">Prochaine date</option>
-                <option value="price">Prix mini</option>
-                <option value="dplus">D+ maximum</option>
-              </select>
-
               <button
-                onClick={resetFilters}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                title="Réinitialiser"
+                onClick={() => setViewMode(viewMode === "list" ? "map" : "list")}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-white text-sm font-semibold hover:brightness-110"
+                title={viewMode === "list" ? "Passer en vue carte" : "Passer en vue liste"}
               >
-                ↺ Réinitialiser
+                {viewMode === "list" ? "🌍 Vue carte" : "📃 Vue liste"}
               </button>
             </div>
           </div>
         </div>
-      )}
+      </section>
 
-      {/* Résumé & page size (liste) */}
-      {viewMode === "list" && (
-        <div className="mb-4 flex items-center justify-between">
-          <div className="text-sm text-gray-600">
-            {loading
-              ? "Chargement…"
-              : `${total} épreuve${total > 1 ? "s" : ""} trouvée${total > 1 ? "s" : ""}`}
+      {/* Contenu */}
+      <div className="mx-auto max-w-7xl px-4 py-8">
+        {/* Filtres (uniquement en vue liste) */}
+        {viewMode === "list" && (
+          <div className="mb-6 rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
+            <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+              {/* Ligne 1 : dates */}
+              <div className="flex flex-1 flex-col md:flex-row gap-3">
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-neutral-500">Du</label>
+                  <input
+                    type="date"
+                    value={dateFrom}
+                    onChange={(e) => setDateFrom(e.target.value)}
+                    className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                  />
+                </div>
+                <div className="flex items-center gap-2">
+                  <label className="text-xs text-neutral-500">Au</label>
+                  <input
+                    type="date"
+                    value={dateTo}
+                    onChange={(e) => setDateTo(e.target.value)}
+                    className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                  />
+                </div>
+              </div>
+
+              {/* Ligne 2 : selects & switches */}
+              <div className="flex flex-1 flex-col md:flex-row gap-3">
+                <select
+                  value={departement}
+                  onChange={(e) => setDepartement(e.target.value)}
+                  className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                >
+                  <option value="all">Tous les départements</option>
+                  {departements.map((dep) => (
+                    <option key={dep} value={dep}>
+                      {dep}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={type}
+                  onChange={(e) => setType(e.target.value)}
+                  className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                >
+                  <option value="all">Tous les types</option>
+                  {typesDisponibles.map((t) => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={distKey}
+                  onChange={(e) => setDistKey(e.target.value)}
+                  className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                >
+                  {DIST_BUCKETS.map((b) => (
+                    <option key={b.key} value={b.key}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+
+                <select
+                  value={dplusKey}
+                  onChange={(e) => setDplusKey(e.target.value)}
+                  className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                >
+                  {DPLUS_BUCKETS.map((b) => (
+                    <option key={b.key} value={b.key}>
+                      {b.label}
+                    </option>
+                  ))}
+                </select>
+
+                <label className="inline-flex items-center gap-2 select-none">
+                  <input
+                    type="checkbox"
+                    checked={onlyRepas}
+                    onChange={(e) => setOnlyRepas(e.target.checked)}
+                    className="h-4 w-4 rounded border-neutral-300 text-orange-600 focus:ring-orange-300"
+                  />
+                  <span className="text-sm text-neutral-700 flex items-center gap-1">
+                    🍽️ Repas disponibles
+                  </span>
+                </label>
+
+                <select
+                  value={sortBy}
+                  onChange={(e) => setSortBy(e.target.value)}
+                  className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                  title="Trier par"
+                >
+                  <option value="date">Prochaine date</option>
+                  <option value="price">Prix mini</option>
+                  <option value="dplus">D+ maximum</option>
+                </select>
+
+                <button
+                  onClick={resetFilters}
+                  className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50"
+                  title="Réinitialiser"
+                >
+                  ↺ Réinitialiser
+                </button>
+              </div>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-sm text-gray-600">Par page</span>
-            <select
-              value={pageSize}
-              onChange={(e) => setPageSize(Number(e.target.value))}
-              className="rounded-xl border border-gray-200 px-2 py-1 text-sm focus:ring-2 focus:ring-blue-500"
-            >
-              {[6, 12, 18, 24].map((n) => (
-                <option key={n} value={n}>
-                  {n}
-                </option>
+        )}
+
+        {/* Résumé & page size (liste) */}
+        {viewMode === "list" && (
+          <div className="mb-4 flex items-center justify-between">
+            <div className="text-sm text-neutral-600">
+              {loading
+                ? "Chargement…"
+                : `${total} épreuve${total > 1 ? "s" : ""} trouvée${total > 1 ? "s" : ""}`}
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-sm text-neutral-600">Par page</span>
+              <select
+                value={pageSize}
+                onChange={(e) => setPageSize(Number(e.target.value))}
+                className="rounded-xl border border-neutral-200 px-2 py-1 text-sm focus:ring-2 focus:ring-orange-300"
+              >
+                {[6, 12, 18, 24].map((n) => (
+                  <option key={n} value={n}>
+                    {n}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+        )}
+
+        {/* Vue carte */}
+        {viewMode === "map" ? (
+          <Suspense fallback={<p>Chargement de la carte…</p>}>
+            <MapView courses={filtered} />
+          </Suspense>
+        ) : loading ? (
+          <SkeletonGrid />
+        ) : total === 0 ? (
+          <EmptyState onReset={resetFilters} />
+        ) : (
+          <>
+            {/* Grille des cartes */}
+            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+              {pageSlice.map((c) => (
+                <CourseCard key={c.id} course={c} />
               ))}
-            </select>
-          </div>
-        </div>
-      )}
-
-      {/* Vue carte */}
-      {viewMode === "map" ? (
-        <Suspense fallback={<p>Chargement de la carte…</p>}>
-          <MapView courses={filtered} />
-        </Suspense>
-      ) : loading ? (
-        <SkeletonGrid />
-      ) : total === 0 ? (
-        <EmptyState onReset={resetFilters} />
-      ) : (
-        <>
-          {/* Grille des cartes */}
-          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-            {pageSlice.map((c) => (
-              <CourseCard key={c.id} course={c} />
-            ))}
-          </div>
-
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="mt-8 flex items-center justify-center gap-2">
-              <button
-                onClick={() => setPage((p) => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                ◀︎ Précédent
-              </button>
-              <span className="text-sm text-gray-600">
-                Page <strong>{currentPage}</strong> / {totalPages}
-              </span>
-              <button
-                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-              >
-                Suivant ▶︎
-              </button>
             </div>
-          )}
 
-          {/* Note si "Complet" indisponible */}
-          {countsByFormat === null && (
-            <div className="mt-6 text-xs text-gray-500">
-              ⚠️ Le badge <strong>Complet</strong> est masqué (accès aux inscriptions restreint).
-            </div>
-          )}
-        </>
-      )}
+            {/* Pagination */}
+            {totalPages > 1 && (
+              <div className="mt-8 flex items-center justify-center gap-2">
+                <button
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                  className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+                >
+                  ◀︎ Précédent
+                </button>
+                <span className="text-sm text-neutral-600">
+                  Page <strong>{currentPage}</strong> / {totalPages}
+                </span>
+                <button
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                  className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50 disabled:opacity-50"
+                >
+                  Suivant ▶︎
+                </button>
+              </div>
+            )}
+
+            {/* Note si "Complet" indisponible */}
+            {countsByFormat === null && (
+              <div className="mt-6 text-xs text-neutral-500">
+                ⚠️ Le badge <strong>Complet</strong> est masqué (accès aux inscriptions restreint).
+              </div>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }
@@ -556,9 +556,9 @@ function CourseCard({ course }) {
     (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
 
   return (
-    <div className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+    <div className="group overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow">
       {/* Image */}
-      <div className="relative aspect-[16/10] w-full overflow-hidden bg-gray-100">
+      <div className="relative aspect-[16/10] w-full overflow-hidden bg-neutral-100">
         {course.image_url ? (
           <img
             src={course.image_url}
@@ -567,7 +567,7 @@ function CourseCard({ course }) {
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">
+          <div className="h-full w-full flex items-center justify-center text-neutral-400 text-sm">
             Pas d’image
           </div>
         )}
@@ -590,7 +590,7 @@ function CourseCard({ course }) {
             </span>
           )}
           {course.is_new && (
-            <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-medium text-blue-700">
+            <span className="rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-medium text-orange-700">
               Nouveau
             </span>
           )}
@@ -601,12 +601,12 @@ function CourseCard({ course }) {
       <div className="p-4">
         <h3 className="line-clamp-1 text-lg font-semibold">{course.nom}</h3>
 
-        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-600">
           <span>📍 {course.lieu} ({course.departement})</span>
           {course.next_date && <span>📅 {formatDate(course.next_date)}</span>}
         </div>
 
-        <div className="mt-2 text-sm text-gray-700 space-y-1">
+        <div className="mt-2 text-sm text-neutral-700 space-y-1">
           {course.min_dist != null && course.max_dist != null && (
             <div>
               Distance :{" "}
@@ -634,7 +634,7 @@ function CourseCard({ course }) {
         <div className="mt-4 flex items-center justify-between">
           <Link
             to={`/courses/${course.id}`}
-            className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-3 py-2 text-white text-sm font-semibold hover:bg-black"
+            className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
             title="Voir l'épreuve"
           >
             Voir l’épreuve ↗
@@ -642,7 +642,7 @@ function CourseCard({ course }) {
 
           <Link
             to={`/inscription/${course.id}`}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-300 px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50"
+            className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
             title="S'inscrire"
           >
             S’inscrire
@@ -660,14 +660,14 @@ function SkeletonGrid() {
       {Array.from({ length: 6 }).map((_, i) => (
         <div
           key={i}
-          className="animate-pulse overflow-hidden rounded-2xl border border-gray-200 bg-white"
+          className="animate-pulse overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white"
         >
-          <div className="h-40 w-full bg-gray-100" />
+          <div className="h-40 w-full bg-neutral-100" />
           <div className="p-4 space-y-3">
-            <div className="h-5 w-2/3 bg-gray-100 rounded" />
-            <div className="h-4 w-1/3 bg-gray-100 rounded" />
-            <div className="h-4 w-1/2 bg-gray-100 rounded" />
-            <div className="h-8 w-1/2 bg-gray-100 rounded mt-4" />
+            <div className="h-5 w-2/3 bg-neutral-100 rounded" />
+            <div className="h-4 w-1/3 bg-neutral-100 rounded" />
+            <div className="h-4 w-1/2 bg-neutral-100 rounded" />
+            <div className="h-8 w-1/2 bg-neutral-100 rounded mt-4" />
           </div>
         </div>
       ))}
@@ -678,14 +678,14 @@ function SkeletonGrid() {
 /** Empty state */
 function EmptyState({ onReset }) {
   return (
-    <div className="rounded-2xl border border-dashed border-gray-300 p-10 text-center">
+    <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-10 text-center">
       <h3 className="text-lg font-semibold">Aucune épreuve trouvée</h3>
-      <p className="mt-1 text-gray-600">
+      <p className="mt-1 text-neutral-600">
         Modifiez vos filtres, ou réinitialisez pour tout revoir.
       </p>
       <button
         onClick={onReset}
-        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"
+        className="mt-4 inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
       >
         ↺ Réinitialiser les filtres
       </button>
