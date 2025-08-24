@@ -1,6 +1,6 @@
 // src/pages/CourseDetail.jsx
-import React, { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
+import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import {
@@ -9,16 +9,13 @@ import {
   Mountain,
   UtensilsCrossed,
   Share2,
-  QrCode,
   ExternalLink,
   ArrowRight,
   AlertCircle,
-  CheckCircle2,
   Loader2,
 } from "lucide-react";
 
-// Optionnel : si tu as déjà un composant GPX
-import GPXViewer from "../components/GPXViewer";
+const GPXViewer = lazy(() => import("../components/GPXViewer"));
 
 const parseDate = (d) => (d ? new Date(d) : null);
 const fmtDate = (d) =>
@@ -34,7 +31,6 @@ const fmtDate = (d) =>
 export default function CourseDetail() {
   const { id } = useParams();
   const { session } = useUser();
-  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
   const [course, setCourse] = useState(null);
@@ -42,57 +38,58 @@ export default function CourseDetail() {
   const [countsByFormat, setCountsByFormat] = useState(null); // null = inconnu (RLS), {} = connu
   const [error, setError] = useState(null);
 
-  // Onglet actif
-  const [tab, setTab] = useState("aperçu"); // "aperçu" | "formats" | "parcours" | "infos" | "chat" | "orga"
+  const [tab, setTab] = useState("aperçu"); // "aperçu" | "formats" | "parcours" | "infos"
+  const [selectedFormatId, setSelectedFormatId] = useState(null);
 
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
       setError(null);
 
-      // 1) Récup course
+      // 1) Course — sélection "safe"
       const { data: c, error: e1 } = await supabase
         .from("courses")
-        .select(
-          "id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, gpx_url, reglement_url, site_organisateur, facebook_url, instagram_url, depart_lat, depart_lon, created_at"
-        )
+        .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
         .eq("id", id)
         .maybeSingle();
 
       if (e1 || !c) {
+        console.error("Erreur course:", e1);
         setError("Épreuve introuvable.");
         setLoading(false);
         return;
       }
 
-      // 2) Rule d’accès : si pas en ligne et pas owner → refuser
       const isOwner = !!(session?.user?.id && c.organisateur_id === session.user.id);
       if (!c.en_ligne && !isOwner) {
-        setError("Cette épreuve est hors-ligne.");
         setCourse(c);
+        setError("Cette épreuve est hors-ligne.");
         setLoading(false);
         return;
       }
 
       setCourse(c);
 
-      // 3) Formats
+      // 2) Formats (toutes les colonnes que tu utilises déjà)
       const { data: fmts, error: e2 } = await supabase
         .from("formats")
         .select(
-          "id, nom, type_epreuve, date, heure_depart, prix, distance_km, denivele_dplus, nb_max_coureurs, stock_repas"
+          "id, nom, type_epreuve, date, heure_depart, prix, distance_km, denivele_dplus, denivele_dmoins, adresse_depart, adresse_arrivee, dotation, presentation_parcours, image_url, gpx_url, nb_max_coureurs, stock_repas"
         )
         .eq("course_id", id)
         .order("date", { ascending: true });
 
       if (e2) {
-        setError("Impossible de charger les formats.");
+        console.error(e2);
         setFormats([]);
       } else {
         setFormats(fmts || []);
+        if (!selectedFormatId && (fmts || []).length) {
+          setSelectedFormatId(fmts[0].id);
+        }
       }
 
-      // 4) Inscriptions (pour places restantes) — peut être bloqué par RLS
+      // 3) Inscriptions → comptage (peut être bloqué par RLS)
       try {
         const fids = (fmts || []).map((f) => f.id);
         if (fids.length) {
@@ -113,7 +110,7 @@ export default function CourseDetail() {
         } else {
           setCountsByFormat({});
         }
-      } catch (err) {
+      } catch {
         setCountsByFormat(null);
       }
 
@@ -124,15 +121,15 @@ export default function CourseDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, session?.user?.id]);
 
-  // Agrégats
+  // Agrégats généraux
   const aggregates = useMemo(() => {
     const fList = formats || [];
     const now = new Date();
-    const future = fList.filter((f) => {
+    const upcoming = fList.filter((f) => {
       const d = parseDate(f.date);
       return d && d >= new Date(now.toDateString());
     });
-    const next_date = (future.length ? future : fList)[0]?.date || null;
+    const next_date = (upcoming.length ? upcoming : fList)[0]?.date || null;
 
     const minPrix = fList.reduce((min, f) => {
       const p = Number(f.prix);
@@ -188,57 +185,36 @@ export default function CourseDetail() {
     );
   }
 
+  const shareUrl = `${window.location.origin}/courses/${course.id}`;
   const soon =
     aggregates.next_date &&
     (parseDate(aggregates.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
 
-  const shareUrl = `${window.location.origin}/courses/${course.id}`;
+  const selectedFormat = formats.find((f) => f.id === selectedFormatId) || null;
 
   return (
     <div className="mx-auto max-w-7xl">
       {/* HERO */}
       <div className="relative h-[260px] sm:h-[360px] md:h-[420px] w-full overflow-hidden">
         {course.image_url ? (
-          <img
-            src={course.image_url}
-            alt={`Image de ${course.nom}`}
-            className="h-full w-full object-cover"
-          />
+          <img src={course.image_url} alt={`Image de ${course.nom}`} className="h-full w-full object-cover" />
         ) : (
           <div className="h-full w-full bg-gray-200 flex items-center justify-center text-gray-500">
             <Mountain className="w-10 h-10" />
           </div>
         )}
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
+
         {/* Badges */}
         <div className="absolute left-4 top-4 flex gap-2 flex-wrap">
-          {soon && (
-            <span className="rounded-full bg-emerald-100/90 px-3 py-1 text-[12px] font-medium text-emerald-800">
-              Bientôt
-            </span>
-          )}
-          {aggregates.has_repas && (
-            <span className="rounded-full bg-amber-100/90 px-3 py-1 text-[12px] font-medium text-amber-800">
-              Repas
-            </span>
-          )}
-          {aggregates.is_full && (
-            <span className="rounded-full bg-rose-100/90 px-3 py-1 text-[12px] font-medium text-rose-800">
-              Complet
-            </span>
-          )}
-          {aggregates.is_new && (
-            <span className="rounded-full bg-blue-100/90 px-3 py-1 text-[12px] font-medium text-blue-800">
-              Nouveau
-            </span>
-          )}
-          {!course.en_ligne && (
-            <span className="rounded-full bg-gray-200/90 px-3 py-1 text-[12px] font-medium text-gray-800">
-              Hors-ligne
-            </span>
-          )}
+          {soon && <Badge text="Bientôt" color="emerald" />}
+          {aggregates.has_repas && <Badge text="Repas" color="amber" />}
+          {aggregates.is_full && <Badge text="Complet" color="rose" />}
+          {aggregates.is_new && <Badge text="Nouveau" color="blue" />}
+          {!course.en_ligne && <Badge text="Hors-ligne" color="gray" />}
         </div>
 
+        {/* Titre & CTA */}
         <div className="absolute bottom-4 left-4 right-4">
           <div className="max-w-7xl mx-auto px-2 sm:px-4">
             <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">
@@ -262,7 +238,6 @@ export default function CourseDetail() {
               )}
             </div>
 
-            {/* CTA */}
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Link
                 to={`/inscription/${course.id}`}
@@ -275,9 +250,7 @@ export default function CourseDetail() {
                   try {
                     await navigator.clipboard.writeText(shareUrl);
                     alert("Lien copié !");
-                  } catch {
-                    // no-op
-                  }
+                  } catch {}
                 }}
                 className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-3 py-2 text-white text-sm hover:bg-white/25"
                 title="Copier le lien"
@@ -295,7 +268,7 @@ export default function CourseDetail() {
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
           {/* Colonne principale */}
           <div className="lg:col-span-8">
-            {/* Onglets sticky */}
+            {/* Onglets */}
             <div className="sticky top-0 z-10 -mx-4 sm:-mx-6 md:-mx-8 px-4 sm:px-6 md:px-8 bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60 border-b">
               <div className="flex gap-3 overflow-x-auto py-2">
                 {[
@@ -303,8 +276,6 @@ export default function CourseDetail() {
                   { key: "formats", label: "Formats & tarifs" },
                   { key: "parcours", label: "Parcours" },
                   { key: "infos", label: "Infos pratiques" },
-                  { key: "chat", label: "Chat" },
-                  { key: "orga", label: "Organisateur" },
                 ].map((t) => (
                   <button
                     key={t.key}
@@ -331,16 +302,11 @@ export default function CourseDetail() {
                   <p className="text-gray-500">La présentation de l’épreuve sera bientôt disponible.</p>
                 )}
 
-                {/* Faits rapides */}
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                   <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
                   <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
                   <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
-                  <Fact
-                    title="Repas"
-                    value={aggregates.has_repas ? "Disponible" : "—"}
-                    Icon={UtensilsCrossed}
-                  />
+                  <Fact title="Repas" value={aggregates.has_repas ? "Disponible" : "—"} Icon={UtensilsCrossed} />
                 </div>
               </section>
             )}
@@ -350,119 +316,89 @@ export default function CourseDetail() {
                 {formats.length === 0 ? (
                   <EmptyBox text="Les formats seront publiés bientôt." />
                 ) : (
-                  <FormatsTable
-                    courseId={course.id}
-                    formats={formats}
-                    countsByFormat={countsByFormat}
-                  />
+                  <FormatsTable courseId={course.id} formats={formats} countsByFormat={countsByFormat} />
                 )}
               </section>
             )}
 
             {tab === "parcours" && (
               <section className="mt-6 space-y-4">
-                {!course.gpx_url ? (
-                  <EmptyBox text="Le GPX n’est pas encore disponible." />
+                {formats.length === 0 ? (
+                  <EmptyBox text="Les parcours seront publiés bientôt." />
                 ) : (
-                  <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-                    <GPXViewer
-                      gpxUrl={course.gpx_url}
-                      height={420}
-                      allowBaseMapChoice
-                      responsive
-                      allowDownload
-                    />
-                  </div>
+                  <>
+                    {/* Sélecteur de format pour afficher le GPX de ce format */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-sm text-gray-700">Choisir un format :</label>
+                      <select
+                        value={selectedFormatId || ""}
+                        onChange={(e) => setSelectedFormatId(e.target.value)}
+                        className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                      >
+                        {formats.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.nom} {f.date ? `— ${fmtDate(f.date)}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {selectedFormat?.gpx_url ? (
+                      <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
+                        <Suspense fallback={<div className="p-4 text-gray-600">Chargement de la carte…</div>}>
+                          <GPXViewer gpxUrl={selectedFormat.gpx_url} height={420} allowDownload responsive />
+                        </Suspense>
+                      </div>
+                    ) : (
+                      <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
+                    )}
+
+                    {selectedFormat?.presentation_parcours && (
+                      <p className="text-gray-700">{selectedFormat.presentation_parcours}</p>
+                    )}
+                  </>
                 )}
               </section>
             )}
 
             {tab === "infos" && (
               <section className="mt-6 space-y-4">
-                <div className="grid sm:grid-cols-2 gap-4">
-                  <InfoCard
-                    title="Lieu & accès"
-                    lines={[
-                      course.lieu ? `${course.lieu} (${course.departement})` : null,
-                      course.depart_lat && course.depart_lon
-                        ? "Cliquez pour ouvrir l’itinéraire"
-                        : null,
-                    ]}
-                    action={
-                      course.depart_lat && course.depart_lon ? (
-                        <a
-                          className="inline-flex items-center gap-2 text-sm text-blue-700 hover:underline"
-                          href={`https://www.google.com/maps/dir/?api=1&destination=${course.depart_lat},${course.depart_lon}`}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Ouvrir dans Maps <ExternalLink className="w-4 h-4" />
-                        </a>
-                      ) : null
-                    }
-                  />
-                  <InfoCard
-                    title="Règlement"
-                    lines={[
-                      course.reglement_url ? "Consultez le règlement (PDF)" : "Non communiqué",
-                    ]}
-                    action={
-                      course.reglement_url ? (
-                        <a
-                          className="inline-flex items-center gap-2 text-sm text-blue-700 hover:underline"
-                          href={course.reglement_url}
-                          target="_blank"
-                          rel="noreferrer"
-                        >
-                          Ouvrir le PDF <ExternalLink className="w-4 h-4" />
-                        </a>
-                      ) : null
-                    }
-                  />
-                </div>
-              </section>
-            )}
-
-            {tab === "chat" && (
-              <section className="mt-6">
-                <EmptyBox text="Le chat de l’épreuve arrive bientôt. Posez vos questions, covoiturage, etc." />
-              </section>
-            )}
-
-            {tab === "orga" && (
-              <section className="mt-6">
-                <div className="rounded-2xl border bg-white shadow-sm p-4">
-                  <h3 className="text-lg font-semibold">Organisation</h3>
-                  <div className="mt-2 text-sm text-gray-700 space-y-2">
-                    {course.site_organisateur ? (
-                      <div>
-                        Site :{" "}
-                        <a
-                          href={course.site_organisateur}
-                          target="_blank"
-                          rel="noreferrer"
-                          className="text-blue-700 hover:underline"
-                        >
-                          {course.site_organisateur}
-                        </a>
-                      </div>
-                    ) : (
-                      <div>Site organisateur : non communiqué.</div>
-                    )}
-                    <div className="flex items-center gap-4">
-                      {course.facebook_url && (
-                        <a className="text-blue-700 hover:underline" href={course.facebook_url} target="_blank" rel="noreferrer">
-                          Facebook
-                        </a>
-                      )}
-                      {course.instagram_url && (
-                        <a className="text-blue-700 hover:underline" href={course.instagram_url} target="_blank" rel="noreferrer">
-                          Instagram
-                        </a>
-                      )}
-                    </div>
+                {formats.length === 0 ? (
+                  <EmptyBox text="Infos à venir." />
+                ) : (
+                  <div className="grid sm:grid-cols-2 gap-4">
+                    <InfoCard
+                      title="Départ"
+                      lines={[
+                        selectedFormat?.adresse_depart ||
+                          formats[0]?.adresse_depart ||
+                          "Non communiqué",
+                      ]}
+                    />
+                    <InfoCard
+                      title="Arrivée"
+                      lines={[
+                        selectedFormat?.adresse_arrivee ||
+                          formats[0]?.adresse_arrivee ||
+                          "Non communiqué",
+                      ]}
+                    />
+                    <InfoCard
+                      title="Dotation"
+                      lines={[
+                        selectedFormat?.dotation || formats[0]?.dotation || "Non communiqué",
+                      ]}
+                    />
+                    <InfoCard
+                      title="Type d’épreuve"
+                      lines={[
+                        selectedFormat?.type_epreuve ||
+                          formats[0]?.type_epreuve ||
+                          "Non communiqué",
+                      ]}
+                    />
                   </div>
-                </div>
+                )}
               </section>
             )}
           </div>
@@ -494,12 +430,8 @@ export default function CourseDetail() {
                                     {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                                   </span>
                                 )}
-                                {Number.isFinite(Number(f.distance_km)) && (
-                                  <span>{Number(f.distance_km)} km</span>
-                                )}
-                                {Number.isFinite(Number(f.denivele_dplus)) && (
-                                  <span>{Number(f.denivele_dplus)} m D+</span>
-                                )}
+                                {Number.isFinite(Number(f.distance_km)) && <span>{Number(f.distance_km)} km</span>}
+                                {Number.isFinite(Number(f.denivele_dplus)) && <span>{Number(f.denivele_dplus)} m D+</span>}
                               </div>
                               <div className="mt-1 text-sm text-gray-800">
                                 {Number.isFinite(Number(f.prix)) ? (
@@ -566,7 +498,6 @@ export default function CourseDetail() {
                     Copier le lien
                   </button>
                   <div className="ml-auto">
-                    {/* QR via service public — tu peux remplacer par ton propre générateur si besoin */}
                     <img
                       src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
                         shareUrl
@@ -581,7 +512,7 @@ export default function CourseDetail() {
                 </div>
               </div>
 
-              {/* Alerte hors-ligne (si admin/owner) */}
+              {/* Alerte hors-ligne pour l'organisateur */}
               {!course.en_ligne && course.organisateur_id === session?.user?.id && (
                 <div className="rounded-2xl border bg-yellow-50 text-yellow-900 shadow-sm p-4">
                   <div className="flex items-center gap-2">
@@ -600,7 +531,7 @@ export default function CourseDetail() {
           </div>
         </div>
 
-        {/* Message d’erreur éventuel */}
+        {/* Message d’erreur éventuel (ex: hors-ligne pour public) */}
         {error && (
           <div className="mt-8 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
             <div className="flex items-center gap-2">
@@ -614,7 +545,18 @@ export default function CourseDetail() {
   );
 }
 
-/* ========= Sous-composants ========= */
+/* ===== Sous-composants ===== */
+
+function Badge({ text, color = "gray" }) {
+  const bg = {
+    emerald: "bg-emerald-100/90 text-emerald-800",
+    amber: "bg-amber-100/90 text-amber-800",
+    rose: "bg-rose-100/90 text-rose-800",
+    blue: "bg-blue-100/90 text-blue-800",
+    gray: "bg-gray-200/90 text-gray-800",
+  }[color];
+  return <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${bg}`}>{text}</span>;
+}
 
 function Fact({ title, value, Icon }) {
   return (
@@ -654,7 +596,7 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
             <th className="text-left px-4 py-3">Format</th>
             <th className="text-left px-4 py-3">Date</th>
             <th className="text-left px-4 py-3">Distance</th>
-            <th className="text-left px-4 py-3">D+</th>
+            <th className="text-left px-4 py-3">D+ / D-</th>
             <th className="text-left px-4 py-3">Places</th>
             <th className="text-left px-4 py-3">Prix</th>
             <th className="text-right px-4 py-3">Action</th>
@@ -666,16 +608,16 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
             const inscrit = Number(countsByFormat?.[f.id] || 0);
             const remaining = max ? Math.max(0, max - inscrit) : null;
             const full = max ? inscrit >= max : false;
-
             return (
               <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-gray-50/50"}>
                 <td className="px-4 py-3 font-medium text-gray-900">{f.nom}</td>
                 <td className="px-4 py-3 text-gray-700">
-                  {f.date ? fmtDate(f.date) : "—"}
-                  {f.heure_depart ? ` • ${f.heure_depart}` : ""}
+                  {f.date ? fmtDate(f.date) : "—"}{f.heure_depart ? ` • ${f.heure_depart}` : ""}
                 </td>
                 <td className="px-4 py-3 text-gray-700">{numOrDash(f.distance_km)} km</td>
-                <td className="px-4 py-3 text-gray-700">{numOrDash(f.denivele_dplus)} m</td>
+                <td className="px-4 py-3 text-gray-700">
+                  {numOrDash(f.denivele_dplus)} / {numOrDash(f.denivele_dmoins)} m
+                </td>
                 <td className="px-4 py-3 text-gray-700">
                   {max ? (
                     <>
