@@ -1,41 +1,25 @@
 // src/pages/Courses.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, Suspense } from "react";
 import { Link } from "react-router-dom";
 import { supabase } from "../supabase";
-import {
-  CalendarDays,
-  MapPin,
-  Mountain,
-  ArrowUpRight,
-  Filter,
-  Search,
-  RotateCcw,
-  UtensilsCrossed,
-  Sparkles,
-  AlertTriangle,
-  ChevronLeft,
-  ChevronRight,
-  BadgePercent,
-} from "lucide-react";
+import "leaflet/dist/leaflet.css";
 
-/** Utils */
+// Lazy load de la carte (optimisation)
+const MapView = React.lazy(() => import("../components/CoursesMap"));
+
+/** Utils simples */
 const todayISO = () => new Date().toISOString().slice(0, 10);
 const parseDate = (d) => (d ? new Date(d) : null);
-const isWithin = (date, minISO, maxISO) => {
-  if (!date) return false;
-  const t = typeof date === "string" ? new Date(date) : date;
-  if (minISO && t < new Date(minISO)) return false;
-  if (maxISO && t > new Date(maxISO)) return false;
-  return true;
-};
 const formatDate = (d) =>
   d
-    ? new Intl.DateTimeFormat("fr-FR", { day: "2-digit", month: "short", year: "numeric" }).format(
-        typeof d === "string" ? new Date(d) : d
-      )
+    ? new Intl.DateTimeFormat("fr-FR", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }).format(typeof d === "string" ? new Date(d) : d)
     : "";
 
-const DISTANCE_BUCKETS = [
+const DIST_BUCKETS = [
   { key: "all", label: "Distance (toutes)" },
   { key: "0-15", label: "0–15 km", min: 0, max: 15 },
   { key: "15-30", label: "15–30 km", min: 15, max: 30 },
@@ -49,24 +33,19 @@ const DPLUS_BUCKETS = [
   { key: "2000+", label: "2 000+ m", min: 2000, max: Infinity },
 ];
 
-const PAGE_SIZE_DEFAULT = 12;
-
-/**
- * Cette page :
- * 1) Charge les courses publiées (en_ligne = true)
- * 2) Charge les formats liés (dates, prix, distances, D+, stocks repas…)
- * 3) Tente de charger les inscriptions (pour détecter "Complet"). Si accès refusé, on ignore proprement.
- * 4) Calcule les agrégats par course (next_date, min_prix, min/max distance, min/max D+, has_repas, is_full*)
- * 5) Applique filtres, tri, pagination
- */
 export default function Courses() {
   const [loading, setLoading] = useState(true);
-  const [courses, setCourses] = useState([]); // courses brutes
-  const [formatsByCourse, setFormatsByCourse] = useState({}); // { course_id: [formats] }
-  const [countsByFormat, setCountsByFormat] = useState(null); // null = inconnu (pas d'accès), {} = connu
 
-  // Filtres
-  const [q, setQ] = useState("");
+  // Données brutes
+  const [courses, setCourses] = useState([]);
+  const [formatsByCourse, setFormatsByCourse] = useState({});
+  const [countsByFormat, setCountsByFormat] = useState(null); // null = inconnu (RLS), {} = connu
+
+  // Filtres UI
+  const [viewMode, setViewMode] = useState("list"); // "list" | "map"
+  const [search, setSearch] = useState("");
+  const [departement, setDepartement] = useState("all");
+  const [type, setType] = useState("all");
   const [dateFrom, setDateFrom] = useState(todayISO());
   const [dateTo, setDateTo] = useState("");
   const [distKey, setDistKey] = useState("all");
@@ -76,21 +55,23 @@ export default function Courses() {
   // Tri & pagination
   const [sortBy, setSortBy] = useState("date"); // 'date' | 'price' | 'dplus'
   const [page, setPage] = useState(1);
-  const [pageSize, setPageSize] = useState(PAGE_SIZE_DEFAULT);
+  const [pageSize, setPageSize] = useState(12);
 
+  /** Chargement initial */
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
 
-      // 1) Courses publiées
+      // 1) Courses publiées (en_ligne = true)
+      //   On ne charge pas tout formats ici pour alléger, on fera une 2e requête ciblée.
       let query = supabase
         .from("courses")
-        .select("id, nom, lieu, departement, created_at, image_url, image_path", { count: "exact" })
+        .select("id, nom, lieu, departement, created_at, image_url")
         .eq("en_ligne", true)
         .order("created_at", { ascending: false });
 
-      if (q && q.trim().length > 0) {
-        const term = q.trim();
+      if (search && search.trim().length > 0) {
+        const term = search.trim();
         query = query.or(
           `nom.ilike.%${term}%,lieu.ilike.%${term}%,departement.ilike.%${term}%`
         );
@@ -115,11 +96,11 @@ export default function Courses() {
         return;
       }
 
-      // 2) Formats (légers)
+      // 2) Formats (légers) rattachés aux courses publiées
       const { data: fmts, error: fmtErr } = await supabase
         .from("formats")
         .select(
-          "id, course_id, date, prix, distance_km, denivele_dplus, nb_max_coureurs, stock_repas"
+          "id, course_id, nom, type_epreuve, date, prix, distance_km, denivele_dplus, nb_max_coureurs, stock_repas"
         )
         .in("course_id", courseIds);
 
@@ -142,7 +123,7 @@ export default function Courses() {
         setFormatsByCourse(map);
       }
 
-      // 3) Inscriptions → counts (peut échouer si RLS)
+      // 3) Inscriptions → comptage par format (peut être bloqué par RLS en public)
       try {
         const allFormatIds = (fmts || []).map((f) => f.id);
         let fmtCounts = {};
@@ -174,23 +155,27 @@ export default function Courses() {
 
     fetchAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [q]);
+  }, [search]);
 
-  /** Helper image */
-  const getImageUrl = (course) => {
-    // Priorité image_url si déjà public
-    if (course.image_url) return course.image_url;
-    // Sinon, tenter storage public url depuis image_path (bucket 'courses')
-    if (course.image_path) {
-      try {
-        const { data } = supabase.storage.from("courses").getPublicUrl(course.image_path);
-        return data?.publicUrl || null;
-      } catch {
-        return null;
-      }
-    }
-    return null;
-  };
+  /** Dépendances dynamiques du UI -> reset page quand ça bouge */
+  useEffect(() => {
+    setPage(1);
+  }, [departement, type, dateFrom, dateTo, distKey, dplusKey, onlyRepas, sortBy, pageSize, viewMode]);
+
+  /** Listes de filtres dynamiques */
+  const departements = useMemo(
+    () => Array.from(new Set(courses.map((c) => c.departement).filter(Boolean))).sort(),
+    [courses]
+  );
+  const typesDisponibles = useMemo(() => {
+    const all = [];
+    Object.values(formatsByCourse).forEach((arr) =>
+      arr.forEach((f) => {
+        if (f.type_epreuve) all.push(f.type_epreuve);
+      })
+    );
+    return Array.from(new Set(all)).sort();
+  }, [formatsByCourse]);
 
   /** Agrégation par course */
   const resume = useMemo(() => {
@@ -200,47 +185,45 @@ export default function Courses() {
       const now = new Date();
       const upcoming = fList.filter((f) => {
         const d = parseDate(f.date);
-        return d && d >= new Date(now.toDateString()); // >= aujourd'hui
+        return d && d >= new Date(now.toDateString());
       });
 
-      // next_date = date la + proche parmi formats à venir (sinon plus proche historique)
+      // Prochaine date : la plus proche à venir sinon plus proche historique
       const next = (upcoming.length ? upcoming : fList)[0]?.date || null;
 
-      // prix mini
-      const minPrix = fList.reduce(
-        (min, f) =>
-          typeof f.prix === "number" && !Number.isNaN(f.prix)
-            ? Math.min(min, f.prix)
-            : min,
-        Infinity
-      );
+      // Prix mini
+      const minPrix = fList.reduce((min, f) => {
+        const p = Number(f.prix);
+        return Number.isFinite(p) ? Math.min(min, p) : min;
+      }, Infinity);
       const minPrixVal = minPrix === Infinity ? null : minPrix;
 
-      // distance / D+ (min/max)
-      const dists = fList.map((f) => Number(f.distance_km)).filter((n) => !Number.isNaN(n));
-      const dplus = fList.map((f) => Number(f.denivele_dplus)).filter((n) => !Number.isNaN(n));
+      // Distance / D+ (min/max)
+      const dists = fList.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
+      const dplus = fList.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
       const minDist = dists.length ? Math.min(...dists) : null;
       const maxDist = dists.length ? Math.max(...dists) : null;
       const minDplus = dplus.length ? Math.min(...dplus) : null;
       const maxDplus = dplus.length ? Math.max(...dplus) : null;
 
-      // repas dispo ?
+      // Repas dispo ?
       const hasRepas = fList.some((f) => Number(f.stock_repas) > 0);
 
-      // complet ?
+      // Complet (si on connaît les counts)
       let isFull = false;
       if (countsByFormat !== null && fList.length) {
         isFull = fList.every((f) => {
           const max = Number(f.nb_max_coureurs);
-          if (!max || Number.isNaN(max)) return false; // si pas de limite connue → pas "complet"
+          if (!max || Number.isNaN(max)) return false;
           const count = Number(countsByFormat?.[f.id] || 0);
           return count >= max;
         });
       }
 
-      // nouveau ? (< 14j)
+      // Nouveau ? (< 14 jours)
       const createdAt = parseDate(c.created_at);
-      const isNew = createdAt ? (new Date().getTime() - createdAt.getTime()) / 86400000 < 14 : false;
+      const isNew =
+        createdAt ? (new Date().getTime() - createdAt.getTime()) / 86400000 < 14 : false;
 
       res.push({
         ...c,
@@ -259,23 +242,37 @@ export default function Courses() {
     return res;
   }, [courses, formatsByCourse, countsByFormat]);
 
-  /** Filtres + tri */
+  /** Application des filtres + tri */
   const filtered = useMemo(() => {
     return resume
       .filter((c) => {
-        // Date range
-        if (dateFrom || dateTo) {
-          if (!isWithin(c.next_date, dateFrom || null, dateTo || null)) return false;
+        // Département
+        if (departement !== "all" && c.departement !== departement) return false;
+
+        // Type épreuve (si au moins un format match)
+        if (type !== "all") {
+          const hasType = (c.formats || []).some((f) => f.type_epreuve === type);
+          if (!hasType) return false;
         }
+
+        // Dates
+        if (dateFrom || dateTo) {
+          const nd = parseDate(c.next_date);
+          if (!nd) return false;
+          if (dateFrom && nd < new Date(dateFrom)) return false;
+          if (dateTo && nd > new Date(dateTo)) return false;
+        }
+
         // Distance
         if (distKey !== "all" && (c.min_dist == null || c.max_dist == null)) return false;
         if (distKey !== "all") {
-          const b = DISTANCE_BUCKETS.find((x) => x.key === distKey);
+          const b = DIST_BUCKETS.find((x) => x.key === distKey);
           const overlaps =
             (c.min_dist ?? Infinity) <= (b.max ?? Infinity) &&
             (c.max_dist ?? -Infinity) >= (b.min ?? 0);
           if (!overlaps) return false;
         }
+
         // D+
         if (dplusKey !== "all" && (c.min_dplus == null || c.max_dplus == null)) return false;
         if (dplusKey !== "all") {
@@ -285,8 +282,10 @@ export default function Courses() {
             (c.max_dplus ?? -Infinity) >= (b.min ?? 0);
           if (!overlaps) return false;
         }
+
         // Repas
         if (onlyRepas && !c.has_repas) return false;
+
         return true;
       })
       .sort((a, b) => {
@@ -305,7 +304,7 @@ export default function Courses() {
         const tb = parseDate(b.next_date)?.getTime() ?? Infinity;
         return ta - tb;
       });
-  }, [resume, dateFrom, dateTo, distKey, dplusKey, onlyRepas, sortBy]);
+  }, [resume, departement, type, dateFrom, dateTo, distKey, dplusKey, onlyRepas, sortBy]);
 
   /** Pagination */
   const total = filtered.length;
@@ -313,9 +312,11 @@ export default function Courses() {
   const currentPage = Math.min(page, totalPages);
   const pageSlice = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
-  /** Handlers */
+  /** Resets */
   const resetFilters = () => {
-    setQ("");
+    setSearch("");
+    setDepartement("all");
+    setType("all");
     setDateFrom(todayISO());
     setDateTo("");
     setDistKey("all");
@@ -325,10 +326,6 @@ export default function Courses() {
     setPage(1);
   };
 
-  useEffect(() => {
-    setPage(1); // reset pagination quand on change des filtres majeurs
-  }, [q, dateFrom, dateTo, distKey, dplusKey, onlyRepas, sortBy, pageSize]);
-
   /** UI */
   return (
     <div className="mx-auto max-w-7xl px-4 py-8">
@@ -337,69 +334,90 @@ export default function Courses() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Épreuves à venir</h1>
           <p className="text-gray-600 mt-1">
-            Découvrez les courses publiées. Filtrez par date, distance, D+, et plus.
+            Découvrez les épreuves publiées. Filtrez par date, distance, D+, type, etc.
           </p>
         </div>
-        <div className="flex items-center gap-2">
-          <BadgePercent className="w-5 h-5 text-amber-600" />
-          <span className="text-sm text-gray-600">
-            Astuce : triez par <strong>prix</strong> pour trouver les meilleures affaires.
-          </span>
-        </div>
+
+        <button
+          onClick={() => setViewMode(viewMode === "list" ? "map" : "list")}
+          className="self-start inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-white text-sm font-semibold hover:bg-blue-700"
+        >
+          {viewMode === "list" ? "🌍 Vue carte" : "📃 Vue liste"}
+        </button>
       </div>
 
-      {/* Bar filtres */}
-      <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-          {/* Ligne 1 : recherche + dates */}
-          <div className="flex flex-1 flex-col md:flex-row gap-3">
-            <div className="relative flex-1">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+      {/* Filtres (uniquement en vue liste) */}
+      {viewMode === "list" && (
+        <div className="mb-6 rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
+          <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+            {/* Ligne 1 : recherche + dates */}
+            <div className="flex flex-1 flex-col md:flex-row gap-3">
               <input
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
                 placeholder="Rechercher (nom, lieu, département)…"
-                className="w-full rounded-xl border border-gray-200 bg-white pl-9 pr-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-blue-500"
               />
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Du</label>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => setDateFrom(e.target.value)}
+                  className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-gray-500">Au</label>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => setDateTo(e.target.value)}
+                  className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Du</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-gray-500">Au</label>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-              />
-            </div>
-          </div>
 
-          {/* Ligne 2 : selects */}
-          <div className="flex flex-1 flex-col md:flex-row gap-3">
-            <div className="flex items-center gap-2">
-              <Filter className="w-4 h-4 text-gray-400" />
+            {/* Ligne 2 : selects & switches */}
+            <div className="flex flex-1 flex-col md:flex-row gap-3">
+              <select
+                value={departement}
+                onChange={(e) => setDepartement(e.target.value)}
+                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">Tous les départements</option>
+                {departements.map((dep) => (
+                  <option key={dep} value={dep}>
+                    {dep}
+                  </option>
+                ))}
+              </select>
+
+              <select
+                value={type}
+                onChange={(e) => setType(e.target.value)}
+                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="all">Tous les types</option>
+                {typesDisponibles.map((t) => (
+                  <option key={t} value={t}>
+                    {t}
+                  </option>
+                ))}
+              </select>
+
               <select
                 value={distKey}
                 onChange={(e) => setDistKey(e.target.value)}
                 className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
               >
-                {DISTANCE_BUCKETS.map((b) => (
+                {DIST_BUCKETS.map((b) => (
                   <option key={b.key} value={b.key}>
                     {b.label}
                   </option>
                 ))}
               </select>
-            </div>
-            <div className="flex items-center gap-2">
-              <Mountain className="w-4 h-4 text-gray-400" />
+
               <select
                 value={dplusKey}
                 onChange={(e) => setDplusKey(e.target.value)}
@@ -411,115 +429,122 @@ export default function Courses() {
                   </option>
                 ))}
               </select>
+
+              <label className="inline-flex items-center gap-2 select-none">
+                <input
+                  type="checkbox"
+                  checked={onlyRepas}
+                  onChange={(e) => setOnlyRepas(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-700 flex items-center gap-1">
+                  🍽️ Repas disponibles
+                </span>
+              </label>
+
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
+                title="Trier par"
+              >
+                <option value="date">Prochaine date</option>
+                <option value="price">Prix mini</option>
+                <option value="dplus">D+ maximum</option>
+              </select>
+
+              <button
+                onClick={resetFilters}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
+                title="Réinitialiser"
+              >
+                ↺ Réinitialiser
+              </button>
             </div>
-            <label className="inline-flex items-center gap-2 select-none">
-              <input
-                type="checkbox"
-                checked={onlyRepas}
-                onChange={(e) => setOnlyRepas(e.target.checked)}
-                className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-700 flex items-center gap-1">
-                <UtensilsCrossed className="w-4 h-4" /> Repas disponibles
-              </span>
-            </label>
-
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="rounded-xl border border-gray-200 px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500"
-              title="Trier par"
-            >
-              <option value="date">Trier : prochaine date</option>
-              <option value="price">Trier : prix mini</option>
-              <option value="dplus">Trier : D+</option>
-            </select>
-
-            <button
-              onClick={resetFilters}
-              className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-              title="Réinitialiser"
-            >
-              <RotateCcw className="w-4 h-4" />
-              Réinitialiser
-            </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Résumé & page size */}
-      <div className="mb-4 flex items-center justify-between">
-        <div className="text-sm text-gray-600">
-          {loading ? "Chargement…" : `${total} épreuve${total > 1 ? "s" : ""} trouvée${total > 1 ? "s" : ""}`}
+      {/* Résumé & page size (liste) */}
+      {viewMode === "list" && (
+        <div className="mb-4 flex items-center justify-between">
+          <div className="text-sm text-gray-600">
+            {loading
+              ? "Chargement…"
+              : `${total} épreuve${total > 1 ? "s" : ""} trouvée${total > 1 ? "s" : ""}`}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-gray-600">Par page</span>
+            <select
+              value={pageSize}
+              onChange={(e) => setPageSize(Number(e.target.value))}
+              className="rounded-xl border border-gray-200 px-2 py-1 text-sm focus:ring-2 focus:ring-blue-500"
+            >
+              {[6, 12, 18, 24].map((n) => (
+                <option key={n} value={n}>
+                  {n}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <span className="text-sm text-gray-600">Par page</span>
-          <select
-            value={pageSize}
-            onChange={(e) => setPageSize(Number(e.target.value))}
-            className="rounded-xl border border-gray-200 px-2 py-1 text-sm focus:ring-2 focus:ring-blue-500"
-          >
-            {[6, 12, 18, 24].map((n) => (
-              <option key={n} value={n}>
-                {n}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      )}
 
-      {/* Grille */}
-      {loading ? (
+      {/* Vue carte */}
+      {viewMode === "map" ? (
+        <Suspense fallback={<p>Chargement de la carte…</p>}>
+          <MapView courses={filtered} />
+        </Suspense>
+      ) : loading ? (
         <SkeletonGrid />
-      ) : pageSlice.length === 0 ? (
+      ) : total === 0 ? (
         <EmptyState onReset={resetFilters} />
       ) : (
-        <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-          {pageSlice.map((c) => (
-            <CourseCard key={c.id} course={c} getImageUrl={getImageUrl} />
-          ))}
-        </div>
-      )}
+        <>
+          {/* Grille des cartes */}
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
+            {pageSlice.map((c) => (
+              <CourseCard key={c.id} course={c} />
+            ))}
+          </div>
 
-      {/* Pagination */}
-      {!loading && totalPages > 1 && (
-        <div className="mt-8 flex items-center justify-center gap-2">
-          <button
-            onClick={() => setPage((p) => Math.max(1, p - 1))}
-            disabled={currentPage === 1}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            <ChevronLeft className="w-4 h-4" />
-            Précédent
-          </button>
-          <span className="text-sm text-gray-600">
-            Page <strong>{currentPage}</strong> / {totalPages}
-          </span>
-          <button
-            onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-            disabled={currentPage === totalPages}
-            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-          >
-            Suivant
-            <ChevronRight className="w-4 h-4" />
-          </button>
-        </div>
-      )}
+          {/* Pagination */}
+          {totalPages > 1 && (
+            <div className="mt-8 flex items-center justify-center gap-2">
+              <button
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={currentPage === 1}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                ◀︎ Précédent
+              </button>
+              <span className="text-sm text-gray-600">
+                Page <strong>{currentPage}</strong> / {totalPages}
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={currentPage === totalPages}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+              >
+                Suivant ▶︎
+              </button>
+            </div>
+          )}
 
-      {/* Note en bas si "Complet" indisponible */}
-      {countsByFormat === null && (
-        <div className="mt-6 flex items-center gap-2 text-xs text-gray-500">
-          <AlertTriangle className="w-4 h-4" />
-          Le statut <strong>Complet</strong> est masqué (accès aux inscriptions restreint).
-        </div>
+          {/* Note si "Complet" indisponible */}
+          {countsByFormat === null && (
+            <div className="mt-6 text-xs text-gray-500">
+              ⚠️ Le badge <strong>Complet</strong> est masqué (accès aux inscriptions restreint).
+            </div>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-/** Card composant */
-function CourseCard({ course, getImageUrl }) {
-  const img = getImageUrl(course);
+/** Carte épreuve */
+function CourseCard({ course }) {
   const soon =
     course.next_date &&
     (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
@@ -528,17 +553,16 @@ function CourseCard({ course, getImageUrl }) {
     <div className="group overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow">
       {/* Image */}
       <div className="relative aspect-[16/10] w-full overflow-hidden bg-gray-100">
-        {img ? (
-          // eslint-disable-next-line jsx-a11y/img-redundant-alt
+        {course.image_url ? (
           <img
-            src={img}
+            src={course.image_url}
             alt={`Image de ${course.nom}`}
             loading="lazy"
             className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
           />
         ) : (
-          <div className="h-full w-full flex items-center justify-center text-gray-400">
-            <Mountain className="w-10 h-10" />
+          <div className="h-full w-full flex items-center justify-center text-gray-400 text-sm">
+            Pas d’image
           </div>
         )}
 
@@ -560,8 +584,7 @@ function CourseCard({ course, getImageUrl }) {
             </span>
           )}
           {course.is_new && (
-            <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-medium text-blue-700 flex items-center gap-1">
-              <Sparkles className="w-3 h-3" />
+            <span className="rounded-full bg-blue-100 px-2.5 py-1 text-[11px] font-medium text-blue-700">
               Nouveau
             </span>
           )}
@@ -573,20 +596,11 @@ function CourseCard({ course, getImageUrl }) {
         <h3 className="line-clamp-1 text-lg font-semibold">{course.nom}</h3>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-gray-600">
-          <span className="inline-flex items-center gap-1">
-            <MapPin className="w-4 h-4" />
-            {course.lieu} ({course.departement})
-          </span>
-          {course.next_date && (
-            <span className="inline-flex items-center gap-1">
-              <CalendarDays className="w-4 h-4" />
-              {formatDate(course.next_date)}
-            </span>
-          )}
+          <span>📍 {course.lieu} ({course.departement})</span>
+          {course.next_date && <span>📅 {formatDate(course.next_date)}</span>}
         </div>
 
-        {/* Résumé formats */}
-        <div className="mt-2 text-sm text-gray-700">
+        <div className="mt-2 text-sm text-gray-700 space-y-1">
           {course.min_dist != null && course.max_dist != null && (
             <div>
               Distance :{" "}
@@ -605,7 +619,7 @@ function CourseCard({ course, getImageUrl }) {
           )}
           {course.min_prix != null && (
             <div>
-              À partir de <strong>{course.min_prix.toFixed(2)} €</strong>
+              À partir de <strong>{Number(course.min_prix).toFixed(2)} €</strong>
             </div>
           )}
         </div>
@@ -617,7 +631,7 @@ function CourseCard({ course, getImageUrl }) {
             className="inline-flex items-center gap-2 rounded-xl bg-gray-900 px-3 py-2 text-white text-sm font-semibold hover:bg-black"
             title="Voir l'épreuve"
           >
-            Voir l’épreuve <ArrowUpRight className="w-4 h-4" />
+            Voir l’épreuve ↗
           </Link>
 
           <Link
@@ -667,8 +681,7 @@ function EmptyState({ onReset }) {
         onClick={onReset}
         className="mt-4 inline-flex items-center gap-2 rounded-xl border border-gray-200 px-4 py-2 text-sm hover:bg-gray-50"
       >
-        <RotateCcw className="w-4 h-4" />
-        Réinitialiser les filtres
+        ↺ Réinitialiser les filtres
       </button>
     </div>
   );
