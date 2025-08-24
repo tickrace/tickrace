@@ -4,7 +4,7 @@ import { NavLink, Link, useLocation, useNavigate } from "react-router-dom";
 import { useUser } from "../contexts/UserContext";
 import { supabase } from "../supabase";
 import useIsAdmin from "../hooks/useIsAdmin";
-
+import logo from "../assets/logo.png";
 function cn(...cls) {
   return cls.filter(Boolean).join(" ");
 }
@@ -99,10 +99,14 @@ export default function Navbar() {
       <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
         {/* Left: Logo + nav desktop */}
         <div className="flex items-center gap-3">
-          <Link to="/" className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-xl bg-black text-white flex items-center justify-center font-bold">T</div>
-            <span className="font-semibold tracking-tight">Tickrace</span>
-          </Link>
+        <Link to="/" className="flex items-center gap-2">
+  <img src={logo} alt="TickRace" className="h-8 w-auto" />
+  <span className="font-bold tracking-tight">
+    <span className="text-orange-600">Tick</span>Race
+  </span>
+</Link>
+
+
 
           <nav className="hidden md:flex items-center gap-1 ml-2">
             <LinkItem to="/courses">Courses</LinkItem>
