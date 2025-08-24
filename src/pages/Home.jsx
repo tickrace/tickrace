@@ -1,6 +1,7 @@
 // src/pages/Home.jsx
-import React from "react";
+import React, { useEffect, useMemo, useState, Suspense } from "react";
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 import {
   Mountain,
   CalendarDays,
@@ -12,129 +13,116 @@ import {
   Settings,
   User2,
 } from "lucide-react";
+import { supabase } from "../supabase";
 
-// --- UI helpers (internes au fichier)
+// --- Mini helpers (mêmes styles que la maquette)
 const Container = ({ children, className = "" }) => (
   <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>
 );
-
 const Pill = ({ children }) => (
   <span className="inline-flex items-center gap-2 rounded-full bg-neutral-900/70 ring-1 ring-white/10 px-3 py-1 text-xs text-white">
     <Sparkles className="h-3.5 w-3.5" /> {children}
   </span>
 );
-
-const CTA = ({ children, className = "", ...props }) => (
-  <button
-    className={`inline-flex items-center gap-2 rounded-lg bg-orange-500 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-orange-300 active:translate-y-px ${className}`}
+const CTA = ({ children, as: As = "button", ...props }) => (
+  <As
     {...props}
+    className="inline-flex items-center gap-2 rounded-2xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-orange-300 active:translate-y-px"
   >
     {children}
-  </button>
+  </As>
 );
-
-const Ghost = ({ children, className = "", ...props }) => (
-  <button
-    className={`inline-flex items-center gap-2 rounded-lg bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20 ${className}`}
+const Ghost = ({ children, as: As = "button", ...props }) => (
+  <As
     {...props}
+    className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
   >
     {children}
-  </button>
+  </As>
 );
-
-const Card = ({ children, className = "", ...props }) => (
-  <div className={`rounded-lg bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 ${className}`} {...props}>
-    {children}
-  </div>
+const Card = ({ children, className = "" }) => (
+  <div className={`rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 ${className}`}>{children}</div>
 );
-
-const Badge = ({ children, className = "" }) => (
-  <span className={`inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-medium text-neutral-700 ring-1 ring-neutral-200 ${className}`}>
+const Badge = ({ children }) => (
+  <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-medium text-neutral-700 ring-1 ring-neutral-200">
     {children}
   </span>
 );
 
-// --- Données mock
-const sampleRaces = [
-  {
-    id: 1,
-    name: "Skyrace des Aiguilles",
-    city: "Chamonix, FR",
-    date: "12 Oct 2025",
-    distance: "32.6 km",
-    dplus: "+2630 m",
-    cover: "https://images.unsplash.com/photo-1469474968028-56623f02e42e?q=80&w=1400&auto=format&fit=crop",
-  },
-  {
-    id: 2,
-    name: "Trail des Vallées",
-    city: "Gavarnie, FR",
-    date: "27 Sep 2025",
-    distance: "21 km",
-    dplus: "+980 m",
-    cover: "https://images.unsplash.com/photo-1519681393784-d120267933ba?q=80&w=1400&auto=format&fit=crop",
-  },
-  {
-    id: 3,
-    name: "Ultra du Ventoux",
-    city: "Bédoin, FR",
-    date: "16 Nov 2025",
-    distance: "50 km",
-    dplus: "+2100 m",
-    cover: "https://images.unsplash.com/photo-1441974231531-c6227db76b6e?q=80&w=1400&auto=format&fit=crop",
-  },
-];
+// utils
+const parseDate = (d) => (d ? new Date(d) : null);
+const fmtDate = (d) =>
+  d
+    ? new Intl.DateTimeFormat("fr-FR", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }).format(typeof d === "string" ? new Date(d) : d)
+    : "";
 
-// --- Petits tests fumée (console)
-function TestRunner() {
-  React.useEffect(() => {
-    try {
-      console.assert(Array.isArray(sampleRaces), "sampleRaces should be an array");
-      console.assert(sampleRaces.length === 3, "sampleRaces length should be 3");
-      console.assert(sampleRaces.every((r) => r.id && r.name && r.cover), "each race should have id, name, cover");
-      console.assert(typeof Home === "function", "Home should be a component");
-      // eslint-disable-next-line no-console
-      console.log("✅ UI smoke tests passed");
-    } catch (e) {
-      // eslint-disable-next-line no-console
-      console.error("❌ UI tests failed", e);
-    }
-  }, []);
-  return null;
-}
-
+// ===== Page
 export default function Home() {
-  // TODO: branche ces handlers sur tes vraies routes (react-router)
-  const goFind = () => (window.location.href = "/courses");
-  const goOrg = () => (window.location.href = "/organisateur");
+  // données “vraies” pour le bloc 3 dernières créations
+  const [loading, setLoading] = useState(true);
+  const [courses, setCourses] = useState([]);
+  const [formatsByCourse, setFormatsByCourse] = useState({});
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      // 1) Dernières courses publiées (ou toutes si tu préfères)
+      const { data: lastCourses, error } = await supabase
+        .from("courses")
+        .select("id, nom, lieu, departement, created_at, image_url, en_ligne")
+      .eq("en_ligne", true) 
+        .order("created_at", { ascending: false })
+        .limit(3);
+      if (error) {
+        console.error(error);
+        setCourses([]);
+        setFormatsByCourse({});
+        setLoading(false);
+        return;
+      }
+      setCourses(lastCourses || []);
+
+      // 2) Formats pour ces courses (pour afficher date/distance/D+)
+      const ids = (lastCourses || []).map((c) => c.id);
+      if (!ids.length) {
+        setFormatsByCourse({});
+        setLoading(false);
+        return;
+      }
+      const { data: fmts, error: e2 } = await supabase
+        .from("formats")
+        .select("id, course_id, nom, date, distance_km, denivele_dplus, prix")
+        .in("course_id", ids);
+      if (e2) {
+        console.error(e2);
+        setFormatsByCourse({});
+        setLoading(false);
+        return;
+      }
+      const map = {};
+      (fmts || []).forEach((f) => {
+        (map[f.course_id] = map[f.course_id] || []).push(f);
+      });
+      // trie local par date croissante
+      Object.keys(map).forEach((k) =>
+        map[k].sort(
+          (a, b) =>
+            (parseDate(a.date)?.getTime() || Infinity) -
+            (parseDate(b.date)?.getTime() || Infinity)
+        )
+      );
+      setFormatsByCourse(map);
+      setLoading(false);
+    })();
+  }, []);
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
-      <TestRunner />
-
-      {/* NAVBAR */}
-      <header className="sticky top-0 z-40 w-full backdrop-blur supports-[backdrop-filter]:bg-white/70 bg-white/80 border-b border-neutral-200">
-        <Container className="flex h-16 items-center justify-between">
-          <div className="flex items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-lg bg-orange-500 text-white">
-              <Mountain className="h-5 w-5" />
-            </div>
-            <div className="text-lg font-extrabold tracking-tight">TickRace</div>
-          </div>
-          <nav className="hidden md:flex items-center gap-8 text-sm font-medium">
-            <a className="hover:text-neutral-700" href="#courses">Courses</a>
-            <a className="hover:text-neutral-700" href="#org">Espace organisateur</a>
-            <a className="hover:text-neutral-700" href="#premium">Premium</a>
-            <a className="hover:text-neutral-700" href="#community">Communauté</a>
-          </nav>
-          <div className="flex items-center gap-3">
-            <button className="rounded-lg px-4 py-2 text-sm font-semibold text-neutral-700 hover:bg-neutral-100">Connexion</button>
-            <button className="hidden sm:inline-flex items-center gap-2 rounded-lg bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
-              + Créer une épreuve
-            </button>
-          </div>
-        </Container>
-      </header>
+      {/* ⚠️ Pas de navbar ici, tu utilises ta Navbar globale */}
 
       {/* HERO */}
       <section className="relative overflow-hidden">
@@ -149,24 +137,31 @@ export default function Home() {
             >
               <Pill>Nouvelle V1 — Carte interactive & Chat épreuves</Pill>
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
-                Inscris-toi, organise, cours. <span className="text-orange-600">Une seule plateforme.</span>
+                Inscris-toi, organise, cours.{" "}
+                <span className="text-orange-600">Une seule plateforme.</span>
               </h1>
               <p className="text-neutral-600 max-w-xl">
                 TickRace centralise la création d’épreuves, l’inscription coureurs, le chat communautaire,
                 et la synchronisation Strava. Une solution moderne pensée pour la performance et la simplicité.
               </p>
               <div className="flex flex-wrap gap-3 pt-1">
-                <CTA onClick={goFind}>
+                <CTA as={Link} to="/courses">
                   <ArrowRight className="h-4 w-4" /> Trouver une course
                 </CTA>
-                <Ghost onClick={goOrg}>
+                <Ghost as={Link} to="/organisateur/mon-espace">
                   <Settings className="h-4 w-4" /> Je suis organisateur
                 </Ghost>
               </div>
               <div className="flex items-center gap-3 pt-2 text-xs text-neutral-500">
-                <Badge><Star className="h-3.5 w-3.5" /> 5% frais plateforme organisateur</Badge>
-                <Badge><User2 className="h-3.5 w-3.5" /> Premium coureur 49€/an</Badge>
-                <Badge><MessageCircle className="h-3.5 w-3.5" /> Chat épreuves avec IA</Badge>
+                <Badge>
+                  <Star className="h-3.5 w-3.5" /> 5% frais plateforme organisateur
+                </Badge>
+                <Badge>
+                  <User2 className="h-3.5 w-3.5" /> Premium coureur 49€/an
+                </Badge>
+                <Badge>
+                  <MessageCircle className="h-3.5 w-3.5" /> Chat épreuves avec IA
+                </Badge>
               </div>
             </motion.div>
 
@@ -176,7 +171,7 @@ export default function Home() {
               transition={{ duration: 0.6, delay: 0.1 }}
               className="relative"
             >
-              <div className="aspect-[4/3] overflow-hidden rounded-2xl ring-1 ring-neutral-200 shadow-xl">
+              <div className="aspect-[4/3] overflow-hidden rounded-3xl ring-1 ring-neutral-200 shadow-xl">
                 <img
                   src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1600&auto=format&fit=crop"
                   alt="Coureurs en montagne"
@@ -188,95 +183,84 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* SEARCH + CARDS */}
+      {/* 3 DERNIÈRES ÉPREUVES */}
       <section id="courses" className="py-8 sm:py-12">
         <Container>
-          <Card className="p-4 sm:p-6">
-            <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
-              <div className="grid flex-1 grid-cols-1 sm:grid-cols-3 gap-3">
-                <div>
-                  <label className="text-xs font-semibold text-neutral-600">Lieu</label>
-                  <div className="mt-1 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2">
-                    <MapPin className="h-4 w-4 text-neutral-400" />
-                    <input className="w-full bg-transparent text-sm outline-none" placeholder="Ville, région…" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-neutral-600">Date</label>
-                  <div className="mt-1 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2">
-                    <CalendarDays className="h-4 w-4 text-neutral-400" />
-                    <input type="date" className="w-full bg-transparent text-sm outline-none" />
-                  </div>
-                </div>
-                <div>
-                  <label className="text-xs font-semibold text-neutral-600">Distance</label>
-                  <select className="mt-1 w-full rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
-                    <option>—</option>
-                    <option>&lt; 10 km</option>
-                    <option>10–20 km</option>
-                    <option>20–40 km</option>
-                    <option>&gt; 40 km</option>
-                  </select>
-                </div>
-              </div>
-              <div className="flex gap-3">
-                <CTA onClick={goFind}>
-                  <ArrowRight className="h-4 w-4" /> Rechercher
-                </CTA>
-                <button className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-5 py-3 text-sm font-semibold text-neutral-800 hover:bg-neutral-50">
-                  Voir la carte
-                </button>
-              </div>
-            </div>
-          </Card>
+          <div className="flex items-end justify-between mb-3">
+            <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
+              Dernières épreuves publiées
+            </h2>
+            <Link to="/courses" className="text-sm font-semibold text-orange-600 hover:underline">
+              Voir toutes les épreuves →
+            </Link>
+          </div>
 
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {sampleRaces.length === 0 ? (
-              <div className="text-sm text-neutral-500">Aucune épreuve trouvée. Modifie tes filtres.</div>
-            ) : (
-              sampleRaces.map((r) => (
-                <motion.div
-                  key={r.id}
-                  initial={{ opacity: 0, y: 8 }}
-                  whileInView={{ opacity: 1, y: 0 }}
-                  viewport={{ once: true }}
-                  transition={{ duration: 0.35 }}
-                >
-                  <Card className="overflow-hidden">
+          {loading ? (
+            <SkeletonGrid />
+          ) : courses.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">
+              Aucune épreuve pour le moment.
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {courses.map((c) => {
+                const fList = formatsByCourse[c.id] || [];
+                const next = fList[0] || null;
+                const distance = Number(next?.distance_km);
+                const dplus = Number(next?.denivele_dplus);
+                return (
+                  <Card key={c.id} className="overflow-hidden">
                     <div className="relative">
-                      <img src={r.cover} alt={r.name} className="h-44 w-full object-cover" />
+                      {c.image_url ? (
+                        <img src={c.image_url} alt={c.nom} className="h-44 w-full object-cover" />
+                      ) : (
+                        <div className="h-44 w-full grid place-items-center bg-neutral-100 text-neutral-500">
+                          <Mountain className="h-6 w-6" />
+                        </div>
+                      )}
                       <div className="absolute left-3 top-3">
                         <span className="rounded-full bg-white/90 px-2 py-1 text-[11px] font-semibold ring-1 ring-neutral-200">
-                          {r.date}
+                          {next?.date ? fmtDate(next.date) : "Date à venir"}
                         </span>
                       </div>
                     </div>
                     <div className="p-4">
                       <div className="flex items-start justify-between gap-3">
                         <div>
-                          <h3 className="text-base font-bold leading-snug">{r.name}</h3>
+                          <h3 className="text-base font-bold leading-snug">{c.nom}</h3>
                           <div className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                            <MapPin className="h-3.5 w-3.5" /> {r.city}
+                            <MapPin className="h-3.5 w-3.5" /> {c.lieu} ({c.departement})
                           </div>
                         </div>
-                        <Badge>ITRA 480</Badge>
                       </div>
                       <div className="mt-3 flex items-center gap-3 text-sm">
-                        <Badge>{r.distance}</Badge>
-                        <Badge>{r.dplus}</Badge>
+                        <Badge>
+                          {Number.isFinite(distance) ? `${Math.round(distance)} km` : "Distance —"}
+                        </Badge>
+                        <Badge>
+                          {Number.isFinite(dplus) ? `${Math.round(dplus)} m D+` : "D+ —"}
+                        </Badge>
                       </div>
                       <div className="mt-4 flex items-center justify-between">
-                        <button className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110">
-                          S'inscrire
-                        </button>
-                        <button className="text-sm font-semibold text-neutral-700 hover:underline">Voir la fiche</button>
+                        <Link
+                          to={`/courses/${c.id}`}
+                          className="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
+                        >
+                          Voir la fiche
+                        </Link>
+                        <Link
+                          to={`/inscription/${c.id}`}
+                          className="text-sm font-semibold text-neutral-700 hover:underline"
+                        >
+                          S’inscrire
+                        </Link>
                       </div>
                     </div>
                   </Card>
-                </motion.div>
-              ))
-            )}
-          </div>
+                );
+              })}
+            </div>
+          )}
         </Container>
       </section>
 
@@ -294,31 +278,33 @@ export default function Home() {
               <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-orange-500" /> Modération IA du chat</li>
             </ul>
             <div className="mt-6">
-              <CTA onClick={goOrg}><Settings className="h-4 w-4" /> Accéder à l'espace organisateur</CTA>
+              <CTA as="a" href="https://www.tickrace.com/organisateur/mon-espace" target="_self" rel="noreferrer">
+                <Settings className="h-4 w-4" /> Accéder à l'espace organisateur
+              </CTA>
             </div>
           </motion.div>
 
           <motion.div initial={{ opacity: 0, x: 10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}>
             <Card className="p-6">
               <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-lg bg-neutral-50 p-4 ring-1 ring-neutral-200">
+                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
                   <div className="text-xs font-semibold text-neutral-500">Inscriptions</div>
                   <div className="mt-2 text-2xl font-black">1 254</div>
-                  <div className="mt-2 h-20 rounded-lg bg-gradient-to-br from-orange-200 to-orange-300" />
+                  <div className="mt-2 h-20 rounded-lg bg-gradient-to-br from-orange-200 to-amber-200" />
                 </div>
-                <div className="rounded-lg bg-neutral-50 p-4 ring-1 ring-neutral-200">
+                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
                   <div className="text-xs font-semibold text-neutral-500">Revenus (30j)</div>
                   <div className="mt-2 text-2xl font-black">12 430€</div>
                   <div className="mt-2 h-20 rounded-lg bg-gradient-to-br from-neutral-200 to-neutral-300" />
                 </div>
-                <div className="rounded-lg bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
+                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
                   <div className="text-xs font-semibold text-neutral-500">Reversements</div>
                   <div className="mt-2 flex items-center justify-between">
                     <div>
                       <div className="text-lg font-bold">95% / semaine</div>
                       <div className="text-xs text-neutral-500">Automatique chaque fin de semaine</div>
                     </div>
-                    <button className="rounded-lg bg-orange-500 px-3 py-2 text-sm font-semibold text-white">Configurer</button>
+                    <button className="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white">Configurer</button>
                   </div>
                 </div>
               </div>
@@ -334,9 +320,7 @@ export default function Home() {
             <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Passez en Premium</h2>
             <p className="mt-2 text-neutral-600">Plans d’entraînement IA, estimation de chrono par ITRA/UTMB, export vers montres, sync Strava.</p>
           </div>
-
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Gratuit */}
             <Card className="p-6">
               <div className="flex items-start justify-between">
                 <div>
@@ -351,13 +335,11 @@ export default function Home() {
                 <li>• Chat public (lecture)</li>
               </ul>
               <div className="mt-6">
-                <button className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50">
+                <button className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-neutral-900 ring-1 ring-neutral-200 hover:bg-neutral-50">
                   Créer un compte
                 </button>
               </div>
             </Card>
-
-            {/* Premium */}
             <Card className="p-6 ring-2 ring-orange-400">
               <div className="flex items-start justify-between">
                 <div>
@@ -393,18 +375,19 @@ export default function Home() {
               Posez vos questions, organisez du covoiturage, et mentionnez l’<span className="font-semibold">@IA</span> pour obtenir des infos instantanées sur le parcours, l’équipement ou le ravito.
             </p>
             <div className="mt-6 flex gap-3">
-              <button className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50">
+              <button className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-neutral-900 ring-1 ring-neutral-200 hover:bg-neutral-50">
                 Voir un exemple
               </button>
-              <CTA><MessageCircle className="h-4 w-4" /> Ouvrir un chat</CTA>
+              <CTA>
+                <MessageCircle className="h-4 w-4" /> Ouvrir un chat
+              </CTA>
             </div>
           </motion.div>
-
           <motion.div initial={{ opacity: 0, x: 10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}>
             <Card className="p-6">
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-orange-300 to-orange-400" />
+                  <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-orange-300 to-amber-300" />
                   <div className="flex-1">
                     <div className="text-sm font-semibold">Léa</div>
                     <div className="text-sm text-neutral-700">Quel dénivelé cumulé sur le 32K ?</div>
@@ -423,7 +406,9 @@ export default function Home() {
                     <div className="text-sm font-semibold">Marco</div>
                     <div className="text-sm text-neutral-700">
                       Des passages techniques ?
-                      <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] ring-1 ring-neutral-200">Skyrace</span>
+                      <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] ring-1 ring-neutral-200">
+                        Skyrace
+                      </span>
                     </div>
                   </div>
                 </div>
@@ -446,8 +431,8 @@ export default function Home() {
             <div>
               <div className="text-sm font-semibold">Produit</div>
               <ul className="mt-3 grid gap-2 text-sm text-neutral-700">
-                <li><a className="hover:underline" href="#courses">Trouver une course</a></li>
-                <li><a className="hover:underline" href="#org">Espace organisateur</a></li>
+                <li><Link className="hover:underline" to="/courses">Trouver une course</Link></li>
+                <li><Link className="hover:underline" to="/organisateur/mon-espace">Espace organisateur</Link></li>
                 <li><a className="hover:underline" href="#premium">Premium</a></li>
               </ul>
             </div>
@@ -463,7 +448,9 @@ export default function Home() {
               <div className="text-sm font-semibold">Langues</div>
               <div className="mt-3 flex flex-wrap gap-2">
                 {["FR", "EN", "ES", "DE", "IT", "PT", "CA"].map((l) => (
-                  <span key={l} className="rounded-full bg-neutral-100 px-3 py-1 text-xs ring-1 ring-neutral-200">{l}</span>
+                  <span key={l} className="rounded-full bg-neutral-100 px-3 py-1 text-xs ring-1 ring-neutral-200">
+                    {l}
+                  </span>
                 ))}
               </div>
             </div>
@@ -471,6 +458,24 @@ export default function Home() {
           <div className="mt-8 text-xs text-neutral-500">© {new Date().getFullYear()} TickRace. Tous droits réservés.</div>
         </Container>
       </footer>
+    </div>
+  );
+}
+
+/* Skeleton pour le bloc 3 épreuves */
+function SkeletonGrid() {
+  return (
+    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, i) => (
+        <div key={i} className="animate-pulse overflow-hidden rounded-2xl border border-neutral-200 bg-white">
+          <div className="h-44 w-full bg-neutral-100" />
+          <div className="p-4 space-y-3">
+            <div className="h-5 w-2/3 bg-neutral-100 rounded" />
+            <div className="h-4 w-1/2 bg-neutral-100 rounded" />
+            <div className="h-8 w-1/2 bg-neutral-100 rounded mt-2" />
+          </div>
+        </div>
+      ))}
     </div>
   );
 }
