@@ -51,17 +51,17 @@ export default function Login() {
     setActiveRole("coureur");
 
     setLoading(false);
-    navigate("/"); // ✅ redirection vers la Home
+    navigate("/"); // ✅ redirection vers Home
   };
 
   return (
-    <div className="flex items-center justify-center min-h-screen bg-neutral-50 px-4">
-      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
-        <h1 className="text-2xl font-bold mb-6 text-center text-neutral-900">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-50 px-4">
+      <div className="max-w-md w-full text-center">
+        <h1 className="text-3xl font-extrabold text-neutral-900 mb-6">
           Connexion
         </h1>
 
-        <form onSubmit={handleLogin} className="space-y-5">
+        <form onSubmit={handleLogin} className="space-y-5 text-left">
           <div>
             <label className="block text-sm font-medium text-neutral-700 mb-1">
               Adresse email
@@ -71,7 +71,7 @@ export default function Login() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-neutral-900 focus:outline-none"
               placeholder="exemple@mail.com"
             />
           </div>
@@ -85,7 +85,7 @@ export default function Login() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               required
-              className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-neutral-900 focus:outline-none"
               placeholder="••••••••"
             />
           </div>
@@ -93,7 +93,7 @@ export default function Login() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full flex justify-center items-center gap-2 bg-blue-600 text-white py-2.5 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+            className="w-full flex justify-center items-center gap-2 bg-neutral-900 text-white py-3 rounded-xl font-semibold hover:bg-neutral-800 transition disabled:opacity-50"
           >
             {loading ? <Loader2 className="animate-spin" size={18} /> : null}
             {loading ? "Connexion..." : "Se connecter"}
@@ -103,7 +103,7 @@ export default function Login() {
         <div className="mt-6 text-center">
           <Link
             to="/forgot-password"
-            className="text-blue-600 hover:underline text-sm"
+            className="text-neutral-700 hover:underline text-sm"
           >
             Mot de passe oublié ?
           </Link>
