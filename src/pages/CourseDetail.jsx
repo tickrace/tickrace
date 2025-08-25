@@ -1,6 +1,6 @@
 // src/pages/CourseDetail.jsx
 import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import {
@@ -16,6 +16,7 @@ import {
 
 const GPXViewer = lazy(() => import("../components/GPXViewer"));
 
+/* ===== Helpers de dates et téléchargements ===== */
 const parseDate = (d) => (d ? new Date(d) : null);
 const fmtDate = (d) =>
   d
@@ -27,7 +28,6 @@ const fmtDate = (d) =>
       }).format(typeof d === "string" ? new Date(d) : d)
     : "";
 
-// Helper téléchargement GPX
 const downloadFile = (url, filename = "parcours.gpx") => {
   try {
     const a = document.createElement("a");
@@ -42,8 +42,10 @@ const downloadFile = (url, filename = "parcours.gpx") => {
   }
 };
 
+/* ===== Page ===== */
 export default function CourseDetail() {
   const { id } = useParams();
+  const [searchParams] = useSearchParams();
   const { session } = useUser();
 
   const [loading, setLoading] = useState(true);
@@ -54,6 +56,11 @@ export default function CourseDetail() {
 
   const [tab, setTab] = useState("aperçu"); // "aperçu" | "formats" | "parcours" | "infos"
   const [selectedFormatId, setSelectedFormatId] = useState(null);
+
+  const [mapFull, setMapFull] = useState(false); // plein écran GPX
+  const [copied, setCopied] = useState(false); // toast copie lien
+
+  const BASE = import.meta.env?.VITE_PUBLIC_BASE_URL || window.location.origin;
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -90,7 +97,7 @@ export default function CourseDetail() {
       const { data: fmts, error: e2 } = await supabase
         .from("formats")
         .select(
-          "id, nom, type_epreuve, date, heure_depart, prix, distance_km, denivele_dplus, denivele_dmoins, adresse_depart, adresse_arrivee, dotation, presentation_parcours, image_url, gpx_url, nb_max_coureurs, stock_repas"
+          "id, nom, type_epreuve, date, heure_depart, prix, distance_km, denivele_dplus, denivele_dmoins, adresse_depart, adresse_arrivee, dotation, presentation_parcours, image_url, gpx_url, nb_max_coureurs, stock_repas, ravitaillements, remise_dossards, reglement_pdf_url, age_minimum, hebergements, prix_repas"
         )
         .eq("course_id", id)
         .order("date", { ascending: true });
@@ -100,8 +107,12 @@ export default function CourseDetail() {
         setFormats([]);
       } else {
         setFormats(fmts || []);
+        // Pré-sélection via ?format=...
+        const wanted = searchParams.get("format");
         if (!selectedFormatId && (fmts || []).length) {
-          setSelectedFormatId(fmts[0].id);
+          setSelectedFormatId(
+            wanted && (fmts || []).some((f) => f.id === wanted) ? wanted : fmts[0].id
+          );
         }
       }
 
@@ -189,6 +200,9 @@ export default function CourseDetail() {
     };
   }, [formats, countsByFormat, course?.created_at]);
 
+  const selectedFormat = formats.find((f) => f.id === selectedFormatId) || null;
+  const hasAnyGPX = useMemo(() => (formats || []).some((f) => !!f.gpx_url), [formats]);
+
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 flex items-center gap-3 text-neutral-600">
@@ -214,15 +228,28 @@ export default function CourseDetail() {
     );
   }
 
-  const shareUrl = `${window.location.origin}/courses/${course.id}`;
+  const shareUrl = `${BASE}/courses/${course.id}`;
   const soon =
     aggregates.next_date &&
     (parseDate(aggregates.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
 
-  const selectedFormat = formats.find((f) => f.id === selectedFormatId) || null;
+  async function copyShare(url) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }
 
   return (
     <div className="mx-auto max-w-7xl">
+      {/* TOAST de copie lien */}
+      {copied && (
+        <div className="fixed bottom-4 right-4 z-[70] rounded-full bg-black text-white text-sm px-3 py-2 shadow">
+          Lien copié ✨
+        </div>
+      )}
+
       {/* HERO */}
       <div className="relative h-[260px] sm:h-[360px] md:h-[420px] w-full overflow-hidden">
         {course.image_url ? (
@@ -279,12 +306,7 @@ export default function CourseDetail() {
                 S’inscrire <ArrowRight className="w-4 h-4" />
               </Link>
               <button
-                onClick={async () => {
-                  try {
-                    await navigator.clipboard.writeText(shareUrl);
-                    alert("Lien copié !");
-                  } catch {}
-                }}
+                onClick={() => copyShare(shareUrl)}
                 className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-3 py-2 text-white text-sm hover:bg-white/25"
                 title="Copier le lien"
               >
@@ -307,15 +329,18 @@ export default function CourseDetail() {
                 {[
                   { key: "aperçu", label: "Aperçu" },
                   { key: "formats", label: "Formats & tarifs" },
-                  { key: "parcours", label: "Parcours" },
+                  { key: "parcours", label: "Parcours", disabled: !hasAnyGPX },
                   { key: "infos", label: "Infos pratiques" },
                 ].map((t) => (
                   <button
                     key={t.key}
-                    onClick={() => setTab(t.key)}
+                    onClick={() => !t.disabled && setTab(t.key)}
+                    disabled={t.disabled}
                     className={[
                       "rounded-full px-4 py-2 text-sm",
-                      tab === t.key
+                      t.disabled
+                        ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                        : tab === t.key
                         ? "bg-neutral-900 text-white"
                         : "bg-neutral-100 text-neutral-700 hover:bg-neutral-200",
                     ].join(" ")}
@@ -404,25 +429,51 @@ export default function CourseDetail() {
                             GPX du format <strong>{selectedFormat.nom}</strong>
                             {selectedFormat.date ? <> — {fmtDate(selectedFormat.date)}</> : null}
                           </div>
-                          <button
-                            onClick={() =>
-                              downloadFile(
-                                selectedFormat.gpx_url,
-                                `gpx-${(course.nom || "epreuve")
-                                  .replace(/[^\w-]+/g, "_")}-${(selectedFormat.nom || "format")
-                                  .replace(/[^\w-]+/g, "_")}.gpx`
-                              )
-                            }
-                            className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
-                            title="Télécharger le tracé GPX"
-                          >
-                            ⬇ Télécharger le GPX
-                          </button>
+                          <div className="flex items-center gap-2">
+                            <button
+                              onClick={() =>
+                                downloadFile(
+                                  selectedFormat.gpx_url,
+                                  `gpx-${(course.nom || "epreuve")
+                                    .replace(/[^\w-]+/g, "_")}-${(selectedFormat.nom || "format")
+                                    .replace(/[^\w-]+/g, "_")}.gpx`
+                                )
+                              }
+                              className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+                              title="Télécharger le tracé GPX"
+                            >
+                              ⬇ Télécharger
+                            </button>
+                            <button
+                              onClick={() => setMapFull((v) => !v)}
+                              className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+                              title="Plein écran"
+                            >
+                              {mapFull ? "Quitter plein écran" : "Plein écran"}
+                            </button>
+                          </div>
                         </div>
 
-                        <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-                          <Suspense fallback={<div className="p-4 text-neutral-600">Chargement de la carte…</div>}>
-                            <GPXViewer gpxUrl={selectedFormat.gpx_url} height={420} allowDownload responsive />
+                        <div
+                          className={
+                            mapFull
+                              ? "fixed inset-0 z-[60] bg-white p-3"
+                              : "rounded-2xl border bg-white shadow-sm overflow-hidden"
+                          }
+                        >
+                          <Suspense
+                            fallback={<div className="p-4 text-neutral-600">Chargement de la carte…</div>}
+                          >
+                            <GPXViewer
+                              gpxUrl={selectedFormat.gpx_url}
+                              height={mapFull ? 0 : 420} // si 0, faire 100% en fullscreen côté composant
+                              fullscreen={mapFull}
+                              showElevationProfile
+                              xAxis="distance"
+                              yAxis="elevation"
+                              responsive
+                              allowDownload
+                            />
                           </Suspense>
                         </div>
                       </>
@@ -443,35 +494,131 @@ export default function CourseDetail() {
                 {formats.length === 0 ? (
                   <EmptyBox text="Infos à venir." />
                 ) : (
-                  <div className="grid sm:grid-cols-2 gap-4">
-                    <InfoCard
-                      title="Départ"
-                      lines={[
-                        selectedFormat?.adresse_depart ||
-                          formats[0]?.adresse_depart ||
-                          "Non communiqué",
-                      ]}
-                    />
-                    <InfoCard
-                      title="Arrivée"
-                      lines={[
-                        selectedFormat?.adresse_arrivee ||
-                          formats[0]?.adresse_arrivee ||
-                          "Non communiqué",
-                      ]}
-                    />
-                    <InfoCard
-                      title="Dotation"
-                      lines={[selectedFormat?.dotation || formats[0]?.dotation || "Non communiqué"]}
-                    />
-                    <InfoCard
-                      title="Type d’épreuve"
-                      lines={[selectedFormat?.type_epreuve || formats[0]?.type_epreuve || "Non communiqué"]}
-                    />
-                  </div>
+                  <>
+                    {/* Sélecteur de format pour afficher les détails de CE format */}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <label className="text-sm text-neutral-700">Choisir un format :</label>
+                      <select
+                        value={selectedFormatId || ""}
+                        onChange={(e) => setSelectedFormatId(e.target.value)}
+                        className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                      >
+                        {formats.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.nom} {f.date ? `— ${fmtDate(f.date)}` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    {/* Carte Détails du format */}
+                    <div className="rounded-2xl border bg-white shadow-sm p-5 space-y-5">
+                      <h2 className="text-lg font-semibold">Détails du format</h2>
+
+                      {/* Chips rapides */}
+                      <Chips
+                        items={[
+                          selectedFormat?.type_epreuve && selectedFormat.type_epreuve.toUpperCase(),
+                          selectedFormat?.distance_km && `${Number(selectedFormat.distance_km)} km`,
+                          Number.isFinite(Number(selectedFormat?.denivele_dplus)) &&
+                            `${selectedFormat.denivele_dplus} m D+`,
+                          Number.isFinite(Number(selectedFormat?.denivele_dmoins)) &&
+                            `${selectedFormat.denivele_dmoins} m D-`,
+                          selectedFormat?.heure_depart && `Départ ${selectedFormat.heure_depart}`,
+                          Number.isFinite(Number(selectedFormat?.age_minimum)) &&
+                            `Âge min. ${selectedFormat.age_minimum} ans`,
+                          Number.isFinite(Number(selectedFormat?.prix)) &&
+                            `Prix ${Number(selectedFormat.prix).toFixed(2)} €`,
+                          Number(selectedFormat?.stock_repas) > 0 && selectedFormat?.prix_repas != null
+                            ? `Repas ${Number(selectedFormat.prix_repas).toFixed(2)} €`
+                            : null,
+                        ]}
+                      />
+
+                      {/* Texte libre / présentations */}
+                      <InfoRow
+                        label="Présentation"
+                        value={selectedFormat?.presentation_parcours || course.presentation}
+                      />
+
+                      {/* Lieux & logistique */}
+                      <div className="grid sm:grid-cols-2 gap-6">
+                        <InfoRow
+                          label="Adresse départ"
+                          value={selectedFormat?.adresse_depart || formats[0]?.adresse_depart}
+                        />
+                        <InfoRow
+                          label="Adresse arrivée"
+                          value={selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee}
+                        />
+                      </div>
+
+                      {/* Ravitaillements (liste) */}
+                      {asList(selectedFormat?.ravitaillements).length > 0 && (
+                        <div>
+                          <div className="text-sm font-medium text-neutral-600 mb-2">
+                            Ravitaillements
+                          </div>
+                          <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
+                            {asList(selectedFormat.ravitaillements).map((r, i) => (
+                              <li key={i}>{r}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* Remise dossards / Dotation */}
+                      <InfoRow label="Remise des dossards" value={selectedFormat?.remise_dossards} />
+                      <InfoRow label="Dotation" value={selectedFormat?.dotation} />
+
+                      {/* Hébergements */}
+                      {asList(selectedFormat?.hebergements).length > 0 ? (
+                        <div>
+                          <div className="text-sm font-medium text-neutral-600 mb-2">Hébergements</div>
+                          <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
+                            {asList(selectedFormat.hebergements).map((h, i) => (
+                              <li key={i}>{h}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      ) : (
+                        <InfoRow label="Hébergements" value={selectedFormat?.hebergements} />
+                      )}
+
+                      {/* Règlement PDF */}
+                      <LinkRow
+                        label="Règlement"
+                        href={selectedFormat?.reglement_pdf_url}
+                        text="Télécharger le PDF"
+                      />
+                    </div>
+                  </>
                 )}
               </section>
             )}
+
+            {/* Accroche pour le futur Chat */}
+            <section id="discussion" className="mt-8">
+              <div className="rounded-2xl border bg-white shadow-sm">
+                <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
+                  <h2 className="text-lg font-semibold">Discuter sous l’épreuve</h2>
+                  <a
+                    href="#discussion"
+                    className="text-sm text-neutral-500 hover:text-neutral-800"
+                    title="Lien direct"
+                  >
+                    #discussion
+                  </a>
+                </div>
+                <div className="p-5">
+                  {/* TODO: intégrer le composant ChatEpreuve quand prêt */}
+                  <p className="text-neutral-600 text-sm">
+                    Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour poser une question à
+                    l’assistant.
+                  </p>
+                </div>
+              </div>
+            </section>
           </div>
 
           {/* Sidebar sticky */}
@@ -529,6 +676,14 @@ export default function CourseDetail() {
                                   )}
                                 </div>
                               )}
+                              {remaining !== null && remaining <= 10 && !full && (
+                                <div className="mt-1">
+                                  <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-medium">
+                                    {remaining} place{remaining > 1 ? "s" : ""} restante
+                                    {remaining > 1 ? "s" : ""}
+                                  </span>
+                                </div>
+                              )}
                             </div>
 
                             {full ? (
@@ -580,12 +735,7 @@ export default function CourseDetail() {
                 <h3 className="text-lg font-semibold">Partager</h3>
                 <div className="mt-3 flex items-center gap-3">
                   <button
-                    onClick={async () => {
-                      try {
-                        await navigator.clipboard.writeText(shareUrl);
-                        alert("Lien copié !");
-                      } catch {}
-                    }}
+                    onClick={() => copyShare(shareUrl)}
                     className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
                   >
                     <Share2 className="w-4 h-4" />
@@ -641,7 +791,7 @@ export default function CourseDetail() {
   );
 }
 
-/* ===== Sous-composants ===== */
+/* ===== Sous-composants & utilitaires UI ===== */
 
 function Badge({ text, color = "gray" }) {
   const bg = {
@@ -758,4 +908,61 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
 function numOrDash(v) {
   const n = Number(v);
   return Number.isFinite(n) ? n : "—";
+}
+
+/* ===== Détails format (onglet Infos) ===== */
+
+function InfoRow({ label, value }) {
+  if (!value) return null;
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-40 shrink-0 text-sm font-medium text-neutral-600">{label}</div>
+      <div className="text-sm text-neutral-800 whitespace-pre-line">{value}</div>
+    </div>
+  );
+}
+
+function LinkRow({ label, href, text = "Ouvrir" }) {
+  if (!href) return null;
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-40 shrink-0 text-sm font-medium text-neutral-600">{label}</div>
+      <div>
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+        >
+          {text}
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function Chips({ items }) {
+  const list = (items || []).filter(Boolean);
+  if (!list.length) return null;
+  return (
+    <div className="flex flex-wrap gap-2">
+      {list.map((it, i) => (
+        <span
+          key={`${it}-${i}`}
+          className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-3 py-1 text-[12px] font-medium"
+        >
+          {it}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function asList(text) {
+  if (!text) return [];
+  // accepte séparateurs \n, ; ou ,
+  return String(text)
+    .split(/\r?\n|[;,]/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
 }
