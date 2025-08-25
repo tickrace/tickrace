@@ -450,112 +450,148 @@ export default function CourseDetail() {
             )}
 
             {tab === "infos" && (
-              <section className="mt-6 space-y-4">
-                {formats.length === 0 ? (
-                  <EmptyBox text="Infos à venir." />
-                ) : (
-                  <>
-                    {/* Sélecteur de format pour afficher les détails de CE format */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="text-sm text-neutral-700">Choisir un format :</label>
-                      <select
-                        value={selectedFormatId || ""}
-                        onChange={(e) => setSelectedFormatId(e.target.value)}
-                        className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
-                      >
-                        {formats.map((f) => (
-                          <option key={f.id} value={f.id}>
-                            {f.nom} {f.date ? `— ${fmtDate(f.date)}` : ""}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
+  <section className="mt-6 space-y-4">
+    {formats.length === 0 ? (
+      <EmptyBox text="Infos à venir." />
+    ) : (
+      <>
+        {/* Sélecteur du format affiché */}
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="text-sm text-neutral-700">Choisir un format :</label>
+          <select
+            value={selectedFormatId || ""}
+            onChange={(e) => setSelectedFormatId(e.target.value)}
+            className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+          >
+            {formats.map((f) => (
+              <option key={f.id} value={f.id}>
+                {f.nom} {f.date ? `— ${fmtDate(f.date)}` : ""}
+              </option>
+            ))}
+          </select>
+        </div>
 
-                    {/* Carte Détails du format */}
-                    <div className="rounded-2xl border bg-white shadow-sm p-5 space-y-5">
-                      <h2 className="text-lg font-semibold">Détails du format</h2>
+        {/* GRID INFO PRATIQUES */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          {/* Carte logistique */}
+          <SectionCard title="Logistique" subtitle="Infos clés du jour J">
+            <InfoItem icon="calendar" label="Date">
+              {selectedFormat?.date ? fmtDate(selectedFormat.date) : "—"}
+              {selectedFormat?.heure_depart ? ` • ${selectedFormat.heure_depart}` : ""}
+            </InfoItem>
+            <InfoItem icon="start" label="Départ">
+              {selectedFormat?.adresse_depart || formats[0]?.adresse_depart || "Non communiqué"}
+              <MapLink address={selectedFormat?.adresse_depart || formats[0]?.adresse_depart} />
+            </InfoItem>
+            <InfoItem icon="finish" label="Arrivée">
+              {selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee || "Non communiqué"}
+              <MapLink address={selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee} />
+            </InfoItem>
+            <InfoItem icon="shield" label="Âge minimum">
+              {Number.isFinite(Number(selectedFormat?.age_minimum))
+                ? `${selectedFormat.age_minimum} ans`
+                : "—"}
+            </InfoItem>
+          </SectionCard>
 
-                      {/* Chips rapides */}
-                      <Chips
-                        items={[
-                          selectedFormat?.type_epreuve && selectedFormat.type_epreuve.toUpperCase(),
-                          selectedFormat?.distance_km && `${Number(selectedFormat.distance_km)} km`,
-                          Number.isFinite(Number(selectedFormat?.denivele_dplus)) &&
-                            `${selectedFormat.denivele_dplus} m D+`,
-                          Number.isFinite(Number(selectedFormat?.denivele_dmoins)) &&
-                            `${selectedFormat.denivele_dmoins} m D-`,
-                          selectedFormat?.heure_depart && `Départ ${selectedFormat.heure_depart}`,
-                          Number.isFinite(Number(selectedFormat?.age_minimum)) &&
-                            `Âge min. ${selectedFormat.age_minimum} ans`,
-                          Number.isFinite(Number(selectedFormat?.prix)) &&
-                            `Prix ${Number(selectedFormat.prix).toFixed(2)} €`,
-                          Number(selectedFormat?.stock_repas) > 0 && selectedFormat?.prix_repas != null
-                            ? `Repas ${Number(selectedFormat.prix_repas).toFixed(2)} €`
-                            : null,
-                        ]}
-                      />
-
-                      {/* Texte libre / présentations */}
-                      <InfoRow
-                        label="Présentation"
-                        value={selectedFormat?.presentation_parcours || course.presentation}
-                      />
-
-                      {/* Lieux & logistique */}
-                      <div className="grid sm:grid-cols-2 gap-6">
-                        <InfoRow
-                          label="Adresse départ"
-                          value={selectedFormat?.adresse_depart || formats[0]?.adresse_depart}
-                        />
-                        <InfoRow
-                          label="Adresse arrivée"
-                          value={selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee}
-                        />
-                      </div>
-
-                      {/* Ravitaillements (liste) */}
-                      {asList(selectedFormat?.ravitaillements).length > 0 && (
-                        <div>
-                          <div className="text-sm font-medium text-neutral-600 mb-2">
-                            Ravitaillements
-                          </div>
-                          <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
-                            {asList(selectedFormat.ravitaillements).map((r, i) => (
-                              <li key={i}>{r}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      )}
-
-                      {/* Remise dossards / Dotation */}
-                      <InfoRow label="Remise des dossards" value={selectedFormat?.remise_dossards} />
-                      <InfoRow label="Dotation" value={selectedFormat?.dotation} />
-
-                      {/* Hébergements */}
-                      {asList(selectedFormat?.hebergements).length > 0 ? (
-                        <div>
-                          <div className="text-sm font-medium text-neutral-600 mb-2">Hébergements</div>
-                          <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
-                            {asList(selectedFormat.hebergements).map((h, i) => (
-                              <li key={i}>{h}</li>
-                            ))}
-                          </ul>
-                        </div>
-                      ) : (
-                        <InfoRow label="Hébergements" value={selectedFormat?.hebergements} />
-                      )}
-
-                      {/* Règlement PDF */}
-                      <LinkRow
-                        label="Règlement"
-                        href={selectedFormat?.reglement_pdf_url}
-                        text="Télécharger le PDF"
-                      />
-                    </div>
-                  </>
-                )}
-              </section>
+          {/* Carte course & tarifs */}
+          <SectionCard title="Course & tarifs" subtitle="Résumé du format">
+            <div className="mb-2">
+              <Chips
+                items={[
+                  selectedFormat?.type_epreuve && selectedFormat.type_epreuve.toUpperCase(),
+                  selectedFormat?.distance_km && `${Number(selectedFormat.distance_km)} km`,
+                  Number.isFinite(Number(selectedFormat?.denivele_dplus)) &&
+                    `${selectedFormat.denivele_dplus} m D+`,
+                  Number.isFinite(Number(selectedFormat?.denivele_dmoins)) &&
+                    `${selectedFormat.denivele_dmoins} m D-`,
+                ]}
+              />
+            </div>
+            <InfoItem icon="euro" label="Prix">
+              {Number.isFinite(Number(selectedFormat?.prix))
+                ? `${Number(selectedFormat.prix).toFixed(2)} €`
+                : "—"}
+            </InfoItem>
+            {Number(selectedFormat?.stock_repas) > 0 && (
+              <InfoItem icon="meal" label="Repas">
+                {selectedFormat?.prix_repas != null
+                  ? `${Number(selectedFormat.prix_repas).toFixed(2)} €`
+                  : "Disponible"}
+              </InfoItem>
             )}
+            <InfoItem icon="trophy" label="Dotation">
+              {selectedFormat?.dotation || "—"}
+            </InfoItem>
+          </SectionCard>
+
+          {/* Carte ravitos & dossards */}
+          <SectionCard title="Ravitaillements & dossards" subtitle="Ce qu’il faut savoir">
+            {asList(selectedFormat?.ravitaillements).length > 0 ? (
+              <div className="mb-3">
+                <div className="text-[13px] font-medium text-neutral-600 mb-1">Ravitaillements</div>
+                <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
+                  {asList(selectedFormat.ravitaillements).map((r, i) => (
+                    <li key={i}>{r}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <InfoItem icon="bottle" label="Ravitaillements">—</InfoItem>
+            )}
+
+            <InfoItem icon="id" label="Remise des dossards">
+              {selectedFormat?.remise_dossards || "—"}
+            </InfoItem>
+          </SectionCard>
+
+          {/* Carte règlement & hébergements */}
+          <SectionCard title="Règlement & hébergements" subtitle="Documentation & pratique">
+            <InfoItem icon="file" label="Règlement">
+              {selectedFormat?.reglement_pdf_url ? (
+                <a
+                  href={selectedFormat.reglement_pdf_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
+                >
+                  Télécharger le PDF
+                </a>
+              ) : (
+                "—"
+              )}
+            </InfoItem>
+
+            {asList(selectedFormat?.hebergements).length > 0 ? (
+              <div>
+                <div className="text-[13px] font-medium text-neutral-600 mb-1">Hébergements</div>
+                <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
+                  {asList(selectedFormat.hebergements).map((h, i) => (
+                    <li key={i}>{h}</li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              <InfoItem icon="bed" label="Hébergements">
+                {selectedFormat?.hebergements || "—"}
+              </InfoItem>
+            )}
+          </SectionCard>
+
+          {/* Carte présentation / texte libre (plein largeur) */}
+          <div className="xl:col-span-2">
+            <SectionCard title="Présentation du parcours" subtitle="Description de l’organisateur">
+              <div className="text-sm text-neutral-800 whitespace-pre-line">
+                {selectedFormat?.presentation_parcours || course.presentation || "—"}
+              </div>
+            </SectionCard>
+          </div>
+        </div>
+      </>
+    )}
+  </section>
+)}
+
 
             {/* Accroche pour le futur Chat */}
             <section id="discussion" className="mt-8">
@@ -925,4 +961,83 @@ function asList(text) {
     .split(/\r?\n|[;,]/g)
     .map((s) => s.trim())
     .filter(Boolean);
+}
+function SectionCard({ title, subtitle, children }) {
+  return (
+    <div className="rounded-2xl border bg-white shadow-sm p-5">
+      <div className="mb-4">
+        <h2 className="text-lg font-semibold">{title}</h2>
+        {subtitle && <p className="text-sm text-neutral-500">{subtitle}</p>}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </div>
+  );
+}
+
+function InfoItem({ icon, label, children }) {
+  return (
+    <div className="flex items-start gap-3">
+      <div className="w-8 h-8 rounded-xl bg-neutral-100 flex items-center justify-center shrink-0">
+        <InfoIcon name={icon} className="w-4 h-4 text-neutral-700" />
+      </div>
+      <div className="min-w-0">
+        <div className="text-[13px] text-neutral-600">{label}</div>
+        <div className="text-sm font-medium text-neutral-900">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function InfoIcon({ name, className }) {
+  // petits pictos cohérents
+  switch (name) {
+    case "calendar":
+      return <CalendarDays className={className} />;
+    case "start":
+      return <MapPin className={className} />;
+    case "finish":
+      return <MapPin className={className} />;
+    case "shield":
+      return <ShieldIcon className={className} />;
+    case "euro":
+      return <EuroIcon className={className} />;
+    case "meal":
+      return <UtensilsCrossed className={className} />;
+    case "trophy":
+      return <TrophyIcon className={className} />;
+    case "bottle":
+      return <BottleIcon className={className} />;
+    case "id":
+      return <IdIcon className={className} />;
+    case "file":
+      return <FileIcon className={className} />;
+    case "bed":
+      return <BedIcon className={className} />;
+    default:
+      return <div className={className} />;
+  }
+}
+
+// Icônes minimalistes en SVG inline (pour éviter d’ajouter d’autres imports)
+function ShieldIcon(props){return(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><path d="M12 3l7 4v5a7 7 0 0 1-7 7 7 7 0 0 1-7-7V7l7-4z"/></svg>)}
+function EuroIcon(props){return(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><path d="M4 10h11M4 14h11"/><path d="M17 5a7 7 0 0 0-7 7 7 7 0 0 0 7 7"/></svg>)}
+function TrophyIcon(props){return(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><path d="M8 21h8"/><path d="M12 17v4"/><path d="M7 4h10v5a5 5 0 0 1-5 5 5 5 0 0 1-5-5V4z"/><path d="M5 6h2v2a3 3 0 0 1-3 3H3V8a2 2 0 0 1 2-2z"/><path d="M19 6h-2v2a3 3 0 0 0 3 3h1V8a2 2 0 0 0-2-2z"/></svg>)}
+function BottleIcon(props){return(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><path d="M10 2h4v3a2 2 0 0 1-2 2 2 2 0 0 0-2 2v11a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2"/></svg>)}
+function IdIcon(props){return(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="10" r="2"/><path d="M13 14h5M13 10h5M7 14h4"/></svg>)}
+function FileIcon(props){return(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/></svg>)}
+function BedIcon(props){return(<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}><path d="M3 7v10M21 7v10"/><path d="M3 11h18"/><path d="M7 11V9a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/></svg>)}
+
+function MapLink({ address }) {
+  if (!address) return null;
+  const href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="ml-2 inline-flex items-center text-[12px] text-neutral-500 hover:text-neutral-800 underline underline-offset-2"
+    >
+      (Voir sur Maps)
+    </a>
+  );
 }
