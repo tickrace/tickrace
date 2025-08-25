@@ -57,7 +57,7 @@ serve(async (req) => {
     // Contexte course (facultatif)
     const { data: course, error: courseErr } = await supabase
       .from("courses")
-      .select("nom, lieu, date")
+      .select("nom, lieu")
       .eq("id", course_id)
       .maybeSingle();
     if (courseErr) console.error("Course fetch error:", courseErr);
