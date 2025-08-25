@@ -18,8 +18,10 @@ interface ChatIARequest {
 serve(async (req) => {
   // Préflight CORS
   if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders, status: 204 });
-  }
+  // 204 No Content => pas de body !
+  return new Response(null, { headers: corsHeaders, status: 204 });
+}
+
 
   try {
     if (req.method !== "POST") {
