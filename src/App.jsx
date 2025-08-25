@@ -3,7 +3,7 @@ import React from "react";
 import Home from "./pages/Home";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Navbar from "./components/Navbar";
-import Footer from "./components/Footer"; // ⬅️ ajout
+import Footer from "./components/Footer";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
 import NouvelleCourse from "./pages/NouvelleCourse";
@@ -38,45 +38,30 @@ import AdminCourses from "./pages/admin/AdminCourses";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminInscriptions from "./pages/admin/AdminInscriptions";
 import Payouts from "./pages/admin/Payouts";
-import AdminHome from "./pages/admin"; // page admin d'accueil
+import AdminHome from "./pages/admin";
+
+// ✅ protège les routes pour utilisateurs connectés
+import ProtectedRoute from "./components/ProtectedRoute";
 
 function AppContent() {
   const { currentRole } = useUser();
 
   return (
-    <div className="min-h-screen flex flex-col"> {/* layout global */}
+    <div className="min-h-screen flex flex-col">
       <Navbar key={currentRole} />
-      <main className="flex-1"> {/* pousse le footer en bas */}
+      <main className="flex-1">
         <Routes>
           {/* Public */}
           <Route path="/" element={<Home />} />
           <Route path="/admin" element={<AdminHome />} />
 
-          <Route path="/modifier-course/:id" element={<ModifierCourse />} />
-
-          {/* ⚠️ On enlève la route dupliquée "/" qui pointait vers <Courses /> */}
           <Route path="/courses" element={<Courses />} />
           <Route path="/courses/:id" element={<CourseDetail />} />
           <Route path="/formats" element={<ListeFormats />} />
-          <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
-          <Route path="/coureur" element={<ProfilCoureur />} />
-          <Route path="/monprofilcoureur" element={<MonProfilCoureur />} />
-          <Route path="/monprofilorganisateur" element={<MonProfilOrganisateur />} />
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
-
-          {/* Espace organisateur */}
-          <Route path="/organisateur/mon-espace" element={<MonEspaceOrganisateur />} />
-          {/* Alias anti-404 */}
-          <Route path="/mon-espace-organisateur" element={<MonEspaceOrganisateur />} />
-
-          <Route path="/organisateur/inscriptions/:format_id" element={<ListeInscriptions />} />
-
-          <Route path="/details-coureur/:id" element={<DetailsCoureur />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
-          <Route path="/mon-inscription/:id" element={<MonInscription />} />
-          <Route path="/mesinscriptions" element={<MesInscriptions />} />
           <Route path="/merci" element={<Merci />} />
           <Route path="/paiement-annule" element={<PaiementAnnule />} />
 
@@ -85,9 +70,107 @@ function AppContent() {
           <Route path="/legal/remboursements" element={<Remboursements />} />
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 
-          <Route path="/organisateur/nouvelle-course" element={<NouvelleCourse />} />
+          {/* ✅ Protégées : nécessite une session */}
+          <Route
+            path="/inscription/:courseId"
+            element={
+              <ProtectedRoute>
+                <InscriptionCourse />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/mon-inscription/:id"
+            element={
+              <ProtectedRoute>
+                <MonInscription />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/mesinscriptions"
+            element={
+              <ProtectedRoute>
+                <MesInscriptions />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/monprofilcoureur"
+            element={
+              <ProtectedRoute>
+                <MonProfilCoureur />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/monprofilorganisateur"
+            element={
+              <ProtectedRoute>
+                <MonProfilOrganisateur />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organisateur/mon-espace"
+            element={
+              <ProtectedRoute>
+                <MonEspaceOrganisateur />
+              </ProtectedRoute>
+            }
+          />
+          {/* Alias anti-404 (protégé aussi) */}
+          <Route
+            path="/mon-espace-organisateur"
+            element={
+              <ProtectedRoute>
+                <MonEspaceOrganisateur />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organisateur/inscriptions/:format_id"
+            element={
+              <ProtectedRoute>
+                <ListeInscriptions />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organisateur/nouvelle-course"
+            element={
+              <ProtectedRoute>
+                <NouvelleCourse />
+              </ProtectedRoute>
+            }
+          />
+          {/* Pages d’édition qui doivent être protégées */}
+          <Route
+            path="/modifier-course/:id"
+            element={
+              <ProtectedRoute>
+                <ModifierCourse />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/details-coureur/:id"
+            element={
+              <ProtectedRoute>
+                <DetailsCoureur />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/coureur"
+            element={
+              <ProtectedRoute>
+                <ProfilCoureur />
+              </ProtectedRoute>
+            }
+          />
 
-          {/* Admin (protégé) */}
+          {/* Admin (protégé via AdminRoute) */}
           <Route
             path="/admin/dashboard"
             element={
@@ -129,7 +212,7 @@ function AppContent() {
             }
           />
 
-          {/* Fallback anti-page-blanche */}
+          {/* Fallback */}
           <Route
             path="*"
             element={
@@ -141,7 +224,7 @@ function AppContent() {
           />
         </Routes>
       </main>
-      <Footer /> {/* ⬅️ footer statique */}
+      <Footer />
     </div>
   );
 }
