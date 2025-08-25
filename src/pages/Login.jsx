@@ -3,17 +3,20 @@ import React, { useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
+import { Loader2 } from "lucide-react";
 
 export default function Login() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [message, setMessage] = useState(null);
+  const [loading, setLoading] = useState(false);
   const navigate = useNavigate();
   const { setSession, setRoles, setActiveRole, setNom, setPrenom } = useUser();
 
   const handleLogin = async (e) => {
     e.preventDefault();
     setMessage(null);
+    setLoading(true);
 
     const { data: authData, error } = await supabase.auth.signInWithPassword({
       email,
@@ -21,7 +24,8 @@ export default function Login() {
     });
 
     if (error) {
-      setMessage("Erreur de connexion : " + error.message);
+      setMessage("❌ Erreur de connexion : " + error.message);
+      setLoading(false);
       return;
     }
 
@@ -35,7 +39,8 @@ export default function Login() {
       .eq("user_id", user.id);
 
     if (profilsError || !profils || profils.length === 0) {
-      setMessage("Aucune donnée de profil trouvée.");
+      setMessage("⚠️ Aucune donnée de profil trouvée.");
+      setLoading(false);
       return;
     }
 
@@ -45,50 +50,69 @@ export default function Login() {
     setRoles(["coureur"]);
     setActiveRole("coureur");
 
-    navigate("/profil");
+    setLoading(false);
+    navigate("/"); // ✅ redirection vers la Home
   };
 
   return (
-    <div className="max-w-md mx-auto mt-10 p-6 border rounded shadow">
-      <h1 className="text-2xl font-bold mb-4">Connexion</h1>
-      <form onSubmit={handleLogin} className="space-y-4">
-        <div>
-          <label className="block">Adresse email</label>
-          <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            required
-            className="w-full border rounded px-3 py-2"
-          />
+    <div className="flex items-center justify-center min-h-screen bg-neutral-50 px-4">
+      <div className="w-full max-w-md bg-white rounded-2xl shadow-lg p-8">
+        <h1 className="text-2xl font-bold mb-6 text-center text-neutral-900">
+          Connexion
+        </h1>
+
+        <form onSubmit={handleLogin} className="space-y-5">
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
+              Adresse email
+            </label>
+            <input
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              required
+              className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              placeholder="exemple@mail.com"
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
+              Mot de passe
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              required
+              className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-blue-500 focus:outline-none"
+              placeholder="••••••••"
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full flex justify-center items-center gap-2 bg-blue-600 text-white py-2.5 rounded-xl hover:bg-blue-700 transition disabled:opacity-50"
+          >
+            {loading ? <Loader2 className="animate-spin" size={18} /> : null}
+            {loading ? "Connexion..." : "Se connecter"}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <Link
+            to="/forgot-password"
+            className="text-blue-600 hover:underline text-sm"
+          >
+            Mot de passe oublié ?
+          </Link>
         </div>
 
-        <div>
-          <label className="block">Mot de passe</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            required
-            className="w-full border rounded px-3 py-2"
-          />
-        </div>
-
-        <button
-          type="submit"
-          className="w-full bg-blue-600 text-white py-2 rounded hover:bg-blue-700"
-        >
-          Se connecter
-        </button>
-      </form>
-
-      <div className="mt-4 text-center">
-        <Link to="/forgot-password" className="text-blue-600 hover:underline">
-          Mot de passe oublié ?
-        </Link>
+        {message && (
+          <p className="mt-4 text-center text-red-600 text-sm">{message}</p>
+        )}
       </div>
-
-      {message && <p className="mt-4 text-red-600 text-sm">{message}</p>}
     </div>
   );
 }
