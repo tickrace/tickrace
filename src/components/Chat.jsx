@@ -15,16 +15,15 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
-const BAD_WORDS = ["con", "pute", "enculé", "merde"]; // Démo; remplace par une modération serveur si besoin
+const BAD_WORDS = ["con", "pute", "enculé", "merde"]; // Démo: à renforcer côté serveur si besoin.
 const IA_USER_ID = "00000000-0000-0000-0000-000000000000";
 
 export default function Chat({ courseId, organisateurId }) {
   const { session } = useUser();
   const user = session?.user;
-  const displayNom = user?.user_metadata?.nom || "";
-  const displayPrenom = user?.user_metadata?.prenom || "";
 
   const [messages, setMessages] = useState([]);
+  const [profilesMap, setProfilesMap] = useState(new Map()); // user_id -> { prenom, nom }
   const [rootsCounts, setRootsCounts] = useState(new Map());
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
@@ -34,48 +33,91 @@ export default function Chat({ courseId, organisateurId }) {
 
   const listRef = useRef(null);
 
-  // Charger historique + MV + Realtime
+  // ---- Chargement initial + Realtime -----------------------------------
   useEffect(() => {
     let abort = false;
 
     const load = async () => {
-      const { data, error } = await supabase
+      // 1) Messages
+      const { data: msgs, error } = await supabase
         .from("chat_messages")
         .select("*")
         .eq("course_id", courseId)
         .order("created_at", { ascending: true });
 
-      if (!abort && !error && data) setMessages(data);
+      if (!abort && !error && msgs) {
+        setMessages(msgs);
 
-      // MV pour replies_count (rafraîchie par pg_cron)
+        // 2) Profils (map user_id -> {prenom, nom})
+        const uniqueUserIds = Array.from(
+          new Set(
+            msgs
+              .map((m) => m.user_id)
+              .filter((id) => id && id !== IA_USER_ID)
+          )
+        );
+        if (uniqueUserIds.length) {
+          const { data: profs } = await supabase
+            .from("profils_utilisateurs")
+            .select("user_id, prenom, nom")
+            .in("user_id", uniqueUserIds);
+          if (profs) {
+            const map = new Map();
+            for (const p of profs) map.set(p.user_id, { prenom: p.prenom, nom: p.nom });
+            setProfilesMap(map);
+          }
+        }
+      }
+
+      // 3) MV pour replies_count (optionnel)
       const { data: mv } = await supabase
         .from("chat_roots_with_counts")
         .select("id,replies_count")
         .eq("course_id", courseId);
-
-      if (mv) {
+      if (!abort && mv) {
         const map = new Map();
         mv.forEach((r) => map.set(r.id, r.replies_count));
-        if (!abort) setRootsCounts(map);
+        setRootsCounts(map);
       }
     };
 
     load();
 
+    // 4) Realtime messages
     const channel = supabase
       .channel(`chat:${courseId}`)
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "chat_messages", filter: `course_id=eq.${courseId}` },
-        (payload) => {
+        async (payload) => {
           setMessages((prev) => {
             if (payload.eventType === "INSERT") return [...prev, payload.new];
-            if (payload.eventType === "UPDATE")
+            if (payload.eventType === "UPDATE") {
               return prev.map((m) => (m.id === payload.new.id ? payload.new : m));
-            if (payload.eventType === "DELETE")
+            }
+            if (payload.eventType === "DELETE") {
               return prev.filter((m) => m.id !== payload.old.id);
+            }
             return prev;
           });
+
+          // Si un nouveau user_id apparaît, on complète la map des profils
+          const uid =
+            payload.eventType === "DELETE" ? payload.old?.user_id : payload.new?.user_id;
+          if (uid && uid !== IA_USER_ID && !profilesMap.has(uid)) {
+            const { data: prof } = await supabase
+              .from("profils_utilisateurs")
+              .select("user_id, prenom, nom")
+              .eq("user_id", uid)
+              .maybeSingle();
+            if (prof) {
+              setProfilesMap((prev) => {
+                const m = new Map(prev);
+                m.set(uid, { prenom: prof.prenom, nom: prof.nom });
+                return m;
+              });
+            }
+          }
         }
       )
       .subscribe();
@@ -84,9 +126,9 @@ export default function Chat({ courseId, organisateurId }) {
       abort = true;
       supabase.removeChannel(channel);
     };
-  }, [courseId]);
+  }, [courseId]); // eslint-disable-line
 
-  // Auto-scroll vers le bas
+  // Auto-scroll en bas sur nouveau message
   useEffect(() => {
     listRef.current?.scrollTo({
       top: listRef.current.scrollHeight,
@@ -94,7 +136,7 @@ export default function Chat({ courseId, organisateurId }) {
     });
   }, [messages.length]);
 
-  // Structuration roots / enfants
+  // ---- Helpers ----------------------------------------------------------
   const roots = useMemo(() => messages.filter((m) => !m.parent_id), [messages]);
 
   const childrenByParent = useMemo(() => {
@@ -111,25 +153,29 @@ export default function Chat({ courseId, organisateurId }) {
   const filteredRoots = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return roots;
-    return roots.filter((m) =>
-      [m.message, m.nom, m.prenom].join(" ").toLowerCase().includes(q)
-    );
-  }, [roots, search]);
+    return roots.filter((m) => {
+      const prof = profilesMap.get(m.user_id);
+      const fullName = `${prof?.prenom || ""} ${prof?.nom || ""}`.toLowerCase();
+      return [m.message?.toLowerCase() || "", fullName].join(" ").includes(q);
+    });
+  }, [roots, search, profilesMap]);
 
   const checkModeration = (text) =>
     BAD_WORDS.some((w) => text.toLowerCase().includes(w));
 
   const canModerate = (m) => {
     if (!user) return false;
-    if (user.id === m.user_id) return true; // auteur
-    if (user.id === IA_USER_ID) return true; // IA
-    if (organisateurId && user.id === organisateurId) return true; // organisateur
-    // Admin: optionnel côté UI (RLS tranchera de toute façon)
+    // Auteur
+    if (user.id === m.user_id) return true;
+    // IA
+    if (user.id === IA_USER_ID) return true;
+    // Organisateur de la course
+    if (organisateurId && user.id === organisateurId) return true;
+    // Admin: l’UI n’a pas l’info -> RLS fera foi (policies côté BDD).
     return false;
-    // Si tu veux afficher le bouton aussi pour admin en UI:
-    // -> expose un flag isAdmin dans ton contexte, ou appelle une RPC pour le savoir.
   };
 
+  // ---- Actions ----------------------------------------------------------
   const handleSend = async () => {
     const text = input.trim();
     if (!text) return;
@@ -142,8 +188,6 @@ export default function Chat({ courseId, organisateurId }) {
       course_id: courseId,
       parent_id: replyTo?.id ?? null,
       user_id: user.id,
-      nom: displayNom,
-      prenom: displayPrenom,
       message: text,
       is_hidden: checkModeration(text),
       flagged: false,
@@ -156,22 +200,22 @@ export default function Chat({ courseId, organisateurId }) {
       return;
     }
 
-    // Mentions @IA
-const at = text.match(/@IA\s*(.*)$/i);
-if (at && at[1]) {
-  try {
-    const { error: iaErr } = await supabase.functions.invoke("chat-ia", {
-      body: {
-        course_id: courseId,
-        parent_id: replyTo?.id ?? null,
-        prompt: at[1].trim(),
-      },
-    });
-    if (iaErr) console.error("chat-ia invoke error", iaErr);
-  } catch (e) {
-    console.error("chat-ia invoke exception", e);
-  }
-}
+    // Mentions @IA -> function invoke (gère les bons headers)
+    const at = text.match(/@IA\s*(.*)$/i);
+    if (at && at[1]) {
+      try {
+        const { error: iaErr } = await supabase.functions.invoke("chat-ia", {
+          body: {
+            course_id: courseId,
+            parent_id: replyTo?.id ?? null,
+            prompt: at[1].trim(),
+          },
+        });
+        if (iaErr) console.error("chat-ia invoke error", iaErr);
+      } catch (e) {
+        console.error("chat-ia invoke exception", e);
+      }
+    }
 
     setInput("");
     setReplyTo(null);
@@ -180,7 +224,7 @@ if (at && at[1]) {
   const handleFlag = async (msg) => {
     if (!user) return;
     const reason =
-      prompt("Pourquoi signaler ce message ? (optionnel)") ??
+      prompt("Pourquoi signaler ce message ? (optionnel)") ||
       "signalement utilisateur";
     const { error } = await supabase
       .from("chat_messages")
@@ -213,10 +257,7 @@ if (at && at[1]) {
 
   const deleteMsg = async (m) => {
     if (!confirm("Supprimer ce message ?")) return;
-    const { error } = await supabase
-      .from("chat_messages")
-      .delete()
-      .eq("id", m.id);
+    const { error } = await supabase.from("chat_messages").delete().eq("id", m.id);
     if (error) {
       console.error(error);
       alert("Échec de la suppression.");
@@ -229,9 +270,24 @@ if (at && at[1]) {
       timeStyle: "short",
     }).format(new Date(iso));
 
+  // ---- Message item -----------------------------------------------------
   const Message = ({ m, depth = 0 }) => {
     const hidden = m.is_hidden;
     const isEditable = canModerate(m);
+    const prof = profilesMap.get(m.user_id);
+    const fullName =
+      m.user_id === IA_USER_ID
+        ? "IA Tickrace"
+        : `${prof?.prenom || ""} ${prof?.nom || ""}`.trim() || "Utilisateur";
+
+    const initials =
+      m.user_id === IA_USER_ID
+        ? "IA"
+        : (
+            (prof?.prenom?.[0] || "") + (prof?.nom?.[0] || "")
+          )
+            .toUpperCase()
+            .trim() || "?";
 
     return (
       <div
@@ -242,6 +298,7 @@ if (at && at[1]) {
       >
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
+            {/* Avatar */}
             <div
               className={clsx(
                 "h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold",
@@ -249,19 +306,15 @@ if (at && at[1]) {
                   ? "bg-indigo-100 text-indigo-700"
                   : "bg-neutral-200 text-neutral-700"
               )}
+              title={fullName}
             >
-              {m.user_id === IA_USER_ID
-                ? "IA"
-                : ((m.prenom?.[0] || "") + (m.nom?.[0] || "")).toUpperCase() ||
-                  "?"
-              }
+              {initials}
             </div>
 
+            {/* En-tête + contenu */}
             <div>
               <div className="text-sm font-semibold flex items-center gap-2">
-                {m.user_id === IA_USER_ID
-                  ? "IA Tickrace"
-                  : `${m.prenom || ""} ${m.nom || ""}`}
+                {fullName}
                 <span className="text-xs text-neutral-500">
                   • {formatWhen(m.created_at)}
                 </span>
@@ -272,13 +325,11 @@ if (at && at[1]) {
                   </span>
                 )}
 
-                {!m.parent_id && (
+                {!m.parent_id && rootsCounts.get(m.id) ? (
                   <span className="ml-2 text-[11px] text-neutral-500">
-                    {rootsCounts.get(m.id)
-                      ? `· ${rootsCounts.get(m.id)} réponse(s)`
-                      : ""}
+                    · {rootsCounts.get(m.id)} réponse(s)
                   </span>
-                )}
+                ) : null}
               </div>
 
               {editingId === m.id ? (
@@ -313,6 +364,7 @@ if (at && at[1]) {
             </div>
           </div>
 
+          {/* Actions */}
           <div className="flex items-center gap-1">
             <button
               title="Répondre"
@@ -352,6 +404,7 @@ if (at && at[1]) {
           </div>
         </div>
 
+        {/* Réponses */}
         {(childrenByParent.get(m.id) || [])
           .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
           .map((child) => (
@@ -361,6 +414,7 @@ if (at && at[1]) {
     );
   };
 
+  // ---- Render -----------------------------------------------------------
   return (
     <section className="mt-8">
       <div className="flex items-center justify-between mb-3">
@@ -374,10 +428,7 @@ if (at && at[1]) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
           />
-          <Search
-            size={16}
-            className="absolute left-2 top-2.5 text-neutral-400"
-          />
+          <Search size={16} className="absolute left-2 top-2.5 text-neutral-400" />
         </div>
       </div>
 
@@ -398,7 +449,10 @@ if (at && at[1]) {
         <div className="mt-2 text-xs text-neutral-600 flex items-center gap-2">
           Réponse à{" "}
           <span className="font-semibold">
-            {replyTo.prenom} {replyTo.nom}
+            {(() => {
+              const p = profilesMap.get(replyTo.user_id);
+              return `${p?.prenom || ""} ${p?.nom || ""}`.trim() || "Utilisateur";
+            })()}
           </span>
           <button
             className="p-1 rounded hover:bg-neutral-100"
