@@ -12,8 +12,9 @@ import {
   Settings,
   User2,
 } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
+import { useUser } from "../contexts/UserContext";
 
 // --- Mini helpers
 const Container = ({ children, className = "" }) => (
@@ -88,8 +89,19 @@ const fmtDate = (d) =>
 // Page
 // ============================
 export default function Home() {
+  const navigate = useNavigate();
+  const { session } = useUser();
+
   const [latest, setLatest] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  const goOrganizer = () => {
+    if (!session?.user) {
+      navigate("/login");
+    } else {
+      navigate("/organisateur/mon-espace");
+    }
+  };
 
   // Charger 3 dernières courses en ligne
   useEffect(() => {
@@ -148,8 +160,6 @@ export default function Home() {
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
-      {/* Pas de navbar ici : elle est déjà globale */}
-
       {/* HERO */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(60%_60%_at_50%_0%,#fdba74_0%,transparent_60%)]" />
@@ -163,7 +173,7 @@ export default function Home() {
             >
               <Pill>Nouvelle V1 — Carte interactive & Chat épreuves</Pill>
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
-                Inscris‑toi, organise, cours. <span className="text-orange-600">Une seule plateforme.</span>
+                Inscris-toi, organise, cours. <span className="text-orange-600">Une seule plateforme.</span>
               </h1>
               <p className="text-neutral-600 max-w-xl">
                 TickRace centralise la création d’épreuves, l’inscription coureurs, le chat communautaire,
@@ -173,9 +183,13 @@ export default function Home() {
                 <CTA to="/courses">
                   <ArrowRight className="h-4 w-4" /> Trouver une course
                 </CTA>
-                <Ghost to="/organisateur/mon-espace">
+                {/* Redirection conditionnelle vers espace organisateur */}
+                <button
+                  onClick={goOrganizer}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+                >
                   <Settings className="h-4 w-4" /> Je suis organisateur
-                </Ghost>
+                </button>
               </div>
               <div className="flex items-center gap-3 pt-2 text-xs text-neutral-500">
                 <Badge>
@@ -244,9 +258,7 @@ export default function Home() {
                 <CTA to="/courses">
                   <ArrowRight className="h-4 w-4" /> Rechercher
                 </CTA>
-                <Ghost to="/courses">
-                  Voir la carte
-                </Ghost>
+                <Ghost to="/courses">Voir la carte</Ghost>
               </div>
             </div>
           </Card>
@@ -346,9 +358,13 @@ export default function Home() {
               <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-orange-500" /> Modération IA du chat</li>
             </ul>
             <div className="mt-6 flex gap-3">
-              <CTA href="https://www.tickrace.com/organisateur/mon-espace">
+              {/* Redirection conditionnelle vers espace organisateur */}
+              <button
+                onClick={goOrganizer}
+                className="inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px"
+              >
                 <Settings className="h-4 w-4" /> Accéder à l'espace organisateur
-              </CTA>
+              </button>
             </div>
           </motion.div>
 
@@ -488,8 +504,6 @@ export default function Home() {
           </motion.div>
         </Container>
       </section>
-
-      {/* Footer supprimé */}
     </div>
   );
 }
