@@ -1,6 +1,8 @@
+// src/pages/ResetPassword.jsx
 import React, { useState, useEffect } from "react";
 import { supabase } from "../supabase";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
+import { Loader2, Eye, EyeOff } from "lucide-react";
 
 export default function ResetPassword() {
   const navigate = useNavigate();
@@ -40,20 +42,25 @@ export default function ResetPassword() {
     setLoading(false);
 
     if (error) {
-      setMessage("Erreur : " + error.message);
+      setMessage("❌ " + error.message);
     } else {
-      setMessage("Mot de passe mis à jour avec succès. Redirection…");
+      setMessage("✅ Mot de passe mis à jour. Redirection…");
       setTimeout(() => navigate("/login"), 2000);
     }
   };
 
   if (!sessionReady) {
     return (
-      <div className="flex justify-center items-center min-h-screen bg-gray-100">
-        <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md text-center">
-          <h1 className="text-2xl font-bold mb-4">Réinitialisation de mot de passe</h1>
-          <p className="text-gray-700">
-            Lien invalide ou expiré. Veuillez relancer la procédure “Mot de passe oublié”.
+      <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-50 px-4">
+        <div className="w-full max-w-md text-center">
+          <h1 className="text-3xl font-extrabold text-neutral-900 mb-3">
+            Réinitialisation de mot de passe
+          </h1>
+          <p className="text-neutral-700">
+            Lien invalide ou expiré. Veuillez relancer la procédure{" "}
+            <Link to="/forgot-password" className="underline">
+              « Mot de passe oublié »
+            </Link>.
           </p>
         </div>
       </div>
@@ -61,59 +68,66 @@ export default function ResetPassword() {
   }
 
   return (
-    <div className="flex justify-center items-center min-h-screen bg-gray-100">
-      <div className="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md">
-        <h1 className="text-2xl font-bold mb-6 text-center">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-neutral-50 px-4">
+      <div className="w-full max-w-md text-center">
+        <h1 className="text-3xl font-extrabold text-neutral-900 mb-6">
           Définir un nouveau mot de passe
         </h1>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-5 text-left">
           <div>
-            <label className="block text-sm mb-1 font-medium">
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
               Nouveau mot de passe
             </label>
             <div className="relative">
               <input
                 type={showPwd ? "text" : "password"}
-                className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring focus:ring-blue-300"
+                className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-neutral-900 focus:outline-none"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="********"
+                placeholder="••••••••"
+                autoComplete="new-password"
               />
               <button
                 type="button"
                 onClick={() => setShowPwd((v) => !v)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-gray-500"
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-neutral-600"
+                aria-label={showPwd ? "Masquer le mot de passe" : "Afficher le mot de passe"}
               >
-                {showPwd ? "Masquer" : "Afficher"}
+                {showPwd ? <EyeOff size={18} /> : <Eye size={18} />}
               </button>
             </div>
+            <p className="text-[12px] text-neutral-500 mt-1">
+              8 caractères minimum. Évitez les mots de passe réutilisés.
+            </p>
           </div>
 
           <div>
-          <label className="block text-sm mb-1 font-medium">
-            Confirmer le mot de passe
-          </label>
+            <label className="block text-sm font-medium text-neutral-700 mb-1">
+              Confirmer le mot de passe
+            </label>
             <input
               type={showPwd ? "text" : "password"}
-              className="w-full px-4 py-2 border rounded-lg focus:outline-none focus:ring focus:ring-blue-300"
+              className="w-full border border-neutral-300 rounded-xl px-3 py-2 focus:ring-2 focus:ring-neutral-900 focus:outline-none"
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
-              placeholder="********"
+              placeholder="••••••••"
+              autoComplete="new-password"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="w-full bg-blue-500 text-white py-2 rounded-lg hover:bg-blue-600 transition disabled:opacity-50"
+            className="w-full flex justify-center items-center gap-2 bg-neutral-900 text-white py-3 rounded-xl font-semibold hover:bg-neutral-800 transition disabled:opacity-50"
           >
+            {loading ? <Loader2 className="animate-spin" size={18} /> : null}
             {loading ? "Mise à jour…" : "Mettre à jour le mot de passe"}
           </button>
         </form>
 
         {message && (
-          <p className="mt-4 text-center text-sm text-gray-700">{message}</p>
+          <p className="mt-4 text-center text-sm text-neutral-700">{message}</p>
         )}
       </div>
     </div>
