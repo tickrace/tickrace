@@ -1,4 +1,6 @@
 // src/pages/CourseDetail.jsx
+import Chat from "../components/Chat";
+
 import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -607,7 +609,10 @@ export default function CourseDetail() {
                   </a>
                 </div>
                 <div className="p-5">
-                  {/* TODO: intégrer le composant ChatEpreuve quand prêt */}
+                  {course && (
+  <Chat courseId={course.id} organisateurId={course.organisateur_id} />
+)}
+
                   <p className="text-neutral-600 text-sm">
                     Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour poser une question à
                     l’assistant.
