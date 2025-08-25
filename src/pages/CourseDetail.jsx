@@ -422,64 +422,24 @@ export default function CourseDetail() {
                       </select>
                     </div>
 
-                    {selectedFormat?.gpx_url ? (
-                      <>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="text-sm text-neutral-600">
-                            GPX du format <strong>{selectedFormat.nom}</strong>
-                            {selectedFormat.date ? <> — {fmtDate(selectedFormat.date)}</> : null}
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              onClick={() =>
-                                downloadFile(
-                                  selectedFormat.gpx_url,
-                                  `gpx-${(course.nom || "epreuve")
-                                    .replace(/[^\w-]+/g, "_")}-${(selectedFormat.nom || "format")
-                                    .replace(/[^\w-]+/g, "_")}.gpx`
-                                )
-                              }
-                              className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
-                              title="Télécharger le tracé GPX"
-                            >
-                              ⬇ Télécharger
-                            </button>
-                            <button
-                              onClick={() => setMapFull((v) => !v)}
-                              className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-sm font-medium text-neutral-800 hover:bg-neutral-50"
-                              title="Plein écran"
-                            >
-                              {mapFull ? "Quitter plein écran" : "Plein écran"}
-                            </button>
-                          </div>
-                        </div>
+                   {selectedFormat?.gpx_url ? (
+  <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
+    <Suspense fallback={<div className="p-4 text-neutral-600">Chargement de la carte…</div>}>
+      <GPXViewer
+        gpxUrl={selectedFormat.gpx_url}
+        height={420}
+        showElevationProfile
+        xAxis="distance"
+        yAxis="elevation"
+        responsive
+        allowDownload
+      />
+    </Suspense>
+  </div>
+) : (
+  <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
+)}
 
-                        <div
-                          className={
-                            mapFull
-                              ? "fixed inset-0 z-[60] bg-white p-3"
-                              : "rounded-2xl border bg-white shadow-sm overflow-hidden"
-                          }
-                        >
-                          <Suspense
-                            fallback={<div className="p-4 text-neutral-600">Chargement de la carte…</div>}
-                          >
-                            <GPXViewer
-                              gpxUrl={selectedFormat.gpx_url}
-                              height={mapFull ? 0 : 420} // si 0, faire 100% en fullscreen côté composant
-                              fullscreen={mapFull}
-                              showElevationProfile
-                              xAxis="distance"
-                              yAxis="elevation"
-                              responsive
-                              allowDownload
-                            />
-                          </Suspense>
-                        </div>
-                      </>
-                    ) : (
-                      <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
-                    )}
 
                     {selectedFormat?.presentation_parcours && (
                       <p className="text-neutral-700">{selectedFormat.presentation_parcours}</p>
