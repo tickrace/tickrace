@@ -15,7 +15,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 
-const BAD_WORDS = ["con", "pute", "enculé", "merde"]; // Démo: à renforcer côté serveur si besoin.
+const BAD_WORDS = ["con", "pute", "enculé", "merde"];
 const IA_USER_ID = "00000000-0000-0000-0000-000000000000";
 
 export default function Chat({ courseId, organisateurId }) {
@@ -23,7 +23,7 @@ export default function Chat({ courseId, organisateurId }) {
   const user = session?.user;
 
   const [messages, setMessages] = useState([]);
-  const [profilesMap, setProfilesMap] = useState(new Map()); // user_id -> { prenom, nom }
+  const [profilesMap, setProfilesMap] = useState(new Map());
   const [rootsCounts, setRootsCounts] = useState(new Map());
   const [input, setInput] = useState("");
   const [search, setSearch] = useState("");
@@ -33,12 +33,30 @@ export default function Chat({ courseId, organisateurId }) {
 
   const listRef = useRef(null);
 
-  // ---- Chargement initial + Realtime -----------------------------------
+  // Charger un profil et le stocker en cache
+  async function ensureProfileInMap(userId) {
+    if (userId === IA_USER_ID || profilesMap.has(userId)) return profilesMap.get(userId);
+    const { data: prof } = await supabase
+      .from("profils_utilisateurs")
+      .select("user_id, prenom, nom")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (prof) {
+      setProfilesMap((prev) => {
+        const m = new Map(prev);
+        m.set(userId, { prenom: prof.prenom, nom: prof.nom });
+        return m;
+      });
+      return { prenom: prof.prenom, nom: prof.nom };
+    }
+    return { prenom: "", nom: "" };
+  }
+
+  // ---- Chargement initial + Realtime
   useEffect(() => {
     let abort = false;
 
     const load = async () => {
-      // 1) Messages
       const { data: msgs, error } = await supabase
         .from("chat_messages")
         .select("*")
@@ -48,13 +66,8 @@ export default function Chat({ courseId, organisateurId }) {
       if (!abort && !error && msgs) {
         setMessages(msgs);
 
-        // 2) Profils (map user_id -> {prenom, nom})
         const uniqueUserIds = Array.from(
-          new Set(
-            msgs
-              .map((m) => m.user_id)
-              .filter((id) => id && id !== IA_USER_ID)
-          )
+          new Set(msgs.map((m) => m.user_id).filter((id) => id && id !== IA_USER_ID))
         );
         if (uniqueUserIds.length) {
           const { data: profs } = await supabase
@@ -69,7 +82,6 @@ export default function Chat({ courseId, organisateurId }) {
         }
       }
 
-      // 3) MV pour replies_count (optionnel)
       const { data: mv } = await supabase
         .from("chat_roots_with_counts")
         .select("id,replies_count")
@@ -83,7 +95,6 @@ export default function Chat({ courseId, organisateurId }) {
 
     load();
 
-    // 4) Realtime messages
     const channel = supabase
       .channel(`chat:${courseId}`)
       .on(
@@ -101,22 +112,10 @@ export default function Chat({ courseId, organisateurId }) {
             return prev;
           });
 
-          // Si un nouveau user_id apparaît, on complète la map des profils
           const uid =
             payload.eventType === "DELETE" ? payload.old?.user_id : payload.new?.user_id;
           if (uid && uid !== IA_USER_ID && !profilesMap.has(uid)) {
-            const { data: prof } = await supabase
-              .from("profils_utilisateurs")
-              .select("user_id, prenom, nom")
-              .eq("user_id", uid)
-              .maybeSingle();
-            if (prof) {
-              setProfilesMap((prev) => {
-                const m = new Map(prev);
-                m.set(uid, { prenom: prof.prenom, nom: prof.nom });
-                return m;
-              });
-            }
+            await ensureProfileInMap(uid);
           }
         }
       )
@@ -128,7 +127,6 @@ export default function Chat({ courseId, organisateurId }) {
     };
   }, [courseId]); // eslint-disable-line
 
-  // Auto-scroll en bas sur nouveau message
   useEffect(() => {
     listRef.current?.scrollTo({
       top: listRef.current.scrollHeight,
@@ -136,7 +134,6 @@ export default function Chat({ courseId, organisateurId }) {
     });
   }, [messages.length]);
 
-  // ---- Helpers ----------------------------------------------------------
   const roots = useMemo(() => messages.filter((m) => !m.parent_id), [messages]);
 
   const childrenByParent = useMemo(() => {
@@ -155,7 +152,7 @@ export default function Chat({ courseId, organisateurId }) {
     if (!q) return roots;
     return roots.filter((m) => {
       const prof = profilesMap.get(m.user_id);
-      const fullName = `${prof?.prenom || ""} ${prof?.nom || ""}`.toLowerCase();
+      const fullName = `${prof?.prenom || m.prenom || ""} ${prof?.nom || m.nom || ""}`.toLowerCase();
       return [m.message?.toLowerCase() || "", fullName].join(" ").includes(q);
     });
   }, [roots, search, profilesMap]);
@@ -165,42 +162,33 @@ export default function Chat({ courseId, organisateurId }) {
 
   const canModerate = (m) => {
     if (!user) return false;
-    // Auteur
     if (user.id === m.user_id) return true;
-    // IA
     if (user.id === IA_USER_ID) return true;
-    // Organisateur de la course
     if (organisateurId && user.id === organisateurId) return true;
-    // Admin: l’UI n’a pas l’info -> RLS fera foi (policies côté BDD).
     return false;
   };
 
-  // ---- Actions ----------------------------------------------------------
   const handleSend = async () => {
     const text = input.trim();
     if (!text) return;
-    if (!user) {
-      alert("Connecte-toi pour écrire.");
-      return;
-    }
+    if (!user) { alert("Connecte-toi pour écrire."); return; }
+
+    const prof = await ensureProfileInMap(user.id);
 
     const toInsert = {
       course_id: courseId,
       parent_id: replyTo?.id ?? null,
       user_id: user.id,
+      nom: prof.nom || null,
+      prenom: prof.prenom || null,
       message: text,
       is_hidden: checkModeration(text),
       flagged: false,
     };
 
     const { error } = await supabase.from("chat_messages").insert(toInsert);
-    if (error) {
-      console.error(error);
-      alert("Impossible d’envoyer le message.");
-      return;
-    }
+    if (error) { console.error(error); alert("Impossible d’envoyer le message."); return; }
 
-    // Mentions @IA -> function invoke (gère les bons headers)
     const at = text.match(/@IA\s*(.*)$/i);
     if (at && at[1]) {
       try {
@@ -223,9 +211,7 @@ export default function Chat({ courseId, organisateurId }) {
 
   const handleFlag = async (msg) => {
     if (!user) return;
-    const reason =
-      prompt("Pourquoi signaler ce message ? (optionnel)") ||
-      "signalement utilisateur";
+    const reason = prompt("Pourquoi signaler ce message ?") || "signalement utilisateur";
     const { error } = await supabase
       .from("chat_messages")
       .update({ flagged: true, flagged_reason: reason })
@@ -233,12 +219,7 @@ export default function Chat({ courseId, organisateurId }) {
     if (error) console.error(error);
   };
 
-  const startEdit = (m) => {
-    if (!canModerate(m)) return;
-    setEditingId(m.id);
-    setEditingText(m.message);
-  };
-
+  const startEdit = (m) => { if (canModerate(m)) { setEditingId(m.id); setEditingText(m.message); } };
   const saveEdit = async (m) => {
     const text = editingText.trim();
     if (!text) return setEditingId(null);
@@ -246,31 +227,18 @@ export default function Chat({ courseId, organisateurId }) {
       .from("chat_messages")
       .update({ message: text, is_hidden: checkModeration(text) })
       .eq("id", m.id);
-    if (error) {
-      console.error(error);
-      alert("Échec de la modification.");
-      return;
-    }
-    setEditingId(null);
-    setEditingText("");
+    if (error) { console.error(error); alert("Échec de la modification."); return; }
+    setEditingId(null); setEditingText("");
   };
-
   const deleteMsg = async (m) => {
     if (!confirm("Supprimer ce message ?")) return;
     const { error } = await supabase.from("chat_messages").delete().eq("id", m.id);
-    if (error) {
-      console.error(error);
-      alert("Échec de la suppression.");
-    }
+    if (error) { console.error(error); alert("Échec de la suppression."); }
   };
 
   const formatWhen = (iso) =>
-    new Intl.DateTimeFormat("fr-FR", {
-      dateStyle: "short",
-      timeStyle: "short",
-    }).format(new Date(iso));
+    new Intl.DateTimeFormat("fr-FR", { dateStyle: "short", timeStyle: "short" }).format(new Date(iso));
 
-  // ---- Message item -----------------------------------------------------
   const Message = ({ m, depth = 0 }) => {
     const hidden = m.is_hidden;
     const isEditable = canModerate(m);
@@ -278,204 +246,99 @@ export default function Chat({ courseId, organisateurId }) {
     const fullName =
       m.user_id === IA_USER_ID
         ? "IA Tickrace"
-        : `${prof?.prenom || ""} ${prof?.nom || ""}`.trim() || "Utilisateur";
-
+        : `${prof?.prenom || m.prenom || ""} ${prof?.nom || m.nom || ""}`.trim() || "Utilisateur";
     const initials =
       m.user_id === IA_USER_ID
         ? "IA"
-        : (
-            (prof?.prenom?.[0] || "") + (prof?.nom?.[0] || "")
-          )
-            .toUpperCase()
-            .trim() || "?";
+        : ((prof?.prenom?.[0] || m.prenom?.[0] || "") + (prof?.nom?.[0] || m.nom?.[0] || "")).toUpperCase() || "?";
 
     return (
-      <div
-        className={clsx(
-          "rounded-xl p-3 mb-2",
-          depth ? "ml-6 bg-neutral-50" : "bg-white shadow-sm"
-        )}
-      >
+      <div className={clsx("rounded-xl p-3 mb-2", depth ? "ml-6 bg-neutral-50" : "bg-white shadow-sm")}>
         <div className="flex items-start justify-between gap-2">
           <div className="flex items-center gap-2">
-            {/* Avatar */}
-            <div
-              className={clsx(
-                "h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold",
-                m.user_id === IA_USER_ID
-                  ? "bg-indigo-100 text-indigo-700"
-                  : "bg-neutral-200 text-neutral-700"
-              )}
-              title={fullName}
-            >
+            <div className={clsx(
+              "h-8 w-8 rounded-full flex items-center justify-center text-sm font-semibold",
+              m.user_id === IA_USER_ID ? "bg-indigo-100 text-indigo-700" : "bg-neutral-200 text-neutral-700"
+            )} title={fullName}>
               {initials}
             </div>
-
-            {/* En-tête + contenu */}
             <div>
               <div className="text-sm font-semibold flex items-center gap-2">
                 {fullName}
-                <span className="text-xs text-neutral-500">
-                  • {formatWhen(m.created_at)}
-                </span>
-
+                <span className="text-xs text-neutral-500">• {formatWhen(m.created_at)}</span>
                 {m.user_id === IA_USER_ID && (
-                  <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] bg-indigo-100 text-indigo-700 font-medium">
-                    IA
-                  </span>
+                  <span className="ml-1 px-2 py-0.5 rounded-full text-[11px] bg-indigo-100 text-indigo-700 font-medium">IA</span>
                 )}
-
                 {!m.parent_id && rootsCounts.get(m.id) ? (
-                  <span className="ml-2 text-[11px] text-neutral-500">
-                    · {rootsCounts.get(m.id)} réponse(s)
-                  </span>
+                  <span className="ml-2 text-[11px] text-neutral-500">· {rootsCounts.get(m.id)} réponse(s)</span>
                 ) : null}
               </div>
-
               {editingId === m.id ? (
                 <div className="mt-1">
-                  <textarea
-                    className="w-full rounded-xl border border-neutral-200 p-2 text-sm"
-                    value={editingText}
-                    onChange={(e) => setEditingText(e.target.value)}
-                  />
+                  <textarea className="w-full rounded-xl border border-neutral-200 p-2 text-sm" value={editingText} onChange={(e) => setEditingText(e.target.value)} />
                   <div className="flex gap-2 mt-1">
-                    <button
-                      className="text-xs px-2 py-1 rounded bg-neutral-900 text-white flex items-center gap-1"
-                      onClick={() => saveEdit(m)}
-                    >
+                    <button className="text-xs px-2 py-1 rounded bg-neutral-900 text-white flex items-center gap-1" onClick={() => saveEdit(m)}>
                       <Save size={14} /> Enregistrer
                     </button>
-                    <button
-                      className="text-xs px-2 py-1 rounded bg-neutral-100"
-                      onClick={() => setEditingId(null)}
-                    >
-                      Annuler
-                    </button>
+                    <button className="text-xs px-2 py-1 rounded bg-neutral-100" onClick={() => setEditingId(null)}>Annuler</button>
                   </div>
                 </div>
               ) : hidden ? (
-                <div className="text-xs italic text-neutral-500">
-                  Message masqué (modération automatique)
-                </div>
+                <div className="text-xs italic text-neutral-500">Message masqué (modération automatique)</div>
               ) : (
                 <div className="text-sm whitespace-pre-wrap">{m.message}</div>
               )}
             </div>
           </div>
-
-          {/* Actions */}
           <div className="flex items-center gap-1">
-            <button
-              title="Répondre"
-              className="p-1 rounded hover:bg-neutral-100"
-              onClick={() => setReplyTo(m)}
-            >
-              <CornerDownRight size={18} />
-            </button>
-
-            <button
-              title="Signaler"
-              className="p-1 rounded hover:bg-neutral-100"
-              onClick={() => handleFlag(m)}
-            >
-              <Flag size={18} />
-            </button>
-
+            <button title="Répondre" className="p-1 rounded hover:bg-neutral-100" onClick={() => setReplyTo(m)}><CornerDownRight size={18} /></button>
+            <button title="Signaler" className="p-1 rounded hover:bg-neutral-100" onClick={() => handleFlag(m)}><Flag size={18} /></button>
             {isEditable && editingId !== m.id && (
-              <button
-                title="Modifier"
-                className="p-1 rounded hover:bg-neutral-100"
-                onClick={() => startEdit(m)}
-              >
-                <Edit3 size={18} />
-              </button>
+              <button title="Modifier" className="p-1 rounded hover:bg-neutral-100" onClick={() => startEdit(m)}><Edit3 size={18} /></button>
             )}
-
             {isEditable && (
-              <button
-                title="Supprimer"
-                className="p-1 rounded hover:bg-neutral-100"
-                onClick={() => deleteMsg(m)}
-              >
-                <Trash2 size={18} />
-              </button>
+              <button title="Supprimer" className="p-1 rounded hover:bg-neutral-100" onClick={() => deleteMsg(m)}><Trash2 size={18} /></button>
             )}
           </div>
         </div>
-
-        {/* Réponses */}
         {(childrenByParent.get(m.id) || [])
           .sort((a, b) => new Date(a.created_at) - new Date(b.created_at))
-          .map((child) => (
-            <Message key={child.id} m={child} depth={depth + 1} />
-          ))}
+          .map((child) => <Message key={child.id} m={child} depth={depth + 1} />)}
       </div>
     );
   };
 
-  // ---- Render -----------------------------------------------------------
   return (
     <section className="mt-8">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-bold flex items-center gap-2">
-          <MessageSquare size={20} /> Discussions
-        </h3>
+        <h3 className="text-lg font-bold flex items-center gap-2"><MessageSquare size={20} /> Discussions</h3>
         <div className="relative">
-          <input
-            className="pl-8 pr-3 py-2 rounded-xl bg-white border border-neutral-200 text-sm"
-            placeholder="Rechercher…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-          />
+          <input className="pl-8 pr-3 py-2 rounded-xl bg-white border border-neutral-200 text-sm" placeholder="Rechercher…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <Search size={16} className="absolute left-2 top-2.5 text-neutral-400" />
         </div>
       </div>
-
-      <div
-        ref={listRef}
-        className="max-h-[420px] overflow-y-auto rounded-2xl bg-neutral-50 p-3 border border-neutral-100"
-      >
+      <div ref={listRef} className="max-h-[420px] overflow-y-auto rounded-2xl bg-neutral-50 p-3 border border-neutral-100">
         {filteredRoots.length === 0 ? (
-          <div className="text-sm text-neutral-500 p-4">
-            Aucun message. Lance la discussion !
-          </div>
+          <div className="text-sm text-neutral-500 p-4">Aucun message. Lance la discussion !</div>
         ) : (
           filteredRoots.map((m) => <Message key={m.id} m={m} />)
         )}
       </div>
-
       {replyTo && (
         <div className="mt-2 text-xs text-neutral-600 flex items-center gap-2">
           Réponse à{" "}
           <span className="font-semibold">
             {(() => {
               const p = profilesMap.get(replyTo.user_id);
-              return `${p?.prenom || ""} ${p?.nom || ""}`.trim() || "Utilisateur";
+              return `${p?.prenom || replyTo.prenom || ""} ${p?.nom || replyTo.nom || ""}`.trim() || "Utilisateur";
             })()}
           </span>
-          <button
-            className="p-1 rounded hover:bg-neutral-100"
-            onClick={() => setReplyTo(null)}
-          >
-            <X size={14} />
-          </button>
+          <button className="p-1 rounded hover:bg-neutral-100" onClick={() => setReplyTo(null)}><X size={14} /></button>
         </div>
       )}
-
       <div className="mt-3 flex items-center gap-2">
-        <textarea
-          className="flex-1 min-h-[44px] max-h-[120px] rounded-2xl border border-neutral-200 bg-white p-3 text-sm"
-          placeholder='Écrire… (astuce : "@IA peux-tu…")'
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-        />
-        <button
-          onClick={handleSend}
-          className="rounded-2xl bg-neutral-900 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2"
-        >
-          <Send size={16} /> Envoyer
-        </button>
+        <textarea className="flex-1 min-h-[44px] max-h-[120px] rounded-2xl border border-neutral-200 bg-white p-3 text-sm" placeholder='Écrire… (astuce : "@IA peux-tu…")' value={input} onChange={(e) => setInput(e.target.value)} />
+        <button onClick={handleSend} className="rounded-2xl bg-neutral-900 text-white px-4 py-2 text-sm font-semibold flex items-center gap-2"><Send size={16} /> Envoyer</button>
       </div>
     </section>
   );
