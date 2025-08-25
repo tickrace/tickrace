@@ -28,14 +28,14 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Méthode non autorisée" }), { status: 405, headers });
 
-  // Signature
+  // ✅ Signature (ASYNC)
   let event: Stripe.Event;
   try {
-    const sig = req.headers.get("stripe-signature")!;
-    const raw = await req.text();
-    event = stripe.webhooks.constructEvent(raw, sig, STRIPE_WEBHOOK_SECRET);
+    const sig = req.headers.get("stripe-signature") ?? "";
+    const raw = await req.text(); // ne PAS relire le body ensuite
+    event = await stripe.webhooks.constructEventAsync(raw, sig, STRIPE_WEBHOOK_SECRET);
   } catch (e: any) {
-    console.error("❌ Bad signature:", e?.message ?? e);
+    console.error("❌ Bad signature (async):", e?.message ?? e);
     return new Response(JSON.stringify({ error: "Bad signature" }), { status: 400, headers });
   }
 
