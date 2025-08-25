@@ -156,29 +156,22 @@ export default function Chat({ courseId, organisateurId }) {
       return;
     }
 
-    // Mentions @IA : déclenche l’Edge Function
-    const at = text.match(/@IA\s*(.*)$/i);
-    if (at && at[1]) {
-      try {
-        await fetch(
-          `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/chat-ia`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${import.meta.env.VITE_SUPABASE_ANON_KEY}`,
-            },
-            body: JSON.stringify({
-              course_id: courseId,
-              parent_id: replyTo?.id ?? null,
-              prompt: at[1].trim(),
-            }),
-          }
-        );
-      } catch (e) {
-        console.error("chat-ia error", e);
-      }
-    }
+    // Mentions @IA
+const at = text.match(/@IA\s*(.*)$/i);
+if (at && at[1]) {
+  try {
+    const { error: iaErr } = await supabase.functions.invoke("chat-ia", {
+      body: {
+        course_id: courseId,
+        parent_id: replyTo?.id ?? null,
+        prompt: at[1].trim(),
+      },
+    });
+    if (iaErr) console.error("chat-ia invoke error", iaErr);
+  } catch (e) {
+    console.error("chat-ia invoke exception", e);
+  }
+}
 
     setInput("");
     setReplyTo(null);
