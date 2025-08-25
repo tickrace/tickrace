@@ -62,19 +62,56 @@ export default function Courses() {
     const fetchAll = async () => {
       setLoading(true);
 
-      // 1) Courses publiées (en_ligne = true)
-      let query = supabase
-        .from("courses")
-        .select("id, nom, lieu, departement, created_at, image_url")
-        .eq("en_ligne", true)
-        .order("created_at", { ascending: false });
+    // 1) Courses publiées (en_ligne = true)
+let query = supabase
+  .from("courses")
+  .select(`
+    id,
+    nom,
+    lieu,
+    departement,
+    created_at,
+    image_url,
+    lat,
+    lng,
+    formats (
+      id,
+      date,
+      distance_km,
+      denivele_dplus
+    )
+  `)
+  .eq("en_ligne", true)
+  .order("created_at", { ascending: false });
 
-      if (search && search.trim().length > 0) {
-        const term = search.trim();
-        query = query.or(
-          `nom.ilike.%${term}%,lieu.ilike.%${term}%,departement.ilike.%${term}%`
-        );
-      }
+if (search && search.trim().length > 0) {
+  const term = search.trim();
+  query = query.or(
+    `nom.ilike.%${term}%,lieu.ilike.%${term}%,departement.ilike.%${term}%`
+  );
+}
+
+const { data, error } = await query;
+if (error) throw error;
+
+// (optionnel) trier les formats par date + calculer prochaine date
+const decorated = (data || []).map((c) => {
+  const fs = (c.formats || [])
+    .filter((f) => !!f.date)
+    .sort((a, b) => new Date(a.date) - new Date(b.date));
+  return {
+    ...c,
+    formats: fs,
+    nextDate: fs[0]?.date || null,
+  };
+});
+
+// → pour la carte, on peut filtrer les coords invalides
+const coursesForMap = decorated.filter(
+  (c) => Number.isFinite(Number(c.lat)) && Number.isFinite(Number(c.lng))
+);
+
+// <CoursesMap courses={coursesForMap} />
 
       const { data: coursesData, error: coursesErr } = await query;
       if (coursesErr) {

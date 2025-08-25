@@ -15,6 +15,7 @@ const CoursesMap = ({ courses }) => {
     iconAnchor: [16, 32],
   });
 
+  
   return (
     <MapContainer center={defaultPosition} zoom={zoom} style={{ height: "600px", width: "100%" }}>
       <TileLayer
