@@ -1,4 +1,6 @@
 ﻿// src/App.jsx
+import Fonctionnalites from "./pages/Fonctionnalites";
+
 import React from "react";
 import Home from "./pages/Home";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
@@ -52,6 +54,8 @@ function AppContent() {
       <main className="flex-1">
         <Routes>
           {/* Public */}
+          <Route path="/fonctionnalites" element={<Fonctionnalites />} />
+
           <Route path="/" element={<Home />} />
           <Route path="/admin" element={<AdminHome />} />
 
