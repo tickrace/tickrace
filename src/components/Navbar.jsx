@@ -1,4 +1,3 @@
-// src/components/Navbar.jsx
 import React, { useState, useEffect } from "react";
 import { NavLink, Link, useLocation } from "react-router-dom";
 import { Menu, X, UserCircle2, ChevronDown } from "lucide-react";
@@ -24,11 +23,12 @@ function NavItem({ to, children, onClick }) {
 }
 
 /**
- * Props externes:
+ * Props:
  * - mode: "coureur" | "organisateur"
+ * - setMode: fonction pour changer de mode
  * - showAdmin: boolean
  */
-export default function Navbar({ mode = "coureur", showAdmin = false }) {
+export default function Navbar({ mode = "coureur", setMode, showAdmin = false }) {
   const [open, setOpen] = useState(false);
   const { user } = useUser();
   const location = useLocation();
@@ -44,7 +44,7 @@ export default function Navbar({ mode = "coureur", showAdmin = false }) {
     { to: "/courses", label: "Courses" },
   ];
 
-  // Liens de droite selon mode
+  // Liens selon mode
   const rightLinksCoureur = [
     { to: "/mesinscriptions", label: "Mes inscriptions" },
     { to: "/monprofilcoureur", label: "Mon profil" },
@@ -73,7 +73,7 @@ export default function Navbar({ mode = "coureur", showAdmin = false }) {
           </div>
 
           {/* Droite desktop */}
-          <div className="hidden md:flex md:items-center md:gap-1">
+          <div className="hidden md:flex md:items-center md:gap-3">
             {(isOrganisateur ? rightLinksOrganisateur : rightLinksCoureur).map(
               (item) => (
                 <NavItem key={item.to} to={item.to}>{item.label}</NavItem>
@@ -121,13 +121,41 @@ export default function Navbar({ mode = "coureur", showAdmin = false }) {
               </div>
             )}
 
-            <Link
-              to={isOrganisateur ? "/monprofilorganisateur" : "/monprofilcoureur"}
-              title="Mon profil"
-              className={[navItemBase, navItemIdle].join(" ")}
-            >
-              <UserCircle2 className="h-5 w-5" />
-            </Link>
+            {/* Bloc user connecté */}
+            {user ? (
+              <div className="flex flex-col items-end">
+                <span className="text-sm text-gray-600">{user.email}</span>
+                <div className="flex gap-2 mt-1">
+                  <button
+                    onClick={() => setMode?.("coureur")}
+                    className={`px-2 py-1 rounded-md text-xs ${
+                      mode === "coureur"
+                        ? "bg-gray-900 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    Coureur
+                  </button>
+                  <button
+                    onClick={() => setMode?.("organisateur")}
+                    className={`px-2 py-1 rounded-md text-xs ${
+                      mode === "organisateur"
+                        ? "bg-gray-900 text-white"
+                        : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    }`}
+                  >
+                    Organisateur
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <Link
+                to="/login"
+                className={[navItemBase, navItemIdle].join(" ")}
+              >
+                <UserCircle2 className="h-5 w-5" />
+              </Link>
+            )}
           </div>
 
           {/* Burger mobile */}
@@ -160,53 +188,61 @@ export default function Navbar({ mode = "coureur", showAdmin = false }) {
                     onClick={() => setOpen(false)}
                     className={[navItemBase, navItemIdle, "w-full"].join(" ")}
                   >
-                    Accueil admin
-                  </Link>
-                  <Link
-                    to="/admin/dashboard"
-                    onClick={() => setOpen(false)}
-                    className={[navItemBase, navItemIdle, "w-full"].join(" ")}
-                  >
-                    Dashboard
-                  </Link>
-                  <Link
-                    to="/admin/courses"
-                    onClick={() => setOpen(false)}
-                    className={[navItemBase, navItemIdle, "w-full"].join(" ")}
-                  >
-                    Courses
-                  </Link>
-                  <Link
-                    to="/admin/inscriptions"
-                    onClick={() => setOpen(false)}
-                    className={[navItemBase, navItemIdle, "w-full"].join(" ")}
-                  >
-                    Inscriptions
-                  </Link>
-                  <Link
-                    to="/admin/payouts"
-                    onClick={() => setOpen(false)}
-                    className={[navItemBase, navItemIdle, "w-full"].join(" ")}
-                  >
-                    Payouts
+                    Admin
                   </Link>
                 </>
               )}
 
-              <div className="mt-1 border-t border-gray-200" />
-              <Link
-                to={isOrganisateur ? "/monprofilorganisateur" : "/monprofilcoureur"}
-                onClick={() => setOpen(false)}
-                className={[navItemBase, navItemIdle, "w-full"].join(" ")}
-              >
-                <UserCircle2 className="mr-2 h-5 w-5" />
-                Mon profil
-              </Link>
+              <div className="mt-2 border-t border-gray-200 pt-2">
+                {user ? (
+                  <>
+                    <span className="block text-sm text-gray-600 mb-2">
+                      {user.email}
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        onClick={() => {
+                          setMode?.("coureur");
+                          setOpen(false);
+                        }}
+                        className={`flex-1 px-2 py-1 rounded-md text-xs ${
+                          mode === "coureur"
+                            ? "bg-gray-900 text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        Coureur
+                      </button>
+                      <button
+                        onClick={() => {
+                          setMode?.("organisateur");
+                          setOpen(false);
+                        }}
+                        className={`flex-1 px-2 py-1 rounded-md text-xs ${
+                          mode === "organisateur"
+                            ? "bg-gray-900 text-white"
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                        }`}
+                      >
+                        Organisateur
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <Link
+                    to="/login"
+                    onClick={() => setOpen(false)}
+                    className={[navItemBase, navItemIdle, "w-full"].join(" ")}
+                  >
+                    <UserCircle2 className="mr-2 h-5 w-5" />
+                    Se connecter
+                  </Link>
+                )}
+              </div>
             </div>
           </div>
         )}
       </nav>
     </header>
   );
-  
 }

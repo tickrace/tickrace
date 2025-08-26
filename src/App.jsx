@@ -1,7 +1,7 @@
 ﻿// src/App.jsx
 import Fonctionnalites from "./pages/Fonctionnalites";
 
-import React from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Home from "./pages/Home";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar";
@@ -42,33 +42,48 @@ import AdminInscriptions from "./pages/admin/AdminInscriptions";
 import Payouts from "./pages/admin/Payouts";
 import AdminHome from "./pages/admin";
 
-// ✅ protège les routes pour utilisateurs connectés
 import ProtectedRoute from "./components/ProtectedRoute";
 
 function AppContent() {
   const { currentRole } = useUser();
   const location = useLocation();
 
-  // Bascule auto en mode "organisateur" pour les routes d'orga/admin
-  const isOrganisateurRoute = /^\/(organisateur|modifier-course|admin)/.test(
-    location.pathname
-  );
+  // --- Gestion du mode (coureur | organisateur) avec persistance ---
+  const initialMode = useMemo(() => {
+    const saved = typeof window !== "undefined" ? localStorage.getItem("tickraceMode") : null;
+    if (saved === "coureur" || saved === "organisateur") return saved;
+    // défaut: coureur
+    return "coureur";
+  }, []);
 
-  // Adapte selon ton UserContext si tu as un autre flag admin
+  const [mode, setMode] = useState(initialMode);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("tickraceMode", mode);
+    } catch {}
+  }, [mode]);
+
+  // Si tu veux forcer automatiquement le mode selon la route, dé-commente:
+  // useEffect(() => {
+  //   const isOrga = /^\/(organisateur|modifier-course|admin)/.test(location.pathname);
+  //   setMode(isOrga ? "organisateur" : "coureur");
+  // }, [location.pathname]);
+
   const showAdmin = currentRole === "admin";
 
   return (
     <div className="min-h-screen flex flex-col">
       <Navbar
-        key={currentRole}
-        mode={isOrganisateurRoute ? "organisateur" : "coureur"}
+        key={`${currentRole}-${mode}`}
+        mode={mode}
+        setMode={setMode}
         showAdmin={showAdmin}
       />
       <main className="flex-1">
         <Routes>
           {/* Public */}
           <Route path="/fonctionnalites" element={<Fonctionnalites />} />
-
           <Route path="/" element={<Home />} />
           <Route path="/admin" element={<AdminHome />} />
 
@@ -87,116 +102,65 @@ function AppContent() {
           <Route path="/legal/remboursements" element={<Remboursements />} />
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 
-          {/* ✅ Protégées : nécessite une session */}
+          {/* Protégées */}
           <Route
             path="/inscription/:courseId"
-            element={
-              <ProtectedRoute>
-                <InscriptionCourse />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><InscriptionCourse /></ProtectedRoute>}
           />
           <Route
             path="/mon-inscription/:id"
-            element={
-              <ProtectedRoute>
-                <MonInscription />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><MonInscription /></ProtectedRoute>}
           />
           <Route
             path="/mesinscriptions"
-            element={
-              <ProtectedRoute>
-                <MesInscriptions />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><MesInscriptions /></ProtectedRoute>}
           />
           <Route
             path="/monprofilcoureur"
-            element={
-              <ProtectedRoute>
-                <MonProfilCoureur />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><MonProfilCoureur /></ProtectedRoute>}
           />
           <Route
             path="/monprofilorganisateur"
-            element={
-              <ProtectedRoute>
-                <MonProfilOrganisateur />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><MonProfilOrganisateur /></ProtectedRoute>}
           />
-
           <Route
             path="/organisateur/mon-espace"
-            element={
-              <ProtectedRoute>
-                <MonEspaceOrganisateur />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><MonEspaceOrganisateur /></ProtectedRoute>}
           />
-          {/* Alias anti-404 (protégé aussi) */}
+          {/* Alias anti-404 */}
           <Route
             path="/mon-espace-organisateur"
-            element={
-              <ProtectedRoute>
-                <MonEspaceOrganisateur />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><MonEspaceOrganisateur /></ProtectedRoute>}
           />
           <Route
             path="/organisateur/inscriptions/:format_id"
-            element={
-              <ProtectedRoute>
-                <ListeInscriptions />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><ListeInscriptions /></ProtectedRoute>}
           />
           <Route
             path="/organisateur/nouvelle-course"
-            element={
-              <ProtectedRoute>
-                <NouvelleCourse />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><NouvelleCourse /></ProtectedRoute>}
           />
 
-          {/* Pages d’édition protégées */}
+          {/* Édition protégée */}
           <Route
             path="/modifier-course/:id"
-            element={
-              <ProtectedRoute>
-                <ModifierCourse />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><ModifierCourse /></ProtectedRoute>}
           />
           <Route
             path="/details-coureur/:id"
-            element={
-              <ProtectedRoute>
-                <DetailsCoureur />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><DetailsCoureur /></ProtectedRoute>}
           />
           <Route
             path="/coureur"
-            element={
-              <ProtectedRoute>
-                <ProfilCoureur />
-              </ProtectedRoute>
-            }
+            element={<ProtectedRoute><ProfilCoureur /></ProtectedRoute>}
           />
 
-          {/* Admin (protégé via AdminRoute) */}
+          {/* Admin */}
           <Route
             path="/admin/dashboard"
             element={
               <AdminRoute>
-                <AdminLayout>
-                  <AdminDashboard />
-                </AdminLayout>
+                <AdminLayout><AdminDashboard /></AdminLayout>
               </AdminRoute>
             }
           />
@@ -204,9 +168,7 @@ function AppContent() {
             path="/admin/courses"
             element={
               <AdminRoute>
-                <AdminLayout>
-                  <AdminCourses />
-                </AdminLayout>
+                <AdminLayout><AdminCourses /></AdminLayout>
               </AdminRoute>
             }
           />
@@ -214,9 +176,7 @@ function AppContent() {
             path="/admin/payouts"
             element={
               <AdminRoute>
-                <AdminLayout>
-                  <Payouts />
-                </AdminLayout>
+                <AdminLayout><Payouts /></AdminLayout>
               </AdminRoute>
             }
           />
@@ -224,9 +184,7 @@ function AppContent() {
             path="/admin/inscriptions"
             element={
               <AdminRoute>
-                <AdminLayout>
-                  <AdminInscriptions />
-                </AdminLayout>
+                <AdminLayout><AdminInscriptions /></AdminLayout>
               </AdminRoute>
             }
           />
