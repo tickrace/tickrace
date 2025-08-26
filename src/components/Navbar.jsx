@@ -1,3 +1,4 @@
+// src/components/Navbar.jsx
 import React, { useState, useEffect } from "react";
 import { NavLink, Link, useLocation } from "react-router-dom";
 import { Menu, X, UserCircle2, ChevronDown } from "lucide-react";
@@ -25,17 +26,24 @@ function NavItem({ to, children, onClick }) {
 /**
  * Props:
  * - mode: "coureur" | "organisateur"
- * - setMode: fonction pour changer de mode
+ * - setMode: (m) => void
  * - showAdmin: boolean
  */
 export default function Navbar({ mode = "coureur", setMode, showAdmin = false }) {
   const [open, setOpen] = useState(false);
-  const { user } = useUser();
+  const { user: ctxUser, session } = useUser(); // <— récupère aussi session
   const location = useLocation();
 
   useEffect(() => setOpen(false), [location.pathname]);
 
   const isOrganisateur = mode === "organisateur";
+
+  // Email robuste selon ce que fournit ton UserContext (Supabase)
+  const email =
+    ctxUser?.email ??
+    ctxUser?.user_metadata?.email ??
+    session?.user?.email ??
+    null;
 
   // Liens communs (gauche)
   const leftLinks = [
@@ -67,16 +75,20 @@ export default function Navbar({ mode = "coureur", setMode, showAdmin = false })
             </Link>
             <div className="hidden md:flex md:items-center md:gap-1">
               {leftLinks.map((item) => (
-                <NavItem key={item.to} to={item.to}>{item.label}</NavItem>
+                <NavItem key={item.to} to={item.to}>
+                  {item.label}
+                </NavItem>
               ))}
             </div>
           </div>
 
           {/* Droite desktop */}
-          <div className="hidden md:flex md:items-center md:gap-3">
+          <div className="hidden md:flex md:items-center md:gap-3 md:flex-nowrap">
             {(isOrganisateur ? rightLinksOrganisateur : rightLinksCoureur).map(
               (item) => (
-                <NavItem key={item.to} to={item.to}>{item.label}</NavItem>
+                <NavItem key={item.to} to={item.to}>
+                  {item.label}
+                </NavItem>
               )
             )}
 
@@ -121,11 +133,16 @@ export default function Navbar({ mode = "coureur", setMode, showAdmin = false })
               </div>
             )}
 
-            {/* Bloc user connecté */}
-            {user ? (
-              <div className="flex flex-col items-end">
-                <span className="text-sm text-gray-600">{user.email}</span>
-                <div className="flex gap-2 mt-1">
+            {/* ——— Bloc email + sélecteur de mode (desktop) ——— */}
+            {email ? (
+              <div className="flex flex-col items-end shrink-0">
+                <span
+                  className="max-w-[260px] truncate text-sm text-gray-700"
+                  title={email}
+                >
+                  {email}
+                </span>
+                <div className="mt-1 flex gap-2">
                   <button
                     onClick={() => setMode?.("coureur")}
                     className={`px-2 py-1 rounded-md text-xs ${
@@ -151,7 +168,8 @@ export default function Navbar({ mode = "coureur", setMode, showAdmin = false })
             ) : (
               <Link
                 to="/login"
-                className={[navItemBase, navItemIdle].join(" ")}
+                className={[navItemBase, navItemIdle, "shrink-0"].join(" ")}
+                title="Se connecter"
               >
                 <UserCircle2 className="h-5 w-5" />
               </Link>
@@ -193,11 +211,12 @@ export default function Navbar({ mode = "coureur", setMode, showAdmin = false })
                 </>
               )}
 
+              {/* ——— Bloc email + sélecteur (mobile) ——— */}
               <div className="mt-2 border-t border-gray-200 pt-2">
-                {user ? (
+                {email ? (
                   <>
-                    <span className="block text-sm text-gray-600 mb-2">
-                      {user.email}
+                    <span className="block text-sm text-gray-700 mb-2 truncate" title={email}>
+                      {email}
                     </span>
                     <div className="flex gap-2">
                       <button
