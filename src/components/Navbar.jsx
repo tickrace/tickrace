@@ -27,6 +27,26 @@ function LinkItem({ to, children, className = "" }) {
   );
 }
 
+// Style spécial "Créer une course" : souligné orange (ancienne version)
+function OrangeUnderlineLinkItem({ to, onClick, children }) {
+  return (
+    <NavLink
+      to={to}
+      onClick={onClick}
+      className={({ isActive }) =>
+        cn(
+          "px-3 py-2 rounded-xl text-sm transition underline underline-offset-[6px] decoration-2",
+          isActive
+            ? "decoration-orange-600 text-gray-900 bg-gray-50"
+            : "decoration-orange-500 hover:bg-gray-50"
+        )
+      }
+    >
+      {children}
+    </NavLink>
+  );
+}
+
 export default function Navbar() {
   const { session, currentRole, switchRole, setCurrentRole } = useUser();
   const isLoggedIn = !!session;
@@ -40,13 +60,11 @@ export default function Navbar() {
 
   const userMenuRef = useRef(null);
 
-  // Fermer menus à chaque navigation
   useEffect(() => {
     setOpenMobile(false);
     setOpenUser(false);
   }, [location.pathname]);
 
-  // Fermer le dropdown user en cliquant hors zone
   useEffect(() => {
     const onClick = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
@@ -70,7 +88,7 @@ export default function Navbar() {
   // Menus
   const commonLeft = [
     { to: "/", label: "Accueil" },
-    { to: "/features", label: "Fonctionnalités" },
+    { to: "/fonctionnalites", label: "Fonctionnalités" }, // ✅ route corrigée
     { to: "/courses", label: "Courses" },
   ];
 
@@ -81,25 +99,32 @@ export default function Navbar() {
 
   const menuOrganisateur = [
     { to: "/organisateur/mon-espace", label: "Mon espace", priv: true },
-    { to: "/organisateur/nouvelle-course", label: "Créer une course", priv: true, forceOrg: true },
+    {
+      to: "/organisateur/nouvelle-course",
+      label: "Créer une course",
+      priv: true,
+      forceOrg: true,
+      orange: true, // ✅ indicateur style orange
+    },
     { to: "/monprofilorganisateur", label: "Mon profil", priv: true },
   ];
 
   const roleMenu = currentRole === "organisateur" ? menuOrganisateur : menuCoureur;
 
+  // Rend un item en tenant compte du rôle + style "orange" pour Créer une course
   const RoleAwareItem = ({ item }) => {
-    if (item.forceOrg) {
+    const onClick = item.forceOrg
+      ? () => {
+          setRole("organisateur");
+          navigate(item.to);
+        }
+      : undefined;
+
+    if (item.orange) {
       return (
-        <button
-          type="button"
-          onClick={() => {
-            setRole("organisateur");
-            navigate(item.to);
-          }}
-          className="px-3 py-2 rounded-xl text-sm hover:bg-gray-100"
-        >
+        <OrangeUnderlineLinkItem to={item.to} onClick={onClick}>
           {item.label}
-        </button>
+        </OrangeUnderlineLinkItem>
       );
     }
     return <LinkItem to={item.to}>{item.label}</LinkItem>;
@@ -109,12 +134,7 @@ export default function Navbar() {
   const email = session?.user?.email || "";
 
   return (
-    <header
-      className={
-        // Opaque sur mobile, translucide + blur sur desktop
-        "sticky top-0 z-50 border-b bg-white shadow-sm md:bg-white/80 md:backdrop-blur supports-[backdrop-filter]:md:bg-white/70"
-      }
-    >
+    <header className="sticky top-0 z-50 border-b bg-white shadow-sm md:bg-white/80 md:backdrop-blur supports-[backdrop-filter]:md:bg-white/70">
       <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
         {/* Left: Logo + nav (desktop) */}
         <div className="flex items-center gap-3">
@@ -185,7 +205,7 @@ export default function Navbar() {
                     <div className="text-sm font-medium truncate">{email}</div>
                   </div>
                   <div className="my-1 h-px bg-gray-100" />
-                  {/* Switch rôle ICI (pas à droite du menu) */}
+                  {/* Switch rôle (dans le menu user) */}
                   <button
                     onClick={() => setRole("coureur")}
                     className={cn(
@@ -236,7 +256,6 @@ export default function Navbar() {
           openMobile ? "pointer-events-auto" : "pointer-events-none"
         )}
       >
-        {/* Overlay plus opaque pour la lisibilité */}
         <div
           className={cn(
             "absolute inset-0 bg-black/50 transition-opacity",
@@ -244,7 +263,6 @@ export default function Navbar() {
           )}
           onClick={() => setOpenMobile(false)}
         />
-        {/* Panneau : fond 100% blanc + ombre marquée */}
         <div
           className={cn(
             "absolute right-0 top-0 h-full w-80 max-w-[85%] bg-white border-l shadow-2xl p-4 transition-transform",
@@ -280,11 +298,7 @@ export default function Navbar() {
           {/* Liens communs */}
           <div className="mt-4 grid gap-1">
             {commonLeft.map((item) => (
-              <LinkItem
-                key={item.to}
-                to={item.to}
-                className="text-base"
-              >
+              <LinkItem key={item.to} to={item.to} className="text-base">
                 {item.label}
               </LinkItem>
             ))}
@@ -292,9 +306,26 @@ export default function Navbar() {
             {/* Liens rôle */}
             {roleMenu
               .filter((i) => (i.priv ? isLoggedIn : true))
-              .map((i) => (
-                <RoleAwareItem key={i.to} item={i} />
-              ))}
+              .map((i) =>
+                i.orange ? (
+                  <OrangeUnderlineLinkItem
+                    key={i.to}
+                    to={i.to}
+                    onClick={
+                      i.forceOrg
+                        ? () => {
+                            setRole("organisateur");
+                            navigate(i.to);
+                          }
+                        : undefined
+                    }
+                  >
+                    {i.label}
+                  </OrangeUnderlineLinkItem>
+                ) : (
+                  <RoleAwareItem key={i.to} item={i} />
+                )
+              )}
 
             {/* Admin */}
             {isAdmin && (
@@ -307,7 +338,7 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* Actions Auth + Switch rôle (mobile) */}
+          {/* Auth + Switch rôle (mobile) */}
           <div className="mt-4 grid gap-2">
             {!isLoggedIn ? (
               <>
@@ -328,7 +359,6 @@ export default function Navbar() {
               </>
             ) : (
               <>
-                {/* Switch rôle sous l'email (mobile) */}
                 <div className="p-1 rounded-2xl border flex">
                   <button
                     className={cn(
