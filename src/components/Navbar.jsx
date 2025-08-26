@@ -5,21 +5,35 @@ import { useUser } from "../contexts/UserContext";
 import { supabase } from "../supabase";
 import useIsAdmin from "../hooks/useIsAdmin";
 import logo from "../assets/logo.png";
-import {
-  Home,
-  ListChecks,
-  PlusCircle,
-  User,
-  LayoutDashboard,
-  Menu,
-  X,
-  ChevronDown,
-  LogOut,
-} from "lucide-react";
 
 function cn(...cls) {
   return cls.filter(Boolean).join(" ");
 }
+
+const DeskItem = ({ to, children }) => (
+  <NavLink
+    to={to}
+    className={({ isActive }) =>
+      cn(
+        "relative px-3 py-2 rounded-xl text-sm font-medium transition",
+        "hover:bg-gray-100",
+        isActive && "text-gray-900"
+      )
+    }
+  >
+    {({ isActive }) => (
+      <>
+        <span>{children}</span>
+        <span
+          className={cn(
+            "absolute left-2 right-2 -bottom-[6px] h-[2px] rounded-full bg-orange-500 transition-opacity",
+            isActive ? "opacity-100" : "opacity-0"
+          )}
+        />
+      </>
+    )}
+  </NavLink>
+);
 
 export default function Navbar() {
   const { session, currentRole, switchRole, setCurrentRole } = useUser();
@@ -29,17 +43,15 @@ export default function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const [openMobileDrawer, setOpenMobileDrawer] = useState(false);
+  const [openMobile, setOpenMobile] = useState(false);
   const [openUser, setOpenUser] = useState(false);
 
-  // Fermer menus au changement de page
+  const userMenuRef = useRef(null);
   useEffect(() => {
-    setOpenMobileDrawer(false);
+    setOpenMobile(false);
     setOpenUser(false);
   }, [location.pathname]);
 
-  // Click-away du menu user
-  const userMenuRef = useRef(null);
   useEffect(() => {
     const onClick = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
@@ -60,91 +72,223 @@ export default function Navbar() {
     navigate("/login");
   };
 
-  // Menus dynamiques
-  const menuCoureur = [
+  // Menus
+  const baseItems = [
+    { to: "/", label: "Accueil" },
+    { to: "/fonctionnalites", label: "Fonctionnalités" },
     { to: "/courses", label: "Courses" },
+  ];
+
+  const coureurItems = [
     { to: "/mesinscriptions", label: "Mes inscriptions", priv: true },
     { to: "/monprofilcoureur", label: "Mon profil", priv: true },
   ];
 
-  const menuOrganisateur = [
+  const organisateurItems = [
     { to: "/organisateur/mon-espace", label: "Mon espace", priv: true },
     { to: "/organisateur/nouvelle-course", label: "Créer une course", priv: true, forceOrg: true },
     { to: "/monprofilorganisateur", label: "Mon profil", priv: true },
   ];
 
-  const activeMenu = currentRole === "organisateur" ? menuOrganisateur : menuCoureur;
-
-  const LinkItem = ({ to, children }) => (
-    <NavLink
-      to={to}
-      className={({ isActive }) =>
-        cn(
-          "px-3 py-2 rounded-xl text-sm transition",
-          isActive ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100"
-        )
-      }
-    >
-      {children}
-    </NavLink>
-  );
-
-  const RoleAwareItem = ({ item }) => {
-    if (item.forceOrg) {
-      return (
-        <button
-          type="button"
-          onClick={() => {
-            setRole("organisateur");
-            navigate(item.to);
-          }}
-          className="px-3 py-2 rounded-xl text-sm hover:bg-gray-100"
-        >
-          {item.label}
-        </button>
-      );
-    }
-    return <LinkItem to={item.to}>{item.label}</LinkItem>;
-  };
+  const roleItems = currentRole === "organisateur" ? organisateurItems : coureurItems;
 
   const avatarLetter = session?.user?.email?.[0]?.toUpperCase?.() || "U";
   const email = session?.user?.email || "";
 
   return (
-    <>
-      {/* TOP BAR (desktop + mobile) */}
-      <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/60">
-        <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
-          {/* Left: Logo + nav desktop */}
-          <div className="flex items-center gap-3">
-            <Link to="/" className="flex items-center gap-2 shrink-0">
-              <img src={logo} alt="TickRace" className="h-8 w-auto" />
+    <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+      <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
+        {/* Left : Logo + desktop nav */}
+        <div className="flex items-center gap-4">
+          <Link to="/" className="flex items-center gap-2 shrink-0" aria-label="Aller à l’accueil">
+            <img src={logo} alt="TickRace" className="h-8 w-auto" />
+            <span className="font-extrabold tracking-tight">
+              <span className="text-orange-600">Tick</span>Race
+            </span>
+          </Link>
+
+          <nav className="hidden md:flex items-center gap-1 ml-2">
+            {baseItems.map((i) => (
+              <DeskItem key={i.to} to={i.to}>{i.label}</DeskItem>
+            ))}
+
+            {roleItems
+              .filter((i) => (i.priv ? isLoggedIn : true))
+              .map((i) =>
+                i.forceOrg ? (
+                  <button
+                    key={i.to}
+                    type="button"
+                    onClick={() => {
+                      setRole("organisateur");
+                      navigate(i.to);
+                    }}
+                    className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
+                  >
+                    {i.label}
+                  </button>
+                ) : (
+                  <DeskItem key={i.to} to={i.to}>{i.label}</DeskItem>
+                )
+              )}
+
+            {isAdmin && (
+              <DeskItem to="/admin">
+                <span className="inline-flex items-center gap-2">
+                  Admin <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 text-white">PRO</span>
+                </span>
+              </DeskItem>
+            )}
+          </nav>
+        </div>
+
+        {/* Right : auth / user */}
+        <div className="flex items-center gap-2">
+          {!isLoggedIn ? (
+            <div className="hidden md:flex items-center gap-2">
+              <Link
+                to="/login"
+                className="px-3 py-1.5 rounded-xl border text-sm font-medium hover:bg-gray-50"
+              >
+                Connexion
+              </Link>
+              <Link
+                to="/signup"
+                className="px-3 py-1.5 rounded-xl border text-sm font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200"
+              >
+                Inscription
+              </Link>
+            </div>
+          ) : (
+            <div className="hidden md:flex items-center gap-3" ref={userMenuRef}>
+              <button
+                type="button"
+                onClick={() => setOpenUser((v) => !v)}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-100"
+              >
+                <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
+                  {avatarLetter}
+                </div>
+                <div className="text-left">
+                  <div className="text-xs text-gray-500 leading-none">Connecté</div>
+                  <div className="text-sm leading-none max-w-[180px] truncate">{email}</div>
+                </div>
+                <svg width="16" height="16" viewBox="0 0 20 20" className="opacity-60">
+                  <path d="M6 8l4 4 4-4" fill="none" stroke="currentColor" strokeWidth="2" />
+                </svg>
+              </button>
+
+              {openUser && (
+                <div className="absolute right-4 top-14 w-72 rounded-2xl border bg-white shadow-lg p-2">
+                  <div className="px-3 py-2">
+                    <div className="text-xs text-gray-500">Connecté en tant que</div>
+                    <div className="text-sm font-medium truncate">{email}</div>
+                  </div>
+
+                  {/* Switch rôle — UNIQUEMENT ici */}
+                  <div className="mx-2 my-2 p-1 rounded-2xl bg-gray-50 border flex">
+                    <button
+                      className={cn(
+                        "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                        currentRole === "coureur"
+                          ? "bg-gray-900 text-white"
+                          : "hover:bg-white"
+                      )}
+                      onClick={() => setRole("coureur")}
+                    >
+                      Coureur
+                    </button>
+                    <button
+                      className={cn(
+                        "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                        currentRole === "organisateur"
+                          ? "bg-gray-900 text-white"
+                          : "hover:bg-white"
+                      )}
+                      onClick={() => setRole("organisateur")}
+                    >
+                      Organisateur
+                    </button>
+                  </div>
+
+                  <div className="my-1 h-px bg-gray-100" />
+                  <button
+                    onClick={handleLogout}
+                    className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50"
+                  >
+                    Déconnexion
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Burger mobile */}
+          <button
+            className="md:hidden p-2 rounded-xl hover:bg-gray-100"
+            onClick={() => setOpenMobile((v) => !v)}
+            aria-label="Ouvrir le menu"
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+              <path d="M4 7h16M4 12h16M4 17h16" stroke="currentColor" strokeWidth="2" />
+            </svg>
+          </button>
+        </div>
+      </div>
+
+      {/* Drawer mobile */}
+      <div
+        className={cn(
+          "md:hidden fixed inset-0 z-40 transition",
+          openMobile ? "pointer-events-auto" : "pointer-events-none"
+        )}
+      >
+        <div
+          className={cn(
+            "absolute inset-0 bg-black/20 transition-opacity",
+            openMobile ? "opacity-100" : "opacity-0"
+          )}
+          onClick={() => setOpenMobile(false)}
+        />
+        <div
+          className={cn(
+            "absolute right-0 top-0 h-full w-80 max-w-[85%] bg-white border-l shadow-xl p-4 transition-transform",
+            openMobile ? "translate-x-0" : "translate-x-full"
+          )}
+        >
+          {/* Header drawer */}
+          <div className="flex items-center justify-between">
+            <Link to="/" className="flex items-center gap-2" onClick={() => setOpenMobile(false)}>
+              <img src={logo} alt="TickRace" className="h-7 w-auto" />
               <span className="font-extrabold tracking-tight">
                 <span className="text-orange-600">Tick</span>Race
               </span>
             </Link>
-
-            {/* Desktop primary nav */}
-            <nav className="hidden md:flex items-center gap-1 ml-2">
-              <LinkItem to="/courses">Courses</LinkItem>
-              {activeMenu
-                .filter((i) => (i.priv ? isLoggedIn : true))
-                .map((i) => (
-                  <RoleAwareItem key={i.to} item={i} />
-                ))}
-              {isAdmin && <LinkItem to="/admin">Admin</LinkItem>}
-            </nav>
+            <button
+              className="p-2 rounded-xl hover:bg-gray-100"
+              onClick={() => setOpenMobile(false)}
+              aria-label="Fermer"
+            >
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                <path d="M6 6l12 12M18 6L6 18" stroke="currentColor" strokeWidth="2" />
+              </svg>
+            </button>
           </div>
 
-          {/* Right: role switch + user */}
-          <div className="flex items-center gap-2">
-            {/* Desktop role switch (pill) */}
+          {/* Bloc user + switch role (dans le drawer, sous l’email) */}
+          <div className="mt-4">
+            <div className="flex items-center gap-2">
+              <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
+                {avatarLetter}
+              </div>
+              <div className="text-sm">{isLoggedIn ? email : "Invité"}</div>
+            </div>
             {isLoggedIn && (
-              <div className="hidden md:flex border rounded-2xl p-1">
+              <div className="mt-3 p-1 rounded-2xl bg-gray-50 border flex">
                 <button
                   className={cn(
-                    "px-3 py-1.5 rounded-xl text-sm",
-                    currentRole === "coureur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
+                    "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                    currentRole === "coureur" ? "bg-gray-900 text-white" : "hover:bg-white"
                   )}
                   onClick={() => setRole("coureur")}
                 >
@@ -152,8 +296,8 @@ export default function Navbar() {
                 </button>
                 <button
                   className={cn(
-                    "px-3 py-1.5 rounded-xl text-sm",
-                    currentRole === "organisateur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
+                    "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                    currentRole === "organisateur" ? "bg-gray-900 text-white" : "hover:bg-white"
                   )}
                   onClick={() => setRole("organisateur")}
                 >
@@ -161,203 +305,90 @@ export default function Navbar() {
                 </button>
               </div>
             )}
-
-            {/* Desktop user menu */}
-            <div className="hidden md:flex items-center gap-2" ref={userMenuRef}>
-              {!isLoggedIn ? (
-                <>
-                  <Link to="/login" className="px-3 py-1.5 rounded-xl border text-sm hover:bg-gray-50">
-                    Connexion
-                  </Link>
-                  <Link to="/signup" className="px-3 py-1.5 rounded-xl border text-sm hover:bg-gray-50">
-                    Inscription
-                  </Link>
-                </>
-              ) : (
-                <>
-                  <button
-                    type="button"
-                    onClick={() => setOpenUser((v) => !v)}
-                    className="flex items-center gap-2 px-2 py-1.5 rounded-xl hover:bg-gray-100"
-                    aria-haspopup="menu"
-                    aria-expanded={openUser}
-                  >
-                    <div className="w-8 h-8 rounded-full bg-gray-900 text-white grid place-items-center text-sm font-bold">
-                      {avatarLetter}
-                    </div>
-                    <div className="text-left">
-                      <div className="text-xs text-gray-500 leading-none">Connecté</div>
-                      <div className="text-sm leading-none max-w-[180px] truncate">{email}</div>
-                    </div>
-                    <ChevronDown className="w-4 h-4 opacity-70" />
-                  </button>
-                  {openUser && (
-                    <div
-                      role="menu"
-                      className="absolute right-4 top-14 w-64 rounded-2xl border bg-white shadow-lg p-2"
-                    >
-                      <div className="px-3 py-2">
-                        <div className="text-xs text-gray-500">Connecté en tant que</div>
-                        <div className="text-sm font-medium truncate">{email}</div>
-                      </div>
-                      <div className="my-1 h-px bg-gray-100" />
-                      <button
-                        onClick={() => setRole("coureur")}
-                        className={cn(
-                          "w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50",
-                          currentRole === "coureur" && "bg-gray-100"
-                        )}
-                        role="menuitem"
-                      >
-                        Mode coureur
-                      </button>
-                      <button
-                        onClick={() => setRole("organisateur")}
-                        className={cn(
-                          "w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50",
-                          currentRole === "organisateur" && "bg-gray-100"
-                        )}
-                        role="menuitem"
-                      >
-                        Mode organisateur
-                      </button>
-                      <div className="my-1 h-px bg-gray-100" />
-                      <button
-                        onClick={handleLogout}
-                        className="w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50"
-                        role="menuitem"
-                      >
-                        <span className="inline-flex items-center gap-2">
-                          <LogOut className="w-4 h-4" /> Déconnexion
-                        </span>
-                      </button>
-                    </div>
-                  )}
-                </>
-              )}
-            </div>
-
-            {/* Mobile hamburger */}
-            <button
-              className="md:hidden p-2 rounded-xl hover:bg-gray-100"
-              onClick={() => setOpenMobileDrawer((v) => !v)}
-              aria-label="Ouvrir le menu"
-            >
-              {openMobileDrawer ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-            </button>
           </div>
-        </div>
-      </header>
 
-      {/* MOBILE DRAWER (actions avancées) */}
-      <div
-        className={cn(
-          "md:hidden fixed inset-0 z-40 transition",
-          openMobileDrawer ? "pointer-events-auto" : "pointer-events-none"
-        )}
-      >
-        <div
-          className={cn(
-            "absolute inset-0 bg-black/20 transition-opacity",
-            openMobileDrawer ? "opacity-100" : "opacity-0"
-          )}
-          onClick={() => setOpenMobileDrawer(false)}
-        />
-        <div
-          className={cn(
-            "absolute right-0 top-0 h-full w-80 max-w-[85%] bg-white border-l shadow-xl p-4 transition-transform",
-            openMobileDrawer ? "translate-x-0" : "translate-x-full"
-          )}
-        >
-          {/* Rôle quick switch */}
-          {isLoggedIn && (
-            <div className="p-1 rounded-2xl border flex">
-              <button
-                className={cn(
-                  "flex-1 px-3 py-1.5 rounded-xl text-sm",
-                  currentRole === "coureur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
-                )}
-                onClick={() => setRole("coureur")}
+          {/* Liens */}
+          <div className="mt-5 grid">
+            {[...baseItems, ...roleItems.filter((i) => (i.priv ? isLoggedIn : true))].map((i) => (
+              <NavLink
+                key={i.to}
+                to={i.to}
+                onClick={() => setOpenMobile(false)}
+                className={({ isActive }) =>
+                  cn(
+                    "px-3 py-2 rounded-xl text-sm font-medium",
+                    isActive ? "bg-orange-50 text-orange-700" : "hover:bg-gray-100"
+                  )
+                }
               >
-                Coureur
-              </button>
-              <button
-                className={cn(
-                  "flex-1 px-3 py-1.5 rounded-xl text-sm",
-                  currentRole === "organisateur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
-                )}
-                onClick={() => setRole("organisateur")}
-              >
-                Organisateur
-              </button>
-            </div>
-          )}
+                {i.label}
+              </NavLink>
+            ))}
 
-          {/* Liens détaillés */}
-          <div className="mt-4 grid gap-1">
-            {/* Invariante */}
-            <MobileLink to="/courses" onClick={() => setOpenMobileDrawer(false)}>
-              Courses
-            </MobileLink>
-
-            {/* Contextuels selon rôle */}
-            {activeMenu
-              .filter((i) => (i.priv ? isLoggedIn : true))
-              .map((i) =>
-                i.forceOrg ? (
-                  <button
-                    key={i.to}
-                    onClick={() => {
-                      setRole("organisateur");
-                      navigate(i.to);
-                      setOpenMobileDrawer(false);
-                    }}
-                    className="text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-100"
-                  >
-                    {i.label}
-                  </button>
-                ) : (
-                  <MobileLink key={i.to} to={i.to} onClick={() => setOpenMobileDrawer(false)}>
-                    {i.label}
-                  </MobileLink>
-                )
-              )}
-
-            {/* Admin section */}
             {isAdmin && (
               <>
-                <div className="mt-2 text-xs uppercase tracking-wide text-gray-500 px-2">Admin</div>
-                <MobileLink to="/admin" onClick={() => setOpenMobileDrawer(false)}>
-                  Dashboard admin
-                </MobileLink>
-                <MobileLink to="/admin/courses" onClick={() => setOpenMobileDrawer(false)}>
+                <div className="mt-3 mb-1 text-xs uppercase tracking-wide text-gray-500">Administration</div>
+                <NavLink
+                  to="/admin"
+                  onClick={() => setOpenMobile(false)}
+                  className={({ isActive }) =>
+                    cn(
+                      "px-3 py-2 rounded-xl text-sm font-medium",
+                      isActive ? "bg-orange-50 text-orange-700" : "hover:bg-gray-100"
+                    )
+                  }
+                >
+                  Admin
+                </NavLink>
+                <NavLink
+                  to="/admin/courses"
+                  onClick={() => setOpenMobile(false)}
+                  className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
+                >
                   Courses Admin
-                </MobileLink>
-                <MobileLink to="/admin/payouts" onClick={() => setOpenMobileDrawer(false)}>
+                </NavLink>
+                <NavLink
+                  to="/admin/payouts"
+                  onClick={() => setOpenMobile(false)}
+                  className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
+                >
                   Reversements
-                </MobileLink>
-                <MobileLink to="/admin/inscriptions" onClick={() => setOpenMobileDrawer(false)}>
+                </NavLink>
+                <NavLink
+                  to="/admin/inscriptions"
+                  onClick={() => setOpenMobile(false)}
+                  className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
+                >
                   Inscriptions
-                </MobileLink>
+                </NavLink>
               </>
             )}
           </div>
 
-          <div className="mt-4">
+          {/* Auth actions */}
+          <div className="mt-6">
             {!isLoggedIn ? (
               <div className="grid gap-2">
-                <MobileLink to="/login" onClick={() => setOpenMobileDrawer(false)}>
+                <Link
+                  to="/login"
+                  onClick={() => setOpenMobile(false)}
+                  className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50"
+                >
                   Connexion
-                </MobileLink>
-                <MobileLink to="/signup" onClick={() => setOpenMobileDrawer(false)}>
+                </Link>
+                <Link
+                  to="/signup"
+                  onClick={() => setOpenMobile(false)}
+                  className="px-3 py-2 rounded-xl border text-center bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-700"
+                >
                   Inscription
-                </MobileLink>
+                </Link>
               </div>
             ) : (
               <button
-                onClick={() => {
-                  handleLogout();
-                  setOpenMobileDrawer(false);
+                onClick={async () => {
+                  await handleLogout();
+                  setOpenMobile(false);
                 }}
                 className="w-full px-3 py-2 rounded-xl border text-center hover:bg-gray-50"
               >
@@ -367,75 +398,6 @@ export default function Navbar() {
           </div>
         </div>
       </div>
-
-      {/* MOBILE BOTTOM TAB BAR (façon Strava) */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-40 border-t bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/70">
-        <div className="mx-auto max-w-7xl grid grid-cols-4">
-          <TabButton to="/" label="Accueil" active={location.pathname === "/"} Icon={Home} />
-          <TabButton to="/courses" label="Courses" active={location.pathname.startsWith("/courses")} Icon={ListChecks} />
-          {currentRole === "organisateur" ? (
-            <TabButton
-              to="/organisateur/mon-espace"
-              label="Mon espace"
-              active={location.pathname.startsWith("/organisateur")}
-              Icon={LayoutDashboard}
-            />
-          ) : (
-            <TabButton
-              to="/mesinscriptions"
-              label="Mes inscr."
-              active={location.pathname.startsWith("/mesinscriptions")}
-              Icon={PlusCircle}
-            />
-          )}
-          <TabButton
-            to={currentRole === "organisateur" ? "/monprofilorganisateur" : "/monprofilcoureur"}
-            label="Profil"
-            active={
-              location.pathname.startsWith("/monprofilorganisateur") ||
-              location.pathname.startsWith("/monprofilcoureur")
-            }
-            Icon={User}
-          />
-        </div>
-      </nav>
-
-      {/* Spacer for bottom bar (mobile) */}
-      <div className="md:hidden h-14" />
-    </>
-  );
-}
-
-/* === Petits sous-composants === */
-
-function MobileLink({ to, children, onClick }) {
-  return (
-    <NavLink
-      to={to}
-      onClick={onClick}
-      className={({ isActive }) =>
-        cn(
-          "px-3 py-2 rounded-xl text-sm transition",
-          isActive ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100"
-        )
-      }
-    >
-      {children}
-    </NavLink>
-  );
-}
-
-function TabButton({ to, label, Icon, active }) {
-  return (
-    <NavLink
-      to={to}
-      className={cn(
-        "flex flex-col items-center justify-center py-2 text-xs font-medium",
-        active ? "text-gray-900" : "text-gray-500 hover:text-gray-800"
-      )}
-    >
-      <Icon className={cn("w-5 h-5 mb-0.5", active ? "opacity-100" : "opacity-80")} />
-      <span className="leading-none">{label}</span>
-    </NavLink>
+    </header>
   );
 }
