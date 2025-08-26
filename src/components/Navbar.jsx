@@ -208,4 +208,5 @@ export default function Navbar({ mode = "coureur", showAdmin = false }) {
       </nav>
     </header>
   );
+  
 }
