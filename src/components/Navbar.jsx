@@ -23,7 +23,7 @@ const DeskItem = ({ to, children }) => (
   >
     {({ isActive }) => (
       <>
-        <span>{children}</span>
+        <span className="inline-flex items-center gap-2">{children}</span>
         <span
           className={cn(
             "absolute left-2 right-2 -bottom-[6px] h-[2px] rounded-full bg-orange-500 transition-opacity",
@@ -95,6 +95,13 @@ export default function Navbar() {
   const avatarLetter = session?.user?.email?.[0]?.toUpperCase?.() || "U";
   const email = session?.user?.email || "";
 
+  // Petit badge PRO
+  const ProBadge = () => (
+    <span className="text-[10px] leading-none px-2 py-0.5 rounded-full bg-gray-900 text-white">
+      PRO
+    </span>
+  );
+
   return (
     <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/70">
       <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
@@ -132,28 +139,31 @@ export default function Navbar() {
                     }}
                     className="relative px-3 py-2 rounded-xl text-sm font-medium transition hover:bg-gray-100"
                   >
-                    {i.label}
+                    <span className="inline-flex items-center gap-2">
+                      {i.label}
+                      {currentRole === "organisateur" && <ProBadge />}
+                    </span>
                   </button>
                 ) : (
                   <DeskItem key={i.to} to={i.to}>
-                    {i.label}
+                    <>
+                      {i.label}
+                      {currentRole === "organisateur" && <ProBadge />}
+                    </>
                   </DeskItem>
                 )
               )}
 
             {isAdmin && (
               <DeskItem to="/admin">
-                <span className="inline-flex items-center gap-2">
-                  Admin
-                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 text-white">
-                    PRO
-                  </span>
-                </span>
+                <>
+                  Admin <ProBadge />
+                </>
               </DeskItem>
             )}
           </nav>
 
-          {/* Auth / user */}
+          {/* Auth / user + sélecteur de mode dans le menu utilisateur */}
           {!isLoggedIn ? (
             <div className="flex items-center gap-2">
               <Link
@@ -194,6 +204,33 @@ export default function Navbar() {
                     <div className="text-xs text-gray-500">Connecté en tant que</div>
                     <div className="text-sm font-medium truncate">{email}</div>
                   </div>
+
+                  {/* Sélecteur de mode */}
+                  <div className="mx-2 my-2 p-1 rounded-2xl bg-gray-50 border flex">
+                    <button
+                      className={cn(
+                        "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                        currentRole === "coureur"
+                          ? "bg-gray-900 text-white"
+                          : "hover:bg-white"
+                      )}
+                      onClick={() => setRole("coureur")}
+                    >
+                      Coureur
+                    </button>
+                    <button
+                      className={cn(
+                        "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                        currentRole === "organisateur"
+                          ? "bg-gray-900 text-white"
+                          : "hover:bg-white"
+                      )}
+                      onClick={() => setRole("organisateur")}
+                    >
+                      Organisateur
+                    </button>
+                  </div>
+
                   <div className="my-1 h-px bg-gray-100" />
                   <button
                     onClick={handleLogout}
@@ -258,7 +295,7 @@ export default function Navbar() {
             </button>
           </div>
 
-          {/* Bloc user */}
+          {/* Bloc user + sélecteur de mode */}
           <div className="mt-4">
             <div className="flex items-center gap-2">
               <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
@@ -266,9 +303,31 @@ export default function Navbar() {
               </div>
               <div className="text-sm">{isLoggedIn ? email : "Invité"}</div>
             </div>
+            {isLoggedIn && (
+              <div className="mt-3 p-1 rounded-2xl bg-gray-50 border flex">
+                <button
+                  className={cn(
+                    "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                    currentRole === "coureur" ? "bg-gray-900 text-white" : "hover:bg-white"
+                  )}
+                  onClick={() => setRole("coureur")}
+                >
+                  Coureur
+                </button>
+                <button
+                  className={cn(
+                    "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                    currentRole === "organisateur" ? "bg-gray-900 text-white" : "hover:bg-white"
+                  )}
+                  onClick={() => setRole("organisateur")}
+                >
+                  Organisateur
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Liens (on regroupe, mobile) */}
+          {/* Liens */}
           <div className="mt-5 grid">
             {/* Gauche */}
             {baseLeftItems.map((i) => (
@@ -287,7 +346,7 @@ export default function Navbar() {
               </NavLink>
             ))}
 
-            {/* Droite selon rôle (seulement si connecté) */}
+            {/* Droite selon rôle (avec badge PRO si organisateur) */}
             {rightItems
               .filter((i) => (i.priv ? isLoggedIn : true))
               .map((i) =>
@@ -301,7 +360,10 @@ export default function Navbar() {
                     }}
                     className="text-left px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
                   >
-                    {i.label}
+                    <span className="inline-flex items-center gap-2">
+                      {i.label}
+                      {currentRole === "organisateur" && <ProBadge />}
+                    </span>
                   </button>
                 ) : (
                   <NavLink
@@ -315,7 +377,10 @@ export default function Navbar() {
                       )
                     }
                   >
-                    {i.label}
+                    <span className="inline-flex items-center gap-2">
+                      {i.label}
+                      {currentRole === "organisateur" && <ProBadge />}
+                    </span>
                   </NavLink>
                 )
               )}
@@ -336,7 +401,9 @@ export default function Navbar() {
                     )
                   }
                 >
-                  Admin
+                  <span className="inline-flex items-center gap-2">
+                    Admin <ProBadge />
+                  </span>
                 </NavLink>
                 <NavLink
                   to="/admin/courses"
