@@ -10,30 +10,22 @@ function cn(...cls) {
   return cls.filter(Boolean).join(" ");
 }
 
-const DeskItem = ({ to, children }) => (
-  <NavLink
-    to={to}
-    className={({ isActive }) =>
-      cn(
-        "relative px-3 py-2 rounded-xl text-sm font-medium transition",
-        "hover:bg-gray-100",
-        isActive && "text-gray-900"
-      )
-    }
-  >
-    {({ isActive }) => (
-      <>
-        <span>{children}</span>
-        <span
-          className={cn(
-            "absolute left-2 right-2 -bottom-[6px] h-[2px] rounded-full bg-orange-500 transition-opacity",
-            isActive ? "opacity-100" : "opacity-0"
-          )}
-        />
-      </>
-    )}
-  </NavLink>
-);
+function LinkItem({ to, children, className = "" }) {
+  return (
+    <NavLink
+      to={to}
+      className={({ isActive }) =>
+        cn(
+          "px-3 py-2 rounded-xl text-sm transition",
+          isActive ? "bg-gray-900 text-white shadow" : "hover:bg-gray-100",
+          className
+        )
+      }
+    >
+      {children}
+    </NavLink>
+  );
+}
 
 export default function Navbar() {
   const { session, currentRole, switchRole, setCurrentRole } = useUser();
@@ -47,11 +39,14 @@ export default function Navbar() {
   const [openUser, setOpenUser] = useState(false);
 
   const userMenuRef = useRef(null);
+
+  // Fermer menus à chaque navigation
   useEffect(() => {
     setOpenMobile(false);
     setOpenUser(false);
   }, [location.pathname]);
 
+  // Fermer le dropdown user en cliquant hors zone
   useEffect(() => {
     const onClick = (e) => {
       if (userMenuRef.current && !userMenuRef.current.contains(e.target)) {
@@ -73,88 +68,93 @@ export default function Navbar() {
   };
 
   // Menus
-  const baseItems = [
+  const commonLeft = [
     { to: "/", label: "Accueil" },
-    { to: "/fonctionnalites", label: "Fonctionnalités" },
+    { to: "/features", label: "Fonctionnalités" },
     { to: "/courses", label: "Courses" },
   ];
 
-  const coureurItems = [
+  const menuCoureur = [
     { to: "/mesinscriptions", label: "Mes inscriptions", priv: true },
     { to: "/monprofilcoureur", label: "Mon profil", priv: true },
   ];
 
-  const organisateurItems = [
+  const menuOrganisateur = [
     { to: "/organisateur/mon-espace", label: "Mon espace", priv: true },
     { to: "/organisateur/nouvelle-course", label: "Créer une course", priv: true, forceOrg: true },
     { to: "/monprofilorganisateur", label: "Mon profil", priv: true },
   ];
 
-  const roleItems = currentRole === "organisateur" ? organisateurItems : coureurItems;
+  const roleMenu = currentRole === "organisateur" ? menuOrganisateur : menuCoureur;
+
+  const RoleAwareItem = ({ item }) => {
+    if (item.forceOrg) {
+      return (
+        <button
+          type="button"
+          onClick={() => {
+            setRole("organisateur");
+            navigate(item.to);
+          }}
+          className="px-3 py-2 rounded-xl text-sm hover:bg-gray-100"
+        >
+          {item.label}
+        </button>
+      );
+    }
+    return <LinkItem to={item.to}>{item.label}</LinkItem>;
+  };
 
   const avatarLetter = session?.user?.email?.[0]?.toUpperCase?.() || "U";
   const email = session?.user?.email || "";
 
   return (
-    <header className="sticky top-0 z-50 border-b bg-white/80 backdrop-blur supports-[backdrop-filter]:bg-white/70">
+    <header
+      className={
+        // Opaque sur mobile, translucide + blur sur desktop
+        "sticky top-0 z-50 border-b bg-white shadow-sm md:bg-white/80 md:backdrop-blur supports-[backdrop-filter]:md:bg-white/70"
+      }
+    >
       <div className="mx-auto max-w-7xl px-4 h-16 flex items-center justify-between">
-        {/* Left : Logo + desktop nav */}
-        <div className="flex items-center gap-4">
-          <Link to="/" className="flex items-center gap-2 shrink-0" aria-label="Aller à l’accueil">
+        {/* Left: Logo + nav (desktop) */}
+        <div className="flex items-center gap-3">
+          <Link to="/" className="flex items-center gap-2" aria-label="Accueil">
             <img src={logo} alt="TickRace" className="h-8 w-auto" />
-            <span className="font-extrabold tracking-tight">
+            <span className="font-bold tracking-tight">
               <span className="text-orange-600">Tick</span>Race
             </span>
           </Link>
 
           <nav className="hidden md:flex items-center gap-1 ml-2">
-            {baseItems.map((i) => (
-              <DeskItem key={i.to} to={i.to}>{i.label}</DeskItem>
+            {commonLeft.map((item) => (
+              <LinkItem key={item.to} to={item.to}>
+                {item.label}
+              </LinkItem>
             ))}
 
-            {roleItems
+            {roleMenu
               .filter((i) => (i.priv ? isLoggedIn : true))
-              .map((i) =>
-                i.forceOrg ? (
-                  <button
-                    key={i.to}
-                    type="button"
-                    onClick={() => {
-                      setRole("organisateur");
-                      navigate(i.to);
-                    }}
-                    className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
-                  >
-                    {i.label}
-                  </button>
-                ) : (
-                  <DeskItem key={i.to} to={i.to}>{i.label}</DeskItem>
-                )
-              )}
+              .map((i) => (
+                <RoleAwareItem key={i.to} item={i} />
+              ))}
 
-            {isAdmin && (
-              <DeskItem to="/admin">
-                <span className="inline-flex items-center gap-2">
-                  Admin <span className="text-[10px] px-2 py-0.5 rounded-full bg-gray-900 text-white">PRO</span>
-                </span>
-              </DeskItem>
-            )}
+            {isAdmin && <LinkItem to="/admin">Admin</LinkItem>}
           </nav>
         </div>
 
-        {/* Right : auth / user */}
+        {/* Right: User (desktop) + Burger */}
         <div className="flex items-center gap-2">
           {!isLoggedIn ? (
             <div className="hidden md:flex items-center gap-2">
               <Link
                 to="/login"
-                className="px-3 py-1.5 rounded-xl border text-sm font-medium hover:bg-gray-50"
+                className="px-3 py-1.5 rounded-xl border text-sm hover:bg-gray-50"
               >
                 Connexion
               </Link>
               <Link
                 to="/signup"
-                className="px-3 py-1.5 rounded-xl border text-sm font-medium bg-orange-50 text-orange-700 hover:bg-orange-100 border-orange-200"
+                className="px-3 py-1.5 rounded-xl border text-sm hover:bg-gray-50"
               >
                 Inscription
               </Link>
@@ -179,38 +179,31 @@ export default function Navbar() {
               </button>
 
               {openUser && (
-                <div className="absolute right-4 top-14 w-72 rounded-2xl border bg-white shadow-lg p-2">
+                <div className="absolute right-4 top-14 w-64 rounded-2xl border bg-white shadow-lg p-2">
                   <div className="px-3 py-2">
                     <div className="text-xs text-gray-500">Connecté en tant que</div>
                     <div className="text-sm font-medium truncate">{email}</div>
                   </div>
-
-                  {/* Switch rôle — UNIQUEMENT ici */}
-                  <div className="mx-2 my-2 p-1 rounded-2xl bg-gray-50 border flex">
-                    <button
-                      className={cn(
-                        "flex-1 px-3 py-1.5 rounded-xl text-sm",
-                        currentRole === "coureur"
-                          ? "bg-gray-900 text-white"
-                          : "hover:bg-white"
-                      )}
-                      onClick={() => setRole("coureur")}
-                    >
-                      Coureur
-                    </button>
-                    <button
-                      className={cn(
-                        "flex-1 px-3 py-1.5 rounded-xl text-sm",
-                        currentRole === "organisateur"
-                          ? "bg-gray-900 text-white"
-                          : "hover:bg-white"
-                      )}
-                      onClick={() => setRole("organisateur")}
-                    >
-                      Organisateur
-                    </button>
-                  </div>
-
+                  <div className="my-1 h-px bg-gray-100" />
+                  {/* Switch rôle ICI (pas à droite du menu) */}
+                  <button
+                    onClick={() => setRole("coureur")}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50",
+                      currentRole === "coureur" && "bg-gray-100"
+                    )}
+                  >
+                    Mode coureur
+                  </button>
+                  <button
+                    onClick={() => setRole("organisateur")}
+                    className={cn(
+                      "w-full text-left px-3 py-2 rounded-xl text-sm hover:bg-gray-50",
+                      currentRole === "organisateur" && "bg-gray-100"
+                    )}
+                  >
+                    Mode organisateur
+                  </button>
                   <div className="my-1 h-px bg-gray-100" />
                   <button
                     onClick={handleLogout}
@@ -243,24 +236,25 @@ export default function Navbar() {
           openMobile ? "pointer-events-auto" : "pointer-events-none"
         )}
       >
+        {/* Overlay plus opaque pour la lisibilité */}
         <div
           className={cn(
-            "absolute inset-0 bg-black/20 transition-opacity",
+            "absolute inset-0 bg-black/50 transition-opacity",
             openMobile ? "opacity-100" : "opacity-0"
           )}
           onClick={() => setOpenMobile(false)}
         />
+        {/* Panneau : fond 100% blanc + ombre marquée */}
         <div
           className={cn(
-            "absolute right-0 top-0 h-full w-80 max-w-[85%] bg-white border-l shadow-xl p-4 transition-transform",
+            "absolute right-0 top-0 h-full w-80 max-w-[85%] bg-white border-l shadow-2xl p-4 transition-transform",
             openMobile ? "translate-x-0" : "translate-x-full"
           )}
         >
-          {/* Header drawer */}
           <div className="flex items-center justify-between">
             <Link to="/" className="flex items-center gap-2" onClick={() => setOpenMobile(false)}>
               <img src={logo} alt="TickRace" className="h-7 w-auto" />
-              <span className="font-extrabold tracking-tight">
+              <span className="font-bold tracking-tight">
                 <span className="text-orange-600">Tick</span>Race
               </span>
             </Link>
@@ -275,125 +269,94 @@ export default function Navbar() {
             </button>
           </div>
 
-          {/* Bloc user + switch role (dans le drawer, sous l’email) */}
-          <div className="mt-4">
-            <div className="flex items-center gap-2">
-              <div className="w-9 h-9 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
-                {avatarLetter}
-              </div>
-              <div className="text-sm">{isLoggedIn ? email : "Invité"}</div>
+          {/* User bloc */}
+          <div className="mt-4 flex items-center gap-2">
+            <div className="w-8 h-8 rounded-full bg-gray-900 text-white flex items-center justify-center text-sm font-bold">
+              {avatarLetter}
             </div>
-            {isLoggedIn && (
-              <div className="mt-3 p-1 rounded-2xl bg-gray-50 border flex">
-                <button
-                  className={cn(
-                    "flex-1 px-3 py-1.5 rounded-xl text-sm",
-                    currentRole === "coureur" ? "bg-gray-900 text-white" : "hover:bg-white"
-                  )}
-                  onClick={() => setRole("coureur")}
-                >
-                  Coureur
-                </button>
-                <button
-                  className={cn(
-                    "flex-1 px-3 py-1.5 rounded-xl text-sm",
-                    currentRole === "organisateur" ? "bg-gray-900 text-white" : "hover:bg-white"
-                  )}
-                  onClick={() => setRole("organisateur")}
-                >
-                  Organisateur
-                </button>
-              </div>
-            )}
+            <div className="text-sm">{isLoggedIn ? email : "Invité"}</div>
           </div>
 
-          {/* Liens */}
-          <div className="mt-5 grid">
-            {[...baseItems, ...roleItems.filter((i) => (i.priv ? isLoggedIn : true))].map((i) => (
-              <NavLink
-                key={i.to}
-                to={i.to}
-                onClick={() => setOpenMobile(false)}
-                className={({ isActive }) =>
-                  cn(
-                    "px-3 py-2 rounded-xl text-sm font-medium",
-                    isActive ? "bg-orange-50 text-orange-700" : "hover:bg-gray-100"
-                  )
-                }
+          {/* Liens communs */}
+          <div className="mt-4 grid gap-1">
+            {commonLeft.map((item) => (
+              <LinkItem
+                key={item.to}
+                to={item.to}
+                className="text-base"
               >
-                {i.label}
-              </NavLink>
+                {item.label}
+              </LinkItem>
             ))}
 
+            {/* Liens rôle */}
+            {roleMenu
+              .filter((i) => (i.priv ? isLoggedIn : true))
+              .map((i) => (
+                <RoleAwareItem key={i.to} item={i} />
+              ))}
+
+            {/* Admin */}
             {isAdmin && (
               <>
-                <div className="mt-3 mb-1 text-xs uppercase tracking-wide text-gray-500">Administration</div>
-                <NavLink
-                  to="/admin"
-                  onClick={() => setOpenMobile(false)}
-                  className={({ isActive }) =>
-                    cn(
-                      "px-3 py-2 rounded-xl text-sm font-medium",
-                      isActive ? "bg-orange-50 text-orange-700" : "hover:bg-gray-100"
-                    )
-                  }
-                >
-                  Admin
-                </NavLink>
-                <NavLink
-                  to="/admin/courses"
-                  onClick={() => setOpenMobile(false)}
-                  className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
-                >
-                  Courses Admin
-                </NavLink>
-                <NavLink
-                  to="/admin/payouts"
-                  onClick={() => setOpenMobile(false)}
-                  className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
-                >
-                  Reversements
-                </NavLink>
-                <NavLink
-                  to="/admin/inscriptions"
-                  onClick={() => setOpenMobile(false)}
-                  className="px-3 py-2 rounded-xl text-sm font-medium hover:bg-gray-100"
-                >
-                  Inscriptions
-                </NavLink>
+                <LinkItem to="/admin">Admin</LinkItem>
+                <LinkItem to="/admin/courses">Courses Admin</LinkItem>
+                <LinkItem to="/admin/payouts">Reversements</LinkItem>
+                <LinkItem to="/admin/inscriptions">Inscriptions</LinkItem>
               </>
             )}
           </div>
 
-          {/* Auth actions */}
-          <div className="mt-6">
+          {/* Actions Auth + Switch rôle (mobile) */}
+          <div className="mt-4 grid gap-2">
             {!isLoggedIn ? (
-              <div className="grid gap-2">
+              <>
                 <Link
                   to="/login"
-                  onClick={() => setOpenMobile(false)}
                   className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50"
+                  onClick={() => setOpenMobile(false)}
                 >
                   Connexion
                 </Link>
                 <Link
                   to="/signup"
+                  className="px-3 py-2 rounded-xl border text-center hover:bg-gray-50"
                   onClick={() => setOpenMobile(false)}
-                  className="px-3 py-2 rounded-xl border text-center bg-orange-50 hover:bg-orange-100 border-orange-200 text-orange-700"
                 >
                   Inscription
                 </Link>
-              </div>
+              </>
             ) : (
-              <button
-                onClick={async () => {
-                  await handleLogout();
-                  setOpenMobile(false);
-                }}
-                className="w-full px-3 py-2 rounded-xl border text-center hover:bg-gray-50"
-              >
-                Déconnexion
-              </button>
+              <>
+                {/* Switch rôle sous l'email (mobile) */}
+                <div className="p-1 rounded-2xl border flex">
+                  <button
+                    className={cn(
+                      "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                      currentRole === "coureur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
+                    )}
+                    onClick={() => setRole("coureur")}
+                  >
+                    Coureur
+                  </button>
+                  <button
+                    className={cn(
+                      "flex-1 px-3 py-1.5 rounded-xl text-sm",
+                      currentRole === "organisateur" ? "bg-gray-900 text-white" : "hover:bg-gray-100"
+                    )}
+                    onClick={() => setRole("organisateur")}
+                  >
+                    Organisateur
+                  </button>
+                </div>
+
+                <button
+                  onClick={handleLogout}
+                  className="w-full px-3 py-2 rounded-xl border text-center hover:bg-gray-50"
+                >
+                  Déconnexion
+                </button>
+              </>
             )}
           </div>
         </div>
