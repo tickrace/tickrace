@@ -22,16 +22,16 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const lineRef = useRef(null);
-  const progressRef = useRef(null);          // <— segment de progression
+  const progressRef = useRef(null);        // segment de progression
   const hoverMarkerRef = useRef(null);
   const osmLayerRef = useRef(null);
   const topoLayerRef = useRef(null);
-  const latlngsRef = useRef([]);             // <— latlngs du tracé
-  const lastIdxRef = useRef(-1);             // <— pour limiter les updates
+  const latlngsRef = useRef([]);           // latlngs du tracé
+  const lastIdxRef = useRef(-1);           // dernier index utilisé
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [data, setData] = useState([]); // [{lat, lon, ele, d}] d = km cumulés
+  const [data, setData] = useState([]);    // [{lat, lon, ele, d}] d en km
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [basemap, setBasemap] = useState("plan"); // 'plan' | 'relief'
 
@@ -68,7 +68,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
       return { ...p, d: cum / 1000 }; // km
     });
 
-    // Downsample léger si > 3000 points (perf chart)
+    // downsample léger pour la courbe si > 3000 points
     const maxPoints = 2500;
     let sampled = enriched;
     if (enriched.length > maxPoints) {
@@ -81,7 +81,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
     return sampled;
   }
 
-  // binary search sur data[].d pour trouver l’index le + proche d (km)
+  // index le + proche pour une distance (km)
   function nearestIndexByDistance(dVal, arr) {
     let lo = 0, hi = arr.length - 1;
     while (lo <= hi) {
@@ -90,7 +90,6 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
       if (arr[mid].d < dVal) lo = mid + 1;
       else hi = mid - 1;
     }
-    // lo = premier > dVal, hi = dernier < dVal
     if (lo <= 0) return 0;
     if (lo >= arr.length) return arr.length - 1;
     return Math.abs(arr[lo].d - dVal) < Math.abs(arr[hi].d - dVal) ? lo : hi;
@@ -119,13 +118,13 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
     osmLayerRef.current = osm;
     topoLayerRef.current = topo;
 
-    // Marqueur hover
+    // Marqueur hover (invisible au départ)
     hoverMarkerRef.current = L.circleMarker([0, 0], {
       radius: 6,
       weight: 2,
       color: "#111",
       fillColor: "#fff",
-      fillOpacity: 1,
+      fillOpacity: 0,
       opacity: 0,
     })
       .bindTooltip("", { direction: "top", offset: [0, -8] })
@@ -149,7 +148,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         if (cancelled) return;
         setData(pts);
 
-        // draw polyline
+        // nettoie anciens layers
         if (lineRef.current) { lineRef.current.remove(); lineRef.current = null; }
         if (progressRef.current) { progressRef.current.remove(); progressRef.current = null; }
 
@@ -159,7 +158,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         const line = L.polyline(latlngs, { color: "#ff6b00", weight: 4, opacity: 0.9 }).addTo(mapRef.current);
         lineRef.current = line;
 
-        // segment de progression (au-dessus)
+        // segment de progression
         const progress = L.polyline([], { color: "#111", weight: 6, opacity: 0.35 }).addTo(mapRef.current);
         progressRef.current = progress;
 
@@ -200,49 +199,86 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
   const requestFs = () => containerRef.current?.parentElement?.requestFullscreen?.();
   const exitFs = () => document.exitFullscreen?.();
 
-  // ---- chart hover -> move marker + progression + autopan ----
+  // ---- SURVOL: déplace/affiche le marqueur + progression + autopan ----
   const onChartMove = (state) => {
-    if (!state) return;
-    const payload = state.activePayload?.[0]?.payload;
-    if (!payload || !mapRef.current || !hoverMarkerRef.current) return;
+    if (!mapRef.current || !hoverMarkerRef.current || !data.length || !state) return;
 
-    // Index le + proche par distance
-    const idx = nearestIndexByDistance(payload.d, data);
-    if (idx === lastIdxRef.current) {
-      // rien à faire
-    } else {
-      lastIdxRef.current = idx;
+    const { isTooltipActive, activeTooltipIndex, activeLabel, activePayload } = state;
+    if (!isTooltipActive) return;
 
-      // 1) Marqueur
-      const { lat, lon, ele, d } = data[idx];
-      hoverMarkerRef.current.setLatLng([lat, lon]);
-      hoverMarkerRef.current.setStyle({ opacity: 1 });
-      const tt = `${Math.round(ele)} m • ${d.toFixed(2)} km`;
-      hoverMarkerRef.current.setTooltipContent?.(tt);
-      hoverMarkerRef.current.openTooltip();
+    // index robuste
+    let idx =
+      typeof activeTooltipIndex === "number" && activeTooltipIndex >= 0
+        ? activeTooltipIndex
+        : -1;
 
-      // 2) Segment de progression
-      if (progressRef.current && latlngsRef.current.length) {
-        const seg = latlngsRef.current.slice(0, Math.max(1, idx + 1));
-        progressRef.current.setLatLngs(seg);
-      }
+    if (idx < 0 || idx >= data.length) {
+      const dVal =
+        typeof activeLabel === "number"
+          ? activeLabel
+          : activePayload?.[0]?.payload?.d;
+      if (typeof dVal === "number") idx = nearestIndexByDistance(dVal, data);
+      else return;
+    }
 
-      // 3) Auto-pan si proche du bord (20 px de marge)
-      const map = mapRef.current;
-      const pt = map.latLngToContainerPoint([lat, lon]);
-      const pad = 20;
-      const sz = map.getSize();
-      if (pt.x < pad || pt.y < pad || pt.x > sz.x - pad || pt.y > sz.y - pad) {
-        map.panTo([lat, lon], { animate: true });
-      }
+    if (idx === lastIdxRef.current) return;
+    lastIdxRef.current = idx;
+
+    const { lat, lon, ele, d } = data[idx];
+
+    // Marqueur
+    hoverMarkerRef.current.setLatLng([lat, lon]);
+    hoverMarkerRef.current.setStyle({ opacity: 1, fillOpacity: 1 });
+    const tt = `${Math.round(ele)} m • ${d.toFixed(2)} km`;
+    const tooltip = hoverMarkerRef.current.getTooltip?.();
+    if (tooltip) tooltip.setContent(tt);
+    hoverMarkerRef.current.openTooltip();
+
+    // Progression
+    if (progressRef.current && latlngsRef.current.length) {
+      const seg = latlngsRef.current.slice(0, Math.max(1, idx + 1));
+      progressRef.current.setLatLngs(seg);
+    }
+
+    // Auto-pan si proche du bord
+    const map = mapRef.current;
+    const pt = map.latLngToContainerPoint([lat, lon]);
+    const pad = 20;
+    const sz = map.getSize();
+    if (pt.x < pad || pt.y < pad || pt.x > sz.x - pad || pt.y > sz.y - pad) {
+      map.panTo([lat, lon], { animate: true });
     }
   };
 
+  // ---- SORTIE SURVOL ----
   const onChartLeave = () => {
-    hoverMarkerRef.current?.setStyle({ opacity: 0 });
+    hoverMarkerRef.current?.setStyle({ opacity: 0, fillOpacity: 0 });
     hoverMarkerRef.current?.closeTooltip?.();
     progressRef.current?.setLatLngs([]);
     lastIdxRef.current = -1;
+  };
+
+  // ---- CLIC: centre la carte sur le point cliqué ----
+  const onChartClick = (state) => {
+    if (!mapRef.current || !data.length || !state) return;
+
+    const { activeTooltipIndex, activeLabel, activePayload } = state;
+    let idx =
+      typeof activeTooltipIndex === "number" && activeTooltipIndex >= 0
+        ? activeTooltipIndex
+        : -1;
+
+    if (idx < 0 || idx >= data.length) {
+      const dVal =
+        typeof activeLabel === "number"
+          ? activeLabel
+          : activePayload?.[0]?.payload?.d;
+      if (typeof dVal === "number") idx = nearestIndexByDistance(dVal, data);
+      else return;
+    }
+
+    const { lat, lon } = data[idx];
+    mapRef.current.panTo([lat, lon], { animate: true });
   };
 
   const totalKm = useMemo(() => (data.length ? data[data.length - 1].d : 0), [data]);
@@ -329,6 +365,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
                 data={data}
                 onMouseMove={onChartMove}
                 onMouseLeave={onChartLeave}
+                onClick={onChartClick}
                 margin={{ top: 10, right: 20, left: 10, bottom: 10 }}
               >
                 <defs>
