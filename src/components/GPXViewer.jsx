@@ -22,28 +22,28 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const lineRef = useRef(null);
+  const progressRef = useRef(null);          // <— segment de progression
   const hoverMarkerRef = useRef(null);
   const osmLayerRef = useRef(null);
   const topoLayerRef = useRef(null);
+  const latlngsRef = useRef([]);             // <— latlngs du tracé
+  const lastIdxRef = useRef(-1);             // <— pour limiter les updates
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [data, setData] = useState([]); // [{lat, lon, ele, d}] d en km cumulée
+  const [data, setData] = useState([]); // [{lat, lon, ele, d}] d = km cumulés
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [basemap, setBasemap] = useState("plan"); // 'plan' | 'relief'
 
-  // ---- parse GPX utility ----
+  // ---- helpers ----
   function haversine(lat1, lon1, lat2, lon2) {
     const R = 6371000; // m
     const toRad = (v) => (v * Math.PI) / 180;
     const dLat = toRad(lat2 - lat1);
     const dLon = toRad(lon2 - lon1);
     const a =
-      Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-      Math.cos(toRad(lat1)) *
-        Math.cos(toRad(lat2)) *
-        Math.sin(dLon / 2) *
-        Math.sin(dLon / 2);
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLon / 2) ** 2;
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
     return R * c; // meters
   }
@@ -64,9 +64,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
     // distance cumulée
     let cum = 0;
     const enriched = pts.map((p, i) => {
-      if (i > 0) {
-        cum += haversine(pts[i - 1].lat, pts[i - 1].lon, p.lat, p.lon);
-      }
+      if (i > 0) cum += haversine(pts[i - 1].lat, pts[i - 1].lon, p.lat, p.lon);
       return { ...p, d: cum / 1000 }; // km
     });
 
@@ -80,8 +78,22 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         sampled.push(enriched[enriched.length - 1]);
       }
     }
-
     return sampled;
+  }
+
+  // binary search sur data[].d pour trouver l’index le + proche d (km)
+  function nearestIndexByDistance(dVal, arr) {
+    let lo = 0, hi = arr.length - 1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (arr[mid].d === dVal) return mid;
+      if (arr[mid].d < dVal) lo = mid + 1;
+      else hi = mid - 1;
+    }
+    // lo = premier > dVal, hi = dernier < dVal
+    if (lo <= 0) return 0;
+    if (lo >= arr.length) return arr.length - 1;
+    return Math.abs(arr[lo].d - dVal) < Math.abs(arr[hi].d - dVal) ? lo : hi;
   }
 
   // ---- init map once ----
@@ -95,35 +107,29 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
     mapRef.current = map;
 
     // Basemaps
-    const osm = L.tileLayer(
-      "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
-      {
-        maxZoom: 19,
-        attribution:
-          '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
-      }
-    );
-    const topo = L.tileLayer(
-      "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png",
-      {
-        maxZoom: 17,
-        attribution:
-          'Map data: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
-      }
-    );
+    const osm = L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OSM</a>',
+    });
+    const topo = L.tileLayer("https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png", {
+      maxZoom: 17,
+      attribution: 'Map data: &copy; <a href="https://opentopomap.org">OpenTopoMap</a>',
+    });
     osm.addTo(map);
     osmLayerRef.current = osm;
     topoLayerRef.current = topo;
 
-    // Hover marker
+    // Marqueur hover
     hoverMarkerRef.current = L.circleMarker([0, 0], {
-      radius: 5,
+      radius: 6,
       weight: 2,
       color: "#111",
       fillColor: "#fff",
       fillOpacity: 1,
       opacity: 0,
-    }).addTo(map);
+    })
+      .bindTooltip("", { direction: "top", offset: [0, -8] })
+      .addTo(map);
 
     return () => {
       map.remove();
@@ -144,17 +150,19 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         setData(pts);
 
         // draw polyline
-        if (lineRef.current) {
-          lineRef.current.remove();
-          lineRef.current = null;
-        }
+        if (lineRef.current) { lineRef.current.remove(); lineRef.current = null; }
+        if (progressRef.current) { progressRef.current.remove(); progressRef.current = null; }
+
         const latlngs = pts.map((p) => [p.lat, p.lon]);
-        const line = L.polyline(latlngs, {
-          color: "#ff6b00",
-          weight: 4,
-          opacity: 0.9,
-        }).addTo(mapRef.current);
+        latlngsRef.current = latlngs;
+
+        const line = L.polyline(latlngs, { color: "#ff6b00", weight: 4, opacity: 0.9 }).addTo(mapRef.current);
         lineRef.current = line;
+
+        // segment de progression (au-dessus)
+        const progress = L.polyline([], { color: "#111", weight: 6, opacity: 0.35 }).addTo(mapRef.current);
+        progressRef.current = progress;
+
         mapRef.current.fitBounds(line.getBounds(), { padding: [20, 20] });
       } catch (e) {
         console.error(e);
@@ -163,9 +171,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         setLoading(false);
       }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [gpxUrl]);
 
   // ---- basemap toggle ----
@@ -185,7 +191,6 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
     function onFsChange() {
       const fs = !!document.fullscreenElement;
       setIsFullscreen(fs);
-      // invalidate map size after animation
       setTimeout(() => mapRef.current?.invalidateSize(), 150);
     }
     document.addEventListener("fullscreenchange", onFsChange);
@@ -195,22 +200,52 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
   const requestFs = () => containerRef.current?.parentElement?.requestFullscreen?.();
   const exitFs = () => document.exitFullscreen?.();
 
-  // ---- chart hover -> move marker on map ----
+  // ---- chart hover -> move marker + progression + autopan ----
   const onChartMove = (state) => {
-    if (!state?.activePayload || !mapRef.current || !hoverMarkerRef.current) return;
-    const p = state.activePayload[0]?.payload;
-    if (!p) return;
-    hoverMarkerRef.current.setLatLng([p.lat, p.lon]);
-    hoverMarkerRef.current.setStyle({ opacity: 1 });
-  };
-  const onChartLeave = () => {
-    hoverMarkerRef.current?.setStyle({ opacity: 0 });
+    if (!state) return;
+    const payload = state.activePayload?.[0]?.payload;
+    if (!payload || !mapRef.current || !hoverMarkerRef.current) return;
+
+    // Index le + proche par distance
+    const idx = nearestIndexByDistance(payload.d, data);
+    if (idx === lastIdxRef.current) {
+      // rien à faire
+    } else {
+      lastIdxRef.current = idx;
+
+      // 1) Marqueur
+      const { lat, lon, ele, d } = data[idx];
+      hoverMarkerRef.current.setLatLng([lat, lon]);
+      hoverMarkerRef.current.setStyle({ opacity: 1 });
+      const tt = `${Math.round(ele)} m • ${d.toFixed(2)} km`;
+      hoverMarkerRef.current.setTooltipContent?.(tt);
+      hoverMarkerRef.current.openTooltip();
+
+      // 2) Segment de progression
+      if (progressRef.current && latlngsRef.current.length) {
+        const seg = latlngsRef.current.slice(0, Math.max(1, idx + 1));
+        progressRef.current.setLatLngs(seg);
+      }
+
+      // 3) Auto-pan si proche du bord (20 px de marge)
+      const map = mapRef.current;
+      const pt = map.latLngToContainerPoint([lat, lon]);
+      const pad = 20;
+      const sz = map.getSize();
+      if (pt.x < pad || pt.y < pad || pt.x > sz.x - pad || pt.y > sz.y - pad) {
+        map.panTo([lat, lon], { animate: true });
+      }
+    }
   };
 
-  const totalKm = useMemo(
-    () => (data.length ? data[data.length - 1].d : 0),
-    [data]
-  );
+  const onChartLeave = () => {
+    hoverMarkerRef.current?.setStyle({ opacity: 0 });
+    hoverMarkerRef.current?.closeTooltip?.();
+    progressRef.current?.setLatLngs([]);
+    lastIdxRef.current = -1;
+  };
+
+  const totalKm = useMemo(() => (data.length ? data[data.length - 1].d : 0), [data]);
   const totalDplus = useMemo(() => {
     if (!data.length) return 0;
     let dplus = 0;
@@ -310,12 +345,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
                   stroke="#6b7280"
                   fontSize={12}
                 />
-                <YAxis
-                  dataKey="ele"
-                  width={40}
-                  stroke="#6b7280"
-                  fontSize={12}
-                />
+                <YAxis dataKey="ele" width={40} stroke="#6b7280" fontSize={12} />
                 <Tooltip
                   formatter={(val, name) => {
                     if (name === "ele") return [`${Math.round(val)} m`, "Altitude"];
