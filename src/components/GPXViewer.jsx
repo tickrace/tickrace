@@ -10,7 +10,7 @@ import {
   Tooltip,
   ResponsiveContainer,
 } from "recharts";
-import { Maximize2, Minimize2, Map as MapIcon, Mountain } from "lucide-react";
+import { Maximize2, Minimize2, Map as MapIcon, Mountain, Download } from "lucide-react";
 
 /**
  * Props:
@@ -22,21 +22,20 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const lineRef = useRef(null);
-  const progressRef = useRef(null);           // segment de progression
+  const progressRef = useRef(null);        // segment de progression
   const hoverMarkerRef = useRef(null);
   const osmLayerRef = useRef(null);
   const topoLayerRef = useRef(null);
-  const latlngsRef = useRef([]);              // latlngs du tracé
-  const lastIdxRef = useRef(-1);              // pour limiter les updates
+  const latlngsRef = useRef([]);           // latlngs du tracé
+  const lastIdxRef = useRef(-1);           // dernier index utilisé
 
-  // Repères et jalons
+  // Repères départ/arrivée
   const startMarkerRef = useRef(null);
   const finishMarkerRef = useRef(null);
-  const kmMarkersRef = useRef([]);            // tableau de markers "5 km", "10 km", ...
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [data, setData] = useState([]);       // [{lat, lon, ele, d}] d en km
+  const [data, setData] = useState([]);    // [{lat, lon, ele, d}] d en km
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [basemap, setBasemap] = useState("plan"); // 'plan' | 'relief'
 
@@ -204,10 +203,6 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         if (progressRef.current) { progressRef.current.remove(); progressRef.current = null; }
         if (startMarkerRef.current) { startMarkerRef.current.remove(); startMarkerRef.current = null; }
         if (finishMarkerRef.current) { finishMarkerRef.current.remove(); finishMarkerRef.current = null; }
-        if (kmMarkersRef.current.length) {
-          kmMarkersRef.current.forEach(m => m.remove());
-          kmMarkersRef.current = [];
-        }
 
         // Polyline
         const latlngs = pts.map((p) => [p.lat, p.lon]);
@@ -240,33 +235,6 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         }).bindTooltip("Arrivée", { permanent: false, direction: "top", offset: [0, -8] })
           .addTo(mapRef.current);
         finishMarkerRef.current = finish;
-
-        // Marqueurs tous les 5 km
-        const totalKmVal = pts[pts.length - 1].d;
-        for (let km = 5; km < totalKmVal - 0.01; km += 5) {
-          const i = nearestIndexByDistance(km, pts);
-          const { lat, lon } = pts[i];
-          const icon = L.divIcon({
-            className: "",
-            html: `
-              <div style="
-                background: #ffffff;
-                border: 2px solid #111111;
-                color: #111111;
-                width: 28px; height: 28px;
-                border-radius: 9999px;
-                display:flex; align-items:center; justify-content:center;
-                font-size: 11px; font-weight: 700;
-                box-shadow: 0 1px 2px rgba(0,0,0,.25);
-              ">${km}</div>
-            `,
-            iconSize: [28, 28],
-            iconAnchor: [14, 14],
-          });
-          const m = L.marker([lat, lon], { icon }).bindTooltip(`${km} km`);
-          m.addTo(mapRef.current);
-          kmMarkersRef.current.push(m);
-        }
 
         // Fit + position initiale du slider/curseur au départ
         mapRef.current.fitBounds(line.getBounds(), { padding: [20, 20] });
@@ -308,6 +276,35 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
 
   const requestFs = () => containerRef.current?.parentElement?.requestFullscreen?.();
   const exitFs = () => document.exitFullscreen?.();
+
+  // ---- Téléchargement GPX ----
+  function filenameFromUrl(url) {
+    try {
+      const u = new URL(url, window.location.origin);
+      const name = u.pathname.split("/").pop() || "trace.gpx";
+      return name.includes(".") ? name : `${name}.gpx`;
+    } catch {
+      return "trace.gpx";
+    }
+  }
+  async function handleDownload() {
+    if (!gpxUrl) return;
+    try {
+      const r = await fetch(gpxUrl, { credentials: "omit" });
+      const blob = await r.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filenameFromUrl(gpxUrl);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // fallback: ouvre le lien brut (selon CORS, le navigateur proposera le DL)
+      window.open(gpxUrl, "_blank", "noopener,noreferrer");
+    }
+  }
 
   // ---- SURVOL: déplace/affiche le marqueur + progression + autopan ----
   const onChartMove = (state) => {
@@ -414,6 +411,17 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
             <MapIcon className="w-4 h-4" />
             {basemap === "plan" ? "Relief" : "Plan"}
           </button>
+
+          <button
+            onClick={handleDownload}
+            disabled={!gpxUrl}
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl border text-sm hover:bg-gray-50 disabled:opacity-50"
+            title="Télécharger le fichier GPX"
+          >
+            <Download className="w-4 h-4" />
+            Télécharger le GPX
+          </button>
+
           {!isFullscreen ? (
             <button
               onClick={requestFs}
@@ -454,7 +462,7 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         )}
       </div>
 
-      {/* Elevation chart */}
+      {/* Elevation chart + slider */}
       {!!data.length && (
         <div className="mt-3 rounded-2xl border shadow-sm p-2 bg-white">
           <div className="px-2 py-1 text-xs text-gray-600">
