@@ -22,18 +22,26 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
   const containerRef = useRef(null);
   const mapRef = useRef(null);
   const lineRef = useRef(null);
-  const progressRef = useRef(null);        // segment de progression
+  const progressRef = useRef(null);           // segment de progression
   const hoverMarkerRef = useRef(null);
   const osmLayerRef = useRef(null);
   const topoLayerRef = useRef(null);
-  const latlngsRef = useRef([]);           // latlngs du tracé
-  const lastIdxRef = useRef(-1);           // dernier index utilisé
+  const latlngsRef = useRef([]);              // latlngs du tracé
+  const lastIdxRef = useRef(-1);              // pour limiter les updates
+
+  // Repères et jalons
+  const startMarkerRef = useRef(null);
+  const finishMarkerRef = useRef(null);
+  const kmMarkersRef = useRef([]);            // tableau de markers "5 km", "10 km", ...
 
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
-  const [data, setData] = useState([]);    // [{lat, lon, ele, d}] d en km
+  const [data, setData] = useState([]);       // [{lat, lon, ele, d}] d en km
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [basemap, setBasemap] = useState("plan"); // 'plan' | 'relief'
+
+  // Slider (scrubbing mobile)
+  const [sliderKm, setSliderKm] = useState(null); // km sélectionnés par le slider (null = inactif)
 
   // ---- helpers ----
   function haversine(lat1, lon1, lat2, lon2) {
@@ -95,6 +103,49 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
     return Math.abs(arr[lo].d - dVal) < Math.abs(arr[hi].d - dVal) ? lo : hi;
   }
 
+  // Met à jour le marqueur/progression à partir d'un index
+  function updatePointerByIndex(idx, options = { autopan: true }) {
+    if (!mapRef.current || !hoverMarkerRef.current || !data.length) return;
+    if (idx < 0 || idx >= data.length) return;
+
+    if (idx === lastIdxRef.current) return;
+    lastIdxRef.current = idx;
+
+    const { lat, lon, ele, d } = data[idx];
+
+    // Marqueur
+    hoverMarkerRef.current.setLatLng([lat, lon]);
+    hoverMarkerRef.current.setStyle({ opacity: 1, fillOpacity: 1 });
+    const tt = `${Math.round(ele)} m • ${d.toFixed(2)} km`;
+    const tooltip = hoverMarkerRef.current.getTooltip?.();
+    if (tooltip) tooltip.setContent(tt);
+    hoverMarkerRef.current.openTooltip();
+
+    // Progression
+    if (progressRef.current && latlngsRef.current.length) {
+      const seg = latlngsRef.current.slice(0, Math.max(1, idx + 1));
+      progressRef.current.setLatLngs(seg);
+    }
+
+    // Auto-pan
+    if (options.autopan) {
+      const map = mapRef.current;
+      const pt = map.latLngToContainerPoint([lat, lon]);
+      const pad = 20;
+      const sz = map.getSize();
+      if (pt.x < pad || pt.y < pad || pt.x > sz.x - pad || pt.y > sz.y - pad) {
+        map.panTo([lat, lon], { animate: true });
+      }
+    }
+  }
+
+  // Met à jour via km (slider)
+  function updatePointerByKm(km, options = { autopan: false }) {
+    if (!data.length) return;
+    const idx = nearestIndexByDistance(km, data);
+    updatePointerByIndex(idx, options);
+  }
+
   // ---- init map once ----
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
@@ -148,21 +199,80 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
         if (cancelled) return;
         setData(pts);
 
-        // nettoie anciens layers
+        // Nettoie anciens layers
         if (lineRef.current) { lineRef.current.remove(); lineRef.current = null; }
         if (progressRef.current) { progressRef.current.remove(); progressRef.current = null; }
+        if (startMarkerRef.current) { startMarkerRef.current.remove(); startMarkerRef.current = null; }
+        if (finishMarkerRef.current) { finishMarkerRef.current.remove(); finishMarkerRef.current = null; }
+        if (kmMarkersRef.current.length) {
+          kmMarkersRef.current.forEach(m => m.remove());
+          kmMarkersRef.current = [];
+        }
 
+        // Polyline
         const latlngs = pts.map((p) => [p.lat, p.lon]);
         latlngsRef.current = latlngs;
 
         const line = L.polyline(latlngs, { color: "#ff6b00", weight: 4, opacity: 0.9 }).addTo(mapRef.current);
         lineRef.current = line;
 
-        // segment de progression
+        // Segment de progression
         const progress = L.polyline([], { color: "#111", weight: 6, opacity: 0.35 }).addTo(mapRef.current);
         progressRef.current = progress;
 
+        // Repères Départ / Arrivée
+        const start = L.circleMarker(latlngs[0], {
+          radius: 7,
+          color: "#065f46",
+          fillColor: "#10b981",
+          fillOpacity: 1,
+          weight: 2,
+        }).bindTooltip("Départ", { permanent: false, direction: "top", offset: [0, -8] })
+          .addTo(mapRef.current);
+        startMarkerRef.current = start;
+
+        const finish = L.circleMarker(latlngs[latlngs.length - 1], {
+          radius: 7,
+          color: "#7f1d1d",
+          fillColor: "#ef4444",
+          fillOpacity: 1,
+          weight: 2,
+        }).bindTooltip("Arrivée", { permanent: false, direction: "top", offset: [0, -8] })
+          .addTo(mapRef.current);
+        finishMarkerRef.current = finish;
+
+        // Marqueurs tous les 5 km
+        const totalKmVal = pts[pts.length - 1].d;
+        for (let km = 5; km < totalKmVal - 0.01; km += 5) {
+          const i = nearestIndexByDistance(km, pts);
+          const { lat, lon } = pts[i];
+          const icon = L.divIcon({
+            className: "",
+            html: `
+              <div style="
+                background: #ffffff;
+                border: 2px solid #111111;
+                color: #111111;
+                width: 28px; height: 28px;
+                border-radius: 9999px;
+                display:flex; align-items:center; justify-content:center;
+                font-size: 11px; font-weight: 700;
+                box-shadow: 0 1px 2px rgba(0,0,0,.25);
+              ">${km}</div>
+            `,
+            iconSize: [28, 28],
+            iconAnchor: [14, 14],
+          });
+          const m = L.marker([lat, lon], { icon }).bindTooltip(`${km} km`);
+          m.addTo(mapRef.current);
+          kmMarkersRef.current.push(m);
+        }
+
+        // Fit + position initiale du slider/curseur au départ
         mapRef.current.fitBounds(line.getBounds(), { padding: [20, 20] });
+        setSliderKm(0);
+        lastIdxRef.current = -1;
+        updatePointerByKm(0, { autopan: false });
       } catch (e) {
         console.error(e);
         setErr(e.message || "Erreur de chargement du GPX");
@@ -221,41 +331,25 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
       else return;
     }
 
-    if (idx === lastIdxRef.current) return;
-    lastIdxRef.current = idx;
+    updatePointerByIndex(idx, { autopan: true });
 
-    const { lat, lon, ele, d } = data[idx];
-
-    // Marqueur
-    hoverMarkerRef.current.setLatLng([lat, lon]);
-    hoverMarkerRef.current.setStyle({ opacity: 1, fillOpacity: 1 });
-    const tt = `${Math.round(ele)} m • ${d.toFixed(2)} km`;
-    const tooltip = hoverMarkerRef.current.getTooltip?.();
-    if (tooltip) tooltip.setContent(tt);
-    hoverMarkerRef.current.openTooltip();
-
-    // Progression
-    if (progressRef.current && latlngsRef.current.length) {
-      const seg = latlngsRef.current.slice(0, Math.max(1, idx + 1));
-      progressRef.current.setLatLngs(seg);
-    }
-
-    // Auto-pan si proche du bord
-    const map = mapRef.current;
-    const pt = map.latLngToContainerPoint([lat, lon]);
-    const pad = 20;
-    const sz = map.getSize();
-    if (pt.x < pad || pt.y < pad || pt.x > sz.x - pad || pt.y > sz.y - pad) {
-      map.panTo([lat, lon], { animate: true });
-    }
+    // On synchronise le slider (sans autopan)
+    const km = data[idx].d;
+    setSliderKm(km);
   };
 
   // ---- SORTIE SURVOL ----
   const onChartLeave = () => {
-    hoverMarkerRef.current?.setStyle({ opacity: 0, fillOpacity: 0 });
-    hoverMarkerRef.current?.closeTooltip?.();
-    progressRef.current?.setLatLngs([]);
-    lastIdxRef.current = -1;
+    if (sliderKm == null) {
+      // Si pas de slider actif, on cache tout
+      hoverMarkerRef.current?.setStyle({ opacity: 0, fillOpacity: 0 });
+      hoverMarkerRef.current?.closeTooltip?.();
+      progressRef.current?.setLatLngs([]);
+      lastIdxRef.current = -1;
+    } else {
+      // Sinon on remet le curseur sur la position du slider
+      updatePointerByKm(sliderKm, { autopan: false });
+    }
   };
 
   // ---- CLIC: centre la carte sur le point cliqué ----
@@ -291,6 +385,13 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
     }
     return Math.round(dplus);
   }, [data]);
+
+  // km & altitude pour l'affichage du slider
+  const sliderInfo = useMemo(() => {
+    if (sliderKm == null || !data.length) return { km: null, ele: null };
+    const idx = nearestIndexByDistance(sliderKm, data);
+    return { km: data[idx].d, ele: data[idx].ele };
+  }, [sliderKm, data]);
 
   return (
     <div className={className}>
@@ -400,6 +501,33 @@ export default function GPXViewer({ gpxUrl, height = 480, className = "" }) {
                 />
               </AreaChart>
             </ResponsiveContainer>
+          </div>
+
+          {/* Slider scrubbing (mobile friendly) */}
+          <div className="mt-3 px-2">
+            <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+              <span>0 km</span>
+              <span>{totalKm.toFixed(1)} km</span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={totalKm}
+              step={0.1}
+              value={sliderKm ?? 0}
+              onChange={(e) => {
+                const v = Number(e.target.value);
+                setSliderKm(v);
+                updatePointerByKm(v, { autopan: false });
+              }}
+              className="w-full accent-orange-600"
+            />
+            {sliderInfo.km != null && (
+              <div className="mt-1 text-xs text-gray-700">
+                Position: <span className="font-medium">{sliderInfo.km.toFixed(2)} km</span> • Alt:{" "}
+                <span className="font-medium">{Math.round(sliderInfo.ele)} m</span>
+              </div>
+            )}
           </div>
         </div>
       )}
