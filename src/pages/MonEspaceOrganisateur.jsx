@@ -273,8 +273,11 @@ export default function MonEspaceOrganisateur() {
   to={`/organisateur/benevoles?course=${course.id}`}
   className="inline-block mt-2 text-orange-600 hover:text-orange-700 underline text-sm"
 >
-  🙋 Voir les bénévoles
+
+      🙋 Voir les bénévoles
 </Link>
+<OrgaBenevolesCard />
+
 
 
                           </div>
