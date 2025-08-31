@@ -81,5 +81,6 @@ export default function OrgaBenevolesCard({ className = "", courseId }) {
         </div>
       </div>
     </div>
+    
   );
 }

@@ -14,6 +14,7 @@ import {
   Lock,
   Link2,
 } from "lucide-react";
+import OrgaBenevolesCard from "../components/OrgaBenevolesCard";
 
 export default function MonEspaceOrganisateur() {
   const { session } = useUser();
