@@ -1,9 +1,14 @@
 // src/pages/CourseDetail.jsx
-import Chat from "../components/Chat";
-import { Link } from "react-router-dom";
+//import Chat from "../components/Chat";
+//import { Link } from "react-router-dom";
 
+//import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
+//import { useParams, Link, useSearchParams } from "react-router-dom";
+import Chat from "../components/Chat";
 import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
-import { useParams, Link, useSearchParams } from "react-router-dom";
+import { useParams, useSearchParams, Link } from "react-router-dom";
+
+
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import {
