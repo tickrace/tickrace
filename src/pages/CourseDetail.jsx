@@ -772,6 +772,19 @@ export default function CourseDetail() {
                   </div>
                 </div>
               </div>
+{/* Bénévoles */}
+<div className="rounded-2xl border bg-white shadow-sm p-4">
+  <h3 className="text-lg font-semibold">Bénévoles</h3>
+  <p className="mt-2 text-sm text-neutral-600">
+    Un peu de temps libre ? Donnez un coup de main à l’organisation.
+  </p>
+  <Link
+    to={`/benevoles/${course.id}`}
+    className="mt-3 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
+  >
+    Proposer mon aide <ArrowRight className="w-4 h-4" />
+  </Link>
+</div>
 
               {/* Alerte hors-ligne pour l'organisateur */}
               {!course.en_ligne && course.organisateur_id === session?.user?.id && (
