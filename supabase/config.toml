@@ -56,3 +56,9 @@ verify_jwt = false
 
 [functions."volunteer-signup"]
 verify_jwt = false
+
+[functions."volunteer-status-email"]
+verify_jwt = false
+
+[functions."volunteer-bulk-message"]
+verify_jwt = true
