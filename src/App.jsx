@@ -1,5 +1,6 @@
 ﻿// src/App.jsx
 import Fonctionnalites from "./pages/Fonctionnalites";
+import BenevoleInscription from "./pages/BenevoleInscription";
 
 import React, { useEffect, useMemo, useState } from "react";
 import Home from "./pages/Home";
@@ -96,6 +97,7 @@ function AppContent() {
           <Route path="/forgot-password" element={<ForgotPassword />} />
           <Route path="/merci" element={<Merci />} />
           <Route path="/paiement-annule" element={<PaiementAnnule />} />
+<Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
 
           {/* Légal */}
           <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />

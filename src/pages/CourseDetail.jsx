@@ -1,5 +1,6 @@
 // src/pages/CourseDetail.jsx
 import Chat from "../components/Chat";
+import { Link } from "react-router-dom";
 
 import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
 import { useParams, Link, useSearchParams } from "react-router-dom";
@@ -307,6 +308,15 @@ export default function CourseDetail() {
               >
                 S’inscrire <ArrowRight className="w-4 h-4" />
               </Link>
+
+              {/* === Bouton ajouté : Devenir bénévole === */}
+              <Link
+                to={`/benevoles/${course.id}`}
+                className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-3 py-2 text-white text-sm font-semibold hover:bg-white/25"
+              >
+                Devenir bénévole
+              </Link>
+
               <button
                 onClick={() => copyShare(shareUrl)}
                 className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-3 py-2 text-white text-sm hover:bg-white/25"
@@ -349,6 +359,7 @@ export default function CourseDetail() {
                   >
                     {t.label}
                   </button>
+                  
                 ))}
               </div>
             </div>
