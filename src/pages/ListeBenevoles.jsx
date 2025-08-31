@@ -2,11 +2,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 export default function ListeBenevoles() {
   const { session } = useUser();
   const userId = session?.user?.id || null;
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const wantedCourse = searchParams.get("course"); // UUID optionnel
 
   const [loading, setLoading] = useState(true);
   const [courses, setCourses] = useState([]);
@@ -34,10 +37,13 @@ export default function ListeBenevoles() {
         setCourses([]);
       } else {
         setCourses(cList || []);
+        // Pré-sélection via ?course=<id> si l'id appartient bien à l'orga
+        if (wantedCourse && (cList || []).some((c) => c.id === wantedCourse)) {
+          setSelectedCourseId(wantedCourse);
+        }
       }
 
-      // 2) Demandes bénévoles (avec jointures)
-      // On récupère tout puis on filtre côté client (plus simple, RLS friendly)
+      // 2) Demandes bénévoles (RLS filtre déjà sur les courses de l'orga)
       const { data: bi, error: eBI } = await supabase
         .from("benevoles_inscriptions")
         .select(`
@@ -58,8 +64,27 @@ export default function ListeBenevoles() {
     }
 
     run();
-    return () => { abort = true; };
-  }, [userId]);
+    return () => {
+      abort = true;
+    };
+  }, [userId, wantedCourse]);
+
+  // Synchronise l'URL quand on change le filtre (facilite le partage du lien)
+  useEffect(() => {
+    const sp = new URLSearchParams(searchParams);
+    if (selectedCourseId === "all") {
+      if (sp.has("course")) {
+        sp.delete("course");
+        setSearchParams(sp, { replace: true });
+      }
+    } else {
+      if (sp.get("course") !== selectedCourseId) {
+        sp.set("course", selectedCourseId);
+        setSearchParams(sp, { replace: true });
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCourseId]);
 
   // Filtrage client (course + recherche texte)
   const filtered = useMemo(() => {
@@ -95,9 +120,7 @@ export default function ListeBenevoles() {
       alert("Impossible de mettre à jour le statut.");
       console.error(error);
     } else {
-      setRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, statut } : r))
-      );
+      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, statut } : r)));
     }
     setSaving(null);
   }
@@ -112,9 +135,7 @@ export default function ListeBenevoles() {
       alert("Impossible d’enregistrer les notes.");
       console.error(error);
     } else {
-      setRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, notes_internes } : r))
-      );
+      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, notes_internes } : r)));
     }
     setSaving(null);
   }
