@@ -53,3 +53,6 @@ verify_jwt = false
 
 [functions.cors-ping]
 verify_jwt = false
+
+[functions."volunteer-signup"]
+verify_jwt = false
