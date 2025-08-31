@@ -263,20 +263,24 @@ export default function MonEspaceOrganisateur() {
                             <div>
                               🍽️ Repas réservés : {repas} {f.stock_repas ? `/ ${f.stock_repas}` : ""}
                             </div>
-                            <Link
-                              to={`/organisateur/inscriptions/${f.id}`}
-                              className="inline-block mt-2 text-orange-600 hover:text-orange-700 underline text-sm"
-                            >
-                              👥 Voir les inscrits
-                            </Link>
-                            <Link
-  to={`/organisateur/benevoles?course=${course.id}`}
-  className="inline-block mt-2 text-orange-600 hover:text-orange-700 underline text-sm"
->
+   <div className="mt-2 flex flex-col items-start space-y-3">
+  <Link
+    to={`/organisateur/inscriptions/${f.id}`}
+    className="text-orange-600 hover:text-orange-700 underline text-sm"
+  >
+    👥 Voir les inscrits
+  </Link>
 
-      🙋 Voir les bénévoles
-</Link>
-<OrgaBenevolesCard />
+  <Link
+    to={`/organisateur/benevoles?course=${f.course_id}`}
+    className="text-orange-600 hover:text-orange-700 underline text-sm"
+  >
+    🙋 Voir les bénévoles
+  </Link>
+</div>                         
+<div className="mt-6">
+  <OrgaBenevolesCard courseId={course.id} />
+</div>
 
 
 
