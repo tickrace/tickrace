@@ -269,6 +269,14 @@ export default function MonEspaceOrganisateur() {
                             >
                               👥 Voir les inscrits
                             </Link>
+                            <Link
+  to={`/organisateur/benevoles?course=${course.id}`}
+  className="inline-block mt-2 text-orange-600 hover:text-orange-700 underline text-sm"
+>
+  🙋 Voir les bénévoles
+</Link>
+
+
                           </div>
                         );
                       })}
