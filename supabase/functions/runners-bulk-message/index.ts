@@ -6,8 +6,6 @@ import { Resend } from "https://esm.sh/resend@3.2.0";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
-const RESEND_FROM = Deno.env.get("RESEND_FROM") || "Tickrace <onboarding@resend.dev>";
-const RESEND_REPLY_TO = Deno.env.get("RESEND_REPLY_TO") || "contact@tickrace.com";
 
 const admin = createClient(SUPABASE_URL, SERVICE_ROLE, { auth: { persistSession: false } });
 const resend = new Resend(RESEND_API_KEY);
@@ -44,30 +42,12 @@ function escapeHtml(s: string) {
     .replaceAll("'", "&#039;");
 }
 function renderTpl(tpl: string, ctx: Record<string, string>) {
-  return (tpl || "").replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => ctx[k] ?? "");
+  return tpl.replace(/\{\{\s*(\w+)\s*\}\}/g, (_, k) => ctx[k] ?? "");
 }
 function toHtml(text: string) {
   const safe = escapeHtml(text);
   const parts = safe.split(/\n{2,}/g).map((p) => p.replace(/\n/g, "<br/>"));
   return parts.map((p) => `<p>${p}</p>`).join("");
-}
-function buildHtml(text: string, ctx: Record<string, string>) {
-  const preheader =
-    `<div style="display:none;opacity:0;height:0;max-height:0;overflow:hidden">` +
-    `Infos ${escapeHtml(ctx.course || "")} — ${escapeHtml(ctx.format || "")}` +
-    `${ctx.dossard ? ` • Dossard ${escapeHtml(ctx.dossard)}` : ""}` +
-    `</div>`;
-  const why =
-    `<p style="color:#666;font-size:12px;margin:0 0 12px 0">` +
-    `Vous recevez cet email car vous êtes inscrit(e) à <strong>${escapeHtml(ctx.course || "")}</strong>` +
-    (ctx.format ? ` (${escapeHtml(ctx.format)})` : "") +
-    `.</p>`;
-  const footer =
-    `<hr style="margin:16px 0;border:none;border-top:1px solid #eee"/>` +
-    `<p style="color:#666;font-size:12px;margin:8px 0 0 0">` +
-    `Besoin d’aide ? Répondez directement à ce message.` +
-    `</p>`;
-  return preheader + why + toHtml(text) + footer;
 }
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -78,7 +58,9 @@ function chunk<T>(arr: T[], size: number): T[][] {
 /* ============ Handler ============ */
 serve(async (req) => {
   const origin = req.headers.get("Origin");
-  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders(origin) });
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { headers: corsHeaders(origin) });
+  }
 
   try {
     // Auth JWT (Bearer) obligatoire
@@ -106,7 +88,7 @@ serve(async (req) => {
       return json({ error: "subject et message sont requis" }, 400, origin);
     }
 
-    // Récup inscriptions + jointures (style bénévoles)
+    // Récup inscriptions + jointures (même style que bénévoles)
     const { data: rows, error: rowsErr } = await admin
       .from("inscriptions")
       .select(`
@@ -120,10 +102,10 @@ serve(async (req) => {
 
     if (rowsErr) return json({ error: "DB error (inscriptions)" }, 500, origin);
 
-    // Autorisation: uniquement les courses de l'organisateur courant
+    // Autorisation: seulement les inscriptions sur les courses de l'organisateur courant
     const permitted = (rows || []).filter((r) => r?.format?.course?.organisateur_id === userId);
 
-    // Filtre statut si fourni
+    // Filtre par statut si fourni
     const permittedFiltered = Array.isArray(include_statut) && include_statut.length
       ? permitted.filter((r) => include_statut.includes(r.statut))
       : permitted;
@@ -155,15 +137,15 @@ serve(async (req) => {
       });
     }
 
-    // Dédupe (email + course + format)
-    const uniq = new Map<string, Target>();
+    // Dédupe par (email + course + format)
+    const uniqMap = new Map<string, Target>();
     for (const t of targets) {
       const key = `${t.email.toLowerCase()}::${t.course}::${t.format}`;
-      if (!uniq.has(key)) uniq.set(key, t);
+      if (!uniqMap.has(key)) uniqMap.set(key, t);
     }
-    const finalTargets = Array.from(uniq.values());
+    const finalTargets = Array.from(uniqMap.values());
 
-    // Dry-run
+    // Dry-run : pas d'envoi, résumé seulement
     if (dry_run) {
       return json(
         {
@@ -180,37 +162,42 @@ serve(async (req) => {
       );
     }
 
-    // Envoi (préheader + reply_to + List-Unsubscribe mailto; PAS de tags)
-    const MAX_CONCURRENCY = 8;
-    let sent = 0, failed = 0;
-    const details: Array<{ email: string; inscription_id: string; ok: boolean; error?: string }> = [];
+    // Envoi des emails (strictement comme bénévoles : pas de tags)
+    const MAX_CONCURRENCY = 10;
+    const batches = chunk(finalTargets, MAX_CONCURRENCY);
+    let sent = 0;
+    let failed = 0;
+    const details: Array<{ email: string; inscription_id: string; ok: boolean; error?: string }> =
+      [];
 
-    for (const batch of chunk(finalTargets, MAX_CONCURRENCY)) {
-      const results = await Promise.allSettled(batch.map(async (t) => {
-        const ctx = t as Record<string, string>;
-        const subj = renderTpl(subject, ctx);
-        const text = renderTpl(message, ctx);
-        const html = buildHtml(text, ctx);
-        try {
-          await resend.emails.send({
-            from: RESEND_FROM,            // ⚠️ Mets un domaine vérifié quand dispo
-            to: t.email,
-            subject: subj,
-            html,
-            text,
-            reply_to: RESEND_REPLY_TO,
-            headers: {
-              // Affiche "Se désabonner" dans la plupart des boîtes
-              "List-Unsubscribe": `<mailto:${RESEND_REPLY_TO}>`,
-            },
-          });
-          sent++;
-          details.push({ email: t.email, inscription_id: t.inscription_id, ok: true });
-        } catch (e) {
-          failed++;
-          details.push({ email: t.email, inscription_id: t.inscription_id, ok: false, error: String(e) });
-        }
-      }));
+    for (const batch of batches) {
+      const results = await Promise.allSettled(
+        batch.map(async (t) => {
+          const subj = renderTpl(subject, t as any);
+          const text = renderTpl(message, t as any);
+          const html = toHtml(text);
+
+          try {
+            await resend.emails.send({
+              from: "Tickrace <noreply@tickrace.com>",
+              to: t.email,
+              subject: subj,
+              html,
+              text,
+            });
+            sent++;
+            details.push({ email: t.email, inscription_id: t.inscription_id, ok: true });
+          } catch (e) {
+            failed++;
+            details.push({
+              email: t.email,
+              inscription_id: t.inscription_id,
+              ok: false,
+              error: String(e),
+            });
+          }
+        })
+      );
       void results;
     }
 
