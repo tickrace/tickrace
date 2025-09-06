@@ -65,3 +65,6 @@ verify_jwt = true
 
 [functions."volunteer-unsubscribe"]
 verify_jwt = false
+
+[functions."runners-bulk-message"]
+verify_jwt = false
