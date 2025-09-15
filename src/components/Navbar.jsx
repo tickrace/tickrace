@@ -84,9 +84,10 @@ export default function Navbar() {
     { to: "/monprofilcoureur", label: "Mon profil", priv: true },
   ];
 
+  // ⬇️ ICI : nouvelle route pour créer une course
   const rightOrgaItems = [
     { to: "/organisateur/mon-espace", label: "Mon espace", priv: true },
-    { to: "/organisateur/nouvelle-course", label: "Créer une course", priv: true, forceOrg: true },
+    { to: "/organisateur/creer-course", label: "Créer une course", priv: true, forceOrg: true },
     { to: "/monprofilorganisateur", label: "Mon profil", priv: true },
   ];
 

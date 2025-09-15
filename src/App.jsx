@@ -1,4 +1,6 @@
 ﻿// src/App.jsx
+import { Navigate } from "react-router-dom";
+import UpsertCourse from "./pages/UpsertCourse";
 import Fonctionnalites from "./pages/Fonctionnalites";
 import BenevoleInscription from "./pages/BenevoleInscription";
 import ListeBenevoles from "./pages/ListeBenevoles";
@@ -10,9 +12,9 @@ import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
-import NouvelleCourse from "./pages/NouvelleCourse";
+//import NouvelleCourse from "./pages/NouvelleCourse";
 import ErrorBoundary from "./components/ErrorBoundary";
-import ModifierCourse from "./pages/ModifierCourse";
+//import ModifierCourse from "./pages/ModifierCourse";
 import ListeFormats from "./pages/ListeFormats";
 import InscriptionCourse from "./pages/InscriptionCourse";
 import ProfilCoureur from "./pages/ProfilCoureur";
@@ -140,16 +142,42 @@ function AppContent() {
             path="/organisateur/inscriptions/:format_id"
             element={<ProtectedRoute><ListeInscriptions /></ProtectedRoute>}
           />
-          <Route
-            path="/organisateur/nouvelle-course"
-            element={<ProtectedRoute><NouvelleCourse /></ProtectedRoute>}
-          />
+          {/* Création protégée (nouvelle URL recommandée) */}
+<Route
+  path="/organisateur/creer-course"
+  element={
+    <ProtectedRoute>
+      <UpsertCourse />
+    </ProtectedRoute>
+  }
+/>
 
-          {/* Édition protégée */}
-          <Route
-            path="/modifier-course/:id"
-            element={<ProtectedRoute><ModifierCourse /></ProtectedRoute>}
-          />
+{/* Édition protégée (on réutilise la même page) */}
+<Route
+  path="/modifier-course/:id"
+  element={
+    <ProtectedRoute>
+      <UpsertCourse />
+    </ProtectedRoute>
+  }
+/>
+
+{/* Compatibilité rétro : ancienne URL → même page */}
+<Route
+  path="/organisateur/nouvelle-course"
+  element={
+    <ProtectedRoute>
+      <UpsertCourse />
+    </ProtectedRoute>
+  }
+/>
+
+{/* (Optionnel, propre) : redirection 301 interne de l’ancienne URL vers la nouvelle */}
+<Route
+  path="/organisateur/nouvelle-course"
+  element={<Navigate to="/organisateur/creer-course" replace />}
+/>
+
           <Route
             path="/details-coureur/:id"
             element={<ProtectedRoute><DetailsCoureur /></ProtectedRoute>}
