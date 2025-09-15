@@ -11,13 +11,20 @@ export default function InscriptionCourse() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Formulaire coureur (utilisé en individuel et comme payeur en équipe)
+  // Formulaire coureur (utilisé en individuel et comme payeur)
   const [inscription, setInscription] = useState(defaultCoureur());
 
-  // Modes et équipe
+  // Modes / équipes
   const [mode, setMode] = useState("individuel"); // 'individuel' | 'groupe' | 'relais'
-  const [teamSize, setTeamSize] = useState(0);
-  const [teamName, setTeamName] = useState("");
+
+  // Pour équipe(s) (groupe/relais)
+  const emptyMember = () => ({ nom: "", prenom: "", email: "" });
+  const defaultTeam = (name = "", size = 0) => ({
+    team_name: name,
+    team_size: size,
+    members: Array.from({ length: Math.max(0, size) }, () => emptyMember()),
+  });
+  const [teams, setTeams] = useState([defaultTeam("Équipe 1", 0)]); // au moins 1 équipe
 
   useEffect(() => {
     let mounted = true;
@@ -25,7 +32,7 @@ export default function InscriptionCourse() {
     async function fetchAll() {
       setLoading(true);
 
-      // 1) Course + formats (tous champs utiles)
+      // Course + formats
       const { data, error } = await supabase
         .from("courses")
         .select(`
@@ -44,7 +51,6 @@ export default function InscriptionCourse() {
       if (!mounted) return;
 
       if (!error && data) {
-        // Compter les inscrits par format (hors annulés)
         const withCounts = await Promise.all(
           (data.formats || []).map(async (f) => {
             const { count } = await supabase
@@ -59,7 +65,7 @@ export default function InscriptionCourse() {
         setFormats(withCounts);
       }
 
-      // 2) Préremplir avec le profil si connecté
+      // Préremplir profil si connecté
       const session = await supabase.auth.getSession();
       const user = session.data?.session?.user;
       if (user) {
@@ -141,7 +147,7 @@ export default function InscriptionCourse() {
     [formats, inscription.format_id]
   );
 
-  // Fenêtre d’inscriptions (info côté client — revalidée côté edge function)
+  // Fenêtre d’inscriptions (hint client)
   const registrationWindow = useMemo(() => {
     if (!selectedFormat) return { isOpen: true, reason: "" };
     const now = new Date();
@@ -152,7 +158,7 @@ export default function InscriptionCourse() {
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
-  // Recalcul prix (individuel) : format / repas
+  // Recalcul prix (individuel)
   useEffect(() => {
     if (!selectedFormat || mode !== "individuel") {
       setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: 0 }));
@@ -165,19 +171,71 @@ export default function InscriptionCourse() {
     setInscription((prev) => ({ ...prev, prix_total_repas: totalRepas, prix_total_coureur: total }));
   }, [selectedFormat, inscription.nombre_repas, mode]);
 
-  // Estimation équipe (le serveur fait foi à la création de session)
+  // Estimation équipes (multi)
   const estimationEquipe = useMemo(() => {
     if (!selectedFormat || mode === "individuel") return 0;
-    const base = Number(selectedFormat.prix || 0) * (teamSize || selectedFormat.team_size || 0);
     const fee = Number(selectedFormat.prix_equipe || 0) || 0;
-    return base + fee;
-  }, [selectedFormat, mode, teamSize]);
+    const prixUnitaire = Number(selectedFormat.prix || 0) || 0;
+    const sum = teams.reduce((acc, t) => acc + (t.team_size || 0) * prixUnitaire + fee, 0);
+    return sum;
+  }, [selectedFormat, mode, teams]);
 
   function setField(name, value) {
     setInscription((prev) => ({ ...prev, [name]: value }));
   }
 
-  // Pay
+  // ----- Gestion équipes -----
+  const canGroupOrRelay =
+    selectedFormat &&
+    (selectedFormat.type_format === "groupe" || selectedFormat.type_format === "relais");
+
+  const minTeam = selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1;
+  const maxTeam = selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20;
+
+  function setTeamSizeAt(index, size) {
+    size = Math.max(minTeam, Math.min(maxTeam, Number(size || 0)));
+    setTeams((prev) => {
+      const copy = [...prev];
+      const t = { ...copy[index] };
+      t.team_size = size;
+      const cur = t.members.length;
+      if (size > cur) t.members = [...t.members, ...Array.from({ length: size - cur }, () => emptyMember())];
+      if (size < cur) t.members = t.members.slice(0, size);
+      copy[index] = t;
+      return copy;
+    });
+  }
+
+  function setTeamNameAt(index, name) {
+    setTeams((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], team_name: name };
+      return copy;
+    });
+  }
+
+  function setMemberAt(teamIdx, memberIdx, field, value) {
+    setTeams((prev) => {
+      const copy = [...prev];
+      const team = { ...copy[teamIdx] };
+      const members = [...team.members];
+      members[memberIdx] = { ...members[memberIdx], [field]: value };
+      team.members = members;
+      copy[teamIdx] = team;
+      return copy;
+    });
+  }
+
+  function addTeam() {
+    const n = teams.length + 1;
+    setTeams((prev) => [...prev, defaultTeam(`Équipe ${n}`, selectedFormat?.team_size || minTeam)]);
+  }
+
+  function removeTeam(idx) {
+    setTeams((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
+  }
+
+  // ----- Paiement -----
   async function handlePay() {
     if (submitting) return;
     setSubmitting(true);
@@ -202,11 +260,11 @@ export default function InscriptionCourse() {
         return;
       }
 
-      // ---------- INDIVIDUEL ----------
       const full =
         selectedFormat &&
         Number(selectedFormat.inscrits || 0) >= Number(selectedFormat.nb_max_coureurs || 0);
 
+      // ===== INDIVIDUEL =====
       if (mode === "individuel") {
         if (full && !selectedFormat?.waitlist_enabled) {
           alert(`Le format ${selectedFormat.nom} est complet.`);
@@ -215,8 +273,6 @@ export default function InscriptionCourse() {
         }
 
         const trace_id = uuidv4();
-
-        // Insérer l’inscription en “en attente”
         const { data: inserted, error: insertErr } = await supabase
           .from("inscriptions")
           .insert([
@@ -244,7 +300,6 @@ export default function InscriptionCourse() {
           setSubmitting(false);
           return;
         }
-
         const prixTotal = Number(inserted.prix_total_coureur || 0);
 
         const { data, error: fnError } = await supabase.functions.invoke(
@@ -269,12 +324,31 @@ export default function InscriptionCourse() {
           setSubmitting(false);
           return;
         }
-
         window.location.href = data.url;
         return;
       }
 
-      // ---------- GROUPE / RELAIS ----------
+      // ===== GROUPE / RELAIS =====
+      // Validation basique des équipes
+      for (const [idx, team] of teams.entries()) {
+        if (!team.team_name || !team.team_size) {
+          alert(`Équipe #${idx + 1} : nom et taille requis.`);
+          setSubmitting(false);
+          return;
+        }
+        if (team.members.length !== team.team_size) {
+          alert(`Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`);
+          setSubmitting(false);
+          return;
+        }
+        const bad = team.members.find((m) => !m.nom?.trim() || !m.prenom?.trim());
+        if (bad) {
+          alert(`Équipe #${idx + 1} : chaque membre doit avoir nom et prénom.`);
+          setSubmitting(false);
+          return;
+        }
+      }
+
       const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
@@ -282,28 +356,40 @@ export default function InscriptionCourse() {
         return;
       }
 
-      const qty = Number(teamSize || selectedFormat?.team_size || 0);
-      if (!qty || qty <= 0) {
-        alert("Veuillez saisir la taille de l’équipe.");
-        setSubmitting(false);
-        return;
+      // Payload :
+      // - si plusieurs équipes => teams[]
+      // - si une seule => compat: team_name, team_size, members
+      let body = {
+        mode, // 'groupe' | 'relais'
+        format_id: inscription.format_id,
+        user_id: user.id,
+        course_id: courseId,
+        email: payerEmail,
+        successUrl: "https://www.tickrace.com/merci",
+        cancelUrl: "https://www.tickrace.com/paiement-annule",
+      };
+
+      if (teams.length > 1) {
+        body = {
+          ...body,
+          teams: teams.map((t) => ({
+            team_name: t.team_name,
+            team_size: t.team_size,
+            members: t.members, // [{nom, prenom, email?}]
+          })),
+        };
+      } else {
+        body = {
+          ...body,
+          team_name: teams[0].team_name,
+          team_size: teams[0].team_size,
+          members: teams[0].members,
+        };
       }
 
       const { data, error: fnError } = await supabase.functions.invoke(
         "create-checkout-session",
-        {
-          body: {
-            mode, // 'groupe' | 'relais'
-            format_id: inscription.format_id,
-            team_size: qty,
-            team_name: teamName || "Équipe",
-            user_id: user.id,
-            course_id: courseId,
-            email: payerEmail,
-            successUrl: "https://www.tickrace.com/merci",
-            cancelUrl: "https://www.tickrace.com/paiement-annule",
-          },
-        }
+        { body }
       );
 
       if (fnError || !data?.url) {
@@ -352,13 +438,6 @@ export default function InscriptionCourse() {
         )
       : null;
 
-  const canGroupOrRelay =
-    selectedFormat &&
-    (selectedFormat.type_format === "groupe" || selectedFormat.type_format === "relais");
-
-  const minTeam = selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1;
-  const maxTeam = selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20;
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -405,11 +484,17 @@ export default function InscriptionCourse() {
                 value={inscription.format_id}
                 onChange={(e) => {
                   setField("format_id", e.target.value);
-                  const f = formats.find(ff => ff.id === e.target.value);
+                  const f = formats.find((ff) => ff.id === e.target.value);
                   const newMode = f?.type_format || "individuel";
                   setMode(newMode);
-                  setTeamSize(f?.team_size || 0);
-                  setTeamName("");
+
+                  // Initialiser équipes selon format
+                  if (newMode === "individuel") {
+                    setTeams([defaultTeam("Équipe 1", 0)]);
+                  } else {
+                    const def = f?.team_size || (f?.nb_coureurs_min || 1);
+                    setTeams([defaultTeam("Équipe 1", def)]);
+                  }
                 }}
                 className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
                 required
@@ -441,8 +526,8 @@ export default function InscriptionCourse() {
                 </div>
               )}
 
-              {/* Sélecteur mode si format le permet */}
-              {canGroupOrRelay && (
+              {/* Sélecteur de mode (si format le permet) */}
+              {selectedFormat && selectedFormat.type_format !== "individuel" && (
                 <div className="mt-3">
                   <div className="text-sm font-medium mb-1">Type d’inscription</div>
                   <div className="flex gap-2">
@@ -474,41 +559,136 @@ export default function InscriptionCourse() {
                   </div>
                 </div>
               )}
-
-              {/* Paramètres équipe */}
-              {selectedFormat && mode !== "individuel" && (
-                <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-sm font-medium">Nom d’équipe</label>
-                    <input
-                      className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                      value={teamName}
-                      onChange={(e) => setTeamName(e.target.value)}
-                      placeholder="Ex. Les Fusées"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-sm font-medium">
-                      Taille de l’équipe {selectedFormat.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}
-                    </label>
-                    <input
-                      type="number"
-                      className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                      value={teamSize || selectedFormat.team_size || 0}
-                      min={selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1}
-                      max={selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20}
-                      onChange={(e) => setTeamSize(Number(e.target.value))}
-                    />
-                    <p className="text-xs text-neutral-500 mt-1">
-                      Min {selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1}
-                      {" — "}
-                      Max {selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20}
-                    </p>
-                  </div>
-                </div>
-              )}
             </div>
           </section>
+
+          {/* Équipes (pour groupe/relais) */}
+          {selectedFormat && mode !== "individuel" && (
+            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    {mode === "groupe" ? "Équipe" : "Équipes relais"}
+                  </h2>
+                  <p className="text-sm text-neutral-500">
+                    Renseigne le nom de l’équipe, la taille et les membres (nom, prénom).
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {mode !== "groupe" && (
+                    <button
+                      type="button"
+                      onClick={addTeam}
+                      className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                    >
+                      + Ajouter une équipe
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="p-5 space-y-6">
+                {teams.map((team, tIdx) => (
+                  <div key={tIdx} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="font-medium">
+                        {team.team_name || `Équipe ${tIdx + 1}`}
+                      </div>
+                      {teams.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => removeTeam(tIdx)}
+                          className="text-sm text-neutral-600 hover:text-red-600"
+                        >
+                          Supprimer
+                        </button>
+                      )}
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                      <div>
+                        <label className="text-sm font-medium">Nom d’équipe</label>
+                        <input
+                          className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
+                          value={team.team_name}
+                          onChange={(e) => setTeamNameAt(tIdx, e.target.value)}
+                          placeholder={`Équipe ${tIdx + 1}`}
+                        />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">
+                          Taille de l’équipe {selectedFormat.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}
+                        </label>
+                        <input
+                          type="number"
+                          className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
+                          value={team.team_size || selectedFormat.team_size || 0}
+                          min={minTeam}
+                          max={maxTeam}
+                          onChange={(e) => setTeamSizeAt(tIdx, e.target.value)}
+                        />
+                        <p className="text-xs text-neutral-500 mt-1">
+                          Min {minTeam} — Max {maxTeam}
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Membres */}
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-left text-neutral-600">
+                            <th className="py-2 pr-3">#</th>
+                            <th className="py-2 pr-3">Nom *</th>
+                            <th className="py-2 pr-3">Prénom *</th>
+                            <th className="py-2 pr-3">Email (optionnel)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {team.members.map((m, mIdx) => (
+                            <tr key={mIdx} className="border-t">
+                              <td className="py-2 pr-3 w-10">{mIdx + 1}</td>
+                              <td className="py-2 pr-3">
+                                <input
+                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.nom}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "nom", e.target.value)}
+                                  placeholder="Nom"
+                                />
+                              </td>
+                              <td className="py-2 pr-3">
+                                <input
+                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.prenom}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "prenom", e.target.value)}
+                                  placeholder="Prénom"
+                                />
+                              </td>
+                              <td className="py-2 pr-3">
+                                <input
+                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.email || ""}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "email", e.target.value)}
+                                  placeholder="email@exemple.com"
+                                />
+                              </td>
+                            </tr>
+                          ))}
+                          {team.team_size === 0 && (
+                            <tr>
+                              <td colSpan={4} className="py-2 text-neutral-500">
+                                Indique une taille d’équipe pour générer les lignes.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Infos coureur (payeur) */}
           <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
@@ -569,51 +749,7 @@ export default function InscriptionCourse() {
             </div>
           </section>
 
-          {/* Justificatifs */}
-          <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
-            <div className="p-5 border-b border-neutral-100">
-              <h2 className="text-lg font-semibold">Justificatif</h2>
-            </div>
-            <div className="p-5 space-y-3">
-              <select
-                name="justificatif_type"
-                value={inscription.justificatif_type}
-                onChange={(e) => setField("justificatif_type", e.target.value)}
-                className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
-              >
-                <option value="">-- Sélectionnez --</option>
-                <option value="licence">Licence FFA</option>
-                <option value="pps">PPS (Parcours Prévention Santé)</option>
-              </select>
-
-              {inscription.justificatif_type === "licence" && (
-                <input className="rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                  name="numero_licence" placeholder="Numéro de licence"
-                  value={inscription.numero_licence}
-                  onChange={(e) => setField("numero_licence", e.target.value)} />
-              )}
-
-              {inscription.justificatif_type === "pps" && (
-                <input className="rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                  name="pps_identifier" placeholder="Identifiant PPS"
-                  value={inscription.pps_identifier}
-                  onChange={(e) => setField("pps_identifier", e.target.value)} />
-              )}
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mt-2">
-                <input className="rounded-xl border border-neutral-300 px-3 py-2"
-                  name="contact_urgence_nom" placeholder="Contact urgence - Nom"
-                  value={inscription.contact_urgence_nom}
-                  onChange={(e) => setField("contact_urgence_nom", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2"
-                  name="contact_urgence_telephone" placeholder="Contact urgence - Téléphone"
-                  value={inscription.contact_urgence_telephone}
-                  onChange={(e) => setField("contact_urgence_telephone", e.target.value)} />
-              </div>
-            </div>
-          </section>
-
-          {/* Repas (individuel seulement) */}
+          {/* Repas (uniquement individuel) */}
           {selectedFormat && Number(selectedFormat.stock_repas) > 0 && mode === "individuel" && (
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100">
@@ -678,20 +814,21 @@ export default function InscriptionCourse() {
                 </>
               ) : (
                 <>
-                  <div className="flex justify-between">
-                    <span className="text-neutral-600">
-                      {mode === "groupe" ? "Groupe" : "Relais"} — {teamSize || selectedFormat?.team_size || 0} pers.
-                    </span>
-                    <span className="font-medium">~{Number(estimationEquipe || 0).toFixed(2)} €</span>
-                  </div>
-                  {selectedFormat?.prix_equipe ? (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">Frais d’équipe</span>
+                  {teams.map((t, i) => (
+                    <div key={i} className="flex justify-between">
+                      <span className="text-neutral-600">
+                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
+                      </span>
                       <span className="font-medium">
-                        {Number(selectedFormat.prix_equipe).toFixed(2)} €
+                        ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
                       </span>
                     </div>
-                  ) : null}
+                  ))}
+                  <div className="h-px bg-neutral-200 my-2" />
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">Sous-total estimé</span>
+                    <span className="font-medium">~{Number(estimationEquipe || 0).toFixed(2)} €</span>
+                  </div>
                 </>
               )}
 
@@ -728,7 +865,7 @@ export default function InscriptionCourse() {
                       : "bg-neutral-900 hover:bg-black"
                   }`}
               >
-                {submitting ? "Redirection vers Stripe…" : (mode === "individuel" ? "Confirmer et payer" : "Payer l’équipe")}
+                {submitting ? "Redirection vers Stripe…" : (mode === "individuel" ? "Confirmer et payer" : "Payer les équipes")}
               </button>
 
               {selectedFormat &&
