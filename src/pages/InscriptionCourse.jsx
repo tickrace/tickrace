@@ -11,9 +11,10 @@ export default function InscriptionCourse() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Inscription unique (par défaut)
+  // Formulaire coureur (utilisé en individuel et comme payeur en équipe)
   const [inscription, setInscription] = useState(defaultCoureur());
-  // Modes de paiement
+
+  // Modes et équipe
   const [mode, setMode] = useState("individuel"); // 'individuel' | 'groupe' | 'relais'
   const [teamSize, setTeamSize] = useState(0);
   const [teamName, setTeamName] = useState("");
@@ -24,7 +25,7 @@ export default function InscriptionCourse() {
     async function fetchAll() {
       setLoading(true);
 
-      // 1) Course + formats (on récupère les champs utiles au paiement groupé/relais)
+      // 1) Course + formats (tous champs utiles)
       const { data, error } = await supabase
         .from("courses")
         .select(`
@@ -43,7 +44,7 @@ export default function InscriptionCourse() {
       if (!mounted) return;
 
       if (!error && data) {
-        // Compte inscrits par format
+        // Compter les inscrits par format (hors annulés)
         const withCounts = await Promise.all(
           (data.formats || []).map(async (f) => {
             const { count } = await supabase
@@ -58,7 +59,7 @@ export default function InscriptionCourse() {
         setFormats(withCounts);
       }
 
-      // 2) Préremplir profil si connecté
+      // 2) Préremplir avec le profil si connecté
       const session = await supabase.auth.getSession();
       const user = session.data?.session?.user;
       if (user) {
@@ -69,8 +70,8 @@ export default function InscriptionCourse() {
           .maybeSingle();
 
         if (profil) {
-          const prefill = {
-            ...defaultCoureur(),
+          setInscription((prev) => ({
+            ...prev,
             nom: profil.nom ?? "",
             prenom: profil.prenom ?? "",
             email: profil.email ?? user.email ?? "",
@@ -92,9 +93,7 @@ export default function InscriptionCourse() {
             contact_urgence_nom: profil.contact_urgence_nom ?? "",
             contact_urgence_telephone: profil.contact_urgence_telephone ?? "",
             coureur_id: user.id,
-            prix_total_coureur: 0,
-          };
-          setInscription(prefill);
+          }));
         }
       }
 
@@ -107,7 +106,7 @@ export default function InscriptionCourse() {
     };
   }, [courseId]);
 
-  // --- helpers ---
+  // Helpers
   function defaultCoureur() {
     return {
       coureur_id: null,
@@ -142,39 +141,33 @@ export default function InscriptionCourse() {
     [formats, inscription.format_id]
   );
 
-  // fenêtre d’inscriptions (client-side hint ; revalidée au serveur)
+  // Fenêtre d’inscriptions (info côté client — revalidée côté edge function)
   const registrationWindow = useMemo(() => {
     if (!selectedFormat) return { isOpen: true, reason: "" };
     const now = new Date();
     const openAt = selectedFormat.inscription_ouverture ? new Date(selectedFormat.inscription_ouverture) : null;
     const closeAt = selectedFormat.inscription_fermeture ? new Date(selectedFormat.inscription_fermeture) : null;
-
     if (openAt && now < openAt) return { isOpen: false, reason: `Ouvre le ${openAt.toLocaleString()}` };
     if (closeAt && now > closeAt) return { isOpen: false, reason: `Fermé depuis le ${closeAt.toLocaleString()}` };
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
-  // recalcul prix (individuel) quand format / nombre_repas change
+  // Recalcul prix (individuel) : format / repas
   useEffect(() => {
     if (!selectedFormat || mode !== "individuel") {
-      setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: mode === "individuel" ? 0 : p.prix_total_coureur }));
+      setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: 0 }));
       return;
     }
     const prixRepas = Number(selectedFormat.prix_repas || 0);
     const prixInscription = Number(selectedFormat.prix || 0);
     const totalRepas = prixRepas * Number(inscription.nombre_repas || 0);
     const total = prixInscription + totalRepas;
-
-    setInscription((prev) => ({
-      ...prev,
-      prix_total_repas: totalRepas,
-      prix_total_coureur: total,
-    }));
+    setInscription((prev) => ({ ...prev, prix_total_repas: totalRepas, prix_total_coureur: total }));
   }, [selectedFormat, inscription.nombre_repas, mode]);
 
-  // estimation affichée pour groupe/relais (serveur fait foi)
+  // Estimation équipe (le serveur fait foi à la création de session)
   const estimationEquipe = useMemo(() => {
-    if (!selectedFormat || (mode === "individuel")) return 0;
+    if (!selectedFormat || mode === "individuel") return 0;
     const base = Number(selectedFormat.prix || 0) * (teamSize || selectedFormat.team_size || 0);
     const fee = Number(selectedFormat.prix_equipe || 0) || 0;
     return base + fee;
@@ -184,7 +177,7 @@ export default function InscriptionCourse() {
     setInscription((prev) => ({ ...prev, [name]: value }));
   }
 
-  // bouton principal
+  // Pay
   async function handlePay() {
     if (submitting) return;
     setSubmitting(true);
@@ -198,26 +191,24 @@ export default function InscriptionCourse() {
         setSubmitting(false);
         return;
       }
-
       if (!inscription.format_id) {
         alert("Veuillez sélectionner un format.");
         setSubmitting(false);
         return;
       }
-
       if (!registrationWindow.isOpen) {
         alert(`Inscriptions non ouvertes : ${registrationWindow.reason}`);
         setSubmitting(false);
         return;
       }
 
+      // ---------- INDIVIDUEL ----------
       const full =
         selectedFormat &&
         Number(selectedFormat.inscrits || 0) >= Number(selectedFormat.nb_max_coureurs || 0);
 
-      // ---------- INDIVIDUEL (legacy) ----------
       if (mode === "individuel") {
-        if (full) {
+        if (full && !selectedFormat?.waitlist_enabled) {
           alert(`Le format ${selectedFormat.nom} est complet.`);
           setSubmitting(false);
           return;
@@ -247,11 +238,7 @@ export default function InscriptionCourse() {
           return;
         }
 
-        const payerEmail =
-          inscription.email ||
-          user.email ||
-          user.user_metadata?.email ||
-          "";
+        const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
         if (!payerEmail) {
           alert("Veuillez renseigner un email.");
           setSubmitting(false);
@@ -269,22 +256,16 @@ export default function InscriptionCourse() {
               prix_total: prixTotal,
               inscription_id: inserted.id,
               email: payerEmail,
-              trace_id, // pour recoller dans le webhook
+              trace_id,
               successUrl: "https://www.tickrace.com/merci",
               cancelUrl: "https://www.tickrace.com/paiement-annule",
             },
           }
         );
 
-        if (fnError) {
-          console.error("❌ create-checkout-session error:", fnError);
+        if (fnError || !data?.url) {
+          console.error("❌ create-checkout-session error:", fnError, data);
           alert("Erreur lors de la création du paiement.");
-          setSubmitting(false);
-          return;
-        }
-        if (!data?.url) {
-          console.error("❌ Pas d'URL de session renvoyée :", data);
-          alert("Erreur lors de la création du paiement (pas d'URL).");
           setSubmitting(false);
           return;
         }
@@ -294,19 +275,14 @@ export default function InscriptionCourse() {
       }
 
       // ---------- GROUPE / RELAIS ----------
-      // On laisse le serveur calculer le prix exact + contrôler capacité/waitlist
-      const payerEmail =
-        inscription.email ||
-        user.email ||
-        user.user_metadata?.email ||
-        "";
+      const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
         setSubmitting(false);
         return;
       }
 
-      const qty = Number(teamSize || selectedFormat.team_size || 0);
+      const qty = Number(teamSize || selectedFormat?.team_size || 0);
       if (!qty || qty <= 0) {
         alert("Veuillez saisir la taille de l’équipe.");
         setSubmitting(false);
@@ -330,22 +306,16 @@ export default function InscriptionCourse() {
         }
       );
 
-      if (fnError) {
-        console.error("❌ create-checkout-session error:", fnError);
-        alert(fnError.message || "Erreur lors de la création du paiement.");
-        setSubmitting(false);
-        return;
-      }
-      if (!data?.url) {
-        console.error("❌ Pas d'URL de session renvoyée :", data);
-        alert("Erreur lors de la création du paiement (pas d'URL).");
+      if (fnError || !data?.url) {
+        console.error("❌ create-checkout-session error:", fnError, data);
+        alert(fnError?.message || "Erreur lors de la création du paiement.");
         setSubmitting(false);
         return;
       }
 
       window.location.href = data.url;
     } finally {
-      // on garde submitting à true jusqu'à redirection
+      // submitting reste true jusqu'à la redirection
     }
   }
 
@@ -386,7 +356,6 @@ export default function InscriptionCourse() {
     selectedFormat &&
     (selectedFormat.type_format === "groupe" || selectedFormat.type_format === "relais");
 
-  // borne UI des tailles
   const minTeam = selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1;
   const maxTeam = selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20;
 
@@ -419,9 +388,9 @@ export default function InscriptionCourse() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Colonne formulaire */}
+        {/* Formulaire */}
         <div className="lg:col-span-2 space-y-6">
-          {/* Carte Format */}
+          {/* Choix format */}
           <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
             <div className="p-5 border-b border-neutral-100">
               <h2 className="text-lg font-semibold">Choix du format</h2>
@@ -436,10 +405,9 @@ export default function InscriptionCourse() {
                 value={inscription.format_id}
                 onChange={(e) => {
                   setField("format_id", e.target.value);
-                  // reset mode/équipe
                   const f = formats.find(ff => ff.id === e.target.value);
-                  if (f?.type_format === "individuel") setMode("individuel");
-                  else setMode(f?.type_format || "individuel");
+                  const newMode = f?.type_format || "individuel";
+                  setMode(newMode);
                   setTeamSize(f?.team_size || 0);
                   setTeamName("");
                 }}
@@ -473,7 +441,7 @@ export default function InscriptionCourse() {
                 </div>
               )}
 
-              {/* Sélecteur de mode si applicable */}
+              {/* Sélecteur mode si format le permet */}
               {canGroupOrRelay && (
                 <div className="mt-3">
                   <div className="text-sm font-medium mb-1">Type d’inscription</div>
@@ -507,7 +475,7 @@ export default function InscriptionCourse() {
                 </div>
               )}
 
-              {/* Paramètres d’équipe si groupe/relais */}
+              {/* Paramètres équipe */}
               {selectedFormat && mode !== "individuel" && (
                 <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
                   <div>
@@ -527,12 +495,14 @@ export default function InscriptionCourse() {
                       type="number"
                       className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
                       value={teamSize || selectedFormat.team_size || 0}
-                      min={minTeam}
-                      max={maxTeam}
+                      min={selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1}
+                      max={selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20}
                       onChange={(e) => setTeamSize(Number(e.target.value))}
                     />
                     <p className="text-xs text-neutral-500 mt-1">
-                      Min {minTeam} — Max {maxTeam}
+                      Min {selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1}
+                      {" — "}
+                      Max {selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20}
                     </p>
                   </div>
                 </div>
@@ -540,7 +510,7 @@ export default function InscriptionCourse() {
             </div>
           </section>
 
-          {/* Carte Infos coureur (toujours nécessaire pour le payeur) */}
+          {/* Infos coureur (payeur) */}
           <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
             <div className="p-5 border-b border-neutral-100">
               <h2 className="text-lg font-semibold">Informations coureur</h2>
@@ -599,7 +569,7 @@ export default function InscriptionCourse() {
             </div>
           </section>
 
-          {/* Carte Justificatif (inchangée) */}
+          {/* Justificatifs */}
           <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
             <div className="p-5 border-b border-neutral-100">
               <h2 className="text-lg font-semibold">Justificatif</h2>
@@ -643,7 +613,7 @@ export default function InscriptionCourse() {
             </div>
           </section>
 
-          {/* Carte Repas (si disponible, uniquement pertinent pour individuel ici) */}
+          {/* Repas (individuel seulement) */}
           {selectedFormat && Number(selectedFormat.stock_repas) > 0 && mode === "individuel" && (
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100">
@@ -671,7 +641,7 @@ export default function InscriptionCourse() {
           )}
         </div>
 
-        {/* Colonne résumé / paiement */}
+        {/* Résumé / paiement */}
         <aside className="lg:col-span-1">
           <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm sticky top-6">
             <div className="p-5 border-b border-neutral-100">
@@ -687,8 +657,7 @@ export default function InscriptionCourse() {
                 </span>
               </div>
 
-              {/* Individuel */}
-              {mode === "individuel" && (
+              {mode === "individuel" ? (
                 <>
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Inscription</span>
@@ -707,18 +676,13 @@ export default function InscriptionCourse() {
                     </div>
                   )}
                 </>
-              )}
-
-              {/* Groupe/Relais (estimation) */}
-              {mode !== "individuel" && (
+              ) : (
                 <>
                   <div className="flex justify-between">
                     <span className="text-neutral-600">
                       {mode === "groupe" ? "Groupe" : "Relais"} — {teamSize || selectedFormat?.team_size || 0} pers.
                     </span>
-                    <span className="font-medium">
-                      ~{Number(estimationEquipe || 0).toFixed(2)} €
-                    </span>
+                    <span className="font-medium">~{Number(estimationEquipe || 0).toFixed(2)} €</span>
                   </div>
                   {selectedFormat?.prix_equipe ? (
                     <div className="flex justify-between">
@@ -752,7 +716,10 @@ export default function InscriptionCourse() {
                   submitting ||
                   !inscription.format_id ||
                   !registrationWindow.isOpen ||
-                  (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && (Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0)))
+                  (mode === "individuel" &&
+                    selectedFormat &&
+                    !selectedFormat.waitlist_enabled &&
+                    Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0))
                 }
                 className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition
                   ${
@@ -764,7 +731,8 @@ export default function InscriptionCourse() {
                 {submitting ? "Redirection vers Stripe…" : (mode === "individuel" ? "Confirmer et payer" : "Payer l’équipe")}
               </button>
 
-              {selectedFormat && Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0) && (
+              {selectedFormat &&
+                Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0) && (
                 <p className="text-xs text-amber-700 mt-2">
                   {selectedFormat.waitlist_enabled
                     ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
