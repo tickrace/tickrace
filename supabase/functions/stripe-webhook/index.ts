@@ -1,12 +1,11 @@
 // deno-lint-ignore-file
-// deno-lint-ignore-file
-// deno-lint-ignore-file
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pin=v135";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("stripe-webhook BUILD: 2025-09-20T19:25Z");
+console.log("BUILD stripe-webhook 2025-09-20T19:45Z");
+
 
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
