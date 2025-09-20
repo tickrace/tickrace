@@ -1,9 +1,10 @@
 // deno-lint-ignore-file
-import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
+ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.5";
-import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0";
-
+//import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.5";
+//import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0";
+ import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0";
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 const TICKRACE_BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
