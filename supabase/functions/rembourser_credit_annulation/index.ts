@@ -1,5 +1,5 @@
-import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+﻿import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0
 import Stripe from "npm:stripe";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
@@ -26,10 +26,10 @@ serve(async (req) => {
   try {
     const { credit_id } = await req.json();
 
-    console.log("🔁 Reçu demande de remboursement pour crédit :", credit_id);
+    console.log("ðŸ” ReÃ§u demande de remboursement pour crÃ©dit :", credit_id);
 
     if (!credit_id) {
-      console.error("⛔ credit_id manquant");
+      console.error("â›” credit_id manquant");
       return new Response("credit_id manquant", {
         status: 400,
         headers: { "Access-Control-Allow-Origin": "*" },
@@ -43,19 +43,19 @@ serve(async (req) => {
       .single();
 
     if (creditError || !credit) {
-      console.error("❌ Crédit introuvable :", creditError);
-      return new Response("Crédit non trouvé", {
+      console.error("âŒ CrÃ©dit introuvable :", creditError);
+      return new Response("CrÃ©dit non trouvÃ©", {
         status: 404,
         headers: { "Access-Control-Allow-Origin": "*" },
       });
     }
 
-    console.log("✅ Crédit trouvé :", credit);
+    console.log("âœ… CrÃ©dit trouvÃ© :", credit);
 
     if (credit.details?.stripe_refund_id) {
-      console.warn("⚠️ Crédit déjà remboursé :", credit.details.stripe_refund_id);
+      console.warn("âš ï¸ CrÃ©dit dÃ©jÃ  remboursÃ© :", credit.details.stripe_refund_id);
       return new Response(JSON.stringify({
-        warning: "Ce crédit a déjà été remboursé.",
+        warning: "Ce crÃ©dit a dÃ©jÃ  Ã©tÃ© remboursÃ©.",
         refund_id: credit.details.stripe_refund_id,
       }), {
         status: 200,
@@ -76,7 +76,7 @@ serve(async (req) => {
       .limit(1)
       .single();
 
-    // 2. Sinon, chercher dans paiements groupés
+    // 2. Sinon, chercher dans paiements groupÃ©s
     if (!paiement) {
       const { data: paiementsGroupes, error: groupesError } = await supabase
         .from("paiements")
@@ -84,8 +84,8 @@ serve(async (req) => {
         .eq("status", "succeeded");
 
       if (groupesError) {
-        console.error("❌ Erreur paiements groupés :", groupesError);
-        return new Response("Erreur paiements groupés", {
+        console.error("âŒ Erreur paiements groupÃ©s :", groupesError);
+        return new Response("Erreur paiements groupÃ©s", {
           status: 500,
           headers: { "Access-Control-Allow-Origin": "*" },
         });
@@ -97,14 +97,14 @@ serve(async (req) => {
     }
 
     if (!paiement?.stripe_payment_intent_id) {
-      console.error("❌ Aucun paiement trouvé pour cette inscription");
-      return new Response("Aucun paiement Stripe valide trouvé pour cette inscription.", {
+      console.error("âŒ Aucun paiement trouvÃ© pour cette inscription");
+      return new Response("Aucun paiement Stripe valide trouvÃ© pour cette inscription.", {
         status: 404,
         headers: { "Access-Control-Allow-Origin": "*" },
       });
     }
 
-    console.log("💳 Paiement trouvé :", paiement);
+    console.log("ðŸ’³ Paiement trouvÃ© :", paiement);
 
     // Stripe refund
     const refund = await stripe.refunds.create({
@@ -112,9 +112,9 @@ serve(async (req) => {
       amount: Math.round(Number(credit.montant_rembourse) * 100),
     });
 
-    console.log("✅ Remboursement Stripe effectué :", refund.id);
+    console.log("âœ… Remboursement Stripe effectuÃ© :", refund.id);
 
-    // Récupération de l'inscription pour l'email
+    // RÃ©cupÃ©ration de l'inscription pour l'email
 const { data: inscription, error: inscriptionError } = await supabase
   .from("inscriptions")
   .select("email, prenom, nom")
@@ -122,7 +122,7 @@ const { data: inscription, error: inscriptionError } = await supabase
   .single();
 
 if (inscriptionError || !inscription?.email) {
-  console.error("❌ Erreur récupération email inscription :", inscriptionError);
+  console.error("âŒ Erreur rÃ©cupÃ©ration email inscription :", inscriptionError);
 } else {
   const resendRes = await fetch("https://api.resend.com/emails", {
     method: "POST",
@@ -136,18 +136,18 @@ if (inscriptionError || !inscription?.email) {
       subject: "Confirmation de votre remboursement Tickrace",
       html: `
         <p>Bonjour ${inscription.prenom ?? ""} ${inscription.nom ?? ""},</p>
-        <p>Nous confirmons le remboursement de votre inscription d'un montant de <strong>${credit.montant_rembourse.toFixed(2)} €</strong>.</p>
+        <p>Nous confirmons le remboursement de votre inscription d'un montant de <strong>${credit.montant_rembourse.toFixed(2)} â‚¬</strong>.</p>
         <p>Merci pour votre confiance,</p>
-        <p>L’équipe Tickrace</p>
+        <p>Lâ€™Ã©quipe Tickrace</p>
       `,
     }),
   });
 
   if (!resendRes.ok) {
     const errorText = await resendRes.text();
-    console.error("❌ Erreur envoi email Resend :", errorText);
+    console.error("âŒ Erreur envoi email Resend :", errorText);
   } else {
-    console.log("📧 Email de confirmation envoyé à :", inscription.email);
+    console.log("ðŸ“§ Email de confirmation envoyÃ© Ã  :", inscription.email);
   }
 }
 
@@ -163,14 +163,14 @@ if (inscriptionError || !inscription?.email) {
       .eq("id", credit.id);
 
     if (updateError) {
-      console.error("❌ Erreur mise à jour Supabase :", updateError);
-      return new Response("Erreur lors de la mise à jour Supabase", {
+      console.error("âŒ Erreur mise Ã  jour Supabase :", updateError);
+      return new Response("Erreur lors de la mise Ã  jour Supabase", {
         status: 500,
         headers: { "Access-Control-Allow-Origin": "*" },
       });
     }
 
-    console.log("📝 Crédit mis à jour avec ID remboursement");
+    console.log("ðŸ“ CrÃ©dit mis Ã  jour avec ID remboursement");
 
     return new Response(JSON.stringify({
       success: true,
@@ -182,10 +182,13 @@ if (inscriptionError || !inscription?.email) {
       },
     });
   } catch (error) {
-    console.error("💥 Erreur interne :", error);
+    console.error("ðŸ’¥ Erreur interne :", error);
     return new Response("Erreur interne", {
       status: 500,
       headers: { "Access-Control-Allow-Origin": "*" },
     });
   }
 });
+
+// hard guard
+try { (globalThis | Out-Null) } catch {} // keep file non-empty

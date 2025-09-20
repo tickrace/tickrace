@@ -1,8 +1,8 @@
-// supabase/functions/release-funds/index.ts
+﻿// supabase/functions/release-funds/index.ts
 // deno-lint-ignore-file
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
-import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.5";
+import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabaseSR = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -20,7 +20,7 @@ function cors(origin: string | null) {
   };
 }
 
-// ✔️ parse "8,92" ou "8.92" ou 8.92
+// âœ”ï¸ parse "8,92" ou "8.92" ou 8.92
 function normEuro(val: unknown): number {
   if (typeof val === "number") return val;
   if (typeof val !== "string") return NaN;
@@ -29,7 +29,7 @@ function normEuro(val: unknown): number {
   return Number.isFinite(n) ? n : NaN;
 }
 
-// ✔️ Vérifie l’admin dans la table `admins` (présence = admin)
+// âœ”ï¸ VÃ©rifie lâ€™admin dans la table `admins` (prÃ©sence = admin)
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || req.headers.get("authorization") || "";
   const jwt = auth.startsWith("Bearer ") ? auth.slice(7) : null;
@@ -38,7 +38,7 @@ async function requireAdmin(req: Request) {
   const { data: { user }, error } = await supabaseSR.auth.getUser(jwt);
   if (error || !user) return { ok: false, code: 401 as const };
 
-  // ✅ Nouvelle table
+  // âœ… Nouvelle table
   const { data: adminRow, error: adminErr } = await supabaseSR
     .from("admins")
     .select("user_id")
@@ -93,7 +93,7 @@ serve(async (req) => {
     }
     const requested = Math.round(eur * 100);
     const toTransfer = Math.min(requested, maxNet);
-    if (toTransfer <= 0) return new Response(JSON.stringify({ error: "rien à transférer" }), { status: 400, headers });
+    if (toTransfer <= 0) return new Response(JSON.stringify({ error: "rien Ã  transfÃ©rer" }), { status: 400, headers });
 
     const tr = await stripe.transfers.create({
       amount: toTransfer,
@@ -123,3 +123,6 @@ serve(async (req) => {
     }), { status: 500, headers });
   }
 });
+
+// hard guard
+try { (globalThis | Out-Null) } catch {} // keep file non-empty

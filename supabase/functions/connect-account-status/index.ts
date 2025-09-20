@@ -5,7 +5,6 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
-const BASE = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
 
 const ALLOW = ["https://www.tickrace.com", "http://localhost:5173", "http://127.0.0.1:5173"];
 function cors(o: string | null) {
@@ -37,41 +36,38 @@ serve(async (req) => {
   if (!user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const origin = req.headers.get("origin");
-    const base = (origin && ALLOW.includes(origin) ? origin : null) || BASE;
-
-    const returnUrl: string = body?.returnUrl || `${base}/monprofilorganisateur?stripe_onboarding=done`;
-    const refreshUrl: string = body?.refreshUrl || `${base}/monprofilorganisateur?stripe_onboarding=refresh`;
-
     const { data: profil } = await supabase
       .from("profils_utilisateurs")
-      .select("stripe_account_id, email")
+      .select("stripe_account_id")
       .eq("user_id", user.id)
       .maybeSingle();
 
-    let acctId = profil?.stripe_account_id || null;
-    if (!acctId) {
-      const acct = await stripe.accounts.create({
-        type: "express",
-        email: profil?.email || user.email || undefined,
-        capabilities: { card_payments: { requested: true }, transfers: { requested: true } },
-        business_type: "individual",
-      });
-      acctId = acct.id;
-      await supabase.from("profils_utilisateurs").update({ stripe_account_id: acctId }).eq("user_id", user.id);
+    if (!profil?.stripe_account_id) {
+      return new Response(JSON.stringify({ has_account: false }), { status: 200, headers });
     }
 
-    const link = await stripe.accountLinks.create({
-      account: acctId!,
-      type: "account_onboarding",
-      return_url: returnUrl,
-      refresh_url: refreshUrl,
-    });
+    const acct = await stripe.accounts.retrieve(profil.stripe_account_id);
+    const payload = {
+      has_account: true,
+      charges_enabled: acct.charges_enabled,
+      payouts_enabled: acct.payouts_enabled,
+      details_submitted: acct.details_submitted,
+      requirements_due: acct.requirements?.currently_due ?? [],
+    };
 
-    return new Response(JSON.stringify({ url: link.url, account_id: acctId }), { status: 200, headers });
+    await supabase
+      .from("profils_utilisateurs")
+      .update({
+        stripe_charges_enabled: payload.charges_enabled,
+        stripe_payouts_enabled: payload.payouts_enabled,
+        stripe_details_submitted: payload.details_submitted,
+        stripe_requirements_due: payload.requirements_due as any,
+      })
+      .eq("user_id", user.id);
+
+    return new Response(JSON.stringify(payload), { status: 200, headers });
   } catch (e: any) {
-    console.error("connect-onboarding error:", e?.message ?? e);
+    console.error("connect-account-status error:", e?.message ?? e);
     return new Response(JSON.stringify({ error: "Erreur serveur" }), { status: 500, headers });
   }
 });

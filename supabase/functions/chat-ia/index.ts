@@ -1,6 +1,6 @@
-// deno-lint-ignore-file
+﻿// deno-lint-ignore-file
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.43.4";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0
 import OpenAI from "https://esm.sh/openai@4.55.3";
 
 const corsHeaders = {
@@ -16,7 +16,7 @@ interface ChatIARequest {
 }
 
 serve(async (req) => {
-  // Préflight CORS
+  // PrÃ©flight CORS
   if (req.method === "OPTIONS") {
   // 204 No Content => pas de body !
   return new Response(null, { headers: corsHeaders, status: 204 });
@@ -62,10 +62,10 @@ serve(async (req) => {
       .maybeSingle();
     if (courseErr) console.error("Course fetch error:", courseErr);
 
-    const system = `Tu es l'assistant IA de Tickrace. Réponds brièvement, utilement et poliment.
-Contexte: ${course?.nom ?? "Course"} à ${course?.lieu ?? "?"} le ${course?.date ?? "?"}.`;
+    const system = `Tu es l'assistant IA de Tickrace. RÃ©ponds briÃ¨vement, utilement et poliment.
+Contexte: ${course?.nom ?? "Course"} Ã  ${course?.lieu ?? "?"} le ${course?.date ?? "?"}.`;
 
-    let aiText = "Désolé, je n'ai pas assez d'infos pour répondre.";
+    let aiText = "DÃ©solÃ©, je n'ai pas assez d'infos pour rÃ©pondre.";
     try {
       const completion = await openai.chat.completions.create({
         model: "gpt-4o-mini",
@@ -78,7 +78,7 @@ Contexte: ${course?.nom ?? "Course"} à ${course?.lieu ?? "?"} le ${course?.date
       aiText = completion.choices?.[0]?.message?.content?.trim() || aiText;
     } catch (e) {
       console.error("OpenAI error:", e);
-      aiText = "🤖 IA momentanément indisponible. Réessaie dans un instant.";
+      aiText = "ðŸ¤– IA momentanÃ©ment indisponible. RÃ©essaie dans un instant.";
     }
 
     const IA_USER_ID = "00000000-0000-0000-0000-000000000000";
@@ -113,3 +113,6 @@ Contexte: ${course?.nom ?? "Course"} à ${course?.lieu ?? "?"} le ${course?.date
     });
   }
 });
+
+// hard guard
+try { (globalThis | Out-Null) } catch {} // keep file non-empty
