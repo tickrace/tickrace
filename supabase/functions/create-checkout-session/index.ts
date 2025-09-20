@@ -1,8 +1,8 @@
 // deno-lint-ignore-file
-
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0";
+
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
@@ -27,39 +27,38 @@ serve(async (req) => {
   try {
     const body = await req.json();
 
-    // Champs communs / existants
+    // Champs communs / front
     const {
       user_id, course_id, email, successUrl, cancelUrl, trace_id: traceIn,
-      // INDIVIDUEL (héritage)
+      // Individuel (héritage)
       prix_total, inscription_id,
-      // ÉQUIPES
-      mode,                 // 'groupe' | 'relais' | 'individuel' (défaut)
-      format_id,            // requis si mode != individuel
+      // Équipes
+      mode,                 // 'individuel' | 'groupe' | 'relais'
+      format_id,
       team_name, team_size, members,
-      teams,                // [{ team_name, team_size, members: [{nom,prenom,email?}] }]
+      teams,                // [{ team_name, team_size, members: [{nom, prenom, email?}, ...] }]
     } = body ?? {};
 
-    // Garde-fous généraux
     if (!isUUID(user_id) || !isUUID(course_id) || !email) {
       return new Response(JSON.stringify({ error: "Paramètres invalides (user_id/course_id/email)" }), { status: 400, headers });
     }
 
     const trace_id = isUUID(traceIn) ? traceIn : crypto.randomUUID();
 
-    // Récup organisateur -> compte connecté
-    const { data: course, error: cErr } = await supabase.from("courses")
-      .select("organisateur_id, nom").eq("id", course_id).single();
+    // Organisateur -> compte connecté
+    const { data: course, error: cErr } = await supabase
+      .from("courses").select("organisateur_id, nom").eq("id", course_id).single();
     if (cErr || !course) return new Response(JSON.stringify({ error: "Course introuvable" }), { status: 404, headers });
 
-    const { data: profil, error: pErr } = await supabase.from("profils_utilisateurs")
-      .select("stripe_account_id").eq("user_id", course.organisateur_id).maybeSingle();
+    const { data: profil, error: pErr } = await supabase
+      .from("profils_utilisateurs").select("stripe_account_id").eq("user_id", course.organisateur_id).maybeSingle();
     if (pErr) return new Response(JSON.stringify({ error: "Erreur lecture profil" }), { status: 500, headers });
     const destinationAccount = profil?.stripe_account_id ?? null;
     if (!destinationAccount) {
       return new Response(JSON.stringify({ error: "Organisateur non configuré Stripe", code: "ORGANISER_STRIPE_NOT_CONFIGURED" }), { status: 409, headers });
     }
 
-    // ---------- BRANCHE 1 : INDIVIDUEL (comportement existant) ----------
+    // ========== BRANCHE INDIVIDUEL ==========
     if (!mode || mode === "individuel") {
       if (!isUUID(inscription_id)) {
         return new Response(JSON.stringify({ error: "inscription_id manquant (individuel)" }), { status: 400, headers });
@@ -70,7 +69,7 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "prix_total invalide" }), { status: 400, headers });
       }
 
-      // Marque + pré-insert paiement
+      // Marquer + pré-insert paiement
       await supabase.from("inscriptions").update({ paiement_trace_id: trace_id }).eq("id", inscription_id);
       await supabase.from("paiements").insert({
         inscription_id, user_id, montant_total: prixNumber, devise: "eur",
@@ -100,19 +99,26 @@ serve(async (req) => {
           quantity: 1,
         }],
         customer_email: String(email),
+        client_reference_id: trace_id,
         payment_intent_data: {
           transfer_group: `grp_${trace_id}`,
           metadata,
         },
-        success_url: (successUrl || "https://www.tickrace.com/merci") + "?session_id={CHECKOUT_SESSION_ID}&inscription_id="+inscription_id,
-        cancel_url: (cancelUrl || "https://www.tickrace.com/paiement-annule") + "?session_id={CHECKOUT_SESSION_ID}&inscription_id="+inscription_id,
+        success_url:
+          (successUrl || "https://www.tickrace.com/merci")
+          + "?session_id={CHECKOUT_SESSION_ID}&inscription_id=" + inscription_id
+          + "&trace_id=" + trace_id,
+        cancel_url:
+          (cancelUrl || "https://www.tickrace.com/paiement-annule")
+          + "?session_id={CHECKOUT_SESSION_ID}&inscription_id=" + inscription_id
+          + "&trace_id=" + trace_id,
         metadata,
       });
 
       return new Response(JSON.stringify({ url: session.url, trace_id }), { status: 200, headers });
     }
 
-    // ---------- BRANCHE 2 : GROUPE / RELAIS ----------
+    // ========== BRANCHE GROUPE / RELAIS ==========
     if (!isUUID(format_id)) {
       return new Response(JSON.stringify({ error: "format_id requis pour groupe/relais" }), { status: 400, headers });
     }
@@ -129,7 +135,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Format introuvable" }), { status: 404, headers });
     }
 
-    // Fenêtre d’inscription (côté serveur)
+    // Fenêtre d’inscription
     const now = new Date();
     const openAt = formatRow.inscription_ouverture ? new Date(formatRow.inscription_ouverture) : null;
     const closeAt = formatRow.inscription_fermeture ? new Date(formatRow.inscription_fermeture) : null;
@@ -145,7 +151,7 @@ serve(async (req) => {
           members: Array.isArray(members) ? members : [],
         }];
 
-    // Validation basique
+    // Validation rapide
     for (const t of normalizedTeams) {
       const size = Number(t.team_size || 0);
       if (!t.team_name || size <= 0) {
@@ -160,19 +166,19 @@ serve(async (req) => {
       }
     }
 
-    // Capacité actuelle
+    // Capacité
     const { count: currentCount } = await supabase
       .from("inscriptions")
       .select("*", { count: "exact", head: true })
       .eq("format_id", format_id)
-      .neq("statut", "annulé");
+      .neq("statut", "annule");
     const toAdd = normalizedTeams.reduce((acc: number, t: any) => acc + Number(t.team_size || 0), 0);
     const maxCap = Number(formatRow.nb_max_coureurs || 0) || Infinity;
     if ((currentCount || 0) + toAdd > maxCap && !formatRow.waitlist_enabled) {
       return new Response(JSON.stringify({ error: "Capacité atteinte (pas de liste d’attente)" }), { status: 409, headers });
     }
 
-    // Calcul du total
+    // Total
     const pricePerRunner = Number(formatRow.prix || 0);
     const teamFee = Number(formatRow.prix_equipe || 0) || 0;
     const totalEuros = normalizedTeams.reduce((sum: number, t: any) => sum + (Number(t.team_size || 0) * pricePerRunner + teamFee), 0);
@@ -181,7 +187,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Montant total invalide" }), { status: 400, headers });
     }
 
-    // 1) Créer les groupes & inscriptions (en attente)
+    // Créer groupes + inscriptions en attente
     const inscriptionIds: string[] = [];
     const groupIds: string[] = [];
     for (const t of normalizedTeams) {
@@ -209,8 +215,7 @@ serve(async (req) => {
             course_id,
             format_id,
             groupe_id: grp.id,
-                      coureur_id: null, // IMPORTANT: éviter le DEFAULT gen_random_uuid() qui casse la FK
-
+            coureur_id: null, // IMPORTANT : éviter DEFAULT gen_random_uuid() (FK auth.users)
             nom: m.nom,
             prenom: m.prenom,
             email: m.email || email,
@@ -226,7 +231,7 @@ serve(async (req) => {
       }
     }
 
-    // 2) Pré-insert paiement
+    // Pré-insert paiement
     await supabase.from("paiements").insert({
       inscription_id: null,
       user_id,
@@ -252,7 +257,7 @@ serve(async (req) => {
       inscription_ids: inscriptionIds.join(","),
     };
 
-    // 3) Session Stripe
+    // Session Stripe
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       payment_method_types: ["card"],
@@ -265,18 +270,29 @@ serve(async (req) => {
         quantity: 1,
       }],
       customer_email: String(email),
+      client_reference_id: trace_id,
       payment_intent_data: {
         transfer_group: `grp_${trace_id}`,
         metadata,
       },
-      success_url: (successUrl || "https://www.tickrace.com/merci") + "?session_id={CHECKOUT_SESSION_ID}",
-      cancel_url: (cancelUrl || "https://www.tickrace.com/paiement-annule") + "?session_id={CHECKOUT_SESSION_ID}",
+      success_url:
+        (successUrl || "https://www.tickrace.com/merci")
+        + "?session_id={CHECKOUT_SESSION_ID}"
+        + "&trace_id=" + trace_id,
+      cancel_url:
+        (cancelUrl || "https://www.tickrace.com/paiement-annule")
+        + "?session_id={CHECKOUT_SESSION_ID}"
+        + "&trace_id=" + trace_id,
       metadata,
     });
 
     return new Response(JSON.stringify({ url: session.url, trace_id }), { status: 200, headers });
   } catch (e: any) {
     console.error("create-checkout-session (SCT) error:", e?.message ?? e, e?.stack);
-    return new Response(JSON.stringify({ error: "Erreur serveur" }), { status: 500, headers });
+    const debug = Deno.env.get("DEBUG") === "1";
+    return new Response(
+      JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }),
+      { status: 500, headers }
+    );
   }
 });

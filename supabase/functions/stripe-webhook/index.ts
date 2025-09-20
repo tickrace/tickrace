@@ -1,10 +1,9 @@
 // deno-lint-ignore-file
- import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
+import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0";
-//import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.5";
-//import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0";
- import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0";
+import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0";
+
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
 const TICKRACE_BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
@@ -31,11 +30,11 @@ serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Méthode non autorisée" }), { status: 405, headers });
 
-  // Signature (ASYNC)
+  // ✅ Signature (ASYNC)
   let event: Stripe.Event;
   try {
     const sig = req.headers.get("stripe-signature") ?? "";
-    const raw = await req.text(); // ne pas relire ensuite
+    const raw = await req.text(); // ne PAS relire le body ensuite
     event = await stripe.webhooks.constructEventAsync(raw, sig, STRIPE_WEBHOOK_SECRET);
   } catch (e: any) {
     console.error("❌ Bad signature (async):", e?.message ?? e);
@@ -86,7 +85,6 @@ serve(async (req) => {
     const mode = md["mode"] || "individuel"; // 'individuel' | 'groupe' | 'relais'
     const group_ids_csv = md["group_ids"] || "";
     const inscription_ids_csv = md["inscription_ids"] || "";
-    const multi = md["multi"] === "1";
 
     if (!isUUID(course_id) || !isUUID(user_id) || !isUUID(trace_id)) {
       return new Response(JSON.stringify({ error: "metadata invalide (course/user/trace)" }), { status: 400, headers });
@@ -166,6 +164,43 @@ serve(async (req) => {
       if (inscIds.length > 0) {
         await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
       }
+
+      // ► Email individuel à chaque membre (si email présent)
+      try {
+        if (resend && inscIds.length > 0) {
+          const { data: members } = await supabase
+            .from("inscriptions")
+            .select("id, email, nom, prenom")
+            .in("id", inscIds);
+          if (members && Array.isArray(members)) {
+            for (const m of members) {
+              if (m?.email) {
+                try {
+                  await resend.emails.send({
+                    from: "Tickrace <no-reply@tickrace.com>",
+                    to: m.email,
+                    subject: "Confirmation d’inscription (équipe)",
+                    html: `
+                      <div style="font-family:Arial,sans-serif;">
+                        <h2>Votre inscription est confirmée ✅</h2>
+                        <p>Bonjour ${m.prenom ?? ""} ${m.nom ?? ""},</p>
+                        <p>Votre numéro d’inscription : <strong>${m.id}</strong></p>
+                        <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${m.id}">
+                          Consulter mon inscription
+                        </a></p>
+                      </div>
+                    `,
+                  });
+                } catch (e) {
+                  console.error("Resend member email error:", e);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Resend batch error:", e);
+      }
     }
 
     // Enqueue reversement J+1
@@ -183,49 +218,35 @@ serve(async (req) => {
       }
     }
 
-    // Emails (optionnel)
+    // Email payeur (individuel)
     try {
-      if (resend) {
-        if (mode === "individuel") {
-          const { data: insc } = await supabase.from("inscriptions").select("id, email, nom, prenom").eq("id", inscription_id).maybeSingle();
-          if (insc?.email) {
-            await resend.emails.send({
-              from: "Tickrace <no-reply@tickrace.com>",
-              to: insc.email,
-              subject: "Confirmation d’inscription",
-              html: `
-                <div style="font-family:Arial,sans-serif;">
-                  <h2>Votre inscription est confirmée ✅</h2>
-                  <p>Bonjour ${insc.prenom ?? ""} ${insc.nom ?? ""},</p>
-                  <p>Votre numéro d’inscription : <strong>${insc.id}</strong></p>
-                  <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${insc.id}">${TICKRACE_BASE_URL}/mon-inscription/${insc.id}</a></p>
-                </div>
-              `,
-            });
-          }
-        } else {
-          const to = (session?.customer_details?.email) || (pi?.receipt_email) || null;
-          if (to) {
-            await resend.emails.send({
-              from: "Tickrace <no-reply@tickrace.com>",
-              to,
-              subject: "Confirmation d’inscription d’équipe",
-              html: `
-                <div style="font-family:Arial,sans-serif;">
-                  <h2>Vos équipes sont confirmées ✅</h2>
-                  <p>Merci pour votre paiement. Vos équipes sont enregistrées.</p>
-                  <p>Vous pourrez gérer les participants depuis votre espace Tickrace.</p>
-                </div>
-              `,
-            });
-          }
+      if (resend && mode === "individuel") {
+        const { data: insc } = await supabase.from("inscriptions").select("id, email, nom, prenom").eq("id", inscription_id).maybeSingle();
+        if (insc?.email) {
+          await resend.emails.send({
+            from: "Tickrace <no-reply@tickrace.com>",
+            to: insc.email,
+            subject: "Confirmation d’inscription",
+            html: `
+              <div style="font-family:Arial,sans-serif;">
+                <h2>Votre inscription est confirmée ✅</h2>
+                <p>Bonjour ${insc.prenom ?? ""} ${insc.nom ?? ""},</p>
+                <p>Votre numéro d’inscription : <strong>${insc.id}</strong></p>
+                <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${insc.id}">${TICKRACE_BASE_URL}/mon-inscription/${insc.id}</a></p>
+              </div>
+            `,
+          });
         }
       }
-    } catch (e) { console.error("Resend error:", e); }
+    } catch (e) { console.error("Resend payer email error:", e); }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   } catch (e: any) {
     console.error("stripe-webhook (SCT) error:", e?.message ?? e, e?.stack);
-    return new Response(JSON.stringify({ error: "Erreur serveur" }), { status: 500, headers });
+    const debug = Deno.env.get("DEBUG") === "1";
+    return new Response(
+      JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }),
+      { status: 500, headers }
+    );
   }
 });
