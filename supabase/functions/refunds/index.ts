@@ -1,11 +1,14 @@
 ﻿// supabase/functions/refunds/index.ts
 // deno-lint-ignore-file
 import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
-import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0
+import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0";
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
+
+// Guard anti-polyfills Node (certaines libs tentent d'utiliser process côté Edge)
+(globalThis as any).process = undefined;
 
 const ALLOW = ["https://www.tickrace.com", "http://localhost:5173", "http://127.0.0.1:5173"];
 function cors(o: string | null) {
@@ -57,7 +60,9 @@ function roundCents(x: number): number { return Math.round(x); }
 serve(async (req) => {
   const headers = cors(req.headers.get("origin"));
   if (req.method === "OPTIONS") return new Response("ok", { headers });
-  if (req.method !== "POST") return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers });
+  if (req.method !== "POST") {
+    return new Response(JSON.stringify({ error: "Method not allowed" }), { status: 405, headers });
+  }
 
   const user = await requireUser(req);
   if (!user) return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401, headers });
@@ -69,13 +74,15 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Bad request" }), { status: 400, headers });
     }
 
-    // 1) Inscription (sans user_id) + Paiement (utilisÃ© pour contrÃ´le d'accÃ¨s)
+    // 1) Inscription (sans user_id) + Paiement (utilisé pour contrôle d'accès)
     const { data: insc, error: iErr } = await supabase
       .from("inscriptions")
-      .select("id, course_id, statut, format_id") // format_id si dispo (sinon null)
+      .select("id, course_id, statut, format_id, groupe_id")
       .eq("id", inscription_id)
       .single();
-    if (iErr || !insc) return new Response(JSON.stringify({ error: "Inscription introuvable" }), { status: 404, headers });
+    if (iErr || !insc) {
+      return new Response(JSON.stringify({ error: "Inscription introuvable" }), { status: 404, headers });
+    }
 
     const { data: pay, error: pErr } = await supabase
       .from("paiements")
@@ -84,34 +91,34 @@ serve(async (req) => {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle();
-    if (pErr || !pay) return new Response(JSON.stringify({ error: "Paiement introuvable" }), { status: 404, headers });
+    if (pErr || !pay) {
+      return new Response(JSON.stringify({ error: "Paiement introuvable" }), { status: 404, headers });
+    }
 
-    // ContrÃ´le d'accÃ¨s: le payeur
+    // Contrôle d'accès: seul le payeur peut demander le remboursement
     if (pay.user_id !== user.id) {
       return new Response(JSON.stringify({ error: "Forbidden" }), { status: 403, headers });
     }
 
-    // 2) RÃ©cupÃ©ration de la date de l'Ã©preuve depuis formats
-    // on privilÃ©gie l'Ã©preuve choisie (inscriptions.format_id), sinon on prend le format le plus proche (date la plus tÃ´t) de la course
+    // 2) Récupération de la date de l'épreuve depuis formats
+    // On privilégie l'épreuve choisie (inscriptions.format_id), sinon format le plus tôt de la course
     let fmt: { id: string; date: string | null; heure_depart: string | null } | null = null;
 
     if (insc.format_id && isUUID(insc.format_id)) {
-      const { data: f1, error: f1Err } = await supabase
+      const { data: f1 } = await supabase
         .from("formats")
         .select("id, date, heure_depart")
         .eq("id", insc.format_id)
         .maybeSingle();
-      if (f1Err) console.error("formats by id error:", f1Err);
       fmt = f1 ?? null;
     }
     if (!fmt) {
-      const { data: f2, error: f2Err } = await supabase
+      const { data: f2 } = await supabase
         .from("formats")
         .select("id, date, heure_depart")
         .eq("course_id", insc.course_id)
         .order("date", { ascending: true })
         .limit(1);
-      if (f2Err) console.error("formats by course error:", f2Err);
       fmt = (f2 && f2.length > 0) ? f2[0] : null;
     }
 
@@ -119,17 +126,15 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Format introuvable ou sans date" }), { status: 409, headers });
     }
 
-    // 3) Calcul daysBefore
-    // On calcule sur la date (J) et, si disponible, l'heure dÃ©part.
-    // Pour rester robuste sans lib TZ, on normalise au minuit UTC du jour de l'Ã©preuve.
+    // 3) Calcul daysBefore (J + éventuelle heure de départ), en UTC
     const [y, m, d] = String(fmt.date).split("-").map((s) => parseInt(s, 10)); // YYYY-MM-DD
     const eventMidnightUTC = Date.UTC(y, (m - 1), d, 0, 0, 0); // J 00:00 UTC
 
-    // Si heure_depart renseignÃ©e, on l'intÃ¨gre (toujours en UTC pour le diff "jours" simplifiÃ©)
     let eventTs = eventMidnightUTC;
     if (fmt.heure_depart) {
       const [hh, mm, ss = "00"] = String(fmt.heure_depart).split(":");
-      const addMs = (parseInt(hh || "0") * 3600 + parseInt(mm || "0") * 60 + parseInt(ss || "0")) * 1000;
+      const addMs =
+        (parseInt(hh || "0") * 3600 + parseInt(mm || "0") * 60 + parseInt(ss || "0")) * 1000;
       eventTs = eventMidnightUTC + addMs;
     }
 
@@ -137,7 +142,7 @@ serve(async (req) => {
     const daysBefore = Math.floor((eventTs - nowTs) / (24 * 3600 * 1000));
     const { tier, percent } = computeTier(daysBefore);
 
-    // 4) Calculs monÃ©taires (en cents)
+    // 4) Calculs monétaires (en cents)
     const amount_total_cents = toCents(pay.amount_total);
     const stripe_fee_cents = Math.max(0, toCents(pay.fee_total));
     const platform_fee_cents = Math.max(0, toCents(pay.platform_fee_amount));
@@ -182,14 +187,17 @@ serve(async (req) => {
     }
 
     // 6) Refund Stripe
-    const refund = await stripe.refunds.create({
-      payment_intent: String(pay.stripe_payment_intent_id),
-      amount: refund_cents,
-    }, { idempotencyKey: created.id });
+    const refund = await stripe.refunds.create(
+      {
+        payment_intent: String(pay.stripe_payment_intent_id),
+        amount: refund_cents,
+      },
+      { idempotencyKey: created.id },
+    );
 
-    // 7) Reversal des transferts si nÃ©cessaire
+    // 7) Reversal des transferts si nécessaire (si des transfers ont déjà eu lieu)
     let remainingToReverse = refund_cents;
-    let reversalIds: string[] = [];
+    const reversalIds: string[] = [];
 
     if (toCents(pay.transferred_total_cents) > toCents(pay.reversed_total_cents)) {
       const { data: transfers } = await supabase
@@ -204,16 +212,16 @@ serve(async (req) => {
       if (transferable > 0) {
         for (const t of transfers || []) {
           if (remainingToReverse <= 0) break;
-          const remainingOnThis = Math.max(0, toCents(t.amount_cents) - toCents(t.reversed_cents));
+          const remainingOnThis = Math.max(0, toCents(t.amount_cents) - toCents((t as any).reversed_cents));
           if (remainingOnThis <= 0) continue;
-          const doReverse = Math.min(remainingOnThis, remainingToReverse);
 
+          const doReverse = Math.min(remainingOnThis, remainingToReverse);
           const rev = await stripe.transfers.createReversal(String(t.transfer_id), { amount: doReverse });
           reversalIds.push(rev.id);
 
           await supabase
             .from("paiement_transferts")
-            .update({ reversed_cents: toCents(t.reversed_cents) + doReverse })
+            .update({ reversed_cents: toCents((t as any).reversed_cents) + doReverse })
             .eq("id", t.id);
 
           remainingToReverse -= doReverse;
@@ -222,7 +230,7 @@ serve(async (req) => {
       }
     }
 
-    // 8) MAJ DB
+    // 8) MAJ DB : cumuls remboursés / reversés
     const newRefunded = toCents(pay.refunded_total_cents) + refund_cents;
     const newReversed = toCents(pay.reversed_total_cents) + (refund_cents - remainingToReverse);
 
@@ -231,7 +239,8 @@ serve(async (req) => {
       .eq("id", pay.id);
 
     const fullRefunded = refund_cents >= base_cents && percent > 0;
-    const newStatus = percent === 0 ? insc.statut : (fullRefunded ? "remboursÃ©e_totalement" : "remboursÃ©e_partiellement");
+    const newStatus =
+      percent === 0 ? insc.statut : (fullRefunded ? "remboursée_totalement" : "remboursée_partiellement");
 
     await supabase.from("inscriptions")
       .update({ statut: newStatus, cancelled_at: new Date().toISOString() })
@@ -259,6 +268,3 @@ serve(async (req) => {
     return new Response(JSON.stringify({ error: "Erreur serveur" }), { status: 500, headers });
   }
 });
-
-// hard guard
-try { (globalThis | Out-Null) } catch {} // keep file non-empty
