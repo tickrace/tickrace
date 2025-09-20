@@ -2,7 +2,7 @@
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 /* Utils */
 const formatDate = (d) =>
@@ -16,49 +16,130 @@ const formatDate = (d) =>
 
 export default function MesInscriptions() {
   const { session } = useUser();
+  const navigate = useNavigate();
   const [inscriptions, setInscriptions] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (session?.user) {
-      fetchInscriptions();
-    }
+    (async () => {
+      // Exiger la connexion (les policies RLS bloquent anon)
+      const sess = session ?? (await supabase.auth.getSession()).data?.session;
+      if (!sess?.user) {
+        navigate(`/login?next=${encodeURIComponent("/mesinscriptions")}`);
+        return;
+      }
+      await fetchInscriptions(sess.user);
+    })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session]);
 
-  const fetchInscriptions = async () => {
+  async function fetchInscriptions(user) {
     setLoading(true);
+    try {
+      const uid = user.id;
+      const uemail = user.email || "";
 
-    const { data, error } = await supabase
-      .from("inscriptions")
-      .select(`
-        *,
-        format:format_id (
-          id,
-          nom,
-          distance_km,
-          denivele_dplus,
-          date,
-          course:course_id (
+      // 1) Inscriptions où tu es le coureur
+      const { data: asRunner, error: e1 } = await supabase
+        .from("inscriptions")
+        .select("id")
+        .eq("coureur_id", uid);
+      if (e1) console.warn("asRunner error:", e1?.message);
+
+      // 2) Inscriptions payées par toi (via paiements.inscription_ids)
+      const { data: pays, error: e2 } = await supabase
+        .from("paiements")
+        .select("inscription_id, inscription_ids")
+        .eq("user_id", uid);
+      if (e2) console.warn("pays error:", e2?.message);
+
+      const paidIds = new Set();
+      for (const p of pays || []) {
+        if (p.inscription_id) paidIds.add(p.inscription_id);
+        if (Array.isArray(p.inscription_ids)) {
+          for (const x of p.inscription_ids) if (x) paidIds.add(x);
+        }
+      }
+
+      // 3) Inscriptions où tu es capitaine de groupe
+      const { data: groups, error: e3 } = await supabase
+        .from("inscriptions_groupes")
+        .select("id")
+        .eq("capitaine_user_id", uid);
+      if (e3) console.warn("groups error:", e3?.message);
+
+      let groupInscr = [];
+      if (groups?.length) {
+        const gIds = groups.map((g) => g.id);
+        const { data: d3, error: e3b } = await supabase
+          .from("inscriptions")
+          .select("id")
+          .in("groupe_id", gIds);
+        if (e3b) console.warn("groupInscr error:", e3b?.message);
+        groupInscr = d3 || [];
+      }
+
+      // 4) Inscriptions liées à ton email
+      let emailInscr = [];
+      if (uemail) {
+        const { data: d4, error: e4 } = await supabase
+          .from("inscriptions")
+          .select("id")
+          .eq("email", uemail);
+        if (e4) console.warn("emailInscr error:", e4?.message);
+        emailInscr = d4 || [];
+      }
+
+      // Déduplication de tous les IDs collectés
+      const ids = new Set();
+      for (const r of asRunner || []) ids.add(r.id);
+      for (const id of paidIds) ids.add(id);
+      for (const r of groupInscr) ids.add(r.id);
+      for (const r of emailInscr) ids.add(r.id);
+
+      const finalIds = Array.from(ids);
+      if (finalIds.length === 0) {
+        setInscriptions([]);
+        setLoading(false);
+        return;
+      }
+
+      // Requête “riche” pour l’affichage (format + course)
+      const { data: rich, error: eRich } = await supabase
+        .from("inscriptions")
+        .select(`
+          *,
+          format:format_id (
             id,
             nom,
-            lieu,
-            image_url
+            distance_km,
+            denivele_dplus,
+            date,
+            course:course_id (
+              id,
+              nom,
+              lieu,
+              image_url
+            )
           )
-        )
-      `)
-      .eq("coureur_id", session.user.id)
-      .order("created_at", { ascending: false });
+        `)
+        .in("id", finalIds)
+        .order("created_at", { ascending: false });
 
-    if (error) {
-      console.error("Erreur chargement inscriptions :", error.message);
+      if (eRich) {
+        console.error("Erreur chargement inscriptions enrichies:", eRich.message);
+        setInscriptions([]);
+      } else {
+        // Triage final (par date création desc)
+        setInscriptions(rich || []);
+      }
+    } catch (err) {
+      console.error("fetchInscriptions fatal:", err);
       setInscriptions([]);
-    } else {
-      setInscriptions(data || []);
+    } finally {
+      setLoading(false);
     }
-
-    setLoading(false);
-  };
+  }
 
   if (loading) {
     return (
@@ -133,26 +214,21 @@ export default function MesInscriptions() {
 
                     {/* Body */}
                     <div className="flex-1 p-4">
-                      <h2 className="text-lg font-semibold leading-snug">{format?.nom}</h2>
+                      <h2 className="text-lg font-semibold leading-snug">
+                        {format?.nom || "Format"}
+                      </h2>
                       <p className="text-sm text-neutral-600">
                         {course?.nom} — {course?.lieu}
                       </p>
 
                       <div className="mt-1 text-sm text-neutral-700 flex flex-wrap gap-x-4 gap-y-1">
-                        {format?.distance_km != null && (
-                          <span>🏁 {format.distance_km} km</span>
-                        )}
-                        {format?.denivele_dplus != null && (
-                          <span>⛰️ {format.denivele_dplus} m D+</span>
-                        )}
+                        {format?.distance_km != null && <span>🏁 {format.distance_km} km</span>}
+                        {format?.denivele_dplus != null && <span>⛰️ {format.denivele_dplus} m D+</span>}
                         {format?.date && <span>📅 {formatDate(format.date)}</span>}
                       </div>
 
                       <div className="mt-2 text-sm">
-                        Statut :{" "}
-                        <span className="font-medium">
-                          {statut || "—"}
-                        </span>
+                        Statut : <span className="font-medium">{statut || "—"}</span>
                       </div>
 
                       <div className="mt-4 flex items-center justify-between">
