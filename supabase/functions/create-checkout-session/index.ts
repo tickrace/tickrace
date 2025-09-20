@@ -209,6 +209,8 @@ serve(async (req) => {
             course_id,
             format_id,
             groupe_id: grp.id,
+                      coureur_id: null, // IMPORTANT: éviter le DEFAULT gen_random_uuid() qui casse la FK
+
             nom: m.nom,
             prenom: m.prenom,
             email: m.email || email,
