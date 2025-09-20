@@ -4,9 +4,7 @@ import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pi
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("BUILD stripe-webhook 2025-09-20T19:45Z");
-
-
+console.log("BUILD stripe-webhook 2025-09-20T19:55Z");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -25,32 +23,29 @@ const cors = (o: string | null) => ({
   "Access-Control-Max-Age": "86400",
   "Content-Type": "application/json",
 });
-const isUUID = (v: unknown) =>
-  typeof v === "string" &&
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v as string);
+const isUUID = (v: unknown) => typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v as string);
 
 serve(async (req) => {
   const headers = cors(req.headers.get("origin"));
   if (req.method === "OPTIONS") return new Response("ok", { headers });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Méthode non autorisée" }), { status: 405, headers });
 
-  // ✅ Signature (ASYNC)
+  // Signature (async)
   let event: Stripe.Event;
   try {
     const sig = req.headers.get("stripe-signature") ?? "";
-    const raw = await req.text(); // ne PAS relire le body ensuite
+    const raw = await req.text();
     event = await stripe.webhooks.constructEventAsync(raw, sig, STRIPE_WEBHOOK_SECRET);
   } catch (e: any) {
-    console.error("❌ Bad signature (async):", e?.message ?? e);
+    console.error("Bad signature:", e?.message ?? e);
     return new Response(JSON.stringify({ error: "Bad signature" }), { status: 400, headers });
   }
 
   try {
-    if (!["checkout.session.completed", "payment_intent.succeeded", "charge.succeeded"].includes(event.type)) {
+    if (!["checkout.session.completed","payment_intent.succeeded","charge.succeeded"].includes(event.type)) {
       return new Response(JSON.stringify({ ok: true, ignored: event.type }), { status: 200, headers });
     }
 
-    // Récup objects + metadata
     let session: Stripe.Checkout.Session | null = null;
     let pi: Stripe.PaymentIntent | null = null;
     let chargeId: string | null = null;
@@ -67,40 +62,37 @@ serve(async (req) => {
       chargeId = ch.id;
     }
 
-    // Retrouver PI si besoin
     if (!pi) {
       const piId = (session?.payment_intent as string) || (chargeId ? (event.data.object as any).payment_intent : undefined);
       if (piId) pi = await stripe.paymentIntents.retrieve(piId, { expand: ["latest_charge.balance_transaction"] });
     }
     if (!pi) return new Response(JSON.stringify({ error: "PaymentIntent introuvable" }), { status: 404, headers });
 
-    // Finaliser chargeId
     if (!chargeId) {
       if (typeof pi.latest_charge === "string") chargeId = pi.latest_charge;
       else chargeId = (pi.latest_charge as any)?.id ?? null;
     }
 
-    // Metadata consolidée
     md = { ...(md || {}), ...(pi.metadata || {}) };
-    const inscription_id = md["inscription_id"]; // présent en individuel
+    const trace_id = md["trace_id"];
     const course_id = md["course_id"];
     const user_id = md["user_id"];
-    const trace_id = md["trace_id"];
-    const mode = md["mode"] || "individuel"; // 'individuel' | 'groupe' | 'relais'
-    const group_ids_csv = md["group_ids"] || "";
-    const inscription_ids_csv = md["inscription_ids"] || "";
+    const type = md["type"] || "individuel";
+    const inscription_id = md["inscription_id"];
+    const groupe_id = md["groupe_id"];
 
-    if (!isUUID(course_id) || !isUUID(user_id) || !isUUID(trace_id)) {
-      return new Response(JSON.stringify({ error: "metadata invalide (course/user/trace)" }), { status: 400, headers });
+    if (!isUUID(trace_id) || !isUUID(course_id) || !isUUID(user_id)) {
+      return new Response(JSON.stringify({ error: "metadata invalide" }), { status: 400, headers });
     }
-    if (mode === "individuel" && !isUUID(inscription_id)) {
-      return new Response(JSON.stringify({ error: "metadata invalide (inscription_id)" }), { status: 400, headers });
+    if (type === "individuel" && !isUUID(inscription_id)) {
+      return new Response(JSON.stringify({ error: "inscription_id manquant" }), { status: 400, headers });
+    }
+    if (type !== "individuel" && !isUUID(groupe_id)) {
+      return new Response(JSON.stringify({ error: "groupe_id manquant" }), { status: 400, headers });
     }
 
-    // Montants
     const amountTotalCents = (session?.amount_total ?? (pi.amount ?? 0)) ?? 0;
 
-    // Frais Stripe (plateforme, SCT)
     let stripeFeeCents = 0, balanceTxId: string | null = null, receiptUrl: string | null = null;
     if (chargeId) {
       const charge: any = await stripe.charges.retrieve(chargeId, { expand: ["balance_transaction"] });
@@ -116,27 +108,35 @@ serve(async (req) => {
       }
     }
 
-    // Organisateur -> compte connecté
     const { data: course } = await supabase.from("courses").select("organisateur_id").eq("id", course_id).single();
     const { data: profil } = await supabase.from("profils_utilisateurs").select("stripe_account_id").eq("user_id", course.organisateur_id).maybeSingle();
     const destinationAccount = profil?.stripe_account_id ?? null;
 
-    // Commission plateforme
     const platformFeeCents = Math.round(amountTotalCents * 0.05);
 
-    // Upsert paiements
-    const row: any = {
-      inscription_id: mode === "individuel" ? inscription_id : null,
+    let inscriptionIds: string[] = [];
+    if (type === "individuel") {
+      inscriptionIds = [String(inscription_id)];
+      await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", inscription_id);
+    } else {
+      const { data: members } = await supabase.from("inscriptions")
+        .select("id, email, nom, prenom").eq("groupe_id", groupe_id);
+      inscriptionIds = (members || []).map(m => m.id);
+      if (inscriptionIds.length > 0) {
+        await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscriptionIds);
+      }
+      await supabase.from("inscriptions_groupes").update({ statut: "paye" }).eq("id", groupe_id);
+    }
+
+    const row = {
+      inscription_id: type === "individuel" ? inscription_id : null,
       montant_total: amountTotalCents / 100,
       devise: pi.currency ?? "eur",
       stripe_payment_intent_id: String(pi.id),
       status: pi.status ?? "succeeded",
       reversement_effectue: false,
-      user_id,
-      type: mode,
-      inscription_ids: mode === "individuel"
-        ? [inscription_id]
-        : (inscription_ids_csv ? inscription_ids_csv.split(",") : []),
+      user_id, type,
+      inscription_ids: inscriptionIds,
       trace_id,
       receipt_url: receiptUrl,
       charge_id: chargeId,
@@ -156,58 +156,6 @@ serve(async (req) => {
       else await supabase.from("paiements").insert(row);
     }
 
-    // Valider inscriptions / groupes
-    if (mode === "individuel") {
-      await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", inscription_id);
-    } else {
-      const groupIds = group_ids_csv ? group_ids_csv.split(",").filter((x) => isUUID(x)) : [];
-      const inscIds = inscription_ids_csv ? inscription_ids_csv.split(",").filter((x) => isUUID(x)) : [];
-      if (groupIds.length > 0) {
-        await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
-      }
-      if (inscIds.length > 0) {
-        await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
-      }
-
-      // ► Email individuel à chaque membre (si email présent)
-      try {
-        if (resend && inscIds.length > 0) {
-          const { data: members } = await supabase
-            .from("inscriptions")
-            .select("id, email, nom, prenom")
-            .in("id", inscIds);
-          if (members && Array.isArray(members)) {
-            for (const m of members) {
-              if (m?.email) {
-                try {
-                  await resend.emails.send({
-                    from: "Tickrace <no-reply@tickrace.com>",
-                    to: m.email,
-                    subject: "Confirmation d’inscription (équipe)",
-                    html: `
-                      <div style="font-family:Arial,sans-serif;">
-                        <h2>Votre inscription est confirmée ✅</h2>
-                        <p>Bonjour ${m.prenom ?? ""} ${m.nom ?? ""},</p>
-                        <p>Votre numéro d’inscription : <strong>${m.id}</strong></p>
-                        <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${m.id}">
-                          Consulter mon inscription
-                        </a></p>
-                      </div>
-                    `,
-                  });
-                } catch (e) {
-                  console.error("Resend member email error:", e);
-                }
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.error("Resend batch error:", e);
-      }
-    }
-
-    // Enqueue reversement J+1
     const netToTransfer = Math.max(0, amountTotalCents - platformFeeCents - stripeFeeCents);
     const { data: payRow } = await supabase.from("paiements").select("id").eq("stripe_payment_intent_id", String(pi.id)).maybeSingle();
     if (payRow?.id && destinationAccount && netToTransfer > 0) {
@@ -222,35 +170,36 @@ serve(async (req) => {
       }
     }
 
-    // Email payeur (individuel)
+    // Emails (optionnels)
     try {
-      if (resend && mode === "individuel") {
-        const { data: insc } = await supabase.from("inscriptions").select("id, email, nom, prenom").eq("id", inscription_id).maybeSingle();
-        if (insc?.email) {
-          await resend.emails.send({
-            from: "Tickrace <no-reply@tickrace.com>",
-            to: insc.email,
-            subject: "Confirmation d’inscription",
-            html: `
-              <div style="font-family:Arial,sans-serif;">
-                <h2>Votre inscription est confirmée ✅</h2>
-                <p>Bonjour ${insc.prenom ?? ""} ${insc.nom ?? ""},</p>
-                <p>Votre numéro d’inscription : <strong>${insc.id}</strong></p>
-                <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${insc.id}">${TICKRACE_BASE_URL}/mon-inscription/${insc.id}</a></p>
-              </div>
-            `,
-          });
+      if (resend) {
+        const listIds = inscriptionIds.length ? inscriptionIds : (type === "individuel" ? [inscription_id] : []);
+        if (listIds.length) {
+          const { data: inscs } = await supabase
+            .from("inscriptions").select("id, email, nom, prenom").in("id", listIds);
+          for (const insc of (inscs || [])) {
+            if (!insc?.email) continue;
+            await resend.emails.send({
+              from: "Tickrace <no-reply@tickrace.com>",
+              to: insc.email,
+              subject: "Confirmation d’inscription",
+              html: `
+                <div style="font-family:Arial,sans-serif;">
+                  <h2>Votre inscription est confirmée ✅</h2>
+                  <p>Bonjour ${insc.prenom ?? ""} ${insc.nom ?? ""},</p>
+                  <p>Votre numéro d’inscription : <strong>${insc.id}</strong></p>
+                  <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${insc.id}">${TICKRACE_BASE_URL}/mon-inscription/${insc.id}</a></p>
+                </div>
+              `,
+            });
+          }
         }
       }
-    } catch (e) { console.error("Resend payer email error:", e); }
+    } catch (e) { console.error("Resend error:", e); }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   } catch (e: any) {
-    console.error("stripe-webhook (SCT) error:", e?.message ?? e, e?.stack);
-    const debug = Deno.env.get("DEBUG") === "1";
-    return new Response(
-      JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }),
-      { status: 500, headers }
-    );
+    console.error("stripe-webhook error:", e?.message ?? e, e?.stack);
+    return new Response(JSON.stringify({ error: "Erreur serveur" }), { status: 500, headers });
   }
 });
