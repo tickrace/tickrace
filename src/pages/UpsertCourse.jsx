@@ -104,7 +104,76 @@ function EtapesRelaisEditor({ etapes, setEtapes }) {
     </div>
   );
 }
+/* ---------- Éditeur des catégories d’équipe ---------- */
+ function TeamCategoriesEditor({ cats, setCats }) {
+   const add = () =>
+     setCats([
+       ...cats,
+       {
+         _local_id: uuidv4(),
+         code: "mixed",         // mixed par défaut
+         label: "Mixte (≥1F & ≥1H)",
+         min_male: 1,
+         min_female: 1,
+         ratio_rule: "",
+         min_sum_age: null,
+         notes: "",
+       },
+     ]);
+   const update = (id, patch) =>
+     setCats(cats.map((c) => (c._local_id === id ? { ...c, ...patch } : c)));
+   const remove = (id) => setCats(cats.filter((c) => c._local_id !== id));
 
+   return (
+     <div className="grid gap-4">
+       {cats.map((c) => (
+         <div key={c._local_id} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
+           <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
+             <Field label="Code">
+               <select
+                 className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                 value={c.code}
+                 onChange={(e)=>update(c._local_id,{code:e.target.value})}
+               >
+                 <option value="open">Open</option>
+                 <option value="male">Masculine</option>
+                 <option value="female">Féminine</option>
+                 <option value="mixed">Mixte</option>
+                 <option value="masters">Masters</option>
+               </select>
+             </Field>
+            <Field label="Libellé">
+               <Input value={c.label} onChange={(e)=>update(c._local_id,{label:e.target.value})} placeholder="Ex. Mixte (≥1F & ≥1H)" />
+             </Field>
+             <Field label="Min hommes">
+               <Input type="number" value={c.min_male||0} onChange={(e)=>update(c._local_id,{min_male:Number(e.target.value)})}/>
+             </Field>
+             <Field label="Min femmes">
+               <Input type="number" value={c.min_female||0} onChange={(e)=>update(c._local_id,{min_female:Number(e.target.value)})}/>
+             </Field>
+             <Field label="Ratio (opt.)">
+               <Input value={c.ratio_rule||""} onChange={(e)=>update(c._local_id,{ratio_rule:e.target.value})} placeholder="Ex. 3:2" />
+             </Field>
+             <Field label="Somme âges min (Masters)">
+               <Input type="number" value={c.min_sum_age||""} onChange={(e)=>update(c._local_id,{min_sum_age:e.target.value?Number(e.target.value):null})}/>
+             </Field>
+           </div>
+           <Field label="Notes (opt.)" >
+             <Textarea value={c.notes||""} onChange={(e)=>update(c._local_id,{notes:e.target.value})}/>
+           </Field>
+           <div className="mt-3">
+             <button type="button" onClick={()=>remove(c._local_id)} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100">
+               Supprimer la catégorie
+             </button>
+          </div>
+         </div>
+       ))}
+       <button type="button" onClick={add} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
+         + Ajouter une catégorie d’équipe
+       </button>
+     </div>
+   );
+ }
 /* ---------- Page Upsert ---------- */
 export default function UpsertCourse() {
   const { id } = useParams();
