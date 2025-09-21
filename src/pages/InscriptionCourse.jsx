@@ -1,5 +1,5 @@
 // src/pages/InscriptionCourse.jsx
-import React, { useEffect, useMemo, useState, useRef } from "react";
+import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
@@ -10,6 +10,12 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
   const [supported, setSupported] = useState(true); // false si la table n'existe pas
   const [options, setOptions] = useState([]);
   const [quantites, setQuantites] = useState({}); // option_id -> qty
+
+  // Refs pour garder la dernière valeur dans persist (qui est enregistré de façon stable)
+  const optionsRef = useRef(options);
+  const quantitesRef = useRef(quantites);
+  useEffect(() => { optionsRef.current = options; }, [options]);
+  useEffect(() => { quantitesRef.current = quantites; }, [quantites]);
 
   useEffect(() => {
     let abort = false;
@@ -42,9 +48,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
 
       // init quantités (min = 0 ; max = max_qty_per_inscription)
       const init = {};
-      rows.forEach((o) => {
-        init[o.id] = 0;
-      });
+      rows.forEach((o) => { init[o.id] = 0; });
       setQuantites(init);
       setLoading(false);
     }
@@ -64,21 +68,24 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     onTotalCentsChange?.(totalOptionsCents);
   }, [totalOptionsCents, onTotalCentsChange]);
 
-  // Persistance dans inscriptions_options (pending) après création d’inscription
-  async function persist(inscriptionId) {
+  // Persistance dans inscriptions_options (pending) : lecture via refs (dernières valeurs)
+  const persist = useCallback(async (inscriptionId) => {
     if (!supported || !inscriptionId) return;
+
     await supabase
       .from("inscriptions_options")
       .delete()
       .eq("inscription_id", inscriptionId)
       .eq("status", "pending");
 
+    const curOptions = optionsRef.current || [];
+    const curQty = quantitesRef.current || {};
     const rows = [];
-    for (const o of options) {
-      const q = Number(quantites[o.id] || 0);
+
+    for (const o of curOptions) {
+      const q = Number(curQty[o.id] || 0);
       const max = Number(o.max_qty_per_inscription ?? 10);
-      if (q > 0) {
-        if (q > max) continue;
+      if (q > 0 && q <= max) {
         rows.push({
           inscription_id: inscriptionId,
           option_id: o.id,                      // référence options_catalogue.id
@@ -92,13 +99,14 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       const { error } = await supabase.from("inscriptions_options").insert(rows);
       if (error) console.error("❌ insert inscriptions_options:", error);
     }
-  }
+  }, [supported]);
 
+  // Enregistrer une seule fois la fonction persist (stable)
   useEffect(() => {
     registerPersist?.(persist);
-  }, [registerPersist, options, quantites, supported]);
+  }, [registerPersist, persist]);
 
-  if (!supported) return null;
+  if (!supported || !formatId) return null;
   if (loading) {
     return (
       <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
@@ -221,7 +229,8 @@ export default function InscriptionCourse() {
   // total options payantes (cents) & callback de persistance
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null); // le picker publie sa fonction persist(inscriptionId)
-  function registerPersist(fn) { persistOptionsFnRef.current = fn; }
+  const registerPersist = useCallback((fn) => { persistOptionsFnRef.current = fn; }, []);
+  const handleOptionsTotal = useCallback((cents) => setTotalOptionsCents(cents), []);
 
   useEffect(() => {
     let mounted = true;
@@ -304,9 +313,7 @@ export default function InscriptionCourse() {
     }
 
     fetchAll();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [courseId]);
 
   // Helpers
@@ -382,10 +389,6 @@ export default function InscriptionCourse() {
   }
 
   // ----- Gestion équipes -----
-  const canGroupOrRelay =
-    selectedFormat &&
-    (selectedFormat.type_format === "groupe" || selectedFormat.type_format === "relais");
-
   const minTeam = selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1;
   const maxTeam = selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20;
 
@@ -607,8 +610,6 @@ export default function InscriptionCourse() {
           return;
         }
 
-        // On laisse l'Edge Function créer/agréger les inscriptions relais côté serveur.
-        // Ici, on transmet juste le contexte et le total options (en info).
         const teamsForPayload = teams.map((t) => ({
           team_name: t.team_name,
           team_size: t.team_size,
@@ -616,42 +617,7 @@ export default function InscriptionCourse() {
           members: t.members,
         }));
 
-        // Appel de l'Edge Function "create-checkout-session" (mode relais)
-        const body = (teams.length > 1)
-          ? {
-              mode,
-              format_id: inscription.format_id,
-              user_id: user.id,
-              course_id: courseId,
-              email: payerEmail,
-              teams: teamsForPayload,
-              // informationnel : montant des options sélectionnées (en €)
-              options_total_eur: totalOptionsCents / 100,
-              successUrl: "https://www.tickrace.com/merci",
-              cancelUrl: "https://www.tickrace.com/paiement-annule",
-            }
-          : {
-              mode,
-              format_id: inscription.format_id,
-              user_id: user.id,
-              course_id: courseId,
-              email: payerEmail,
-              team_name: teamsForPayload[0].team_name,
-              team_size: teamsForPayload[0].team_size,
-              category: teamsForPayload[0].category,
-              members: teamsForPayload[0].members,
-              options_total_eur: totalOptionsCents / 100,
-              successUrl: "https://www.tickrace.com/merci",
-              cancelUrl: "https://www.tickrace.com/paiement-annule",
-            };
-
-        // ⚠️ Pour relier les options au paiement relais, on a besoin d'un inscription_id.
-        // Selon ton modèle, l'Edge Function crée une (ou plusieurs) inscriptions server-side.
-        // Deux stratégies :
-        //  A) l'Edge Function renvoie l'inscription_id créée ⇒ on persiste alors les options (mais ça arrive après Checkout… pas idéal)
-        //  B) on crée ici une "inscription relais parent" en brouillon pour attacher les options.
-        //
-        // Ici, on choisit B) : on crée une inscription-brouillon liée au format pour attacher les options, puis on envoie son id.
+        // créer une inscription parent "draft" pour attacher les options
         const trace_id = uuidv4();
         const { data: insertedRelay, error: insErr } = await supabase
           .from("inscriptions")
@@ -677,8 +643,34 @@ export default function InscriptionCourse() {
           await persistOptionsFnRef.current(insertedRelay.id);
         }
 
-        // Passer l'id à l'Edge Function (elle ajoutera les line items des options depuis inscriptions_options)
-        body.inscription_id = insertedRelay.id;
+        const body = (teams.length > 1)
+          ? {
+              mode,
+              format_id: inscription.format_id,
+              user_id: user.id,
+              course_id: courseId,
+              email: payerEmail,
+              teams: teamsForPayload,
+              options_total_eur: totalOptionsCents / 100, // info
+              inscription_id: insertedRelay.id,
+              successUrl: "https://www.tickrace.com/merci",
+              cancelUrl: "https://www.tickrace.com/paiement-annule",
+            }
+          : {
+              mode,
+              format_id: inscription.format_id,
+              user_id: user.id,
+              course_id: courseId,
+              email: payerEmail,
+              team_name: teamsForPayload[0].team_name,
+              team_size: teamsForPayload[0].team_size,
+              category: teamsForPayload[0].category,
+              members: teamsForPayload[0].members,
+              options_total_eur: totalOptionsCents / 100,
+              inscription_id: insertedRelay.id,
+              successUrl: "https://www.tickrace.com/merci",
+              cancelUrl: "https://www.tickrace.com/paiement-annule",
+            };
 
         const { data, error: fnError } = await supabase.functions.invoke(
           "create-checkout-session",
@@ -696,8 +688,7 @@ export default function InscriptionCourse() {
         return;
       }
 
-      // ===== GROUPE =====
-      // (logique existante, sans options pour l’instant)
+      // ===== GROUPE ===== (sans options pour l’instant)
       {
         // Validation basique des équipes
         for (const [idx, team] of teams.entries()) {
@@ -1270,7 +1261,7 @@ export default function InscriptionCourse() {
           {selectedFormat && (mode === "individuel" || mode === "relais") && (
             <OptionsPayantesPicker
               formatId={selectedFormat.id}
-              onTotalCentsChange={(c) => setTotalOptionsCents(c)}
+              onTotalCentsChange={handleOptionsTotal}
               registerPersist={registerPersist}
             />
           )}
