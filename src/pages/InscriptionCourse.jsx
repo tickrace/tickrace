@@ -1,8 +1,197 @@
 // src/pages/InscriptionCourse.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
+
+/* -------------------- Sous-composant : Options payantes -------------------- */
+/** 
+ * Affiche les options actives liées au format. 
+ * - Si la table n'existe pas (ou aucune option), le bloc ne s'affiche pas.
+ * - Expose au parent une fonction persist(inscriptionId) via registerPersist(fn)
+ *   qui enregistre les choix en "pending" dans inscriptions_options.
+ */
+function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }) {
+  const [loading, setLoading] = useState(false);
+  const [supported, setSupported] = useState(true); // false si la table n'existe pas
+  const [options, setOptions] = useState([]);
+  const [quantites, setQuantites] = useState({}); // option_id -> qty sélectionnée
+
+  useEffect(() => {
+    let abort = false;
+    async function load() {
+      if (!formatId) return;
+      setLoading(true);
+      // On tente le select : si la table n'existe pas -> error.code = '42P01'
+      const { data, error } = await supabase
+        .from("options_payantes")
+        .select("*")
+        .eq("format_id", formatId)
+        .eq("actif", true)
+        .order("created_at", { ascending: true });
+
+      if (abort) return;
+
+      if (error) {
+        // Table absente ou autre : on passe en mode non supporté
+        setSupported(false);
+        setOptions([]);
+        setQuantites({});
+        setLoading(false);
+        onTotalCentsChange?.(0);
+        return;
+      }
+
+      const opts = data || [];
+      setSupported(true);
+      setOptions(opts);
+
+      // init quantités minimale (min) = 0 par défaut si non précisé
+      const init = {};
+      opts.forEach((o) => {
+        const min = Number(o.quantite_min ?? 0);
+        init[o.id] = min > 0 ? min : 0;
+      });
+      setQuantites(init);
+      setLoading(false);
+    }
+    load();
+    return () => { abort = true; };
+  }, [formatId, onTotalCentsChange]);
+
+  // total options en cents
+  const totalOptionsCents = useMemo(() => {
+    return options.reduce((acc, o) => {
+      const q = Number(quantites[o.id] || 0);
+      return acc + q * Number(o.prix_cents || 0);
+    }, 0);
+  }, [options, quantites]);
+
+  useEffect(() => {
+    onTotalCentsChange?.(totalOptionsCents);
+  }, [totalOptionsCents, onTotalCentsChange]);
+
+  // Fonction que le parent appellera après création de l'inscription
+  async function persist(inscriptionId) {
+    if (!supported || !inscriptionId) return;
+    // Nettoyage des "pending" existants
+    await supabase
+      .from("inscriptions_options")
+      .delete()
+      .eq("inscription_id", inscriptionId)
+      .eq("status", "pending");
+
+    const rows = [];
+    for (const o of options) {
+      const q = Number(quantites[o.id] || 0);
+      const min = Number(o.quantite_min ?? 0);
+      const max = Number(o.quantite_max ?? 10);
+      if (q > 0) {
+        if (q < min) continue;
+        if (q > max) continue;
+        rows.push({
+          inscription_id: inscriptionId,
+          option_id: o.id,
+          quantity: q,
+          prix_unitaire_cents: Number(o.prix_cents || 0),
+          status: "pending",
+        });
+      }
+    }
+    if (rows.length > 0) {
+      const { error } = await supabase.from("inscriptions_options").insert(rows);
+      if (error) {
+        console.error("❌ insert inscriptions_options:", error);
+      }
+    }
+  }
+
+  // Publier la fonction persist au parent
+  useEffect(() => {
+    registerPersist?.(persist);
+  }, [registerPersist, options, quantites, supported]);
+
+  if (!supported) return null;
+  if (loading) {
+    return (
+      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+        <div className="p-5 border-b border-neutral-100">
+          <h2 className="text-lg font-semibold">Options payantes</h2>
+        </div>
+        <div className="p-5 text-sm text-neutral-500">Chargement…</div>
+      </section>
+    );
+  }
+  if (options.length === 0) return null;
+
+  return (
+    <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+      <div className="p-5 border-b border-neutral-100">
+        <h2 className="text-lg font-semibold">Options payantes</h2>
+        <p className="text-sm text-neutral-500">Sélectionne les quantités souhaitées.</p>
+      </div>
+      <div className="p-5 space-y-3">
+        {options.map((o) => {
+          const q = Number(quantites[o.id] || 0);
+          const min = Number(o.quantite_min ?? 0);
+          const max = Number(o.quantite_max ?? 10);
+          return (
+            <div key={o.id} className="flex items-start justify-between gap-3 rounded-xl border border-neutral-200 p-3">
+              <div className="text-sm">
+                <div className="font-medium">
+                  {o.nom} · {(Number(o.prix_cents || 0) / 100).toFixed(2)} €
+                </div>
+                {o.description && (
+                  <div className="text-neutral-600">{o.description}</div>
+                )}
+                <div className="text-xs text-neutral-500">
+                  Quantité autorisée : {min}–{max}
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  className="rounded-lg border px-2 py-1 text-sm"
+                  onClick={() =>
+                    setQuantites((s) => ({ ...s, [o.id]: Math.max(min, q - 1) }))
+                  }
+                >
+                  −
+                </button>
+                <input
+                  type="number"
+                  min={min}
+                  max={max}
+                  value={q}
+                  onChange={(e) => {
+                    const v = Number(e.target.value || 0);
+                    const clamped = Math.min(Math.max(v, min), max);
+                    setQuantites((s) => ({ ...s, [o.id]: clamped }));
+                  }}
+                  className="w-16 rounded-lg border px-2 py-1 text-sm text-center"
+                />
+                <button
+                  type="button"
+                  className="rounded-lg border px-2 py-1 text-sm"
+                  onClick={() =>
+                    setQuantites((s) => ({ ...s, [o.id]: Math.min(max, q + 1) }))
+                  }
+                >
+                  +
+                </button>
+              </div>
+            </div>
+          );
+        })}
+
+        <div className="mt-2 text-right text-sm">
+          Total options : <b>{(totalOptionsCents / 100).toFixed(2)} €</b>
+        </div>
+      </div>
+    </section>
+  );
+}
+/* -------------------------------------------------------------------------- */
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
@@ -41,6 +230,14 @@ export default function InscriptionCourse() {
     category: "all",     // all | masculine | feminine | mixte
     completeOnly: false,
   });
+
+  // --- Nouvel état : total options payantes (cents) & callback de persistance ---
+  const [totalOptionsCents, setTotalOptionsCents] = useState(0);
+  const persistOptionsFnRef = useRef(null); // le picker y publie sa fonction persist(inscriptionId)
+
+  function registerPersist(fn) {
+    persistOptionsFnRef.current = fn;
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -154,7 +351,7 @@ export default function InscriptionCourse() {
       contact_urgence_telephone: "",
       nombre_repas: 0,
       prix_total_repas: 0,
-      prix_total_coureur: 0,
+      prix_total_coureur: 0, // base (inscription + repas) en €
     };
   }
 
@@ -174,7 +371,7 @@ export default function InscriptionCourse() {
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
-  // Recalcul prix (individuel)
+  // Recalcul prix (individuel) — BASE : inscription + repas (en €)
   useEffect(() => {
     if (!selectedFormat || mode !== "individuel") {
       setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: 0 }));
@@ -318,6 +515,11 @@ export default function InscriptionCourse() {
         }
 
         const trace_id = uuidv4();
+
+        // Total final à envoyer au Checkout = base (inscription + repas) + options
+        const prixTotalClient =
+          Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100);
+
         const { data: inserted, error: insertErr } = await supabase
           .from("inscriptions")
           .insert([
@@ -327,6 +529,8 @@ export default function InscriptionCourse() {
               format_id: inscription.format_id,
               statut: "en attente",
               paiement_trace_id: trace_id,
+              // On conserve prix_total_coureur côté base pour la partie "base".
+              // Le total complet est envoyé à l'Edge Function pour cohérence Stripe.
             },
           ])
           .select()
@@ -339,13 +543,21 @@ export default function InscriptionCourse() {
           return;
         }
 
-        const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
+        // Persister les options en 'pending' (si le bloc est présent)
+        if (persistOptionsFnRef.current) {
+          await persistOptionsFnRef.current(inserted.id);
+        }
+
+        const payerEmail =
+          inscription.email ||
+          user.email ||
+          user.user_metadata?.email ||
+          "";
         if (!payerEmail) {
           alert("Veuillez renseigner un email.");
           setSubmitting(false);
           return;
         }
-        const prixTotal = Number(inserted.prix_total_coureur || 0);
 
         const { data, error: fnError } = await supabase.functions.invoke(
           "create-checkout-session",
@@ -353,7 +565,7 @@ export default function InscriptionCourse() {
             body: {
               user_id: user.id,
               course_id: courseId,
-              prix_total: prixTotal,
+              prix_total: prixTotalClient, // € (inclut options)
               inscription_id: inserted.id,
               email: payerEmail,
               trace_id,
@@ -396,7 +608,11 @@ export default function InscriptionCourse() {
         }
       }
 
-      const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
+      const payerEmail =
+        inscription.email ||
+        user.email ||
+        user.user_metadata?.email ||
+        "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
         setSubmitting(false);
@@ -540,6 +756,12 @@ export default function InscriptionCourse() {
                   } else {
                     const def = f?.team_size || (f?.nb_coureurs_min || 1);
                     setTeams([defaultTeam("Équipe 1", def)]);
+                  }
+
+                  // Reset des options payantes au changement de format
+                  setTotalOptionsCents(0);
+                  if (persistOptionsFnRef.current) {
+                    // rien à faire ici ; la persistance se fera après création d'inscription
                   }
                 }}
                 className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
@@ -799,102 +1021,102 @@ export default function InscriptionCourse() {
             </section>
           )}
 
- {/* Infos coureur : affichées UNIQUEMENT en individuel */}
-           {mode === "individuel" && (
-             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
-               <div className="p-5 border-b border-neutral-100">
-                 <h2 className="text-lg font-semibold">Informations coureur</h2>
-               </div>
-               <div className="p-5 space-y-4">
-                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nom" placeholder="Nom"
-                     value={inscription.nom} onChange={(e) => setField("nom", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="prenom" placeholder="Prénom"
-                     value={inscription.prenom} onChange={(e) => setField("prenom", e.target.value)} />
-                   <select className="rounded-xl border border-neutral-300 px-3 py-2" name="genre"
-                     value={inscription.genre} onChange={(e) => setField("genre", e.target.value)}>
-                     <option value="">Genre</option>
-                     <option value="Homme">Homme</option>
-                     <option value="Femme">Femme</option>
-                   </select>
-                   <input type="date" className="rounded-xl border border-neutral-300 px-3 py-2" name="date_naissance"
-                     value={inscription.date_naissance} onChange={(e) => setField("date_naissance", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nationalite" placeholder="Nationalité"
-                     value={inscription.nationalite} onChange={(e) => setField("nationalite", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="email" placeholder="Email"
-                     value={inscription.email} onChange={(e) => setField("email", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="telephone" placeholder="Téléphone"
-                     value={inscription.telephone} onChange={(e) => setField("telephone", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2" name="adresse" placeholder="Adresse"
-                     value={inscription.adresse} onChange={(e) => setField("adresse", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="adresse_complement" placeholder="Complément adresse"
-                     value={inscription.adresse_complement} onChange={(e) => setField("adresse_complement", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="code_postal" placeholder="Code postal"
-                     value={inscription.code_postal} onChange={(e) => setField("code_postal", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="ville" placeholder="Ville"
-                     value={inscription.ville} onChange={(e) => setField("ville", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="pays" placeholder="Pays"
-                     value={inscription.pays} onChange={(e) => setField("pays", e.target.value)} />
-                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="club" placeholder="Club"
-                     value={inscription.club} onChange={(e) => setField("club", e.target.value)} />
-                 </div>
- 
-                 <div className="space-y-2">
-                   <p className="text-sm font-medium">Affichage des résultats</p>
-                   <div className="flex gap-4 text-sm text-neutral-700">
-                     <label className="inline-flex items-center gap-2">
-                       <input type="radio" name="apparaitre_resultats"
-                         checked={inscription.apparaitre_resultats === true}
-                         onChange={() => setField("apparaitre_resultats", true)} />
-                       Oui
-                     </label>
-                     <label className="inline-flex items-center gap-2">
-                       <input type="radio" name="apparaitre_resultats"
-                         checked={inscription.apparaitre_resultats === false}
-                         onChange={() => setField("apparaitre_resultats", false)} />
-                       Non
-                     </label>
-                   </div>
-                 </div>
-               </div>
-             </section>
-           )}
- 
-           {/* Coordonnées du payeur (compact) — affichées pour groupe/relais */}
-           {mode !== "individuel" && (
-             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
-               <div className="p-5 border-b border-neutral-100">
-                 <h2 className="text-lg font-semibold">Coordonnées du payeur</h2>
-                 <p className="text-sm text-neutral-500">
-                   Votre email servira pour le reçu Stripe et les confirmations d’inscription.
-                 </p>
-               </div>
-               <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-                 <input
-                   className="rounded-xl border border-neutral-300 px-3 py-2"
-                   name="prenom"
-                   placeholder="Prénom (optionnel)"
-                   value={inscription.prenom}
-                   onChange={(e) => setField("prenom", e.target.value)}
-                 />
-                 <input
-                   className="rounded-xl border border-neutral-300 px-3 py-2"
-                   name="nom"
-                   placeholder="Nom (optionnel)"
-                   value={inscription.nom}
-                   onChange={(e) => setField("nom", e.target.value)}
-                 />
-                 <input
-                   className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-1"
-                   name="email"
-                   placeholder="Email (requis)"
-                   value={inscription.email}
-                   onChange={(e) => setField("email", e.target.value)}
-                   required
-                 />
-               </div>
-             </section>
-           )}
+          {/* Infos coureur : affichées UNIQUEMENT en individuel */}
+          {mode === "individuel" && (
+            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100">
+                <h2 className="text-lg font-semibold">Informations coureur</h2>
+              </div>
+              <div className="p-5 space-y-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nom" placeholder="Nom"
+                    value={inscription.nom} onChange={(e) => setField("nom", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="prenom" placeholder="Prénom"
+                    value={inscription.prenom} onChange={(e) => setField("prenom", e.target.value)} />
+                  <select className="rounded-xl border border-neutral-300 px-3 py-2" name="genre"
+                    value={inscription.genre} onChange={(e) => setField("genre", e.target.value)}>
+                    <option value="">Genre</option>
+                    <option value="Homme">Homme</option>
+                    <option value="Femme">Femme</option>
+                  </select>
+                  <input type="date" className="rounded-xl border border-neutral-300 px-3 py-2" name="date_naissance"
+                    value={inscription.date_naissance} onChange={(e) => setField("date_naissance", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nationalite" placeholder="Nationalité"
+                    value={inscription.nationalite} onChange={(e) => setField("nationalite", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="email" placeholder="Email"
+                    value={inscription.email} onChange={(e) => setField("email", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="telephone" placeholder="Téléphone"
+                    value={inscription.telephone} onChange={(e) => setField("telephone", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2" name="adresse" placeholder="Adresse"
+                    value={inscription.adresse} onChange={(e) => setField("adresse", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="adresse_complement" placeholder="Complément adresse"
+                    value={inscription.adresse_complement} onChange={(e) => setField("adresse_complement", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="code_postal" placeholder="Code postal"
+                    value={inscription.code_postal} onChange={(e) => setField("code_postal", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="ville" placeholder="Ville"
+                    value={inscription.ville} onChange={(e) => setField("ville", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="pays" placeholder="Pays"
+                    value={inscription.pays} onChange={(e) => setField("pays", e.target.value)} />
+                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="club" placeholder="Club"
+                    value={inscription.club} onChange={(e) => setField("club", e.target.value)} />
+                </div>
+
+                <div className="space-y-2">
+                  <p className="text-sm font-medium">Affichage des résultats</p>
+                  <div className="flex gap-4 text-sm text-neutral-700">
+                    <label className="inline-flex items-center gap-2">
+                      <input type="radio" name="apparaitre_resultats"
+                        checked={inscription.apparaitre_resultats === true}
+                        onChange={() => setField("apparaitre_resultats", true)} />
+                      Oui
+                    </label>
+                    <label className="inline-flex items-center gap-2">
+                      <input type="radio" name="apparaitre_resultats"
+                        checked={inscription.apparaitre_resultats === false}
+                        onChange={() => setField("apparaitre_resultats", false)} />
+                      Non
+                    </label>
+                  </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* Coordonnées du payeur (compact) — affichées pour groupe/relais */}
+          {mode !== "individuel" && (
+            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100">
+                <h2 className="text-lg font-semibold">Coordonnées du payeur</h2>
+                <p className="text-sm text-neutral-500">
+                  Votre email servira pour le reçu Stripe et les confirmations d’inscription.
+                </p>
+              </div>
+              <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <input
+                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                  name="prenom"
+                  placeholder="Prénom (optionnel)"
+                  value={inscription.prenom}
+                  onChange={(e) => setField("prenom", e.target.value)}
+                />
+                <input
+                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                  name="nom"
+                  placeholder="Nom (optionnel)"
+                  value={inscription.nom}
+                  onChange={(e) => setField("nom", e.target.value)}
+                />
+                <input
+                  className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-1"
+                  name="email"
+                  placeholder="Email (requis)"
+                  value={inscription.email}
+                  onChange={(e) => setField("email", e.target.value)}
+                  required
+                />
+              </div>
+            </section>
+          )}
 
           {/* Repas (uniquement individuel) */}
           {selectedFormat && Number(selectedFormat.stock_repas) > 0 && mode === "individuel" && (
@@ -921,6 +1143,15 @@ export default function InscriptionCourse() {
                 </p>
               </div>
             </section>
+          )}
+
+          {/* Options payantes (si table dispo & options actives) */}
+          {selectedFormat && mode === "individuel" && (
+            <OptionsPayantesPicker
+              formatId={selectedFormat.id}
+              onTotalCentsChange={(c) => setTotalOptionsCents(c)}
+              registerPersist={registerPersist}
+            />
           )}
         </div>
 
@@ -987,6 +1218,13 @@ export default function InscriptionCourse() {
                       </span>
                     </div>
                   )}
+                  {/* Ligne options payantes */}
+                  {totalOptionsCents > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-600">Options payantes</span>
+                      <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
+                    </div>
+                  )}
                 </>
               ) : (
                 <>
@@ -1014,7 +1252,7 @@ export default function InscriptionCourse() {
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
                   {mode === "individuel"
-                    ? Number(inscription.prix_total_coureur || 0).toFixed(2)
+                    ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
                     : `~${Number(estimationEquipe || 0).toFixed(2)}`
                   } €
                 </span>
