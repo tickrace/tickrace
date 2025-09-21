@@ -4,36 +4,49 @@ import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 
-/* -------------------- Sous-composant : Options payantes -------------------- */
-/** 
- * Affiche les options actives liées au format. 
- * - Si la table n'existe pas (ou aucune option), le bloc ne s'affiche pas.
- * - Expose au parent une fonction persist(inscriptionId) via registerPersist(fn)
- *   qui enregistre les choix en "pending" dans inscriptions_options.
- */
+/* -------------------- Sous-composant : Options payantes (option_catalogue) -------------------- */
 function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }) {
   const [loading, setLoading] = useState(false);
   const [supported, setSupported] = useState(true); // false si la table n'existe pas
   const [options, setOptions] = useState([]);
-  const [quantites, setQuantites] = useState({}); // option_id -> qty sélectionnée
+  const [quantites, setQuantites] = useState({}); // option_id -> qty
+
+  // Helpers robustes sur noms de colonnes potentiels
+  const getPrixCents = (row) => {
+    if (row.prix_cents != null) return Number(row.prix_cents);
+    if (row.prix != null) return Math.round(Number(row.prix) * 100); // prix en €
+    if (row.price != null) return Math.round(Number(row.price) * 100); // fallback
+    return 0;
+  };
+  const getMin = (row) =>
+    row.quantite_min != null ? Number(row.quantite_min)
+    : row.min_qty != null ? Number(row.min_qty)
+    : 0;
+  const getMax = (row) =>
+    row.quantite_max != null ? Number(row.quantite_max)
+    : row.max_qty != null ? Number(row.max_qty)
+    : 10;
+  const isActive = (row) =>
+    row.actif != null ? !!row.actif
+    : row.active != null ? !!row.active
+    : true;
 
   useEffect(() => {
     let abort = false;
     async function load() {
       if (!formatId) return;
       setLoading(true);
-      // On tente le select : si la table n'existe pas -> error.code = '42P01'
+
+      // Lecture des options depuis option_catalogue (renseignées via UpsertCourse)
       const { data, error } = await supabase
-        .from("options_payantes")
+        .from("option_catalogue")
         .select("*")
-        .eq("format_id", formatId)
-        .eq("actif", true)
-        .order("created_at", { ascending: true });
+        .eq("format_id", formatId);
 
       if (abort) return;
 
       if (error) {
-        // Table absente ou autre : on passe en mode non supporté
+        // Table absente → on masque proprement
         setSupported(false);
         setOptions([]);
         setQuantites({});
@@ -42,15 +55,15 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
         return;
       }
 
-      const opts = data || [];
+      const rows = (data || []).filter((r) => isActive(r));
       setSupported(true);
-      setOptions(opts);
+      setOptions(rows);
 
-      // init quantités minimale (min) = 0 par défaut si non précisé
+      // init quantités (min par défaut)
       const init = {};
-      opts.forEach((o) => {
-        const min = Number(o.quantite_min ?? 0);
-        init[o.id] = min > 0 ? min : 0;
+      rows.forEach((o) => {
+        const min = getMin(o);
+        init[o.id] = Math.max(0, min || 0);
       });
       setQuantites(init);
       setLoading(false);
@@ -63,7 +76,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
   const totalOptionsCents = useMemo(() => {
     return options.reduce((acc, o) => {
       const q = Number(quantites[o.id] || 0);
-      return acc + q * Number(o.prix_cents || 0);
+      return acc + q * getPrixCents(o);
     }, 0);
   }, [options, quantites]);
 
@@ -71,10 +84,9 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     onTotalCentsChange?.(totalOptionsCents);
   }, [totalOptionsCents, onTotalCentsChange]);
 
-  // Fonction que le parent appellera après création de l'inscription
+  // Persistance dans inscriptions_options (pending) après création d’inscription
   async function persist(inscriptionId) {
     if (!supported || !inscriptionId) return;
-    // Nettoyage des "pending" existants
     await supabase
       .from("inscriptions_options")
       .delete()
@@ -84,29 +96,26 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     const rows = [];
     for (const o of options) {
       const q = Number(quantites[o.id] || 0);
-      const min = Number(o.quantite_min ?? 0);
-      const max = Number(o.quantite_max ?? 10);
+      const min = getMin(o);
+      const max = getMax(o);
       if (q > 0) {
         if (q < min) continue;
         if (q > max) continue;
         rows.push({
           inscription_id: inscriptionId,
-          option_id: o.id,
+          option_id: o.id,                    // référence l’option du catalogue
           quantity: q,
-          prix_unitaire_cents: Number(o.prix_cents || 0),
+          prix_unitaire_cents: getPrixCents(o),
           status: "pending",
         });
       }
     }
     if (rows.length > 0) {
       const { error } = await supabase.from("inscriptions_options").insert(rows);
-      if (error) {
-        console.error("❌ insert inscriptions_options:", error);
-      }
+      if (error) console.error("❌ insert inscriptions_options:", error);
     }
   }
 
-  // Publier la fonction persist au parent
   useEffect(() => {
     registerPersist?.(persist);
   }, [registerPersist, options, quantites, supported]);
@@ -133,16 +142,17 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       <div className="p-5 space-y-3">
         {options.map((o) => {
           const q = Number(quantites[o.id] || 0);
-          const min = Number(o.quantite_min ?? 0);
-          const max = Number(o.quantite_max ?? 10);
+          const min = getMin(o);
+          const max = getMax(o);
+          const prixCents = getPrixCents(o);
           return (
             <div key={o.id} className="flex items-start justify-between gap-3 rounded-xl border border-neutral-200 p-3">
               <div className="text-sm">
                 <div className="font-medium">
-                  {o.nom} · {(Number(o.prix_cents || 0) / 100).toFixed(2)} €
+                  {o.nom || o.name || "Option"} · {(prixCents / 100).toFixed(2)} €
                 </div>
-                {o.description && (
-                  <div className="text-neutral-600">{o.description}</div>
+                {(o.description || o.details) && (
+                  <div className="text-neutral-600">{o.description || o.details}</div>
                 )}
                 <div className="text-xs text-neutral-500">
                   Quantité autorisée : {min}–{max}
@@ -231,13 +241,10 @@ export default function InscriptionCourse() {
     completeOnly: false,
   });
 
-  // --- Nouvel état : total options payantes (cents) & callback de persistance ---
+  // Nouvel état : total options payantes (cents) & callback de persistance
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
-  const persistOptionsFnRef = useRef(null); // le picker y publie sa fonction persist(inscriptionId)
-
-  function registerPersist(fn) {
-    persistOptionsFnRef.current = fn;
-  }
+  const persistOptionsFnRef = useRef(null); // le picker publie sa fonction persist(inscriptionId)
+  function registerPersist(fn) { persistOptionsFnRef.current = fn; }
 
   useEffect(() => {
     let mounted = true;
@@ -529,8 +536,6 @@ export default function InscriptionCourse() {
               format_id: inscription.format_id,
               statut: "en attente",
               paiement_trace_id: trace_id,
-              // On conserve prix_total_coureur côté base pour la partie "base".
-              // Le total complet est envoyé à l'Edge Function pour cohérence Stripe.
             },
           ])
           .select()
@@ -760,9 +765,6 @@ export default function InscriptionCourse() {
 
                   // Reset des options payantes au changement de format
                   setTotalOptionsCents(0);
-                  if (persistOptionsFnRef.current) {
-                    // rien à faire ici ; la persistance se fera après création d'inscription
-                  }
                 }}
                 className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
                 required
@@ -1145,7 +1147,7 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Options payantes (si table dispo & options actives) */}
+          {/* Options payantes (catalogue) */}
           {selectedFormat && mode === "individuel" && (
             <OptionsPayantesPicker
               formatId={selectedFormat.id}
