@@ -799,64 +799,102 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Infos coureur (payeur) */}
-          <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
-            <div className="p-5 border-b border-neutral-100">
-              <h2 className="text-lg font-semibold">Informations coureur</h2>
-            </div>
-            <div className="p-5 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nom" placeholder="Nom"
-                  value={inscription.nom} onChange={(e) => setField("nom", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="prenom" placeholder="Prénom"
-                  value={inscription.prenom} onChange={(e) => setField("prenom", e.target.value)} />
-                <select className="rounded-xl border border-neutral-300 px-3 py-2" name="genre"
-                  value={inscription.genre} onChange={(e) => setField("genre", e.target.value)}>
-                  <option value="">Genre</option>
-                  <option value="Homme">Homme</option>
-                  <option value="Femme">Femme</option>
-                </select>
-                <input type="date" className="rounded-xl border border-neutral-300 px-3 py-2" name="date_naissance"
-                  value={inscription.date_naissance} onChange={(e) => setField("date_naissance", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nationalite" placeholder="Nationalité"
-                  value={inscription.nationalite} onChange={(e) => setField("nationalite", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="email" placeholder="Email"
-                  value={inscription.email} onChange={(e) => setField("email", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="telephone" placeholder="Téléphone"
-                  value={inscription.telephone} onChange={(e) => setField("telephone", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2" name="adresse" placeholder="Adresse"
-                  value={inscription.adresse} onChange={(e) => setField("adresse", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="adresse_complement" placeholder="Complément adresse"
-                  value={inscription.adresse_complement} onChange={(e) => setField("adresse_complement", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="code_postal" placeholder="Code postal"
-                  value={inscription.code_postal} onChange={(e) => setField("code_postal", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="ville" placeholder="Ville"
-                  value={inscription.ville} onChange={(e) => setField("ville", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="pays" placeholder="Pays"
-                  value={inscription.pays} onChange={(e) => setField("pays", e.target.value)} />
-                <input className="rounded-xl border border-neutral-300 px-3 py-2" name="club" placeholder="Club"
-                  value={inscription.club} onChange={(e) => setField("club", e.target.value)} />
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-sm font-medium">Affichage des résultats</p>
-                <div className="flex gap-4 text-sm text-neutral-700">
-                  <label className="inline-flex items-center gap-2">
-                    <input type="radio" name="apparaitre_resultats"
-                      checked={inscription.apparaitre_resultats === true}
-                      onChange={() => setField("apparaitre_resultats", true)} />
-                    Oui
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    <input type="radio" name="apparaitre_resultats"
-                      checked={inscription.apparaitre_resultats === false}
-                      onChange={() => setField("apparaitre_resultats", false)} />
-                    Non
-                  </label>
-                </div>
-              </div>
-            </div>
-          </section>
+ {/* Infos coureur : affichées UNIQUEMENT en individuel */}
+           {mode === "individuel" && (
+             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+               <div className="p-5 border-b border-neutral-100">
+                 <h2 className="text-lg font-semibold">Informations coureur</h2>
+               </div>
+               <div className="p-5 space-y-4">
+                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nom" placeholder="Nom"
+                     value={inscription.nom} onChange={(e) => setField("nom", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="prenom" placeholder="Prénom"
+                     value={inscription.prenom} onChange={(e) => setField("prenom", e.target.value)} />
+                   <select className="rounded-xl border border-neutral-300 px-3 py-2" name="genre"
+                     value={inscription.genre} onChange={(e) => setField("genre", e.target.value)}>
+                     <option value="">Genre</option>
+                     <option value="Homme">Homme</option>
+                     <option value="Femme">Femme</option>
+                   </select>
+                   <input type="date" className="rounded-xl border border-neutral-300 px-3 py-2" name="date_naissance"
+                     value={inscription.date_naissance} onChange={(e) => setField("date_naissance", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nationalite" placeholder="Nationalité"
+                     value={inscription.nationalite} onChange={(e) => setField("nationalite", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="email" placeholder="Email"
+                     value={inscription.email} onChange={(e) => setField("email", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="telephone" placeholder="Téléphone"
+                     value={inscription.telephone} onChange={(e) => setField("telephone", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2" name="adresse" placeholder="Adresse"
+                     value={inscription.adresse} onChange={(e) => setField("adresse", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="adresse_complement" placeholder="Complément adresse"
+                     value={inscription.adresse_complement} onChange={(e) => setField("adresse_complement", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="code_postal" placeholder="Code postal"
+                     value={inscription.code_postal} onChange={(e) => setField("code_postal", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="ville" placeholder="Ville"
+                     value={inscription.ville} onChange={(e) => setField("ville", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="pays" placeholder="Pays"
+                     value={inscription.pays} onChange={(e) => setField("pays", e.target.value)} />
+                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="club" placeholder="Club"
+                     value={inscription.club} onChange={(e) => setField("club", e.target.value)} />
+                 </div>
+ 
+                 <div className="space-y-2">
+                   <p className="text-sm font-medium">Affichage des résultats</p>
+                   <div className="flex gap-4 text-sm text-neutral-700">
+                     <label className="inline-flex items-center gap-2">
+                       <input type="radio" name="apparaitre_resultats"
+                         checked={inscription.apparaitre_resultats === true}
+                         onChange={() => setField("apparaitre_resultats", true)} />
+                       Oui
+                     </label>
+                     <label className="inline-flex items-center gap-2">
+                       <input type="radio" name="apparaitre_resultats"
+                         checked={inscription.apparaitre_resultats === false}
+                         onChange={() => setField("apparaitre_resultats", false)} />
+                       Non
+                     </label>
+                   </div>
+                 </div>
+               </div>
+             </section>
+           )}
+ 
+           {/* Coordonnées du payeur (compact) — affichées pour groupe/relais */}
+           {mode !== "individuel" && (
+             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+               <div className="p-5 border-b border-neutral-100">
+                 <h2 className="text-lg font-semibold">Coordonnées du payeur</h2>
+                 <p className="text-sm text-neutral-500">
+                   Votre email servira pour le reçu Stripe et les confirmations d’inscription.
+                 </p>
+               </div>
+               <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">
+                 <input
+                   className="rounded-xl border border-neutral-300 px-3 py-2"
+                   name="prenom"
+                   placeholder="Prénom (optionnel)"
+                   value={inscription.prenom}
+                   onChange={(e) => setField("prenom", e.target.value)}
+                 />
+                 <input
+                   className="rounded-xl border border-neutral-300 px-3 py-2"
+                   name="nom"
+                   placeholder="Nom (optionnel)"
+                   value={inscription.nom}
+                   onChange={(e) => setField("nom", e.target.value)}
+                 />
+                 <input
+                   className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-1"
+                   name="email"
+                   placeholder="Email (requis)"
+                   value={inscription.email}
+                   onChange={(e) => setField("email", e.target.value)}
+                   required
+                 />
+               </div>
+             </section>
+           )}
 
           {/* Repas (uniquement individuel) */}
           {selectedFormat && Number(selectedFormat.stock_repas) > 0 && mode === "individuel" && (
