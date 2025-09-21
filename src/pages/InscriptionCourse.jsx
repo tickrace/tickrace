@@ -22,6 +22,7 @@ export default function InscriptionCourse() {
   const defaultTeam = (name = "", size = 0) => ({
     team_name: name,
     team_size: size,
+    category: "mixte", // 'masculine' | 'feminine' | 'mixte'
     members: Array.from({ length: Math.max(0, size) }, () => emptyMember()),
   });
   const [teams, setTeams] = useState([defaultTeam("Équipe 1", 0)]); // au moins 1 équipe
@@ -199,7 +200,7 @@ export default function InscriptionCourse() {
       const t = { ...copy[index] };
       t.team_size = size;
       const cur = t.members.length;
-      if (size > cur) t.members = [...t.members, ...Array.from({ length: size - cur }, () => emptyMember())];
+      if (size > cur) t.members = [...t.members, ...Array.from({ length: size - cur }, () => ({ nom: "", prenom: "", email: "" }))];
       if (size < cur) t.members = t.members.slice(0, size);
       copy[index] = t;
       return copy;
@@ -210,6 +211,14 @@ export default function InscriptionCourse() {
     setTeams((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], team_name: name };
+      return copy;
+    });
+  }
+
+  function setTeamCategoryAt(index, category) {
+    setTeams((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], category };
       return copy;
     });
   }
@@ -358,7 +367,7 @@ export default function InscriptionCourse() {
 
       // Payload :
       // - si plusieurs équipes => teams[]
-      // - si une seule => compat: team_name, team_size, members
+      // - si une seule => compat: team_name, team_size, category, members
       let body = {
         mode, // 'groupe' | 'relais'
         format_id: inscription.format_id,
@@ -375,6 +384,7 @@ export default function InscriptionCourse() {
           teams: teams.map((t) => ({
             team_name: t.team_name,
             team_size: t.team_size,
+            category: t.category || "mixte",
             members: t.members, // [{nom, prenom, email?}]
           })),
         };
@@ -383,6 +393,7 @@ export default function InscriptionCourse() {
           ...body,
           team_name: teams[0].team_name,
           team_size: teams[0].team_size,
+          category: teams[0].category || "mixte",
           members: teams[0].members,
         };
       }
@@ -571,7 +582,7 @@ export default function InscriptionCourse() {
                     {mode === "groupe" ? "Équipe" : "Équipes relais"}
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    Renseigne le nom de l’équipe, la taille et les membres (nom, prénom).
+                    Renseigne le nom de l’équipe, sa catégorie, la taille et les membres (nom, prénom).
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -605,7 +616,7 @@ export default function InscriptionCourse() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
                       <div>
                         <label className="text-sm font-medium">Nom d’équipe</label>
                         <input
@@ -614,6 +625,18 @@ export default function InscriptionCourse() {
                           onChange={(e) => setTeamNameAt(tIdx, e.target.value)}
                           placeholder={`Équipe ${tIdx + 1}`}
                         />
+                      </div>
+                      <div>
+                        <label className="text-sm font-medium">Catégorie</label>
+                        <select
+                          className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
+                          value={team.category || "mixte"}
+                          onChange={(e) => setTeamCategoryAt(tIdx, e.target.value)}
+                        >
+                          <option value="masculine">Masculine</option>
+                          <option value="feminine">Féminine</option>
+                          <option value="mixte">Mixte</option>
+                        </select>
                       </div>
                       <div>
                         <label className="text-sm font-medium">
@@ -817,7 +840,7 @@ export default function InscriptionCourse() {
                   {teams.map((t, i) => (
                     <div key={i} className="flex justify-between">
                       <span className="text-neutral-600">
-                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
+                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers. ({t.category || "mixte"})
                       </span>
                       <span className="font-medium">
                         ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
