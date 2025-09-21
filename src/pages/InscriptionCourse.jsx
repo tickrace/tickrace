@@ -4,32 +4,12 @@ import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 
-/* -------------------- Sous-composant : Options payantes (option_catalogue) -------------------- */
+/* -------------------- Sous-composant : Options payantes (options_catalogue) -------------------- */
 function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }) {
   const [loading, setLoading] = useState(false);
   const [supported, setSupported] = useState(true); // false si la table n'existe pas
   const [options, setOptions] = useState([]);
   const [quantites, setQuantites] = useState({}); // option_id -> qty
-
-  // Helpers robustes sur noms de colonnes potentiels
-  const getPrixCents = (row) => {
-    if (row.prix_cents != null) return Number(row.prix_cents);
-    if (row.prix != null) return Math.round(Number(row.prix) * 100); // prix en €
-    if (row.price != null) return Math.round(Number(row.price) * 100); // fallback
-    return 0;
-  };
-  const getMin = (row) =>
-    row.quantite_min != null ? Number(row.quantite_min)
-    : row.min_qty != null ? Number(row.min_qty)
-    : 0;
-  const getMax = (row) =>
-    row.quantite_max != null ? Number(row.quantite_max)
-    : row.max_qty != null ? Number(row.max_qty)
-    : 10;
-  const isActive = (row) =>
-    row.actif != null ? !!row.actif
-    : row.active != null ? !!row.active
-    : true;
 
   useEffect(() => {
     let abort = false;
@@ -37,11 +17,12 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       if (!formatId) return;
       setLoading(true);
 
-      // Lecture des options depuis option_catalogue (renseignées via UpsertCourse)
       const { data, error } = await supabase
-        .from("option_catalogue")
+        .from("options_catalogue")
         .select("*")
-        .eq("format_id", formatId);
+        .eq("format_id", formatId)
+        .eq("is_active", true)
+        .order("created_at", { ascending: true });
 
       if (abort) return;
 
@@ -55,15 +36,14 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
         return;
       }
 
-      const rows = (data || []).filter((r) => isActive(r));
+      const rows = data || [];
       setSupported(true);
       setOptions(rows);
 
-      // init quantités (min par défaut)
+      // init quantités (min = 0 ; max = max_qty_per_inscription)
       const init = {};
       rows.forEach((o) => {
-        const min = getMin(o);
-        init[o.id] = Math.max(0, min || 0);
+        init[o.id] = 0;
       });
       setQuantites(init);
       setLoading(false);
@@ -76,7 +56,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
   const totalOptionsCents = useMemo(() => {
     return options.reduce((acc, o) => {
       const q = Number(quantites[o.id] || 0);
-      return acc + q * getPrixCents(o);
+      return acc + q * Number(o.price_cents || 0);
     }, 0);
   }, [options, quantites]);
 
@@ -96,16 +76,14 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     const rows = [];
     for (const o of options) {
       const q = Number(quantites[o.id] || 0);
-      const min = getMin(o);
-      const max = getMax(o);
+      const max = Number(o.max_qty_per_inscription ?? 10);
       if (q > 0) {
-        if (q < min) continue;
         if (q > max) continue;
         rows.push({
           inscription_id: inscriptionId,
-          option_id: o.id,                    // référence l’option du catalogue
+          option_id: o.id,                      // référence options_catalogue.id
           quantity: q,
-          prix_unitaire_cents: getPrixCents(o),
+          prix_unitaire_cents: Number(o.price_cents || 0),
           status: "pending",
         });
       }
@@ -142,20 +120,19 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       <div className="p-5 space-y-3">
         {options.map((o) => {
           const q = Number(quantites[o.id] || 0);
-          const min = getMin(o);
-          const max = getMax(o);
-          const prixCents = getPrixCents(o);
+          const max = Number(o.max_qty_per_inscription ?? 10);
+          const prixCents = Number(o.price_cents || 0);
           return (
             <div key={o.id} className="flex items-start justify-between gap-3 rounded-xl border border-neutral-200 p-3">
               <div className="text-sm">
                 <div className="font-medium">
-                  {o.nom || o.name || "Option"} · {(prixCents / 100).toFixed(2)} €
+                  {o.label} · {(prixCents / 100).toFixed(2)} €
                 </div>
-                {(o.description || o.details) && (
-                  <div className="text-neutral-600">{o.description || o.details}</div>
+                {o.description && (
+                  <div className="text-neutral-600">{o.description}</div>
                 )}
                 <div className="text-xs text-neutral-500">
-                  Quantité autorisée : {min}–{max}
+                  Quantité autorisée : 0–{max}
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -163,19 +140,19 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
                   type="button"
                   className="rounded-lg border px-2 py-1 text-sm"
                   onClick={() =>
-                    setQuantites((s) => ({ ...s, [o.id]: Math.max(min, q - 1) }))
+                    setQuantites((s) => ({ ...s, [o.id]: Math.max(0, q - 1) }))
                   }
                 >
                   −
                 </button>
                 <input
                   type="number"
-                  min={min}
+                  min={0}
                   max={max}
                   value={q}
                   onChange={(e) => {
                     const v = Number(e.target.value || 0);
-                    const clamped = Math.min(Math.max(v, min), max);
+                    const clamped = Math.min(Math.max(v, 0), max);
                     setQuantites((s) => ({ ...s, [o.id]: clamped }));
                   }}
                   className="w-16 rounded-lg border px-2 py-1 text-sm text-center"
@@ -201,6 +178,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     </section>
   );
 }
+
 /* -------------------------------------------------------------------------- */
 
 export default function InscriptionCourse() {
