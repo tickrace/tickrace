@@ -914,4 +914,5 @@ export default function InscriptionCourse() {
       </div>
     </div>
   );
+  
 }
