@@ -18,14 +18,29 @@ export default function InscriptionCourse() {
   const [mode, setMode] = useState("individuel"); // 'individuel' | 'groupe' | 'relais'
 
   // Pour équipe(s) (groupe/relais)
-  const emptyMember = () => ({ nom: "", prenom: "", email: "" });
+  const emptyMember = () => ({
+    nom: "",
+    prenom: "",
+    genre: "",            // "Homme" | "Femme"
+    date_naissance: "",   // YYYY-MM-DD
+    email: "",
+  });
+
   const defaultTeam = (name = "", size = 0) => ({
     team_name: name,
     team_size: size,
-    category: "mixte", // 'masculine' | 'feminine' | 'mixte'
     members: Array.from({ length: Math.max(0, size) }, () => emptyMember()),
+    category: null, // "masculine" | "feminine" | "mixte" (calculée)
   });
+
   const [teams, setTeams] = useState([defaultTeam("Équipe 1", 0)]); // au moins 1 équipe
+
+  // Filtres d’affichage (UI)
+  const [teamFilter, setTeamFilter] = useState({
+    q: "",
+    category: "all",     // all | masculine | feminine | mixte
+    completeOnly: false,
+  });
 
   useEffect(() => {
     let mounted = true;
@@ -200,7 +215,7 @@ export default function InscriptionCourse() {
       const t = { ...copy[index] };
       t.team_size = size;
       const cur = t.members.length;
-      if (size > cur) t.members = [...t.members, ...Array.from({ length: size - cur }, () => ({ nom: "", prenom: "", email: "" }))];
+      if (size > cur) t.members = [...t.members, ...Array.from({ length: size - cur }, () => emptyMember())];
       if (size < cur) t.members = t.members.slice(0, size);
       copy[index] = t;
       return copy;
@@ -211,14 +226,6 @@ export default function InscriptionCourse() {
     setTeams((prev) => {
       const copy = [...prev];
       copy[index] = { ...copy[index], team_name: name };
-      return copy;
-    });
-  }
-
-  function setTeamCategoryAt(index, category) {
-    setTeams((prev) => {
-      const copy = [...prev];
-      copy[index] = { ...copy[index], category };
       return copy;
     });
   }
@@ -243,6 +250,35 @@ export default function InscriptionCourse() {
   function removeTeam(idx) {
     setTeams((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
   }
+
+  // Catégorie d’équipe depuis les genres renseignés
+  function computeTeamCategory(team) {
+    const gens = (team.members || [])
+      .map((m) => (m.genre || "").toLowerCase())
+      .filter(Boolean);
+    if (gens.length === 0) return null;
+    const allH = gens.every((g) => g.startsWith("h"));
+    const allF = gens.every((g) => g.startsWith("f"));
+    if (allH) return "masculine";
+    if (allF) return "feminine";
+    return "mixte";
+  }
+
+  // Equipe “complète” = chaque membre a nom+prénom+genre+date de naissance
+  function isTeamComplete(team) {
+    if (!team.team_size || (team.members?.length || 0) !== team.team_size) return false;
+    return team.members.every(
+      (m) => m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance
+    );
+  }
+
+  const filteredTeams = useMemo(() => {
+    return teams
+      .map((t) => ({ ...t, category: computeTeamCategory(t) }))
+      .filter((t) => (teamFilter.q ? (t.team_name || "").toLowerCase().includes(teamFilter.q.toLowerCase()) : true))
+      .filter((t) => (teamFilter.category === "all" ? true : t.category === teamFilter.category))
+      .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)));
+  }, [teams, teamFilter]);
 
   // ----- Paiement -----
   async function handlePay() {
@@ -350,9 +386,11 @@ export default function InscriptionCourse() {
           setSubmitting(false);
           return;
         }
-        const bad = team.members.find((m) => !m.nom?.trim() || !m.prenom?.trim());
+        const bad = team.members.find(
+          (m) => !m.nom?.trim() || !m.prenom?.trim() || !m.genre || !m.date_naissance
+        );
         if (bad) {
-          alert(`Équipe #${idx + 1} : chaque membre doit avoir nom et prénom.`);
+          alert(`Équipe #${idx + 1} : chaque membre doit avoir nom, prénom, sexe et date de naissance.`);
           setSubmitting(false);
           return;
         }
@@ -365,9 +403,14 @@ export default function InscriptionCourse() {
         return;
       }
 
-      // Payload :
-      // - si plusieurs équipes => teams[]
-      // - si une seule => compat: team_name, team_size, category, members
+      // Payload pour plusieurs/une équipe (avec catégorie calculée)
+      const teamsForPayload = teams.map((t) => ({
+        team_name: t.team_name,
+        team_size: t.team_size,
+        category: computeTeamCategory(t),
+        members: t.members, // {nom, prenom, genre, date_naissance, email?}
+      }));
+
       let body = {
         mode, // 'groupe' | 'relais'
         format_id: inscription.format_id,
@@ -379,22 +422,14 @@ export default function InscriptionCourse() {
       };
 
       if (teams.length > 1) {
-        body = {
-          ...body,
-          teams: teams.map((t) => ({
-            team_name: t.team_name,
-            team_size: t.team_size,
-            category: t.category || "mixte",
-            members: t.members, // [{nom, prenom, email?}]
-          })),
-        };
+        body = { ...body, teams: teamsForPayload };
       } else {
         body = {
           ...body,
-          team_name: teams[0].team_name,
-          team_size: teams[0].team_size,
-          category: teams[0].category || "mixte",
-          members: teams[0].members,
+          team_name: teamsForPayload[0].team_name,
+          team_size: teamsForPayload[0].team_size,
+          category: teamsForPayload[0].category,
+          members: teamsForPayload[0].members,
         };
       }
 
@@ -573,7 +608,7 @@ export default function InscriptionCourse() {
             </div>
           </section>
 
-          {/* Équipes (pour groupe/relais) */}
+          {/* Équipes (groupe/relais) */}
           {selectedFormat && mode !== "individuel" && (
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
@@ -582,7 +617,7 @@ export default function InscriptionCourse() {
                     {mode === "groupe" ? "Équipe" : "Équipes relais"}
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    Renseigne le nom de l’équipe, sa catégorie, la taille et les membres (nom, prénom).
+                    Renseigne le nom de l’équipe, la taille et les membres (nom, prénom, sexe, date de naissance).
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -598,12 +633,54 @@ export default function InscriptionCourse() {
                 </div>
               </div>
 
+              {/* Filtres */}
+              <div className="px-5 pt-4 grid grid-cols-1 md:grid-cols-3 gap-3">
+                <input
+                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                  placeholder="Rechercher une équipe…"
+                  value={teamFilter.q}
+                  onChange={(e) => setTeamFilter((p) => ({ ...p, q: e.target.value }))}
+                />
+                <select
+                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                  value={teamFilter.category}
+                  onChange={(e) => setTeamFilter((p) => ({ ...p, category: e.target.value }))}
+                >
+                  <option value="all">Toutes catégories</option>
+                  <option value="masculine">Équipe masculine</option>
+                  <option value="feminine">Équipe féminine</option>
+                  <option value="mixte">Équipe mixte</option>
+                </select>
+                <label className="inline-flex items-center gap-2 text-sm text-neutral-800">
+                  <input
+                    type="checkbox"
+                    checked={teamFilter.completeOnly}
+                    onChange={(e) => setTeamFilter((p) => ({ ...p, completeOnly: e.target.checked }))}
+                  />
+                  Afficher uniquement les équipes complètes
+                </label>
+              </div>
+
               <div className="p-5 space-y-6">
-                {teams.map((team, tIdx) => (
+                {filteredTeams.map((team, tIdx) => (
                   <div key={tIdx} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
                     <div className="flex items-center justify-between mb-3">
-                      <div className="font-medium">
+                      <div className="font-medium flex items-center gap-2">
                         {team.team_name || `Équipe ${tIdx + 1}`}
+                        {computeTeamCategory(team) && (
+                          <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900">
+                            {computeTeamCategory(team) === "masculine"
+                              ? "Équipe masculine"
+                              : computeTeamCategory(team) === "feminine"
+                              ? "Équipe féminine"
+                              : "Équipe mixte"}
+                          </span>
+                        )}
+                        {isTeamComplete(team) ? (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">complète</span>
+                        ) : (
+                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">incomplète</span>
+                        )}
                       </div>
                       {teams.length > 1 && (
                         <button
@@ -616,7 +693,7 @@ export default function InscriptionCourse() {
                       )}
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mb-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                       <div>
                         <label className="text-sm font-medium">Nom d’équipe</label>
                         <input
@@ -625,18 +702,6 @@ export default function InscriptionCourse() {
                           onChange={(e) => setTeamNameAt(tIdx, e.target.value)}
                           placeholder={`Équipe ${tIdx + 1}`}
                         />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium">Catégorie</label>
-                        <select
-                          className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                          value={team.category || "mixte"}
-                          onChange={(e) => setTeamCategoryAt(tIdx, e.target.value)}
-                        >
-                          <option value="masculine">Masculine</option>
-                          <option value="feminine">Féminine</option>
-                          <option value="mixte">Mixte</option>
-                        </select>
                       </div>
                       <div>
                         <label className="text-sm font-medium">
@@ -664,6 +729,8 @@ export default function InscriptionCourse() {
                             <th className="py-2 pr-3">#</th>
                             <th className="py-2 pr-3">Nom *</th>
                             <th className="py-2 pr-3">Prénom *</th>
+                            <th className="py-2 pr-3">Sexe *</th>
+                            <th className="py-2 pr-3">Date de naissance *</th>
                             <th className="py-2 pr-3">Email (optionnel)</th>
                           </tr>
                         </thead>
@@ -688,6 +755,25 @@ export default function InscriptionCourse() {
                                 />
                               </td>
                               <td className="py-2 pr-3">
+                                <select
+                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.genre || ""}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "genre", e.target.value)}
+                                >
+                                  <option value="">Sélectionner</option>
+                                  <option value="Homme">Homme</option>
+                                  <option value="Femme">Femme</option>
+                                </select>
+                              </td>
+                              <td className="py-2 pr-3">
+                                <input
+                                  type="date"
+                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.date_naissance || ""}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "date_naissance", e.target.value)}
+                                />
+                              </td>
+                              <td className="py-2 pr-3">
                                 <input
                                   className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                   value={m.email || ""}
@@ -699,7 +785,7 @@ export default function InscriptionCourse() {
                           ))}
                           {team.team_size === 0 && (
                             <tr>
-                              <td colSpan={4} className="py-2 text-neutral-500">
+                              <td colSpan={6} className="py-2 text-neutral-500">
                                 Indique une taille d’équipe pour générer les lignes.
                               </td>
                             </tr>
@@ -816,6 +902,35 @@ export default function InscriptionCourse() {
                 </span>
               </div>
 
+              {/* Résumé équipes (si groupe/relais) */}
+              {mode !== "individuel" && (
+                <>
+                  <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3">
+                    {(() => {
+                      const teamsWithCat = teams.map((t) => ({ ...t, category: computeTeamCategory(t) }));
+                      const totals = {
+                        count: teams.length,
+                        participants: teams.reduce((acc, t) => acc + (t.team_size || 0), 0),
+                        masculine: teamsWithCat.filter((t) => t.category === "masculine").length,
+                        feminine: teamsWithCat.filter((t) => t.category === "feminine").length,
+                        mixte: teamsWithCat.filter((t) => t.category === "mixte").length,
+                        completes: teamsWithCat.filter((t) => isTeamComplete(t)).length,
+                      };
+                      return (
+                        <div className="space-y-1">
+                          <div className="flex justify-between"><span>Équipes</span><b>{totals.count}</b></div>
+                          <div className="flex justify-between"><span>Participants</span><b>{totals.participants}</b></div>
+                          <div className="flex justify-between"><span>Masculines</span><b>{totals.masculine}</b></div>
+                          <div className="flex justify-between"><span>Féminines</span><b>{totals.feminine}</b></div>
+                          <div className="flex justify-between"><span>Mixtes</span><b>{totals.mixte}</b></div>
+                          <div className="flex justify-between"><span>Équipes complètes</span><b>{totals.completes}</b></div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                </>
+              )}
+
               {mode === "individuel" ? (
                 <>
                   <div className="flex justify-between">
@@ -840,7 +955,7 @@ export default function InscriptionCourse() {
                   {teams.map((t, i) => (
                     <div key={i} className="flex justify-between">
                       <span className="text-neutral-600">
-                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers. ({t.category || "mixte"})
+                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
                       </span>
                       <span className="font-medium">
                         ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
@@ -914,5 +1029,4 @@ export default function InscriptionCourse() {
       </div>
     </div>
   );
-  
 }
