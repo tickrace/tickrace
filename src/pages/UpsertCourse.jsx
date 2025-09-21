@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
 
-/* ---------- UI helpers (identiques à NouvelleCourse) ---------- */
+/* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
   return (
     <label className="block">
@@ -104,76 +104,157 @@ function EtapesRelaisEditor({ etapes, setEtapes }) {
     </div>
   );
 }
-/* ---------- Éditeur des catégories d’équipe ---------- */
- function TeamCategoriesEditor({ cats, setCats }) {
-   const add = () =>
-     setCats([
-       ...cats,
-       {
-         _local_id: uuidv4(),
-         code: "mixed",         // mixed par défaut
-         label: "Mixte (≥1F & ≥1H)",
-         min_male: 1,
-         min_female: 1,
-         ratio_rule: "",
-         min_sum_age: null,
-         notes: "",
-       },
-     ]);
-   const update = (id, patch) =>
-     setCats(cats.map((c) => (c._local_id === id ? { ...c, ...patch } : c)));
-   const remove = (id) => setCats(cats.filter((c) => c._local_id !== id));
 
-   return (
-     <div className="grid gap-4">
-       {cats.map((c) => (
-         <div key={c._local_id} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
-           <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
-             <Field label="Code">
-               <select
-                 className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
-                 value={c.code}
-                 onChange={(e)=>update(c._local_id,{code:e.target.value})}
-               >
-                 <option value="open">Open</option>
-                 <option value="male">Masculine</option>
-                 <option value="female">Féminine</option>
-                 <option value="mixed">Mixte</option>
-                 <option value="masters">Masters</option>
-               </select>
-             </Field>
+/* ---------- Éditeur des catégories d’équipe (UI seulement pour l’instant) ---------- */
+function TeamCategoriesEditor({ cats, setCats }) {
+  const add = () =>
+    setCats([
+      ...cats,
+      {
+        _local_id: uuidv4(),
+        code: "mixed",
+        label: "Mixte (≥1F & ≥1H)",
+        min_male: 1,
+        min_female: 1,
+        ratio_rule: "",
+        min_sum_age: null,
+        notes: "",
+      },
+    ]);
+  const update = (id, patch) => setCats(cats.map((c) => (c._local_id === id ? { ...c, ...patch } : c)));
+  const remove = (id) => setCats(cats.filter((c) => c._local_id !== id));
+
+  return (
+    <div className="grid gap-4">
+      {cats.map((c) => (
+        <div key={c._local_id} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
+            <Field label="Code">
+              <select
+                className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                value={c.code}
+                onChange={(e)=>update(c._local_id,{code:e.target.value})}
+              >
+                <option value="open">Open</option>
+                <option value="male">Masculine</option>
+                <option value="female">Féminine</option>
+                <option value="mixed">Mixte</option>
+                <option value="masters">Masters</option>
+              </select>
+            </Field>
             <Field label="Libellé">
-               <Input value={c.label} onChange={(e)=>update(c._local_id,{label:e.target.value})} placeholder="Ex. Mixte (≥1F & ≥1H)" />
-             </Field>
-             <Field label="Min hommes">
-               <Input type="number" value={c.min_male||0} onChange={(e)=>update(c._local_id,{min_male:Number(e.target.value)})}/>
-             </Field>
-             <Field label="Min femmes">
-               <Input type="number" value={c.min_female||0} onChange={(e)=>update(c._local_id,{min_female:Number(e.target.value)})}/>
-             </Field>
-             <Field label="Ratio (opt.)">
-               <Input value={c.ratio_rule||""} onChange={(e)=>update(c._local_id,{ratio_rule:e.target.value})} placeholder="Ex. 3:2" />
-             </Field>
-             <Field label="Somme âges min (Masters)">
-               <Input type="number" value={c.min_sum_age||""} onChange={(e)=>update(c._local_id,{min_sum_age:e.target.value?Number(e.target.value):null})}/>
-             </Field>
-           </div>
-           <Field label="Notes (opt.)" >
-             <Textarea value={c.notes||""} onChange={(e)=>update(c._local_id,{notes:e.target.value})}/>
-           </Field>
-           <div className="mt-3">
-             <button type="button" onClick={()=>remove(c._local_id)} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100">
-               Supprimer la catégorie
-             </button>
+              <Input value={c.label} onChange={(e)=>update(c._local_id,{label:e.target.value})} placeholder="Ex. Mixte (≥1F & ≥1H)" />
+            </Field>
+            <Field label="Min hommes">
+              <Input type="number" value={c.min_male||0} onChange={(e)=>update(c._local_id,{min_male:Number(e.target.value)})}/>
+            </Field>
+            <Field label="Min femmes">
+              <Input type="number" value={c.min_female||0} onChange={(e)=>update(c._local_id,{min_female:Number(e.target.value)})}/>
+            </Field>
+            <Field label="Ratio (opt.)">
+              <Input value={c.ratio_rule||""} onChange={(e)=>update(c._local_id,{ratio_rule:e.target.value})} placeholder="Ex. 3:2" />
+            </Field>
+            <Field label="Somme âges min (Masters)">
+              <Input type="number" value={c.min_sum_age||""} onChange={(e)=>update(c._local_id,{min_sum_age:e.target.value?Number(e.target.value):null})}/>
+            </Field>
           </div>
-         </div>
-       ))}
-       <button type="button" onClick={add} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
-         + Ajouter une catégorie d’équipe
-       </button>
-     </div>
-   );
- }
+          <Field label="Notes (opt.)" >
+            <Textarea value={c.notes||""} onChange={(e)=>update(c._local_id,{notes:e.target.value})}/>
+          </Field>
+          <div className="mt-3">
+            <button type="button" onClick={()=>remove(c._local_id)} className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100">
+              Supprimer la catégorie
+            </button>
+          </div>
+        </div>
+      ))}
+      <button type="button" onClick={add} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
+        + Ajouter une catégorie d’équipe
+      </button>
+    </div>
+  );
+}
+
+/* ---------- Éditeur d’options payantes (catalogue par format) ---------- */
+function OptionsEditor({ options, setOptions }) {
+  const add = () =>
+    setOptions([
+      ...options,
+      {
+        _local_id: uuidv4(),
+        label: "",
+        price_eur: "", // affichage en €
+        description: "",
+        max_qty_per_inscription: 10,
+        image_url: null,
+        imageFile: null,
+        is_active: true,
+      },
+    ]);
+
+  const update = (id, patch) =>
+    setOptions(options.map(o => (o._local_id === id ? { ...o, ...patch } : o)));
+
+  const remove = (id) => setOptions(options.filter(o => o._local_id !== id));
+
+  return (
+    <div className="grid gap-4">
+      {options.map((o) => (
+        <div key={o._local_id} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
+          <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
+            <Field label="Libellé" required>
+              <Input value={o.label} onChange={(e)=>update(o._local_id,{label:e.target.value})}/>
+            </Field>
+            <Field label="Prix (€)" required>
+              <Input type="number" step="0.01" min="0"
+                     value={o.price_eur}
+                     onChange={(e)=>update(o._local_id,{price_eur:e.target.value})}/>
+            </Field>
+            <Field label="Qté max / inscription">
+              <Input type="number" min="0"
+                     value={o.max_qty_per_inscription}
+                     onChange={(e)=>update(o._local_id,{max_qty_per_inscription:Number(e.target.value)||0})}/>
+            </Field>
+            <Field label="Active ?">
+              <div className="flex items-center h-[38px]">
+                <input type="checkbox"
+                       checked={!!o.is_active}
+                       onChange={(e)=>update(o._local_id,{is_active:e.target.checked})}/>
+              </div>
+            </Field>
+            <Field label="Image (optionnelle)">
+              <input type="file" accept="image/*"
+                     onChange={(e)=>update(o._local_id,{ imageFile: e.target.files?.[0] || null })}
+                     className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50" />
+              {o.image_url && (
+                <div className="text-xs text-neutral-600 mt-1 break-all">
+                  Actuelle : <a href={o.image_url} target="_blank" rel="noreferrer">{o.image_url}</a>
+                </div>
+              )}
+            </Field>
+          </div>
+          <Field label="Description (optionnelle)">
+            <Textarea value={o.description||""}
+                      onChange={(e)=>update(o._local_id,{description:e.target.value})}/>
+          </Field>
+          <div className="mt-3">
+            <button type="button"
+                    onClick={()=>remove(o._local_id)}
+                    className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100">
+              Supprimer cette option
+            </button>
+          </div>
+        </div>
+      ))}
+      <button type="button"
+              onClick={add}
+              className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
+        + Ajouter une option
+      </button>
+    </div>
+  );
+}
+
 /* ---------- Page Upsert ---------- */
 export default function UpsertCourse() {
   const { id } = useParams();
@@ -206,6 +287,7 @@ export default function UpsertCourse() {
     fuseau_horaire: "Europe/Paris",
     close_on_full: true, waitlist_enabled: false, quota_attente: 0,
     etapes: [],
+    options: [], // catalogue des options payantes
   });
 
   const [formats, setFormats] = useState([formatTemplate()]);
@@ -230,23 +312,56 @@ export default function UpsertCourse() {
     (async () => {
       if (!isEdit) { setLoading(false); return; }
       setLoading(true);
+
       const { data: c } = await supabase.from("courses").select("*").eq("id", id).single();
       const { data: fs } = await supabase.from("formats").select("*").eq("course_id", id).order("created_at",{ascending:true});
+
       let etapesByFormat = {};
+      let optionsByFormat = {};
+
       if (fs?.length) {
         const ids = fs.map(f=>f.id);
-        const { data: etapes } = await supabase.from("formats_etapes").select("*").in("format_id", ids).order("ordre",{ascending:true});
+
+        const { data: etapes } = await supabase
+          .from("formats_etapes")
+          .select("*")
+          .in("format_id", ids)
+          .order("ordre",{ascending:true});
         if (etapes) {
           etapesByFormat = etapes.reduce((acc,cur)=>{
             (acc[cur.format_id] ||= []).push({...cur, _local_id: uuidv4()});
             return acc;
           },{});
         }
+
+        const { data: opts } = await supabase
+          .from("options_catalogue")
+          .select("*")
+          .in("format_id", ids)
+          .order("created_at",{ascending:true});
+        if (opts) {
+          optionsByFormat = opts.reduce((acc, cur) => {
+            (acc[cur.format_id] ||= []).push({
+              _local_id: uuidv4(),
+              id: cur.id,
+              label: cur.label,
+              price_eur: (Number(cur.price_cents||0)/100).toFixed(2),
+              description: cur.description || "",
+              image_url: cur.image_url || null,
+              imageFile: null,
+              is_active: !!cur.is_active,
+              max_qty_per_inscription: cur.max_qty_per_inscription ?? 10,
+            });
+            return acc;
+          }, {});
+        }
       }
+
       setCourse({
         nom: c?.nom||"", lieu: c?.lieu||"", departement: c?.departement||"", code_postal: c?.code_postal||"",
         presentation: c?.presentation||"", imageFile:null, image_url: c?.image_url||"",
       });
+
       setFormats((fs||[]).map(f=>({
         ...formatTemplate(),
         id: f.id, nom: f.nom||"", image_url: f.image_url||null,
@@ -267,7 +382,9 @@ export default function UpsertCourse() {
         fuseau_horaire: f.fuseau_horaire || "Europe/Paris",
         close_on_full: !!f.close_on_full, waitlist_enabled: !!f.waitlist_enabled, quota_attente: f.quota_attente??0,
         etapes: etapesByFormat[f.id] || [],
+        options: optionsByFormat[f.id] || [],
       })));
+
       setLoading(false);
     })();
   }, [id, isEdit]);
@@ -287,6 +404,14 @@ export default function UpsertCourse() {
       if (f.inscription_ouverture && f.inscription_fermeture &&
           new Date(f.inscription_ouverture) >= new Date(f.inscription_fermeture)) {
         alert(`Fenêtre d'inscriptions invalide pour "${f.nom}".`); return false;
+      }
+      // Options: prix >= 0
+      if (Array.isArray(f.options)) {
+        for (const o of f.options) {
+          if (!o.label?.trim()) { alert(`Une option de "${f.nom}" n'a pas de libellé.`); return false; }
+          const p = parseFloat(o.price_eur || "0");
+          if (isNaN(p) || p < 0) { alert(`Prix invalide pour l'option "${o.label}" dans "${f.nom}".`); return false; }
+        }
       }
     }
     return true;
@@ -436,6 +561,38 @@ export default function UpsertCourse() {
           }
         } else {
           await supabase.from("formats_etapes").delete().eq("format_id", formatId);
+        }
+
+        // ----- Options payantes : reset puis insert -----
+        await supabase.from("options_catalogue").delete().eq("format_id", formatId);
+        if (Array.isArray(f.options) && f.options.length) {
+          for (const opt of f.options) {
+            // Upload image si fournie
+            let optionImageUrl = opt.image_url || null;
+            if (opt.imageFile) {
+              const safeName = String(opt.label || "option").toLowerCase().replace(/[^a-z0-9\-]+/g,"-").slice(0,40) || "option";
+              const fileName = `option-${Date.now()}-${safeName}.jpg`;
+              const { data: up, error: upErr } = await supabase
+                .storage.from("options")
+                .upload(fileName, opt.imageFile, { upsert: false });
+              if (!upErr) {
+                optionImageUrl = supabase.storage.from("options").getPublicUrl(up.path).data.publicUrl;
+              }
+            }
+            const price_cents = Math.max(0, Math.round(parseFloat(opt.price_eur || "0") * 100));
+            const max_qty = Number.isFinite(Number(opt.max_qty_per_inscription)) ? Number(opt.max_qty_per_inscription) : 10;
+
+            const { error: insOptErr } = await supabase.from("options_catalogue").insert({
+              format_id: formatId,
+              label: opt.label || "Option",
+              price_cents,
+              description: opt.description || null,
+              image_url: optionImageUrl,
+              is_active: !!opt.is_active,
+              max_qty_per_inscription: max_qty,
+            });
+            if (insOptErr) throw insOptErr;
+          }
         }
 
         keptIds.push(formatId);
@@ -681,6 +838,21 @@ export default function UpsertCourse() {
                         <EtapesRelaisEditor etapes={f.etapes} setEtapes={(next)=>updateFormat(f.id,{etapes:next})}/>
                       </div>
                     )}
+
+                    {/* Options payantes */}
+                    <div className="grid gap-3 mt-4">
+                      <div className="text-sm font-semibold text-neutral-700">Options payantes (repas, goodies, tombola...)</div>
+                      <OptionsEditor
+                        options={f.options}
+                        setOptions={(next)=>updateFormat(f.id,{options:next})}
+                      />
+                    </div>
+
+                    {/* (Optionnel futur) Catégories d’équipe */}
+                    {/* <div className="grid gap-3 mt-4">
+                      <div className="text-sm font-semibold text-neutral-700">Catégories d’équipe</div>
+                      <TeamCategoriesEditor cats={f.team_categories||[]} setCats={(next)=>updateFormat(f.id,{team_categories:next})}/>
+                    </div> */}
                   </div>
                 </div>
               ))}
