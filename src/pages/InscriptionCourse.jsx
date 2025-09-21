@@ -27,7 +27,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       if (abort) return;
 
       if (error) {
-        // Table absente → on masque proprement
+        // Table absente → masque proprement
         setSupported(false);
         setOptions([]);
         setQuantites({});
@@ -178,7 +178,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     </section>
   );
 }
-
 /* -------------------------------------------------------------------------- */
 
 export default function InscriptionCourse() {
@@ -219,7 +218,7 @@ export default function InscriptionCourse() {
     completeOnly: false,
   });
 
-  // Nouvel état : total options payantes (cents) & callback de persistance
+  // total options payantes (cents) & callback de persistance
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null); // le picker publie sa fonction persist(inscriptionId)
   function registerPersist(fn) { persistOptionsFnRef.current = fn; }
@@ -526,7 +525,7 @@ export default function InscriptionCourse() {
           return;
         }
 
-        // Persister les options en 'pending' (si le bloc est présent)
+        // Persister les options en 'pending'
         if (persistOptionsFnRef.current) {
           await persistOptionsFnRef.current(inserted.id);
         }
@@ -568,83 +567,214 @@ export default function InscriptionCourse() {
         return;
       }
 
-      // ===== GROUPE / RELAIS =====
-      // Validation basique des équipes
-      for (const [idx, team] of teams.entries()) {
-        if (!team.team_name || !team.team_size) {
-          alert(`Équipe #${idx + 1} : nom et taille requis.`);
+      // ===== RELAIS =====
+      if (mode === "relais") {
+        if (teams.length === 0) {
+          alert("Veuillez ajouter au moins une équipe relais.");
           setSubmitting(false);
           return;
         }
-        if (team.members.length !== team.team_size) {
-          alert(`Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`);
+        // validation basique
+        for (const [idx, team] of teams.entries()) {
+          if (!team.team_name || !team.team_size) {
+            alert(`Équipe #${idx + 1} : nom et taille requis.`);
+            setSubmitting(false);
+            return;
+          }
+          if (team.members.length !== team.team_size) {
+            alert(`Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`);
+            setSubmitting(false);
+            return;
+          }
+          const bad = team.members.find(
+            (m) => !m.nom?.trim() || !m.prenom?.trim() || !m.genre || !m.date_naissance
+          );
+          if (bad) {
+            alert(`Équipe #${idx + 1} : chaque membre doit avoir nom, prénom, sexe et date de naissance.`);
+            setSubmitting(false);
+            return;
+          }
+        }
+
+        const payerEmail =
+          inscription.email ||
+          user.email ||
+          user.user_metadata?.email ||
+          "";
+        if (!payerEmail) {
+          alert("Veuillez renseigner un email.");
           setSubmitting(false);
           return;
         }
-        const bad = team.members.find(
-          (m) => !m.nom?.trim() || !m.prenom?.trim() || !m.genre || !m.date_naissance
+
+        // On laisse l'Edge Function créer/agréger les inscriptions relais côté serveur.
+        // Ici, on transmet juste le contexte et le total options (en info).
+        const teamsForPayload = teams.map((t) => ({
+          team_name: t.team_name,
+          team_size: t.team_size,
+          category: computeTeamCategory(t),
+          members: t.members,
+        }));
+
+        // Appel de l'Edge Function "create-checkout-session" (mode relais)
+        const body = (teams.length > 1)
+          ? {
+              mode,
+              format_id: inscription.format_id,
+              user_id: user.id,
+              course_id: courseId,
+              email: payerEmail,
+              teams: teamsForPayload,
+              // informationnel : montant des options sélectionnées (en €)
+              options_total_eur: totalOptionsCents / 100,
+              successUrl: "https://www.tickrace.com/merci",
+              cancelUrl: "https://www.tickrace.com/paiement-annule",
+            }
+          : {
+              mode,
+              format_id: inscription.format_id,
+              user_id: user.id,
+              course_id: courseId,
+              email: payerEmail,
+              team_name: teamsForPayload[0].team_name,
+              team_size: teamsForPayload[0].team_size,
+              category: teamsForPayload[0].category,
+              members: teamsForPayload[0].members,
+              options_total_eur: totalOptionsCents / 100,
+              successUrl: "https://www.tickrace.com/merci",
+              cancelUrl: "https://www.tickrace.com/paiement-annule",
+            };
+
+        // ⚠️ Pour relier les options au paiement relais, on a besoin d'un inscription_id.
+        // Selon ton modèle, l'Edge Function crée une (ou plusieurs) inscriptions server-side.
+        // Deux stratégies :
+        //  A) l'Edge Function renvoie l'inscription_id créée ⇒ on persiste alors les options (mais ça arrive après Checkout… pas idéal)
+        //  B) on crée ici une "inscription relais parent" en brouillon pour attacher les options.
+        //
+        // Ici, on choisit B) : on crée une inscription-brouillon liée au format pour attacher les options, puis on envoie son id.
+        const trace_id = uuidv4();
+        const { data: insertedRelay, error: insErr } = await supabase
+          .from("inscriptions")
+          .insert([{
+            user_id: user.id,
+            course_id: courseId,
+            format_id: inscription.format_id,
+            statut: "draft",
+            paiement_trace_id: trace_id,
+          }])
+          .select()
+          .single();
+
+        if (insErr || !insertedRelay) {
+          console.error("❌ Erreur création draft relais :", insErr);
+          alert("Erreur: impossible de préparer le paiement relais.");
+          setSubmitting(false);
+          return;
+        }
+
+        // Persister les options en 'pending' sur cette inscription parent
+        if (persistOptionsFnRef.current) {
+          await persistOptionsFnRef.current(insertedRelay.id);
+        }
+
+        // Passer l'id à l'Edge Function (elle ajoutera les line items des options depuis inscriptions_options)
+        body.inscription_id = insertedRelay.id;
+
+        const { data, error: fnError } = await supabase.functions.invoke(
+          "create-checkout-session",
+          { body }
         );
-        if (bad) {
-          alert(`Équipe #${idx + 1} : chaque membre doit avoir nom, prénom, sexe et date de naissance.`);
+
+        if (fnError || !data?.url) {
+          console.error("❌ create-checkout-session (relais) error:", fnError, data);
+          alert(fnError?.message || "Erreur lors de la création du paiement (relais).");
           setSubmitting(false);
           return;
         }
-      }
 
-      const payerEmail =
-        inscription.email ||
-        user.email ||
-        user.user_metadata?.email ||
-        "";
-      if (!payerEmail) {
-        alert("Veuillez renseigner un email.");
-        setSubmitting(false);
+        window.location.href = data.url;
         return;
       }
 
-      // Payload pour plusieurs/une équipe (avec catégorie calculée)
-      const teamsForPayload = teams.map((t) => ({
-        team_name: t.team_name,
-        team_size: t.team_size,
-        category: computeTeamCategory(t),
-        members: t.members, // {nom, prenom, genre, date_naissance, email?}
-      }));
+      // ===== GROUPE =====
+      // (logique existante, sans options pour l’instant)
+      {
+        // Validation basique des équipes
+        for (const [idx, team] of teams.entries()) {
+          if (!team.team_name || !team.team_size) {
+            alert(`Équipe #${idx + 1} : nom et taille requis.`);
+            setSubmitting(false);
+            return;
+          }
+          if (team.members.length !== team.team_size) {
+            alert(`Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`);
+            setSubmitting(false);
+            return;
+          }
+          const bad = team.members.find(
+            (m) => !m.nom?.trim() || !m.prenom?.trim() || !m.genre || !m.date_naissance
+          );
+          if (bad) {
+            alert(`Équipe #${idx + 1} : chaque membre doit avoir nom, prénom, sexe et date de naissance.`);
+            setSubmitting(false);
+            return;
+          }
+        }
 
-      let body = {
-        mode, // 'groupe' | 'relais'
-        format_id: inscription.format_id,
-        user_id: user.id,
-        course_id: courseId,
-        email: payerEmail,
-        successUrl: "https://www.tickrace.com/merci",
-        cancelUrl: "https://www.tickrace.com/paiement-annule",
-      };
+        const payerEmail =
+          inscription.email ||
+          user.email ||
+          user.user_metadata?.email ||
+          "";
+        if (!payerEmail) {
+          alert("Veuillez renseigner un email.");
+          setSubmitting(false);
+          return;
+        }
 
-      if (teams.length > 1) {
-        body = { ...body, teams: teamsForPayload };
-      } else {
-        body = {
-          ...body,
-          team_name: teamsForPayload[0].team_name,
-          team_size: teamsForPayload[0].team_size,
-          category: teamsForPayload[0].category,
-          members: teamsForPayload[0].members,
+        const teamsForPayload = teams.map((t) => ({
+          team_name: t.team_name,
+          team_size: t.team_size,
+          category: computeTeamCategory(t),
+          members: t.members,
+        }));
+
+        let body = {
+          mode, // 'groupe'
+          format_id: inscription.format_id,
+          user_id: user.id,
+          course_id: courseId,
+          email: payerEmail,
+          successUrl: "https://www.tickrace.com/merci",
+          cancelUrl: "https://www.tickrace.com/paiement-annule",
         };
+
+        if (teams.length > 1) {
+          body = { ...body, teams: teamsForPayload };
+        } else {
+          body = {
+            ...body,
+            team_name: teamsForPayload[0].team_name,
+            team_size: teamsForPayload[0].team_size,
+            category: teamsForPayload[0].category,
+            members: teamsForPayload[0].members,
+          };
+        }
+
+        const { data, error: fnError } = await supabase.functions.invoke(
+          "create-checkout-session",
+          { body }
+        );
+
+        if (fnError || !data?.url) {
+          console.error("❌ create-checkout-session error:", fnError, data);
+          alert(fnError?.message || "Erreur lors de la création du paiement.");
+          setSubmitting(false);
+          return;
+        }
+
+        window.location.href = data.url;
       }
-
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "create-checkout-session",
-        { body }
-      );
-
-      if (fnError || !data?.url) {
-        console.error("❌ create-checkout-session error:", fnError, data);
-        alert(fnError?.message || "Erreur lors de la création du paiement.");
-        setSubmitting(false);
-        return;
-      }
-
-      window.location.href = data.url;
     } finally {
       // submitting reste true jusqu'à la redirection
     }
@@ -682,6 +812,17 @@ export default function InscriptionCourse() {
             Number(selectedFormat.inscrits || 0)
         )
       : null;
+
+  // Totaux affichés
+  const totalIndividuelEUR = useMemo(() => {
+    // base (inscription + repas) + options
+    return (Number(inscription.prix_total_coureur || 0) + totalOptionsCents / 100);
+  }, [inscription.prix_total_coureur, totalOptionsCents]);
+
+  const totalRelaisEUR = useMemo(() => {
+    // estimation équipes + options
+    return (Number(estimationEquipe || 0) + totalOptionsCents / 100);
+  }, [estimationEquipe, totalOptionsCents]);
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1125,8 +1266,8 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Options payantes (catalogue) */}
-          {selectedFormat && mode === "individuel" && (
+          {/* Options payantes (catalogue) — affichées en individuel ET relais */}
+          {selectedFormat && (mode === "individuel" || mode === "relais") && (
             <OptionsPayantesPicker
               formatId={selectedFormat.id}
               onTotalCentsChange={(c) => setTotalOptionsCents(c)}
@@ -1218,10 +1359,24 @@ export default function InscriptionCourse() {
                       </span>
                     </div>
                   ))}
+
+                  {/* LIGNE OPTIONS POUR LE RELAIS */}
+                  {mode === "relais" && totalOptionsCents > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-600">Options payantes</span>
+                      <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
+                    </div>
+                  )}
+
                   <div className="h-px bg-neutral-200 my-2" />
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Sous-total estimé</span>
-                    <span className="font-medium">~{Number(estimationEquipe || 0).toFixed(2)} €</span>
+                    <span className="font-medium">
+                      ~{(
+                        Number(estimationEquipe || 0) +
+                        (mode === "relais" ? totalOptionsCents / 100 : 0)
+                      ).toFixed(2)} €
+                    </span>
                   </div>
                 </>
               )}
@@ -1232,9 +1387,11 @@ export default function InscriptionCourse() {
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
                   {mode === "individuel"
-                    ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
-                    : `~${Number(estimationEquipe || 0).toFixed(2)}`
-                  } €
+                    ? totalIndividuelEUR.toFixed(2)
+                    : (mode === "relais"
+                        ? `~${totalRelaisEUR.toFixed(2)}`
+                        : `~${Number(estimationEquipe || 0).toFixed(2)}`)}
+                  {" "}€
                 </span>
               </div>
             </div>
@@ -1259,7 +1416,7 @@ export default function InscriptionCourse() {
                       : "bg-neutral-900 hover:bg-black"
                   }`}
               >
-                {submitting ? "Redirection vers Stripe…" : (mode === "individuel" ? "Confirmer et payer" : "Payer les équipes")}
+                {submitting ? "Redirection vers Stripe…" : (mode === "individuel" ? "Confirmer et payer" : "Payer")}
               </button>
 
               {selectedFormat &&
