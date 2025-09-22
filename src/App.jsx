@@ -111,7 +111,7 @@ function AppContent() {
           {/* Protégées */}
           <Route
             path="/inscription/:courseId"
-            element={<ProtectedRoute><InscriptionCourse /></ProtectedRoute>}
+            element={<ProtectedRoute><ErrorBoundary><InscriptionCourse /></ErrorBoundary></ProtectedRoute>}
           />
           <Route
             path="/mon-inscription/:id"

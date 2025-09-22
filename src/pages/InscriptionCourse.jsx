@@ -11,6 +11,7 @@ export default function InscriptionCourse() {
   const [formats, setFormats] = useState([]);
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+const ready = !loading && course && formats.length > 0;
 
   // Formulaire coureur (utilisé en individuel et comme payeur)
   const [inscription, setInscription] = useState(defaultCoureur());
@@ -1074,15 +1075,7 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Options payantes (catalogue) — affichées en individuel ET relais */}
-          {selectedFormat && (mode === "individuel" || mode === "relais") && (
-            <OptionsPayantesPicker
-              formatId={selectedFormat.id}
-              onTotalCentsChange={handleOptionsTotal}
-              registerPersist={registerPersist}
-            />
-          )}
-        </div>
+         
 
         {/* Résumé / paiement */}
         <aside className="lg:col-span-1">
