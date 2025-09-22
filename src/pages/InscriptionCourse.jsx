@@ -236,6 +236,7 @@ export default function InscriptionCourse() {
       const user = sess?.session?.user;
       if (!user) { alert("Veuillez vous connecter pour effectuer le paiement."); setSubmitting(false); return; }
       if (!inscription.format_id) { alert("Veuillez sélectionner un format."); setSubmitting(false); return; }
+      if (!selectedFormat) { alert("Veuillez sélectionner un format."); setSubmitting(false); return; }
 
       if (!registrationWindow.isOpen) { alert(`Inscriptions non ouvertes : ${registrationWindow.reason}`); setSubmitting(false); return; }
 
@@ -344,9 +345,20 @@ export default function InscriptionCourse() {
     );
   }
 
-  const placesRestantes = Math.max(0, Number(selectedFormat.nb_max_coureurs || 0) - Number(selectedFormat.inscrits || 0));
-  const totalIndividuelEUR = useMemo(() => (Number(inscription.prix_total_coureur || 0) + totalOptionsCents / 100), [inscription.prix_total_coureur, totalOptionsCents]);
-  const totalRelaisEUR = useMemo(() => (Number(estimationEquipe || 0) + totalOptionsCents / 100), [estimationEquipe, totalOptionsCents]);
+  // ======= Garde-fous d’affichage =======
+  const hasFormat = !!selectedFormat;
+  const placesRestantes = hasFormat
+    ? Math.max(0, Number(selectedFormat.nb_max_coureurs || 0) - Number(selectedFormat.inscrits || 0))
+    : 0;
+
+  const totalIndividuelEUR = useMemo(
+    () => Number(inscription.prix_total_coureur || 0) + totalOptionsCents / 100,
+    [inscription.prix_total_coureur, totalOptionsCents]
+  );
+  const totalRelaisEUR = useMemo(
+    () => Number(estimationEquipe || 0) + totalOptionsCents / 100,
+    [estimationEquipe, totalOptionsCents]
+  );
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -359,8 +371,8 @@ export default function InscriptionCourse() {
             {mode === "individuel" ? "Inscription individuelle" : (mode === "groupe" ? "Inscription en groupe" : "Inscription relais")}
             {(selectedFormat?.inscription_ouverture || selectedFormat?.inscription_fermeture) && (
               <> {" • "} <span className="text-neutral-700">
-                {selectedFormat.inscription_ouverture && (<>Ouverture : {new Date(selectedFormat.inscription_ouverture).toLocaleString()} </>)}
-                {selectedFormat.inscription_fermeture && (<> / Fermeture : {new Date(selectedFormat.inscription_fermeture).toLocaleString()} </>)}
+                {selectedFormat?.inscription_ouverture && (<>Ouverture : {new Date(selectedFormat.inscription_ouverture).toLocaleString()} </>)}
+                {selectedFormat?.inscription_fermeture && (<> / Fermeture : {new Date(selectedFormat.inscription_fermeture).toLocaleString()} </>)}
               </span></>
             )}
           </p>
@@ -407,7 +419,7 @@ export default function InscriptionCourse() {
                 })}
               </select>
 
-              {selectedFormat && (
+              {hasFormat && (
                 <div className="text-sm text-neutral-600">
                   Capacité : {selectedFormat.inscrits}/{selectedFormat.nb_max_coureurs} —{" "}
                   <span className="font-medium">
@@ -418,7 +430,7 @@ export default function InscriptionCourse() {
                 </div>
               )}
 
-              {selectedFormat && selectedFormat.type_format !== "individuel" && (
+              {hasFormat && selectedFormat.type_format !== "individuel" && (
                 <div className="mt-3">
                   <div className="text-sm font-medium mb-1">Type d’inscription</div>
                   <div className="flex gap-2">
@@ -445,7 +457,7 @@ export default function InscriptionCourse() {
           </section>
 
           {/* Équipes (groupe/relais) */}
-          {selectedFormat && mode !== "individuel" && (
+          {hasFormat && mode !== "individuel" && (
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                 <div>
@@ -506,9 +518,9 @@ export default function InscriptionCourse() {
                           value={team.team_name} onChange={(e) => setTeamNameAt(tIdx, e.target.value)} placeholder={`Équipe ${tIdx + 1}`} />
                       </div>
                       <div>
-                        <label className="text-sm font-medium">Taille de l’équipe {selectedFormat.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}</label>
+                        <label className="text-sm font-medium">Taille de l’équipe {selectedFormat?.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}</label>
                         <input type="number" className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                          value={team.team_size || selectedFormat.team_size || 0} min={minTeam} max={maxTeam}
+                          value={team.team_size || selectedFormat?.team_size || 0} min={minTeam} max={maxTeam}
                           onChange={(e) => setTeamSizeAt(tIdx, e.target.value)} />
                         <p className="text-xs text-neutral-500 mt-1">Min {minTeam} — Max {maxTeam}</p>
                       </div>
@@ -657,9 +669,9 @@ export default function InscriptionCourse() {
                 <>
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Inscription</span>
-                    <span className="font-medium">{Number(selectedFormat.prix || 0).toFixed(2)} €</span>
+                    <span className="font-medium">{Number(selectedFormat?.prix || 0).toFixed(2)} €</span>
                   </div>
-                  {Number(selectedFormat.stock_repas) > 0 && (
+                  {Number(selectedFormat?.stock_repas) > 0 && (
                     <div className="flex justify-between">
                       <span className="text-neutral-600">Repas × {Number(inscription.nombre_repas || 0)}</span>
                       <span className="font-medium">{Number(inscription.prix_total_repas || 0).toFixed(2)} €</span>
@@ -714,19 +726,28 @@ export default function InscriptionCourse() {
               <button
                 type="button" onClick={handlePay}
                 disabled={
-                  submitting || !inscription.format_id || !registrationWindow.isOpen ||
-                  (mode === "individuel" && !selectedFormat.waitlist_enabled && Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0))
+                  submitting ||
+                  !inscription.format_id ||
+                  !registrationWindow.isOpen ||
+                  (mode === "individuel" &&
+                    selectedFormat &&
+                    !selectedFormat.waitlist_enabled &&
+                    Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0))
                 }
                 className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition ${submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"}`}
               >
                 {submitting ? "Redirection vers Stripe…" : (mode === "individuel" ? "Confirmer et payer" : "Payer")}
               </button>
 
-              {Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0) && (
+              {selectedFormat &&
+                Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0) && (
                 <p className="text-xs text-amber-700 mt-2">
-                  {selectedFormat.waitlist_enabled ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise." : "Ce format est complet."}
+                  {selectedFormat.waitlist_enabled
+                    ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
+                    : "Ce format est complet."}
                 </p>
               )}
+
               {!registrationWindow.isOpen && (<p className="text-xs text-red-600 mt-2">{registrationWindow.reason}</p>)}
               <p className="text-xs text-neutral-500 mt-3">En confirmant, vous acceptez les conditions de l’épreuve et de Tickrace.</p>
             </div>
