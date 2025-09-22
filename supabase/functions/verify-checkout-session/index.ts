@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pin=v135";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("BUILD verify-checkout-session 2025-09-20T19:45Z");
+console.log("BUILD verify-checkout-session 2025-09-22T20:05Z (aligned)");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -44,7 +44,6 @@ serve(async (req) => {
         pi = await stripe.paymentIntents.retrieve(piId, { expand: ["latest_charge.balance_transaction"] });
       }
     } else {
-      // Pas de session_id : on tente par trace_id en retrouvant le paiement côté base
       const { data: payByTrace } = await supabase
         .from("paiements")
         .select("stripe_payment_intent_id")
@@ -53,7 +52,6 @@ serve(async (req) => {
 
       if (payByTrace?.stripe_payment_intent_id) {
         pi = await stripe.paymentIntents.retrieve(payByTrace.stripe_payment_intent_id, { expand: ["latest_charge.balance_transaction"] });
-        // pas de session Stripe ici (facultatif)
       } else {
         return new Response(JSON.stringify({ error: "Paiement introuvable pour ce trace_id" }), { status: 404, headers });
       }
@@ -66,7 +64,7 @@ serve(async (req) => {
 
     const paid =
       (session?.payment_status === "paid" || session?.status === "complete") ||
-      (pi.status === "succeeded" || pi.status === "requires_capture"); // selon config
+      (pi.status === "succeeded" || pi.status === "requires_capture");
 
     if (!paid) {
       return new Response(JSON.stringify({ ok: false, status: session?.payment_status ?? pi.status }), { status: 200, headers });
@@ -102,7 +100,7 @@ serve(async (req) => {
     const trace_id = isUUID(md["trace_id"]) ? md["trace_id"] : (isUUID(traceIn) ? traceIn : null);
     const course_id = isUUID(md["course_id"]) ? md["course_id"] : null;
     const user_id   = isUUID(md["user_id"])   ? md["user_id"]   : null;
-    const mode      = md["mode"] || "individuel"; // 'individuel' | 'groupe' | 'relais'
+    const mode      = md["mode"] || "individuel";
 
     const inscription_id_md = md["inscription_id"];
     const group_ids_csv = md["group_ids"] || "";
@@ -119,7 +117,7 @@ serve(async (req) => {
       }
     }
 
-    // Commission plateforme (5%) — en SCT on la retient au moment du transfer
+    // Commission plateforme
     const platformFeeCents = Math.round(amountTotalCents * 0.05);
 
     // 5) Idempotent: compléter/mettre à jour la ligne paiements
@@ -146,6 +144,7 @@ serve(async (req) => {
       fee_total: stripeFeeCents,
       platform_fee_amount: platformFeeCents,
       balance_transaction_id: balanceTxId,
+      options_total_eur: md["options_total_eur"] ? Number(md["options_total_eur"]) : undefined,
     };
 
     let upsertDone = false;
@@ -159,7 +158,7 @@ serve(async (req) => {
       else          await supabase.from("paiements").insert(payRowData);
     }
 
-    // 6) Valider les inscriptions (idempotent aussi)
+    // 6) Valider les inscriptions (comme avant)
     if (mode === "individuel") {
       const finalInscId =
         (isUUID(inscriptionIdIn) ? inscriptionIdIn : (isUUID(inscription_id_md) ? inscription_id_md : null));
@@ -203,7 +202,7 @@ serve(async (req) => {
       }
     }
 
-    // 8) Retourner de quoi afficher la page “merci”
+    // 8) Retour page “merci”
     let inscriptions: any[] = [];
     if (mode === "individuel") {
       const finalInscId =
@@ -230,7 +229,7 @@ serve(async (req) => {
         ? (inscriptions[0]?.id ? [inscriptions[0].id] : [])
         : inscIds,
       group_ids: (md["group_ids"] || "").split(",").filter(isUUID),
-      inscriptions, // pour affichage direct si besoin
+      inscriptions,
     }), { status: 200, headers });
   } catch (e: any) {
     console.error("verify-checkout-session (SCT) error:", e?.message ?? e, e?.stack);

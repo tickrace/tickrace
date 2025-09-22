@@ -637,6 +637,8 @@ export default function InscriptionCourse() {
         email: payerEmail,
         successUrl: "https://www.tickrace.com/merci",
         cancelUrl: "https://www.tickrace.com/paiement-annule",
+        options_total_eur: (totalOptionsCents || 0) / 100, // 👈 AJOUTER CETTE LIGNE
+
       };
 
       if (teams.length > 1) {
@@ -650,6 +652,8 @@ export default function InscriptionCourse() {
           members: teamsForPayload[0].members,
         };
       }
+      await supabase.functions.invoke("create-checkout-session", { body });
+
 
       const { data, error: fnError } = await supabase.functions.invoke(
         "create-checkout-session",
