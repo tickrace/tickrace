@@ -163,6 +163,7 @@ export default function OptionsPayantesPicker({ formatId, onTotalCentsChange, re
                     const clamped = Math.min(Math.max(v, 0), max);
                     setQuantites((s) => ({ ...s, [o.id]: clamped }));
                   }}
+                  
                   className="w-16 rounded-lg border px-2 py-1 text-sm text-center"
                 />
                 <button

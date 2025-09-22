@@ -3,11 +3,7 @@ import React, { useEffect, useMemo, useState, useRef, useCallback } from "react"
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
-import OptionsPayantesPicker from "../components/OptionsPayantesPicker"; // <-- new import
-
-
-
-/* -------------------------------------------------------------------------- */
+import OptionsPayantesPicker from "../components/OptionsPayantesPicker";
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
@@ -47,9 +43,9 @@ export default function InscriptionCourse() {
     completeOnly: false,
   });
 
-  // total options payantes (cents) & callback de persistance
+  // total options payantes (cents) & callback de persistance (exposée par le picker)
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
-  const persistOptionsFnRef = useRef(null); // le picker publie sa fonction persist(inscriptionId)
+  const persistOptionsFnRef = useRef(null);
   const registerPersist = useCallback((fn) => { persistOptionsFnRef.current = fn; }, []);
   const handleOptionsTotal = useCallback((cents) => setTotalOptionsCents(cents), []);
 
