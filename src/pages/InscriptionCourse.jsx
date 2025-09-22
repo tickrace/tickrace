@@ -1145,13 +1145,14 @@ export default function InscriptionCourse() {
           )}
 
           {/* Options payantes (catalogue) */}
-          {selectedFormat && mode === "individuel" && (
-            <OptionsPayantesPicker
-              formatId={selectedFormat.id}
-              onTotalCentsChange={(c) => setTotalOptionsCents(c)}
-              registerPersist={registerPersist}
-            />
-          )}
+          {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
+  <OptionsPayantesPicker
+    formatId={selectedFormat.id}
+    onTotalCentsChange={(c) => setTotalOptionsCents(c)}
+    registerPersist={registerPersist}
+  />
+)}
+
         </div>
 
         {/* Résumé / paiement */}
@@ -1227,21 +1228,38 @@ export default function InscriptionCourse() {
                 </>
               ) : (
                 <>
+
+
+
                   {teams.map((t, i) => (
-                    <div key={i} className="flex justify-between">
-                      <span className="text-neutral-600">
-                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
-                      </span>
-                      <span className="font-medium">
-                        ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
-                      </span>
-                    </div>
-                  ))}
-                  <div className="h-px bg-neutral-200 my-2" />
-                  <div className="flex justify-between">
-                    <span className="text-neutral-600">Sous-total estimé</span>
-                    <span className="font-medium">~{Number(estimationEquipe || 0).toFixed(2)} €</span>
-                  </div>
+  <div key={i} className="flex justify-between">
+    <span className="text-neutral-600">
+      {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
+    </span>
+    <span className="font-medium">
+      ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
+    </span>
+  </div>
+))}
+
+{/* Affiche la ligne Options si > 0 */}
+{totalOptionsCents > 0 && (
+  <div className="flex justify-between">
+    <span className="text-neutral-600">Options payantes</span>
+    <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
+  </div>
+)}
+
+<div className="h-px bg-neutral-200 my-2" />
+<div className="flex justify-between">
+  <span className="text-neutral-600">Sous-total estimé</span>
+  <span className="font-medium">
+    ~{(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)} €
+  </span>
+</div>
+
+
+
                 </>
               )}
 
@@ -1250,10 +1268,17 @@ export default function InscriptionCourse() {
               <div className="flex justify-between text-base">
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
+
+
+
                   {mode === "individuel"
-                    ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
-                    : `~${Number(estimationEquipe || 0).toFixed(2)}`
-                  } €
+  ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
+  : `~${(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)}`
+} €
+
+
+
+
                 </span>
               </div>
             </div>
