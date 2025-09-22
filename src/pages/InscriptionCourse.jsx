@@ -3,7 +3,10 @@ import React, { useEffect, useMemo, useState, useRef, useCallback } from "react"
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
-import OptionsPayantesPicker from "../components/OptionsPayantesPicker";
+// ⛔ TEMP: on neutralise le picker pour isoler l'erreur #310
+// import OptionsPayantesPicker from "../components/OptionsPayantesPicker";
+
+const ENABLE_OPTIONS_PICKER = false; // ← remets à true quand on aura confirmé
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
@@ -32,7 +35,7 @@ export default function InscriptionCourse() {
   // Filtres d’affichage
   const [teamFilter, setTeamFilter] = useState({ q: "", category: "all", completeOnly: false });
 
-  // Options payantes
+  // Options payantes (total seulement; le picker est désactivé)
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null);
   const registerPersist = useCallback((fn) => { persistOptionsFnRef.current = fn; }, []);
@@ -613,13 +616,16 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Options payantes */}
-          {canShowOptions && (mode === "individuel" || mode === "relais") && (
-            <OptionsPayantesPicker
-              formatId={selectedFormat.id}
-              onTotalCentsChange={handleOptionsTotal}
-              registerPersist={registerPersist}
-            />
+          {/* Options payantes — TEMP désactivé */}
+          {ENABLE_OPTIONS_PICKER && canShowOptions && (mode === "individuel" || mode === "relais") && (
+            <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm p-5">
+              {/* <OptionsPayantesPicker
+                formatId={selectedFormat.id}
+                onTotalCentsChange={handleOptionsTotal}
+                registerPersist={registerPersist}
+              /> */}
+              <p className="text-sm text-neutral-500">Options payantes chargement désactivé temporairement.</p>
+            </div>
           )}
         </div>
 
