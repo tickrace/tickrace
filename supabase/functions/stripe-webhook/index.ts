@@ -4,7 +4,7 @@ import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pi
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("BUILD stripe-webhook 2025-09-22T20:05Z (options catalogue support)");
+console.log("BUILD stripe-webhook 2025-09-22T20:40Z (CORS+options)");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -15,24 +15,32 @@ const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPAB
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 const ALLOWLIST = ["https://www.tickrace.com","http://localhost:5173","http://127.0.0.1:5173"];
-const cors = (o: string | null) => ({
-  "Access-Control-Allow-Origin": (o && ALLOWLIST.includes(o)) ? o : ALLOWLIST[0],
-  "Vary": "Origin",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature, prefer",
-  "Access-Control-Max-Age": "86400",
-  "Content-Type": "application/json",
-});
+function buildCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin");
+  const allowOrigin = origin && ALLOWLIST.includes(origin) ? origin : ALLOWLIST[0];
+  const reqMethod = req.headers.get("access-control-request-method") || "POST";
+  const reqHeaders =
+    req.headers.get("access-control-request-headers") ||
+    "authorization, x-client-info, apikey, content-type, stripe-signature, prefer";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Vary": "Origin",
+    "Access-Control-Allow-Methods": `${reqMethod}, OPTIONS`,
+    "Access-Control-Allow-Headers": reqHeaders,
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json",
+  };
+}
 const isUUID = (v: unknown) =>
   typeof v === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v as string);
 
 serve(async (req) => {
-  const headers = cors(req.headers.get("origin"));
-  if (req.method === "OPTIONS") return new Response("ok", { headers });
+  const headers = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Méthode non autorisée" }), { status: 405, headers });
 
-  // ✅ Signature (ASYNC)
+  // ✅ Signature (ASYNC) — lire le body brut
   let event: Stripe.Event;
   try {
     const sig = req.headers.get("stripe-signature") ?? "";
@@ -122,7 +130,7 @@ serve(async (req) => {
     // Commission plateforme
     const platformFeeCents = Math.round(amountTotalCents * 0.05);
 
-    // Upsert paiements (idempotent)
+    // Upsert paiements
     const row: any = {
       inscription_id: mode === "individuel" ? inscription_id : null,
       montant_total: amountTotalCents / 100,
@@ -144,7 +152,6 @@ serve(async (req) => {
       fee_total: stripeFeeCents,
       platform_fee_amount: platformFeeCents,
       balance_transaction_id: balanceTxId,
-      // si fourni en amont pour groupe/relais
       options_total_eur: md["options_total_eur"] ? Number(md["options_total_eur"]) : undefined,
     };
 
@@ -159,23 +166,13 @@ serve(async (req) => {
     // Valider inscriptions / groupes + options (individuel)
     if (mode === "individuel") {
       await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", inscription_id);
-
-      // NEW: valider les options (pending -> paid)
-      await supabase
-        .from("inscriptions_options")
-        .update({ status: "paid" })
-        .eq("inscription_id", inscription_id)
-        .eq("status", "pending");
+      // options -> paid
+      await supabase.from("inscriptions_options").update({ status: "paid" }).eq("inscription_id", inscription_id).eq("status", "pending");
     } else {
       const groupIds = group_ids_csv ? group_ids_csv.split(",").filter((x) => isUUID(x)) : [];
       const inscIds = inscription_ids_csv ? inscription_ids_csv.split(",").filter((x) => isUUID(x)) : [];
-      if (groupIds.length > 0) {
-        await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
-      }
-      if (inscIds.length > 0) {
-        await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
-      }
-      // (si plus tard tu stockes des options pour groupe/relais, c’est ici qu’on les validera)
+      if (groupIds.length > 0) await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
+      if (inscIds.length > 0) await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
     }
 
     // Enqueue reversement J+1
@@ -193,7 +190,7 @@ serve(async (req) => {
       }
     }
 
-    // Emails : inchangé (individuel + groupe)
+    // Emails (inchangé)
     try {
       if (resend) {
         if (mode === "individuel") {
@@ -254,9 +251,6 @@ serve(async (req) => {
   } catch (e: any) {
     console.error("stripe-webhook (SCT) error:", e?.message ?? e, e?.stack);
     const debug = Deno.env.get("DEBUG") === "1";
-    return new Response(
-      JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }),
-      { status: 500, headers }
-    );
+    return new Response(JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }), { status: 500, headers });
   }
 });

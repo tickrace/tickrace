@@ -3,27 +3,35 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pin=v135";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("BUILD create-checkout-session 2025-09-22T20:05Z (options catalogue support)");
+console.log("BUILD create-checkout-session 2025-09-22T20:40Z (CORS+options)");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
 const ALLOWLIST = ["https://www.tickrace.com","http://localhost:5173","http://127.0.0.1:5173"];
-const cors = (o: string | null) => ({
-  "Access-Control-Allow-Origin": (o && ALLOWLIST.includes(o)) ? o : ALLOWLIST[0],
-  "Vary": "Origin",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, prefer",
-  "Access-Control-Max-Age": "86400",
-  "Content-Type": "application/json",
-});
+function buildCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin");
+  const allowOrigin = origin && ALLOWLIST.includes(origin) ? origin : ALLOWLIST[0];
+  const reqMethod = req.headers.get("access-control-request-method") || "POST";
+  const reqHeaders =
+    req.headers.get("access-control-request-headers") ||
+    "authorization, x-client-info, apikey, content-type, prefer";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Vary": "Origin",
+    "Access-Control-Allow-Methods": `${reqMethod}, OPTIONS`,
+    "Access-Control-Allow-Headers": reqHeaders,
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json",
+  };
+}
 const isUUID = (v: unknown) =>
   typeof v === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v as string);
 
 serve(async (req) => {
-  const headers = cors(req.headers.get("origin"));
-  if (req.method === "OPTIONS") return new Response("ok", { headers });
+  const headers = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Méthode non autorisée" }), { status: 405, headers });
 
   try {
@@ -32,15 +40,15 @@ serve(async (req) => {
     // Champs communs / front
     const {
       user_id, course_id, email, successUrl, cancelUrl, trace_id: traceIn,
-      // Individuel (héritage)
-      prix_total,               // <- ignoré désormais (on recalcule serveur)
+      // Individuel
+      prix_total,               // ignoré (on recalcule serveur)
       inscription_id,
       // Équipes
       mode,                     // 'individuel' | 'groupe' | 'relais'
       format_id,
       team_name, team_size, members,
       teams,                    // [{ team_name, team_size, members: [...] }]
-      // (nouveau) total options (pour groupe/relais uniquement — optionnel)
+      // optionnel pour groupes/relais (si tu veux compter des options)
       options_total_eur
     } = body ?? {};
 
@@ -63,7 +71,7 @@ serve(async (req) => {
       return new Response(JSON.stringify({ error: "Organisateur non configuré Stripe", code: "ORGANISER_STRIPE_NOT_CONFIGURED" }), { status: 409, headers });
     }
 
-    // ========== BRANCHE INDIVIDUEL ==========
+    // ========== INDIVIDUEL ==========
     if (!mode || mode === "individuel") {
       if (!isUUID(inscription_id)) {
         return new Response(JSON.stringify({ error: "inscription_id manquant (individuel)" }), { status: 400, headers });
@@ -75,30 +83,24 @@ serve(async (req) => {
         .select("id, format_id, nombre_repas")
         .eq("id", inscription_id)
         .single();
-      if (insErr || !insc) {
-        return new Response(JSON.stringify({ error: "Inscription introuvable" }), { status: 404, headers });
-      }
+      if (insErr || !insc) return new Response(JSON.stringify({ error: "Inscription introuvable" }), { status: 404, headers });
 
       const { data: fmt, error: fErr } = await supabase
         .from("formats")
         .select("id, nom, prix, prix_repas")
         .eq("id", insc.format_id)
         .single();
-      if (fErr || !fmt) {
-        return new Response(JSON.stringify({ error: "Format introuvable" }), { status: 404, headers });
-      }
+      if (fErr || !fmt) return new Response(JSON.stringify({ error: "Format introuvable" }), { status: 404, headers });
 
       // 2) Recalcul serveur (anti-fraude)
-      const baseEuros =
-        Number(fmt.prix || 0) + Number(insc.nombre_repas || 0) * Number(fmt.prix_repas || 0);
+      const baseEuros = Number(fmt.prix || 0) + Number(insc.nombre_repas || 0) * Number(fmt.prix_repas || 0);
 
       // 3) Total options (inscriptions_options en "pending")
-      const { data: optsRows, error: optsErr } = await supabase
+      const { data: optsRows } = await supabase
         .from("inscriptions_options")
         .select("quantity, prix_unitaire_cents")
         .eq("inscription_id", inscription_id)
         .eq("status", "pending");
-      if (optsErr) console.error("options read error:", optsErr);
 
       const optionsCents = (optsRows || []).reduce((acc, r) => {
         const q = Number(r.quantity || 0);
@@ -111,7 +113,7 @@ serve(async (req) => {
         return new Response(JSON.stringify({ error: "Montant invalide (individuel)" }), { status: 400, headers });
       }
 
-      // Marquer + pré-insert paiement
+      // Pré-insert paiement
       await supabase.from("inscriptions").update({ paiement_trace_id: trace_id }).eq("id", inscription_id);
       await supabase.from("paiements").insert({
         inscription_id, user_id, montant_total: unitAmount / 100, devise: "eur",
@@ -132,34 +134,23 @@ serve(async (req) => {
         mode: "payment",
         payment_method_types: ["card"],
         line_items: [{
-          price_data: {
-            currency: "eur",
-            product_data: { name: `Inscription (${fmt.nom})` },
-            unit_amount: unitAmount,
-          },
+          price_data: { currency: "eur", product_data: { name: `Inscription (${fmt.nom})` }, unit_amount: unitAmount },
           quantity: 1,
         }],
         customer_email: String(email),
         client_reference_id: trace_id,
-        payment_intent_data: {
-          transfer_group: `grp_${trace_id}`,
-          metadata,
-        },
-        success_url:
-          (successUrl || "https://www.tickrace.com/merci")
-          + "?session_id={CHECKOUT_SESSION_ID}&inscription_id=" + inscription_id
-          + "&trace_id=" + trace_id,
-        cancel_url:
-          (cancelUrl || "https://www.tickrace.com/paiement-annule")
-          + "?session_id={CHECKOUT_SESSION_ID}&inscription_id=" + inscription_id
-          + "&trace_id=" + trace_id,
+        payment_intent_data: { transfer_group: `grp_${trace_id}`, metadata },
+        success_url: (successUrl || "https://www.tickrace.com/merci")
+          + "?session_id={CHECKOUT_SESSION_ID}&inscription_id=" + inscription_id + "&trace_id=" + trace_id,
+        cancel_url: (cancelUrl || "https://www.tickrace.com/paiement-annule")
+          + "?session_id={CHECKOUT_SESSION_ID}&inscription_id=" + inscription_id + "&trace_id=" + trace_id,
         metadata,
       });
 
       return new Response(JSON.stringify({ url: session.url, trace_id }), { status: 200, headers });
     }
 
-    // ========== BRANCHE GROUPE / RELAIS ==========
+    // ========== GROUPE / RELAIS ==========
     if (!isUUID(format_id)) {
       return new Response(JSON.stringify({ error: "format_id requis pour groupe/relais" }), { status: 400, headers });
     }
@@ -172,9 +163,7 @@ serve(async (req) => {
       .from("formats")
       .select("id, nom, prix, prix_equipe, nb_max_coureurs, inscription_ouverture, inscription_fermeture, waitlist_enabled, team_size, nb_coureurs_min, nb_coureurs_max")
       .eq("id", format_id).single();
-    if (fErr || !formatRow) {
-      return new Response(JSON.stringify({ error: "Format introuvable" }), { status: 404, headers });
-    }
+    if (fErr || !formatRow) return new Response(JSON.stringify({ error: "Format introuvable" }), { status: 404, headers });
 
     // Fenêtre d’inscription
     const now = new Date();
@@ -186,11 +175,7 @@ serve(async (req) => {
     // Normaliser équipes
     const normalizedTeams = Array.isArray(teams) && teams.length > 0
       ? teams
-      : [{
-          team_name: team_name || "Équipe",
-          team_size: Number(team_size || formatRow.team_size || 0),
-          members: Array.isArray(members) ? members : [],
-        }];
+      : [{ team_name: team_name || "Équipe", team_size: Number(team_size || formatRow.team_size || 0), members: Array.isArray(members) ? members : [] }];
 
     // Validation rapide
     for (const t of normalizedTeams) {
@@ -225,9 +210,7 @@ serve(async (req) => {
     const totalBaseEuros = normalizedTeams.reduce((sum: number, t: any) => sum + (Number(t.team_size || 0) * pricePerRunner + teamFee), 0);
     const extraOptionsEuros = Number(options_total_eur || 0);
     const unitAmount = Math.round((totalBaseEuros + extraOptionsEuros) * 100);
-    if (unitAmount <= 0) {
-      return new Response(JSON.stringify({ error: "Montant total invalide" }), { status: 400, headers });
-    }
+    if (unitAmount <= 0) return new Response(JSON.stringify({ error: "Montant total invalide" }), { status: 400, headers });
 
     // Créer groupes + inscriptions en attente
     const inscriptionIds: string[] = [];
@@ -245,9 +228,7 @@ serve(async (req) => {
         })
         .select()
         .single();
-      if (gErr || !grp) {
-        return new Response(JSON.stringify({ error: "Erreur création groupe" }), { status: 500, headers });
-      }
+      if (gErr || !grp) return new Response(JSON.stringify({ error: "Erreur création groupe" }), { status: 500, headers });
       groupIds.push(grp.id);
 
       for (const m of t.members) {
@@ -266,9 +247,7 @@ serve(async (req) => {
           })
           .select()
           .single();
-        if (iErr || !insc) {
-          return new Response(JSON.stringify({ error: "Erreur création inscription membre" }), { status: 500, headers });
-        }
+        if (iErr || !insc) return new Response(JSON.stringify({ error: "Erreur création inscription membre" }), { status: 500, headers });
         inscriptionIds.push(insc.id);
       }
     }
@@ -286,7 +265,6 @@ serve(async (req) => {
       amount_subtotal: unitAmount,
       amount_total: unitAmount,
       destination_account_id: destinationAccount,
-      // on garde une trace de la part options si fournie
       options_total_eur: extraOptionsEuros,
     });
 
@@ -306,27 +284,16 @@ serve(async (req) => {
       mode: "payment",
       payment_method_types: ["card"],
       line_items: [{
-        price_data: {
-          currency: "eur",
-          product_data: { name: mode === "relais" ? "Inscription relais (équipe)" : "Inscription groupe (équipe)" },
-          unit_amount: unitAmount,
-        },
+        price_data: { currency: "eur", product_data: { name: mode === "relais" ? "Inscription relais (équipe)" : "Inscription groupe (équipe)" }, unit_amount: unitAmount },
         quantity: 1,
       }],
       customer_email: String(email),
       client_reference_id: trace_id,
-      payment_intent_data: {
-        transfer_group: `grp_${trace_id}`,
-        metadata,
-      },
-      success_url:
-        (successUrl || "https://www.tickrace.com/merci")
-        + "?session_id={CHECKOUT_SESSION_ID}"
-        + "&trace_id=" + trace_id,
-      cancel_url:
-        (cancelUrl || "https://www.tickrace.com/paiement-annule")
-        + "?session_id={CHECKOUT_SESSION_ID}"
-        + "&trace_id=" + trace_id,
+      payment_intent_data: { transfer_group: `grp_${trace_id}`, metadata },
+      success_url: (successUrl || "https://www.tickrace.com/merci")
+        + "?session_id={CHECKOUT_SESSION_ID}&trace_id=" + trace_id,
+      cancel_url: (cancelUrl || "https://www.tickrace.com/paiement-annule")
+        + "?session_id={CHECKOUT_SESSION_ID}&trace_id=" + trace_id,
       metadata,
     });
 
@@ -334,9 +301,6 @@ serve(async (req) => {
   } catch (e: any) {
     console.error("create-checkout-session (SCT) error:", e?.message ?? e, e?.stack);
     const debug = Deno.env.get("DEBUG") === "1";
-    return new Response(
-      JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }),
-      { status: 500, headers }
-    );
+    return new Response(JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }), { status: 500, headers });
   }
 });

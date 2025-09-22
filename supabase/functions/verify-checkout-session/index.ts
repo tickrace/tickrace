@@ -3,27 +3,35 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pin=v135";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("BUILD verify-checkout-session 2025-09-22T20:05Z (aligned)");
+console.log("BUILD verify-checkout-session 2025-09-22T20:40Z (CORS aligned)");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
 
 const ALLOWLIST = ["https://www.tickrace.com","http://localhost:5173","http://127.0.0.1:5173"];
-const cors = (o: string | null) => ({
-  "Access-Control-Allow-Origin": (o && ALLOWLIST.includes(o)) ? o : ALLOWLIST[0],
-  "Vary": "Origin",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
-  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, prefer",
-  "Access-Control-Max-Age": "86400",
-  "Content-Type": "application/json",
-});
+function buildCorsHeaders(req: Request) {
+  const origin = req.headers.get("origin");
+  const allowOrigin = origin && ALLOWLIST.includes(origin) ? origin : ALLOWLIST[0];
+  const reqMethod = req.headers.get("access-control-request-method") || "POST";
+  const reqHeaders =
+    req.headers.get("access-control-request-headers") ||
+    "authorization, x-client-info, apikey, content-type, prefer";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Vary": "Origin",
+    "Access-Control-Allow-Methods": `${reqMethod}, OPTIONS`,
+    "Access-Control-Allow-Headers": reqHeaders,
+    "Access-Control-Max-Age": "86400",
+    "Content-Type": "application/json",
+  };
+}
 const isUUID = (v: unknown) =>
   typeof v === "string" &&
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v as string);
 
 serve(async (req) => {
-  const headers = cors(req.headers.get("origin"));
-  if (req.method === "OPTIONS") return new Response("ok", { headers });
+  const headers = buildCorsHeaders(req);
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Méthode non autorisée" }), { status: 405, headers });
 
   try {
@@ -40,9 +48,7 @@ serve(async (req) => {
       session = await stripe.checkout.sessions.retrieve(session_id);
       if (!session) return new Response(JSON.stringify({ error: "Session introuvable" }), { status: 404, headers });
       const piId = session.payment_intent as string | null;
-      if (piId) {
-        pi = await stripe.paymentIntents.retrieve(piId, { expand: ["latest_charge.balance_transaction"] });
-      }
+      if (piId) pi = await stripe.paymentIntents.retrieve(piId, { expand: ["latest_charge.balance_transaction"] });
     } else {
       const { data: payByTrace } = await supabase
         .from("paiements")
@@ -160,29 +166,17 @@ serve(async (req) => {
 
     // 6) Valider les inscriptions (comme avant)
     if (mode === "individuel") {
-      const finalInscId =
-        (isUUID(inscriptionIdIn) ? inscriptionIdIn : (isUUID(inscription_id_md) ? inscription_id_md : null));
-      if (finalInscId) {
-        await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", finalInscId);
-      }
+      const finalInscId = (isUUID(inscriptionIdIn) ? inscriptionIdIn : (isUUID(inscription_id_md) ? inscription_id_md : null));
+      if (finalInscId) await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", finalInscId);
     } else {
       const groupIds = group_ids_csv ? group_ids_csv.split(",").filter(isUUID) : [];
-      if (groupIds.length > 0) {
-        await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
-      }
-      if (inscIds.length > 0) {
-        await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
-      }
+      if (groupIds.length > 0) await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
+      if (inscIds.length > 0) await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
     }
 
     // 7) Enfiler virement J+1
     if (destinationAccount) {
-      const { data: payRow } = await supabase
-        .from("paiements")
-        .select("id")
-        .eq("stripe_payment_intent_id", String(pi.id))
-        .maybeSingle();
-
+      const { data: payRow } = await supabase.from("paiements").select("id").eq("stripe_payment_intent_id", String(pi.id)).maybeSingle();
       const netToTransfer = Math.max(0, amountTotalCents - platformFeeCents - stripeFeeCents);
       if (payRow?.id && netToTransfer > 0) {
         const { data: existsQ } = await supabase
@@ -202,11 +196,10 @@ serve(async (req) => {
       }
     }
 
-    // 8) Retour page “merci”
+    // 8) Retourner de quoi afficher la page “merci”
     let inscriptions: any[] = [];
     if (mode === "individuel") {
-      const finalInscId =
-        (isUUID(inscriptionIdIn) ? inscriptionIdIn : (isUUID(inscription_id_md) ? inscription_id_md : null));
+      const finalInscId = (isUUID(inscriptionIdIn) ? inscriptionIdIn : (isUUID(inscription_id_md) ? inscription_id_md : null));
       if (finalInscId) {
         const { data: one } = await supabase.from("inscriptions").select("*").eq("id", finalInscId).maybeSingle();
         if (one) inscriptions = [one];
@@ -225,9 +218,7 @@ serve(async (req) => {
       amount_total_cents: amountTotalCents,
       currency,
       receipt_url: receiptUrl,
-      inscription_ids: mode === "individuel"
-        ? (inscriptions[0]?.id ? [inscriptions[0].id] : [])
-        : inscIds,
+      inscription_ids: mode === "individuel" ? (inscriptions[0]?.id ? [inscriptions[0].id] : []) : inscIds,
       group_ids: (md["group_ids"] || "").split(",").filter(isUUID),
       inscriptions,
     }), { status: 200, headers });
