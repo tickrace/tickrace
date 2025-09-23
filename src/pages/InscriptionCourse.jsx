@@ -7,11 +7,10 @@ import { v4 as uuidv4 } from "uuid";
 /* -------------------- Sous-composant : Options payantes (options_catalogue) -------------------- */
 function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }) {
   const [loading, setLoading] = useState(false);
-  const [supported, setSupported] = useState(true); // false si la table n'existe pas
+  const [supported, setSupported] = useState(true);
   const [options, setOptions] = useState([]);
   const [quantites, setQuantites] = useState({}); // option_id -> qty
 
-  // util: (quantites -> total cents) et emit immédiat
   const recomputeAndEmit = (qMap, opts = options) => {
     const total = (opts || []).reduce((acc, o) => {
       const q = Number(qMap[o.id] || 0);
@@ -43,7 +42,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       if (abort) return;
 
       if (error) {
-        // Table absente → on masque proprement
         setSupported(false);
         setOptions([]);
         setQuantites({});
@@ -56,19 +54,21 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       setSupported(true);
       setOptions(rows);
 
-      // init quantités (0) puis émettre total 0
       const init = {};
-      rows.forEach((o) => { init[o.id] = 0; });
+      rows.forEach((o) => {
+        init[o.id] = 0;
+      });
       setQuantites(init);
       recomputeAndEmit(init, rows);
-
       setLoading(false);
     }
     load();
-    return () => { abort = true; };
-  }, [formatId]); // on relance à chaque format
+    return () => {
+      abort = true;
+    };
+  }, [formatId]); // relance à chaque format
 
-  // exposer la persistance des sélections
+  // Persistance dans inscriptions_options (pending) après création d’inscription
   async function persist(inscriptionId) {
     if (!supported || !inscriptionId) return;
     await supabase
@@ -98,9 +98,10 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     }
   }
 
-  useEffect(() => { registerPersist?.(persist); }, [registerPersist, options, quantites, supported]);
+  useEffect(() => {
+    registerPersist?.(persist);
+  }, [registerPersist, options, quantites, supported]);
 
-  // handlers +/–/input avec recalcul immédiat
   const dec = (o) => {
     const max = Number(o.max_qty_per_inscription ?? 10);
     setQuantites((prev) => {
@@ -145,7 +146,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
   }
   if (options.length === 0) return null;
 
-  // total calculé en live pour affichage (déjà émis côté parent à chaque modif)
   const affichageTotalCents = options.reduce((acc, o) => {
     const q = Number(quantites[o.id] || 0);
     return acc + q * Number(o.price_cents || 0);
@@ -168,9 +168,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
                 <div className="font-medium">
                   {o.label} · {(prixCents / 100).toFixed(2)} €
                 </div>
-                {o.description && (
-                  <div className="text-neutral-600">{o.description}</div>
-                )}
+                {o.description && <div className="text-neutral-600">{o.description}</div>}
                 <div className="text-xs text-neutral-500">Quantité autorisée : 0–{max}</div>
               </div>
               <div className="flex items-center gap-2">
@@ -197,7 +195,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
   );
 }
 
-
 /* -------------------------------------------------------------------------- */
 
 export default function InscriptionCourse() {
@@ -207,18 +204,18 @@ export default function InscriptionCourse() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
 
-  // Formulaire coureur (utilisé en individuel et comme payeur)
+  // Formulaire coureur / payeur
   const [inscription, setInscription] = useState(defaultCoureur());
 
-  // Modes / équipes
+  // Modes
   const [mode, setMode] = useState("individuel"); // 'individuel' | 'groupe' | 'relais'
 
-  // Pour équipe(s) (groupe/relais)
+  // Équipes
   const emptyMember = () => ({
     nom: "",
     prenom: "",
-    genre: "",            // "Homme" | "Femme"
-    date_naissance: "",   // YYYY-MM-DD
+    genre: "", // "Homme" | "Femme"
+    date_naissance: "",
     email: "",
   });
 
@@ -226,22 +223,24 @@ export default function InscriptionCourse() {
     team_name: name,
     team_size: size,
     members: Array.from({ length: Math.max(0, size) }, () => emptyMember()),
-    category: null, // "masculine" | "feminine" | "mixte" (calculée)
+    category: null,
   });
 
-  const [teams, setTeams] = useState([defaultTeam("Équipe 1", 0)]); // au moins 1 équipe
+  const [teams, setTeams] = useState([defaultTeam("Équipe 1", 0)]);
 
-  // Filtres d’affichage (UI)
+  // Filtres UI
   const [teamFilter, setTeamFilter] = useState({
     q: "",
-    category: "all",     // all | masculine | feminine | mixte
+    category: "all",
     completeOnly: false,
   });
 
   // Total options payantes (cents) & callback de persistance
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
-  const persistOptionsFnRef = useRef(null); // le picker publie sa fonction persist(inscriptionId)
-  function registerPersist(fn) { persistOptionsFnRef.current = fn; }
+  const persistOptionsFnRef = useRef(null);
+  function registerPersist(fn) {
+    persistOptionsFnRef.current = fn;
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -249,14 +248,14 @@ export default function InscriptionCourse() {
     async function fetchAll() {
       setLoading(true);
 
-      // Course + formats (sans champs repas)
+      // Course + formats
       const { data, error } = await supabase
         .from("courses")
         .select(`
           *,
           formats (
             id, nom, prix, prix_equipe, date, distance_km, denivele_dplus,
-            nb_max_coureurs, type_format,
+            nb_max_coureurs, stock_repas, prix_repas, type_format,
             team_size, nb_coureurs_min, nb_coureurs_max,
             inscription_ouverture, inscription_fermeture,
             fuseau_horaire, waitlist_enabled
@@ -353,6 +352,9 @@ export default function InscriptionCourse() {
       pps_identifier: "",
       contact_urgence_nom: "",
       contact_urgence_telephone: "",
+      nombre_repas: 0,
+      prix_total_repas: 0,
+      prix_total_coureur: 0, // base (inscription + repas) en €
     };
   }
 
@@ -372,7 +374,20 @@ export default function InscriptionCourse() {
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
-  // Estimation équipes (multi) — sans repas
+  // Recalcul prix (individuel) — BASE : inscription + repas (en €)
+  useEffect(() => {
+    if (!selectedFormat || mode !== "individuel") {
+      setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: 0 }));
+      return;
+    }
+    const prixRepas = Number(selectedFormat.prix_repas || 0);
+    const prixInscription = Number(selectedFormat.prix || 0);
+    const totalRepas = prixRepas * Number(inscription.nombre_repas || 0);
+    const total = prixInscription + totalRepas;
+    setInscription((prev) => ({ ...prev, prix_total_repas: totalRepas, prix_total_coureur: total }));
+  }, [selectedFormat, inscription.nombre_repas, mode]);
+
+  // Estimation équipes (multi)
   const estimationEquipe = useMemo(() => {
     if (!selectedFormat || mode === "individuel") return 0;
     const fee = Number(selectedFormat.prix_equipe || 0) || 0;
@@ -432,11 +447,8 @@ export default function InscriptionCourse() {
     setTeams((prev) => (prev.length <= 1 ? prev : prev.filter((_, i) => i !== idx)));
   }
 
-  // Catégorie d’équipe depuis les genres renseignés
   function computeTeamCategory(team) {
-    const gens = (team.members || [])
-      .map((m) => (m.genre || "").toLowerCase())
-      .filter(Boolean);
+    const gens = (team.members || []).map((m) => (m.genre || "").toLowerCase()).filter(Boolean);
     if (gens.length === 0) return null;
     const allH = gens.every((g) => g.startsWith("h"));
     const allF = gens.every((g) => g.startsWith("f"));
@@ -445,12 +457,9 @@ export default function InscriptionCourse() {
     return "mixte";
   }
 
-  // Equipe “complète” = chaque membre a nom+prénom+genre+date de naissance
   function isTeamComplete(team) {
     if (!team.team_size || (team.members?.length || 0) !== team.team_size) return false;
-    return team.members.every(
-      (m) => m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance
-    );
+    return team.members.every((m) => m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance);
   }
 
   const filteredTeams = useMemo(() => {
@@ -500,7 +509,7 @@ export default function InscriptionCourse() {
 
         const trace_id = uuidv4();
 
-        // Créer l'inscription
+        // Inscription “en attente”
         const { data: inserted, error: insertErr } = await supabase
           .from("inscriptions")
           .insert([
@@ -527,28 +536,26 @@ export default function InscriptionCourse() {
           await persistOptionsFnRef.current(inserted.id);
         }
 
-        const payerEmail =
-          inscription.email || user.email || user.user_metadata?.email || "";
+        const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
         if (!payerEmail) {
           alert("Veuillez renseigner un email.");
           setSubmitting(false);
           return;
         }
 
+        // IMPORTANT : ne pas envoyer prix_total (le serveur recalcule) — mais on envoie options_total_eur en secours
         const { data, error: fnError } = await supabase.functions.invoke(
           "create-checkout-session",
           {
             body: {
               user_id: user.id,
               course_id: courseId,
-              prix_total: prixTotalClient, // € (on ignoré côté serveur — on recalcule là-bas
               inscription_id: inserted.id,
               email: payerEmail,
               trace_id,
               successUrl: "https://www.tickrace.com/merci",
               cancelUrl: "https://www.tickrace.com/paiement-annule",
-// 👇 secours pour le serveur si inscriptions_options n’est pas en base
-              options_total_eur: (totalOptionsCents || 0) / 100,            
+              options_total_eur: (totalOptionsCents || 0) / 100, // filet de sécurité
             },
           }
         );
@@ -587,19 +594,21 @@ export default function InscriptionCourse() {
       }
 
       const payerEmail =
-        inscription.email || user.email || user.user_metadata?.email || "";
+        inscription.email ||
+        user.email ||
+        user.user_metadata?.email ||
+        "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
         setSubmitting(false);
         return;
       }
 
-      // Payload (catégorie calculée) + options_total_eur
       const teamsForPayload = teams.map((t) => ({
         team_name: t.team_name,
         team_size: t.team_size,
         category: computeTeamCategory(t),
-        members: t.members, // {nom, prenom, genre, date_naissance, email?}
+        members: t.members,
       }));
 
       let body = {
@@ -610,7 +619,7 @@ export default function InscriptionCourse() {
         email: payerEmail,
         successUrl: "https://www.tickrace.com/merci",
         cancelUrl: "https://www.tickrace.com/paiement-annule",
-        options_total_eur: (totalOptionsCents || 0) / 100, // 👈 inclus au total serveur
+        options_total_eur: (totalOptionsCents || 0) / 100,
       };
 
       if (teams.length > 1) {
@@ -676,9 +685,6 @@ export default function InscriptionCourse() {
         )
       : null;
 
-  // Prix base individuel (uniquement pour l'affichage)
-  const prixBaseIndiv = selectedFormat ? Number(selectedFormat.prix || 0) : 0;
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -729,7 +735,7 @@ export default function InscriptionCourse() {
                   const newMode = f?.type_format || "individuel";
                   setMode(newMode);
 
-                  // Initialiser équipes selon format
+                  // Init équipes
                   if (newMode === "individuel") {
                     setTeams([defaultTeam("Équipe 1", 0)]);
                   } else {
@@ -997,7 +1003,7 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Infos coureur : affichées UNIQUEMENT en individuel */}
+          {/* Infos coureur : INDIVIDUEL */}
           {mode === "individuel" && (
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100">
@@ -1058,7 +1064,7 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Options payantes (catalogue) */}
+          {/* Options payantes */}
           {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
             <OptionsPayantesPicker
               formatId={selectedFormat.id}
@@ -1084,7 +1090,7 @@ export default function InscriptionCourse() {
                 </span>
               </div>
 
-              {/* Résumé équipes (si groupe/relais) */}
+              {/* Résumé équipes */}
               {mode !== "individuel" && (
                 <>
                   <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3">
@@ -1118,7 +1124,7 @@ export default function InscriptionCourse() {
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Inscription</span>
                     <span className="font-medium">
-                      {selectedFormat ? prixBaseIndiv.toFixed(2) : "0.00"} €
+                      {selectedFormat ? Number(selectedFormat.prix || 0).toFixed(2) : "0.00"} €
                     </span>
                   </div>
                   {/* Ligne options payantes */}
@@ -1141,15 +1147,13 @@ export default function InscriptionCourse() {
                       </span>
                     </div>
                   ))}
-
-                  {/* Affiche la ligne Options si > 0 */}
+                  {/* Ligne options */}
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
                       <span className="text-neutral-600">Options payantes</span>
                       <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
                     </div>
                   )}
-
                   <div className="h-px bg-neutral-200 my-2" />
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Sous-total estimé</span>
@@ -1166,7 +1170,7 @@ export default function InscriptionCourse() {
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
                   {mode === "individuel"
-                    ? (prixBaseIndiv + (totalOptionsCents / 100)).toFixed(2)
+                    ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
                     : `~${(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)}`
                   } €
                 </span>
