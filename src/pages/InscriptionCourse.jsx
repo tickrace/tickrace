@@ -238,12 +238,9 @@ export default function InscriptionCourse() {
     completeOnly: false,
   });
 
-  // Total options (cents) pour l’UI + ref temps réel pour le paiement
+  // Total options payantes (cents) & callback de persistance
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
-  const totalOptionsCentsRef = useRef(0);
-
-  // callback de persistance publié par le picker
-  const persistOptionsFnRef = useRef(null);
+  const persistOptionsFnRef = useRef(null); // le picker publie sa fonction persist(inscriptionId)
   function registerPersist(fn) { persistOptionsFnRef.current = fn; }
 
   useEffect(() => {
@@ -252,14 +249,14 @@ export default function InscriptionCourse() {
     async function fetchAll() {
       setLoading(true);
 
-      // Course + formats
+      // Course + formats (sans champs repas)
       const { data, error } = await supabase
         .from("courses")
         .select(`
           *,
           formats (
             id, nom, prix, prix_equipe, date, distance_km, denivele_dplus,
-            nb_max_coureurs, stock_repas, prix_repas, type_format,
+            nb_max_coureurs, type_format,
             team_size, nb_coureurs_min, nb_coureurs_max,
             inscription_ouverture, inscription_fermeture,
             fuseau_horaire, waitlist_enabled
@@ -356,9 +353,6 @@ export default function InscriptionCourse() {
       pps_identifier: "",
       contact_urgence_nom: "",
       contact_urgence_telephone: "",
-      nombre_repas: 0,
-      prix_total_repas: 0,
-      prix_total_coureur: 0, // base (inscription + repas) en €
     };
   }
 
@@ -378,20 +372,7 @@ export default function InscriptionCourse() {
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
-  // Recalcul prix (individuel) — BASE : inscription + repas (en €)
-  useEffect(() => {
-    if (!selectedFormat || mode !== "individuel") {
-      setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: 0 }));
-      return;
-    }
-    const prixRepas = Number(selectedFormat.prix_repas || 0);
-    const prixInscription = Number(selectedFormat.prix || 0);
-    const totalRepas = prixRepas * Number(inscription.nombre_repas || 0);
-    const total = prixInscription + totalRepas;
-    setInscription((prev) => ({ ...prev, prix_total_repas: totalRepas, prix_total_coureur: total }));
-  }, [selectedFormat, inscription.nombre_repas, mode]);
-
-  // Estimation équipes (multi)
+  // Estimation équipes (multi) — sans repas
   const estimationEquipe = useMemo(() => {
     if (!selectedFormat || mode === "individuel") return 0;
     const fee = Number(selectedFormat.prix_equipe || 0) || 0;
@@ -405,10 +386,6 @@ export default function InscriptionCourse() {
   }
 
   // ----- Gestion équipes -----
-  const canGroupOrRelay =
-    selectedFormat &&
-    (selectedFormat.type_format === "groupe" || selectedFormat.type_format === "relais");
-
   const minTeam = selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1;
   const maxTeam = selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20;
 
@@ -523,10 +500,7 @@ export default function InscriptionCourse() {
 
         const trace_id = uuidv4();
 
-        // Total final à envoyer au Checkout = base (inscription + repas) + options
-        const prixTotalClient =
-          Number(inscription.prix_total_coureur || 0) + (Number(totalOptionsCentsRef.current) / 100);
-
+        // Créer l'inscription
         const { data: inserted, error: insertErr } = await supabase
           .from("inscriptions")
           .insert([
@@ -548,16 +522,13 @@ export default function InscriptionCourse() {
           return;
         }
 
-        // Persister les options en 'pending' (si le bloc est présent)
+        // Persister les options en 'pending'
         if (persistOptionsFnRef.current) {
           await persistOptionsFnRef.current(inserted.id);
         }
 
         const payerEmail =
-          inscription.email ||
-          user.email ||
-          user.user_metadata?.email ||
-          "";
+          inscription.email || user.email || user.user_metadata?.email || "";
         if (!payerEmail) {
           alert("Veuillez renseigner un email.");
           setSubmitting(false);
@@ -570,7 +541,7 @@ export default function InscriptionCourse() {
             body: {
               user_id: user.id,
               course_id: courseId,
-              prix_total: prixTotalClient, // € (inclut options)
+              // prix_total ignoré côté serveur — on recalcule là-bas
               inscription_id: inserted.id,
               email: payerEmail,
               trace_id,
@@ -614,17 +585,14 @@ export default function InscriptionCourse() {
       }
 
       const payerEmail =
-        inscription.email ||
-        user.email ||
-        user.user_metadata?.email ||
-        "";
+        inscription.email || user.email || user.user_metadata?.email || "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
         setSubmitting(false);
         return;
       }
 
-      // Payload pour plusieurs/une équipe (avec catégorie calculée)
+      // Payload (catégorie calculée) + options_total_eur
       const teamsForPayload = teams.map((t) => ({
         team_name: t.team_name,
         team_size: t.team_size,
@@ -640,7 +608,7 @@ export default function InscriptionCourse() {
         email: payerEmail,
         successUrl: "https://www.tickrace.com/merci",
         cancelUrl: "https://www.tickrace.com/paiement-annule",
-        options_total_eur: Number(totalOptionsCentsRef.current || 0) / 100, // <-- utilise la ref
+        options_total_eur: (totalOptionsCents || 0) / 100, // 👈 inclus au total serveur
       };
 
       if (teams.length > 1) {
@@ -706,6 +674,9 @@ export default function InscriptionCourse() {
         )
       : null;
 
+  // Prix base individuel (uniquement pour l'affichage)
+  const prixBaseIndiv = selectedFormat ? Number(selectedFormat.prix || 0) : 0;
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -764,9 +735,8 @@ export default function InscriptionCourse() {
                     setTeams([defaultTeam("Équipe 1", def)]);
                   }
 
-                  // Reset des options payantes au changement de format (state + ref)
+                  // Reset des options payantes au changement de format
                   setTotalOptionsCents(0);
-                  totalOptionsCentsRef.current = 0;
                 }}
                 className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
                 required
@@ -1090,10 +1060,7 @@ export default function InscriptionCourse() {
           {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
             <OptionsPayantesPicker
               formatId={selectedFormat.id}
-              onTotalCentsChange={(c) => {
-                totalOptionsCentsRef.current = c; // ref temps réel
-                setTotalOptionsCents(c);          // pour l’UI
-              }}
+              onTotalCentsChange={(c) => setTotalOptionsCents(c)}
               registerPersist={registerPersist}
             />
           )}
@@ -1149,19 +1116,9 @@ export default function InscriptionCourse() {
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Inscription</span>
                     <span className="font-medium">
-                      {selectedFormat ? Number(selectedFormat.prix || 0).toFixed(2) : "0.00"} €
+                      {selectedFormat ? prixBaseIndiv.toFixed(2) : "0.00"} €
                     </span>
                   </div>
-                  {selectedFormat && Number(selectedFormat.stock_repas) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">
-                        Repas × {Number(inscription.nombre_repas || 0)}
-                      </span>
-                      <span className="font-medium">
-                        {Number(inscription.prix_total_repas || 0).toFixed(2)} €
-                      </span>
-                    </div>
-                  )}
                   {/* Ligne options payantes */}
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
@@ -1207,8 +1164,8 @@ export default function InscriptionCourse() {
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
                   {mode === "individuel"
-                    ? (Number(inscription.prix_total_coureur || 0) + (Number(totalOptionsCentsRef.current) / 100)).toFixed(2)
-                    : `~${(Number(estimationEquipe || 0) + (Number(totalOptionsCentsRef.current) / 100)).toFixed(2)}`
+                    ? (prixBaseIndiv + (totalOptionsCents / 100)).toFixed(2)
+                    : `~${(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)}`
                   } €
                 </span>
               </div>

@@ -3,7 +3,7 @@ import { serve } from "https://deno.land/std@0.192.0/http/server.ts";
 import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pin=v135";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("BUILD create-checkout-session 2025-09-22T20:40Z (CORS+options)");
+console.log("BUILD create-checkout-session 2025-09-22T21:00Z (no-meals, capacity-annulé, CORS+OPTIONS)");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!);
@@ -80,20 +80,20 @@ serve(async (req) => {
       // 1) Lire l'inscription + format
       const { data: insc, error: insErr } = await supabase
         .from("inscriptions")
-        .select("id, format_id, nombre_repas")
+        .select("id, format_id")
         .eq("id", inscription_id)
         .single();
       if (insErr || !insc) return new Response(JSON.stringify({ error: "Inscription introuvable" }), { status: 404, headers });
 
       const { data: fmt, error: fErr } = await supabase
         .from("formats")
-        .select("id, nom, prix, prix_repas")
+        .select("id, nom, prix")
         .eq("id", insc.format_id)
         .single();
       if (fErr || !fmt) return new Response(JSON.stringify({ error: "Format introuvable" }), { status: 404, headers });
 
-      // 2) Recalcul serveur (anti-fraude)
-      const baseEuros = Number(fmt.prix || 0) + Number(insc.nombre_repas || 0) * Number(fmt.prix_repas || 0);
+      // 2) Recalcul serveur (anti-fraude) — REPAS SUPPRIMÉS
+      const baseEuros = Number(fmt.prix || 0);
 
       // 3) Total options (inscriptions_options en "pending")
       const { data: optsRows } = await supabase
@@ -197,7 +197,7 @@ serve(async (req) => {
       .from("inscriptions")
       .select("*", { count: "exact", head: true })
       .eq("format_id", format_id)
-      .neq("statut", "annule");
+      .neq("statut", "annulé"); // <— correction d’orthographe
     const toAdd = normalizedTeams.reduce((acc: number, t: any) => acc + Number(t.team_size || 0), 0);
     const maxCap = Number(formatRow.nb_max_coureurs || 0) || Infinity;
     if ((currentCount || 0) + toAdd > maxCap && !formatRow.waitlist_enabled) {
