@@ -93,8 +93,10 @@ serve(async (req) => {
       if (fErr || !fmt) return new Response(JSON.stringify({ error: "Format introuvable" }), { status: 404, headers });
 
       // 2) Recalcul serveur (anti-fraude) — REPAS SUPPRIMÉS
-      const baseEuros = Number(fmt.prix || 0);
-
+      //const baseEuros = Number(fmt.prix || 0);
+// 2) Recalcul serveur (anti-fraude) — base hors options
+     const baseEuros = Number(fmt.prix || 0) + Number(insc.nombre_repas || 0) * Number(fmt.prix_repas || 0);
+      const baseCents = Math.round(baseEuros * 100);
       // 3) Total options (inscriptions_options en "pending")
       const { data: optsRows } = await supabase
         .from("inscriptions_options")
@@ -108,7 +110,16 @@ serve(async (req) => {
         return acc + q * pu;
       }, 0);
 
-      const unitAmount = Math.round(baseEuros * 100) + optionsCents;
+      //const unitAmount = Math.round(baseEuros * 100) + optionsCents;
+      // 3b) Fallback: si aucune ligne en base, on prend la valeur envoyée par le front
+     const extraFromClientCents = Math.max(0, Math.round(Number(options_total_eur || 0) * 100));
+      const totalOptionsCents = optionsCents > 0 ? optionsCents : extraFromClientCents;
+
+      const unitAmount = baseCents + totalOptionsCents;
+      
+      
+      
+      
       if (!Number.isFinite(unitAmount) || unitAmount <= 0) {
         return new Response(JSON.stringify({ error: "Montant invalide (individuel)" }), { status: 400, headers });
       }
@@ -119,7 +130,10 @@ serve(async (req) => {
         inscription_id, user_id, montant_total: unitAmount / 100, devise: "eur",
         status: "created", type: "individuel", inscription_ids: [inscription_id],
         trace_id, amount_subtotal: unitAmount, amount_total: unitAmount,
-        destination_account_id: destinationAccount
+       // destination_account_id: destinationAccount
+       destination_account_id: destinationAccount,
+        // pour audit / debugging
+        options_total_eur: totalOptionsCents / 100,
       });
 
       const metadata: Record<string,string> = {

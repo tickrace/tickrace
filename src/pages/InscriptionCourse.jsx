@@ -541,12 +541,14 @@ export default function InscriptionCourse() {
             body: {
               user_id: user.id,
               course_id: courseId,
-              // prix_total ignoré côté serveur — on recalcule là-bas
+              prix_total: prixTotalClient, // € (on ignoré côté serveur — on recalcule là-bas
               inscription_id: inserted.id,
               email: payerEmail,
               trace_id,
               successUrl: "https://www.tickrace.com/merci",
               cancelUrl: "https://www.tickrace.com/paiement-annule",
+// 👇 secours pour le serveur si inscriptions_options n’est pas en base
+              options_total_eur: (totalOptionsCents || 0) / 100,            
             },
           }
         );
