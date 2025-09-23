@@ -249,14 +249,14 @@ export default function InscriptionCourse() {
     async function fetchAll() {
       setLoading(true);
 
-      // Course + formats
+      // Course + formats (on retire les champs repas)
       const { data, error } = await supabase
         .from("courses")
         .select(`
           *,
           formats (
             id, nom, prix, prix_equipe, date, distance_km, denivele_dplus,
-            nb_max_coureurs, stock_repas, prix_repas, type_format,
+            nb_max_coureurs, type_format,
             team_size, nb_coureurs_min, nb_coureurs_max,
             inscription_ouverture, inscription_fermeture,
             fuseau_horaire, waitlist_enabled
@@ -353,9 +353,8 @@ export default function InscriptionCourse() {
       pps_identifier: "",
       contact_urgence_nom: "",
       contact_urgence_telephone: "",
-      nombre_repas: 0,
-      prix_total_repas: 0,
-      prix_total_coureur: 0, // base (inscription + repas) en €
+      // repas supprimé
+      prix_total_coureur: 0, // base (inscription) en €
     };
   }
 
@@ -375,18 +374,15 @@ export default function InscriptionCourse() {
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
-  // Recalcul prix (individuel) — BASE : inscription + repas (en €)
+  // Recalcul prix (individuel) — BASE : inscription (en €)
   useEffect(() => {
     if (!selectedFormat || mode !== "individuel") {
-      setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: 0 }));
+      setInscription((p) => ({ ...p, prix_total_coureur: 0 }));
       return;
     }
-    const prixRepas = Number(selectedFormat.prix_repas || 0);
     const prixInscription = Number(selectedFormat.prix || 0);
-    const totalRepas = prixRepas * Number(inscription.nombre_repas || 0);
-    const total = prixInscription + totalRepas;
-    setInscription((prev) => ({ ...prev, prix_total_repas: totalRepas, prix_total_coureur: total }));
-  }, [selectedFormat, inscription.nombre_repas, mode]);
+    setInscription((prev) => ({ ...prev, prix_total_coureur: prixInscription }));
+  }, [selectedFormat, mode]);
 
   // Estimation équipes (multi)
   const estimationEquipe = useMemo(() => {
@@ -402,10 +398,6 @@ export default function InscriptionCourse() {
   }
 
   // ----- Gestion équipes -----
-  const canGroupOrRelay =
-    selectedFormat &&
-    (selectedFormat.type_format === "groupe" || selectedFormat.type_format === "relais");
-
   const minTeam = selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1;
   const maxTeam = selectedFormat?.nb_coureurs_max || selectedFormat?.team_size || 20;
 
@@ -520,7 +512,7 @@ export default function InscriptionCourse() {
 
         const trace_id = uuidv4();
 
-        // Total final à envoyer au Checkout = base (inscription + repas) + options
+        // Total final à envoyer au Checkout = base (inscription) + options
         const prixTotalClient =
           Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100);
 
@@ -545,7 +537,7 @@ export default function InscriptionCourse() {
           return;
         }
 
-        // Persister les options en 'pending' (si le bloc est présent)
+        // Persister les options en 'pending'
         if (persistOptionsFnRef.current) {
           await persistOptionsFnRef.current(inserted.id);
         }
@@ -637,8 +629,7 @@ export default function InscriptionCourse() {
         email: payerEmail,
         successUrl: "https://www.tickrace.com/merci",
         cancelUrl: "https://www.tickrace.com/paiement-annule",
-        options_total_eur: (totalOptionsCents || 0) / 100, // 👈 AJOUTER CETTE LIGNE
-
+        options_total_eur: (totalOptionsCents || 0) / 100, // options aussi pour les équipes
       };
 
       if (teams.length > 1) {
@@ -652,8 +643,6 @@ export default function InscriptionCourse() {
           members: teamsForPayload[0].members,
         };
       }
-      await supabase.functions.invoke("create-checkout-session", { body });
-
 
       const { data, error: fnError } = await supabase.functions.invoke(
         "create-checkout-session",
@@ -1085,78 +1074,14 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Coordonnées du payeur (compact) — affichées pour groupe/relais */}
-          {mode !== "individuel" && (
-            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
-              <div className="p-5 border-b border-neutral-100">
-                <h2 className="text-lg font-semibold">Coordonnées du payeur</h2>
-                <p className="text-sm text-neutral-500">
-                  Votre email servira pour le reçu Stripe et les confirmations d’inscription.
-                </p>
-              </div>
-              <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-3">
-                <input
-                  className="rounded-xl border border-neutral-300 px-3 py-2"
-                  name="prenom"
-                  placeholder="Prénom (optionnel)"
-                  value={inscription.prenom}
-                  onChange={(e) => setField("prenom", e.target.value)}
-                />
-                <input
-                  className="rounded-xl border border-neutral-300 px-3 py-2"
-                  name="nom"
-                  placeholder="Nom (optionnel)"
-                  value={inscription.nom}
-                  onChange={(e) => setField("nom", e.target.value)}
-                />
-                <input
-                  className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-1"
-                  name="email"
-                  placeholder="Email (requis)"
-                  value={inscription.email}
-                  onChange={(e) => setField("email", e.target.value)}
-                  required
-                />
-              </div>
-            </section>
-          )}
-
-          {/* Repas (uniquement individuel) */}
-          {selectedFormat && Number(selectedFormat.stock_repas) > 0 && mode === "individuel" && (
-            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
-              <div className="p-5 border-b border-neutral-100">
-                <h2 className="text-lg font-semibold">Repas</h2>
-              </div>
-              <div className="p-5 space-y-2">
-                <label className="text-sm font-medium">
-                  Nombre de repas (max {selectedFormat.stock_repas})
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  max={selectedFormat.stock_repas}
-                  name="nombre_repas"
-                  value={inscription.nombre_repas}
-                  onChange={(e) => setField("nombre_repas", Number(e.target.value))}
-                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                />
-                <p className="text-sm text-neutral-600">
-                  Prix unitaire : {Number(selectedFormat.prix_repas || 0).toFixed(2)} € — Total repas :{" "}
-                  {Number(inscription.prix_total_repas || 0).toFixed(2)} €
-                </p>
-              </div>
-            </section>
-          )}
-
           {/* Options payantes (catalogue) */}
           {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
-  <OptionsPayantesPicker
-    formatId={selectedFormat.id}
-    onTotalCentsChange={(c) => setTotalOptionsCents(c)}
-    registerPersist={registerPersist}
-  />
-)}
-
+            <OptionsPayantesPicker
+              formatId={selectedFormat.id}
+              onTotalCentsChange={(c) => setTotalOptionsCents(c)}
+              registerPersist={registerPersist}
+            />
+          )}
         </div>
 
         {/* Résumé / paiement */}
@@ -1212,16 +1137,6 @@ export default function InscriptionCourse() {
                       {selectedFormat ? Number(selectedFormat.prix || 0).toFixed(2) : "0.00"} €
                     </span>
                   </div>
-                  {selectedFormat && Number(selectedFormat.stock_repas) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">
-                        Repas × {Number(inscription.nombre_repas || 0)}
-                      </span>
-                      <span className="font-medium">
-                        {Number(inscription.prix_total_repas || 0).toFixed(2)} €
-                      </span>
-                    </div>
-                  )}
                   {/* Ligne options payantes */}
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
@@ -1232,38 +1147,32 @@ export default function InscriptionCourse() {
                 </>
               ) : (
                 <>
-
-
-
                   {teams.map((t, i) => (
-  <div key={i} className="flex justify-between">
-    <span className="text-neutral-600">
-      {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
-    </span>
-    <span className="font-medium">
-      ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
-    </span>
-  </div>
-))}
+                    <div key={i} className="flex justify-between">
+                      <span className="text-neutral-600">
+                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
+                      </span>
+                      <span className="font-medium">
+                        ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
+                      </span>
+                    </div>
+                  ))}
 
-{/* Affiche la ligne Options si > 0 */}
-{totalOptionsCents > 0 && (
-  <div className="flex justify-between">
-    <span className="text-neutral-600">Options payantes</span>
-    <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
-  </div>
-)}
+                  {/* Affiche la ligne Options si > 0 */}
+                  {totalOptionsCents > 0 && (
+                    <div className="flex justify-between">
+                      <span className="text-neutral-600">Options payantes</span>
+                      <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
+                    </div>
+                  )}
 
-<div className="h-px bg-neutral-200 my-2" />
-<div className="flex justify-between">
-  <span className="text-neutral-600">Sous-total estimé</span>
-  <span className="font-medium">
-    ~{(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)} €
-  </span>
-</div>
-
-
-
+                  <div className="h-px bg-neutral-200 my-2" />
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">Sous-total estimé</span>
+                    <span className="font-medium">
+                      ~{(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)} €
+                    </span>
+                  </div>
                 </>
               )}
 
@@ -1272,17 +1181,10 @@ export default function InscriptionCourse() {
               <div className="flex justify-between text-base">
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
-
-
-
                   {mode === "individuel"
-  ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
-  : `~${(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)}`
-} €
-
-
-
-
+                    ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
+                    : `~${(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)}`
+                  } €
                 </span>
               </div>
             </div>
