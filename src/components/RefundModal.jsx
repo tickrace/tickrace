@@ -57,7 +57,9 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
         body: { inscription_id: inscriptionId, action: "confirm", reason },
       });
       if (error) throw error;
-      onSuccess?.(data);
+
+      // ► remonter les infos au parent pour afficher un bandeau de confirmation
+      onSuccess?.(data); // { ok:true, refund:{ refund_cents, percent, ... }, new_status, ... } (selon backend)
       onClose?.();
     } catch (e) {
       setError(e?.message ?? String(e));
@@ -77,12 +79,7 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
       role="dialog"
     >
       {/* Backdrop */}
-      <button
-        className="absolute inset-0 cursor-default"
-        onClick={onClose}
-        aria-label="Fermer"
-        tabIndex={-1}
-      />
+      <button className="absolute inset-0 cursor-default" onClick={onClose} aria-label="Fermer" tabIndex={-1} />
 
       <div className="relative w-full sm:max-w-xl bg-white rounded-2xl shadow-2xl ring-1 ring-neutral-200 overflow-hidden">
         {/* Header */}
@@ -91,12 +88,8 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
             <div className="inline-flex items-center gap-2 rounded-full bg-neutral-900 text-white px-3 py-1 text-[11px] ring-1 ring-black/10">
               Remboursement
             </div>
-            <h2 className="mt-2 text-lg sm:text-xl font-bold tracking-tight">
-              Annuler mon inscription
-            </h2>
-            <p className="text-sm text-neutral-600">
-              Barème transparent, confirmation en un clic.
-            </p>
+            <h2 className="mt-2 text-lg sm:text-xl font-bold tracking-tight">Annuler mon inscription</h2>
+            <p className="text-sm text-neutral-600">Barème transparent, confirmation en un clic.</p>
           </div>
           <button
             onClick={onClose}
@@ -113,9 +106,7 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
           {loading ? (
             <div className="py-10 text-center text-neutral-600">Calcul du montant…</div>
           ) : error ? (
-            <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 p-3 text-sm">
-              {error}
-            </div>
+            <div className="rounded-xl border border-rose-200 bg-rose-50 text-rose-800 p-3 text-sm">{error}</div>
           ) : quote ? (
             <>
               <div className="rounded-2xl border border-neutral-200 bg-white p-4">
@@ -127,13 +118,10 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
                 </div>
                 <div className="mt-3 rounded-xl bg-orange-50 border border-orange-200 px-3 py-2">
                   <div className="text-sm">
-                    Montant remboursé estimé :{" "}
-                    <b className="text-orange-700">{eur(quote.refund_cents)}</b>
+                    Montant remboursé estimé : <b className="text-orange-700">{eur(quote.refund_cents)}</b>
                   </div>
                   {Number.isFinite(quote?.days_before) && (
-                    <div className="text-xs text-neutral-600">
-                      Jours avant l’épreuve : {quote.days_before}
-                    </div>
+                    <div className="text-xs text-neutral-600">Jours avant l’épreuve : {quote.days_before}</div>
                   )}
                 </div>
 
@@ -169,12 +157,7 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
                   />
                   <span className="text-neutral-800">
                     J’ai lu et j’accepte la{" "}
-                    <a
-                      href="/legal/remboursements"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="underline hover:text-neutral-900"
-                    >
+                    <a href="/legal/remboursements" target="_blank" rel="noreferrer" className="underline hover:text-neutral-900">
                       Politique de remboursement
                     </a>.
                   </span>
@@ -195,9 +178,7 @@ export default function RefundModal({ inscriptionId, open, onClose, onSuccess })
           <button
             onClick={confirmRefund}
             className={`inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-white ${
-              disabledByTier || !accepted || submitting
-                ? "bg-neutral-400 cursor-not-allowed"
-                : "bg-orange-500 hover:brightness-110"
+              disabledByTier || !accepted || submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-orange-500 hover:brightness-110"
             }`}
             disabled={disabledByTier || !accepted || submitting}
           >
@@ -216,6 +197,5 @@ function Fact({ label, value, hint }) {
       <div className="text-sm font-semibold text-neutral-900">{value}</div>
       {hint ? <div className="text-[10px] text-neutral-500 mt-0.5">{hint}</div> : null}
     </div>
-    
   );
 }

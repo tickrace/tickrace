@@ -10,24 +10,9 @@ function eur(cents) {
 
 // Seuls ces champs seront mis à jour côté DB
 const MODIFIABLE_FIELDS = [
-  "nom",
-  "prenom",
-  "genre",
-  "date_naissance",
-  "nationalite",
-  "email",
-  "telephone",
-  "adresse",
-  "adresse_complement",
-  "code_postal",
-  "ville",
-  "pays",
-  "club",
-  "justificatif_type",
-  "numero_licence",
-  "contact_urgence_nom",
-  "contact_urgence_telephone",
-  "pps_identifier",
+  "nom","prenom","genre","date_naissance","nationalite","email","telephone","adresse",
+  "adresse_complement","code_postal","ville","pays","club","justificatif_type",
+  "numero_licence","contact_urgence_nom","contact_urgence_telephone","pps_identifier",
   "apparaitre_resultats",
 ];
 
@@ -43,12 +28,15 @@ export default function MonInscription() {
 
   const [openCancelModal, setOpenCancelModal] = useState(false);
 
-  // Devis (quote) pour le bouton dynamique
+  // Bandeau de confirmation après annulation
+  const [cancelMsg, setCancelMsg] = useState(null);
+
+  // Devis pour le libellé dynamique
   const [quoteLoading, setQuoteLoading] = useState(false);
   const [quote, setQuote] = useState(null);
   const [quoteErr, setQuoteErr] = useState(null);
 
-  // 1) Charger l'inscription + infos d’équipe si applicable
+  // 1) Charger l'inscription + équipe
   useEffect(() => {
     let abort = false;
     (async () => {
@@ -86,12 +74,10 @@ export default function MonInscription() {
         setLoading(false);
       }
     })();
-    return () => {
-      abort = true;
-    };
+    return () => { abort = true; };
   }, [id]);
 
-  // 2) Récupérer un devis (quote) pour le libellé de bouton
+  // 2) Quote pour le bouton
   useEffect(() => {
     let abort = false;
     if (!id) return;
@@ -112,18 +98,13 @@ export default function MonInscription() {
         if (!abort) setQuoteLoading(false);
       }
     })();
-    return () => {
-      abort = true;
-    };
+    return () => { abort = true; };
   }, [id]);
 
-  // 3) Édition des champs
+  // 3) Édition
   const handleChange = (e) => {
     const { name, value, type, checked } = e.target;
-    setInscription((prev) => ({
-      ...prev,
-      [name]: type === "checkbox" ? checked : value,
-    }));
+    setInscription((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
   };
 
   const handleSave = async () => {
@@ -133,9 +114,7 @@ export default function MonInscription() {
       setSaveMsg(null);
       const payload = {};
       for (const key of MODIFIABLE_FIELDS) {
-        if (Object.prototype.hasOwnProperty.call(inscription, key)) {
-          payload[key] = inscription[key];
-        }
+        if (Object.prototype.hasOwnProperty.call(inscription, key)) payload[key] = inscription[key];
       }
       const { error } = await supabase.from("inscriptions").update(payload).eq("id", id);
       if (error) throw error;
@@ -151,14 +130,8 @@ export default function MonInscription() {
   // 4) États d'annulation/ remboursements
   const statut = inscription?.statut || "";
   const isAlreadyCancelled = useMemo(() => {
-    const doneStatuses = new Set([
-      "annulé",
-      "remboursé",
-      "annulée",
-      "remboursée_partiellement",
-      "remboursée_totalement",
-    ]);
-    return doneStatuses.has(statut);
+    const done = new Set(["annulé","annulée","remboursé","remboursée_partiellement","remboursée_totalement"]);
+    return done.has(statut);
   }, [statut]);
 
   const canCancel = inscription && !isAlreadyCancelled;
@@ -177,25 +150,28 @@ export default function MonInscription() {
   const statusBadge = useMemo(() => {
     const base = "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-semibold";
     switch (statut) {
-      case "remboursée_totalement":
-        return <span className={`${base} bg-emerald-100 text-emerald-800`}>Remboursée totalement</span>;
-      case "remboursée_partiellement":
-        return <span className={`${base} bg-amber-100 text-amber-800`}>Remboursée partiellement</span>;
+      case "remboursée_totalement": return <span className={`${base} bg-emerald-100 text-emerald-800`}>Remboursée totalement</span>;
+      case "remboursée_partiellement": return <span className={`${base} bg-amber-100 text-amber-800`}>Remboursée partiellement</span>;
       case "annulée":
       case "annulé":
-      case "remboursé":
-        return <span className={`${base} bg-rose-100 text-rose-800`}>Annulée</span>;
-      default:
-        return <span className={`${base} bg-neutral-200 text-neutral-900`}>Active</span>;
+      case "remboursé": return <span className={`${base} bg-rose-100 text-rose-800`}>Annulée</span>;
+      default: return <span className={`${base} bg-neutral-200 text-neutral-900`}>Active</span>;
     }
   }, [statut]);
 
+  // Handler appelé par le modal après succès → affiche bandeau + met à jour le statut localement
+  function handleRefundSuccess(data) {
+    // data peut contenir: { ok:true, refund:{refund_cents, percent, ...}, new_status, paiement_id, ... }
+    const refundCents = data?.refund?.refund_cents ?? data?.quote?.refund_cents ?? 0;
+    const newStatus = data?.new_status || "annulé";
+    setCancelMsg({
+      text: `Votre inscription a été annulée. Un remboursement estimé de ${eur(refundCents)} sera traité sous peu.`,
+    });
+    setInscription((prev) => prev ? { ...prev, statut: newStatus, cancelled_at: new Date().toISOString() } : prev);
+  }
+
   if (loading || !inscription) {
-    return (
-      <div className="max-w-4xl mx-auto px-4 py-16 text-neutral-600">
-        Chargement…
-      </div>
-    );
+    return <div className="max-w-4xl mx-auto px-4 py-16 text-neutral-600">Chargement…</div>;
   }
 
   return (
@@ -209,13 +185,19 @@ export default function MonInscription() {
           Mon <span className="text-orange-500">inscription</span>
         </h1>
         <p className="mt-2 text-neutral-600 max-w-2xl">
-          Mettez à jour vos informations, choisissez votre visibilité résultats et gérez
-          une éventuelle annulation — <span className="font-semibold">simple et transparent</span>.
+          Mettez à jour vos informations, choisissez votre visibilité résultats et gérez une éventuelle annulation —{" "}
+          <span className="font-semibold">simple et transparent</span>.
         </p>
       </header>
 
-      {/* CARD */}
       <div className="px-4 sm:px-6 md:px-8 pb-10">
+        {/* Bandeau confirmation annulation */}
+        {cancelMsg && (
+          <div className="mt-6 mb-4 rounded-xl border border-emerald-200 bg-emerald-50 text-emerald-900 p-3 text-sm">
+            {cancelMsg.text}
+          </div>
+        )}
+
         {/* Message de sauvegarde */}
         {saveMsg && (
           <div
@@ -261,7 +243,9 @@ export default function MonInscription() {
                           className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm flex items-center justify-between"
                         >
                           <div>
-                            <div className="font-medium">{m.nom} {m.prenom}</div>
+                            <div className="font-medium">
+                              {m.nom} {m.prenom}
+                            </div>
                             <div className="text-neutral-500 text-xs">{m.email || "—"}</div>
                           </div>
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 border border-neutral-200">
@@ -324,9 +308,7 @@ export default function MonInscription() {
                     disabled={isLocked}
                     className="h-4 w-4 rounded border-neutral-300 accent-orange-500"
                   />
-                  <span className="text-neutral-800">
-                    J’accepte d’apparaître dans les résultats officiels
-                  </span>
+                  <span className="text-neutral-800">J’accepte d’apparaître dans les résultats officiels</span>
                 </label>
                 <p className="mt-1 text-xs text-neutral-500">
                   Conformément à la réglementation FFA, vous pouvez choisir d’apparaître ou non.
@@ -353,7 +335,7 @@ export default function MonInscription() {
                 {saving ? "Enregistrement…" : "Enregistrer les modifications"}
               </button>
 
-              {canCancel ? (
+              {inscription && !isAlreadyCancelled ? (
                 <button
                   onClick={() => setOpenCancelModal(true)}
                   className={`inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-neutral-900 border ${
@@ -364,27 +346,28 @@ export default function MonInscription() {
                   disabled={quoteLoading || (quote && (quote.percent === 0 || quote.refund_cents <= 0))}
                   title={quote && quote.percent === 0 ? "Aucun remboursement à ce stade" : ""}
                 >
-                  {quoteLoading ? "Calcul du remboursement…" : (quote
-                    ? (quote.percent === 0 || quote.refund_cents <= 0
-                        ? "Annuler — aucun remboursement (barème)"
-                        : `Annuler — recevoir ~${eur(quote.refund_cents)}`)
-                    : "Annuler mon inscription")}
+                  {quoteLoading
+                    ? "Calcul du remboursement…"
+                    : quote
+                    ? quote.percent === 0 || quote.refund_cents <= 0
+                      ? "Annuler — aucun remboursement (barème)"
+                      : `Annuler — recevoir ~${eur(quote.refund_cents)}`
+                    : "Annuler mon inscription"}
                 </button>
               ) : (
                 <p className="text-rose-700 font-medium">Cette inscription est déjà {statut}.</p>
               )}
             </div>
-            
           </div>
         </div>
       </div>
 
-      {/* Modal Annulation + Remboursement */}
+      {/* Modal */}
       <RefundModal
         inscriptionId={id}
         open={openCancelModal}
         onClose={() => setOpenCancelModal(false)}
-        onSuccess={() => window.location.reload()}
+        onSuccess={handleRefundSuccess}
       />
     </div>
   );
