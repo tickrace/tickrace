@@ -5,13 +5,10 @@ import { supabase } from "../supabase";
 import RefundModal from "../components/RefundModal";
 
 function eur(cents) {
-  return (Number(cents || 0) / 100).toLocaleString("fr-FR", {
-    style: "currency",
-    currency: "EUR",
-  });
+  return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
 
-// Seuls ces champs seront mis à jour côté DB (⚠️ sans nombre_repas)
+// Seuls ces champs seront mis à jour côté DB
 const MODIFIABLE_FIELDS = [
   "nom",
   "prenom",
@@ -36,7 +33,6 @@ const MODIFIABLE_FIELDS = [
 
 export default function MonInscription() {
   const { id } = useParams();
-
   const [inscription, setInscription] = useState(null);
   const [group, setGroup] = useState(null);
   const [teammates, setTeammates] = useState([]);
@@ -52,154 +48,74 @@ export default function MonInscription() {
   const [quote, setQuote] = useState(null);
   const [quoteErr, setQuoteErr] = useState(null);
 
-  // 1) Charger l'inscription + format (pour type_format) + infos d’équipe si applicable
+  // 1) Charger l'inscription + infos d’équipe si applicable
   useEffect(() => {
     let abort = false;
     (async () => {
       setLoading(true);
-
-      // On récupère aussi le format (type_format, date) pour savoir si c’est individuel / groupe / relais
       const { data, error } = await supabase
         .from("inscriptions")
-        .select(
-          `
-          *,
-          format:formats(type_format, date),
-          groupe:inscriptions_groupes(id, nom_groupe, team_size, statut)
-        `
-        )
+        .select("*, groupe:inscriptions_groupes(id, nom_groupe, team_size, statut)")
         .eq("id", id)
         .single();
 
-      if (abort) return;
+      if (!abort) {
+        if (!error && data) {
+          setInscription(data);
 
-      if (!error && data) {
-        setInscription(data);
-
-        if (data.groupe_id) {
-          const [{ data: grp }, { data: mates }] = await Promise.all([
-            supabase
-              .from("inscriptions_groupes")
-              .select("id, nom_groupe, team_size, statut")
-              .eq("id", data.groupe_id)
-              .maybeSingle(),
-            supabase
-              .from("inscriptions")
-              .select("id, nom, prenom, email, statut")
-              .eq("groupe_id", data.groupe_id)
-              .order("created_at", { ascending: true }),
-          ]);
-          setGroup(grp || null);
-          setTeammates(Array.isArray(mates) ? mates : []);
-        } else {
-          setGroup(null);
-          setTeammates([]);
+          if (data.groupe_id) {
+            const [{ data: grp }, { data: mates }] = await Promise.all([
+              supabase
+                .from("inscriptions_groupes")
+                .select("id, nom_groupe, team_size, statut")
+                .eq("id", data.groupe_id)
+                .maybeSingle(),
+              supabase
+                .from("inscriptions")
+                .select("id, nom, prenom, email, statut")
+                .eq("groupe_id", data.groupe_id)
+                .order("created_at", { ascending: true }),
+            ]);
+            setGroup(grp || null);
+            setTeammates(Array.isArray(mates) ? mates : []);
+          } else {
+            setGroup(null);
+            setTeammates([]);
+          }
         }
+        setLoading(false);
       }
-
-      setLoading(false);
     })();
     return () => {
       abort = true;
     };
   }, [id]);
 
-  const mode: "individuel" | "groupe" | "relais" = useMemo(() => {
-    const t = inscription?.format?.type_format || "individuel";
-    if (t === "groupe") return "groupe";
-    if (t === "relais") return "relais";
-    return "individuel";
-  }, [inscription?.format?.type_format]);
-
-  const teamInscriptionIds = useMemo(() => {
-    // Inclut l’inscription courante + les coéquipiers si groupe/relais
-    if (!inscription?.groupe_id) return [id].filter(Boolean);
-    const others = (teammates || []).map((m) => m.id);
-    const all = Array.from(new Set([id, ...others].filter(Boolean)));
-    return all;
-  }, [id, inscription?.groupe_id, teammates]);
-
-  // 2) Récupérer un devis (quote) pour afficher le montant estimé sur le bouton
+  // 2) Récupérer un devis (quote) pour le libellé de bouton
   useEffect(() => {
     let abort = false;
-    if (!id || !inscription) return;
-
-    async function fetchQuote() {
+    if (!id) return;
+    (async () => {
       setQuoteLoading(true);
       setQuoteErr(null);
       try {
-        // Tentative avec la nouvelle fonction "request-refund" (preview)
-        const bodyNew =
-          mode === "individuel"
-            ? { mode, inscription_id: id, preview: true }
-            : { mode, inscription_ids: teamInscriptionIds, preview: true };
-
-        let res = await supabase.functions.invoke("request-refund", {
-          body: bodyNew,
+        const { data, error } = await supabase.functions.invoke("refunds", {
+          body: { inscription_id: id, action: "quote" },
         });
-
-        if (res?.error) throw res.error;
-
-        // Structure attendue :
-        // { ok:true, refundable: <cents>, refunded_cents? , rate, days_before, ... }
-        const q =
-          res?.data && typeof res.data === "object"
-            ? {
-                refund_cents:
-                  typeof res.data.refundable === "number"
-                    ? res.data.refundable
-                    : (typeof res.data.refunded_cents === "number"
-                        ? res.data.refunded_cents
-                        : 0),
-                percent:
-                  typeof res.data.rate === "number"
-                    ? Math.round(res.data.rate * 100)
-                    : undefined,
-                days_before: res.data.days_before,
-              }
-            : null;
-
-        if (!abort) setQuote(q);
-      } catch (errNew) {
-        // Fallback legacy "refunds" (action: quote)
-        try {
-          const legacyBody =
-            mode === "individuel"
-              ? { inscription_id: id, action: "quote" }
-              : { inscription_ids: teamInscriptionIds, action: "quote", mode };
-
-          const { data, error } = await supabase.functions.invoke("refunds", {
-            body: legacyBody,
-          });
+        if (!abort) {
           if (error) throw error;
-
-          // On mappe au même shape minimal
-          const q =
-            data && typeof data === "object"
-              ? {
-                  refund_cents: Number(data.refund_cents || data.refundable || 0),
-                  percent:
-                    typeof data.rate === "number"
-                      ? Math.round(data.rate * 100)
-                      : Number(data.percent || 0),
-                  days_before: data.days_before,
-                }
-              : null;
-
-          if (!abort) setQuote(q);
-        } catch (errLegacy) {
-          if (!abort) setQuoteErr(errLegacy?.message ?? String(errLegacy));
+          setQuote(data?.quote ?? null);
         }
+      } catch (e) {
+        if (!abort) setQuoteErr(e?.message ?? String(e));
       } finally {
         if (!abort) setQuoteLoading(false);
       }
-    }
-
-    fetchQuote();
+    })();
     return () => {
       abort = true;
     };
-  }, [id, inscription, mode, teamInscriptionIds]);
+  }, [id]);
 
   // 3) Édition des champs
   const handleChange = (e) => {
@@ -221,10 +137,7 @@ export default function MonInscription() {
           payload[key] = inscription[key];
         }
       }
-      const { error } = await supabase
-        .from("inscriptions")
-        .update(payload)
-        .eq("id", id);
+      const { error } = await supabase.from("inscriptions").update(payload).eq("id", id);
       if (error) throw error;
       setSaveMsg({ type: "success", text: "Modifications enregistrées ✅" });
     } catch (e) {
@@ -249,49 +162,31 @@ export default function MonInscription() {
   }, [statut]);
 
   const canCancel = inscription && !isAlreadyCancelled;
-  const isLocked = isAlreadyCancelled; // verrou inputs si annulée/remboursée
+  const isLocked = isAlreadyCancelled;
 
   // Libellé dynamique du bouton d’annulation
   const cancelLabel = useMemo(() => {
     if (quoteLoading) return "Calcul du remboursement…";
     if (quoteErr) return "Annuler mon inscription";
     if (!quote) return "Annuler mon inscription";
-
-    if (Number(quote.percent || 0) === 0 || Number(quote.refund_cents || 0) <= 0) {
-      return "Annuler — aucun remboursement (barème)";
-    }
+    if (quote.percent === 0 || quote.refund_cents <= 0) return "Annuler — aucun remboursement (barème)";
     return `Annuler — recevoir ~${eur(quote.refund_cents)}`;
   }, [quoteLoading, quoteErr, quote]);
 
   // Badge statut
   const statusBadge = useMemo(() => {
-    const base =
-      "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-semibold";
+    const base = "inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[12px] font-semibold";
     switch (statut) {
       case "remboursée_totalement":
-        return (
-          <span className={`${base} bg-emerald-100 text-emerald-800`}>
-            Remboursée totalement
-          </span>
-        );
+        return <span className={`${base} bg-emerald-100 text-emerald-800`}>Remboursée totalement</span>;
       case "remboursée_partiellement":
-        return (
-          <span className={`${base} bg-amber-100 text-amber-800`}>
-            Remboursée partiellement
-          </span>
-        );
+        return <span className={`${base} bg-amber-100 text-amber-800`}>Remboursée partiellement</span>;
       case "annulée":
       case "annulé":
       case "remboursé":
-        return (
-          <span className={`${base} bg-rose-100 text-rose-800`}>Annulée</span>
-        );
+        return <span className={`${base} bg-rose-100 text-rose-800`}>Annulée</span>;
       default:
-        return (
-          <span className={`${base} bg-neutral-200 text-neutral-900`}>
-            Active
-          </span>
-        );
+        return <span className={`${base} bg-neutral-200 text-neutral-900`}>Active</span>;
     }
   }, [statut]);
 
@@ -314,13 +209,12 @@ export default function MonInscription() {
           Mon <span className="text-orange-500">inscription</span>
         </h1>
         <p className="mt-2 text-neutral-600 max-w-2xl">
-          Mettez à jour vos informations, choisissez votre visibilité résultats et
-          gérez une éventuelle annulation —{" "}
-          <span className="font-semibold">simple et transparent</span>.
+          Mettez à jour vos informations, choisissez votre visibilité résultats et gérez
+          une éventuelle annulation — <span className="font-semibold">simple et transparent</span>.
         </p>
       </header>
 
-      {/* CARD PRINCIPALE */}
+      {/* CARD */}
       <div className="px-4 sm:px-6 md:px-8 pb-10">
         {/* Message de sauvegarde */}
         {saveMsg && (
@@ -342,7 +236,7 @@ export default function MonInscription() {
             {statusBadge}
           </div>
 
-          {/* Contexte équipe (si applicable) */}
+          {/* Contexte équipe */}
           {inscription.groupe_id && (
             <div className="px-4 sm:px-6 py-4 border-b border-neutral-200">
               <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-4">
@@ -350,16 +244,11 @@ export default function MonInscription() {
                   <div>
                     <div className="text-xs text-neutral-600">Inscription d’équipe</div>
                     <div className="text-base font-semibold">
-                      {group?.nom_groupe ||
-                        inscription?.groupe?.nom_groupe ||
-                        "Équipe"}
+                      {group?.nom_groupe || inscription?.groupe?.nom_groupe || "Équipe"}
                     </div>
                   </div>
                   <div className="text-xs px-2 py-1 rounded-full bg-neutral-200">
-                    {group?.team_size ||
-                      inscription?.groupe?.team_size ||
-                      teammates.length}{" "}
-                    membres
+                    {group?.team_size || inscription?.groupe?.team_size || teammates.length} membres
                   </div>
                 </div>
                 {teammates?.length > 0 && (
@@ -372,12 +261,8 @@ export default function MonInscription() {
                           className="rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm flex items-center justify-between"
                         >
                           <div>
-                            <div className="font-medium">
-                              {m.nom} {m.prenom}
-                            </div>
-                            <div className="text-neutral-500 text-xs">
-                              {m.email || "—"}
-                            </div>
+                            <div className="font-medium">{m.nom} {m.prenom}</div>
+                            <div className="text-neutral-500 text-xs">{m.email || "—"}</div>
                           </div>
                           <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 border border-neutral-200">
                             {m.statut}
@@ -398,41 +283,24 @@ export default function MonInscription() {
                 { name: "nom", label: "Nom" },
                 { name: "prenom", label: "Prénom" },
                 { name: "genre", label: "Genre" },
-                {
-                  name: "date_naissance",
-                  label: "Date de naissance",
-                  type: "date",
-                },
+                { name: "date_naissance", label: "Date de naissance", type: "date" },
                 { name: "nationalite", label: "Nationalité" },
                 { name: "email", label: "Email", type: "email" },
                 { name: "telephone", label: "Téléphone" },
                 { name: "adresse", label: "Adresse", full: true },
-                {
-                  name: "adresse_complement",
-                  label: "Complément d'adresse",
-                  full: true,
-                },
+                { name: "adresse_complement", label: "Complément d'adresse", full: true },
                 { name: "code_postal", label: "Code postal" },
                 { name: "ville", label: "Ville" },
                 { name: "pays", label: "Pays" },
                 { name: "club", label: "Club (facultatif)", full: true },
                 { name: "justificatif_type", label: "Justificatif (licence / pps)" },
                 { name: "numero_licence", label: "N° de licence" },
-                {
-                  name: "contact_urgence_nom",
-                  label: "Contact d'urgence - Nom",
-                  full: true,
-                },
-                {
-                  name: "contact_urgence_telephone",
-                  label: "Contact d'urgence - Téléphone",
-                },
+                { name: "contact_urgence_nom", label: "Contact d'urgence - Nom", full: true },
+                { name: "contact_urgence_telephone", label: "Contact d'urgence - Téléphone" },
                 { name: "pps_identifier", label: "Identifiant PPS" },
               ].map((f) => (
                 <label key={f.name} className={`flex flex-col ${f.full ? "sm:col-span-2" : ""}`}>
-                  <span className="text-xs font-semibold text-neutral-600">
-                    {f.label}
-                  </span>
+                  <span className="text-xs font-semibold text-neutral-600">{f.label}</span>
                   <input
                     type={f.type || "text"}
                     name={f.name}
@@ -461,8 +329,7 @@ export default function MonInscription() {
                   </span>
                 </label>
                 <p className="mt-1 text-xs text-neutral-500">
-                  Conformément à la réglementation FFA, vous pouvez choisir d’apparaître
-                  ou non.
+                  Conformément à la réglementation FFA, vous pouvez choisir d’apparaître ou non.
                 </p>
               </div>
             </div>
@@ -490,35 +357,24 @@ export default function MonInscription() {
                 <button
                   onClick={() => setOpenCancelModal(true)}
                   className={`inline-flex justify-center items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold text-neutral-900 border ${
-                    quote && (Number(quote.percent || 0) === 0 || Number(quote.refund_cents || 0) <= 0)
+                    quote && (quote.percent === 0 || quote.refund_cents <= 0)
                       ? "bg-neutral-100 border-neutral-200 cursor-not-allowed"
                       : "bg-white border-neutral-300 hover:bg-neutral-50"
                   }`}
-                  disabled={
-                    quoteLoading ||
-                    (quote && (Number(quote.percent || 0) === 0 || Number(quote.refund_cents || 0) <= 0))
-                  }
-                  title={
-                    quote && Number(quote.percent || 0) === 0
-                      ? "Aucun remboursement à ce stade"
-                      : ""
-                  }
+                  disabled={quoteLoading || (quote && (quote.percent === 0 || quote.refund_cents <= 0))}
+                  title={quote && quote.percent === 0 ? "Aucun remboursement à ce stade" : ""}
                 >
-                  {quoteLoading
-                    ? "Calcul du remboursement…"
-                    : quote
-                    ? Number(quote.percent || 0) === 0 ||
-                      Number(quote.refund_cents || 0) <= 0
-                      ? "Annuler — aucun remboursement (barème)"
-                      : `Annuler — recevoir ~${eur(quote.refund_cents)}`
-                    : "Annuler mon inscription"}
+                  {quoteLoading ? "Calcul du remboursement…" : (quote
+                    ? (quote.percent === 0 || quote.refund_cents <= 0
+                        ? "Annuler — aucun remboursement (barème)"
+                        : `Annuler — recevoir ~${eur(quote.refund_cents)}`)
+                    : "Annuler mon inscription")}
                 </button>
               ) : (
-                <p className="text-rose-700 font-medium">
-                  Cette inscription est déjà {statut}.
-                </p>
+                <p className="text-rose-700 font-medium">Cette inscription est déjà {statut}.</p>
               )}
             </div>
+            
           </div>
         </div>
       </div>
@@ -529,9 +385,6 @@ export default function MonInscription() {
         open={openCancelModal}
         onClose={() => setOpenCancelModal(false)}
         onSuccess={() => window.location.reload()}
-        /* Props additionnels (ignorés si non utilisés par le composant) */
-        mode={mode}
-        inscriptionIds={teamInscriptionIds}
       />
     </div>
   );
