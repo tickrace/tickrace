@@ -4,7 +4,7 @@ import Stripe from "https://esm.sh/stripe@13.0.0?target=deno&deno-std=0.192.0&pi
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.52.1?target=deno&deno-std=0.192.0&pin=v135";
 import { Resend } from "https://esm.sh/resend@3.2.0?target=deno&deno-std=0.192.0&pin=v135";
 
-console.log("BUILD stripe-webhook 2025-09-22T20:40Z (CORS+options)");
+console.log("BUILD stripe-webhook 2025-09-23T07:10Z (link group->paiement)");
 
 const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, { apiVersion: "2024-04-10" });
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET")!;
@@ -15,18 +15,14 @@ const supabase = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPAB
 const resend = resendApiKey ? new Resend(resendApiKey) : null;
 
 const ALLOWLIST = ["https://www.tickrace.com","http://localhost:5173","http://127.0.0.1:5173"];
-function buildCorsHeaders(req: Request) {
+function cors(req: Request) {
   const origin = req.headers.get("origin");
   const allowOrigin = origin && ALLOWLIST.includes(origin) ? origin : ALLOWLIST[0];
-  const reqMethod = req.headers.get("access-control-request-method") || "POST";
-  const reqHeaders =
-    req.headers.get("access-control-request-headers") ||
-    "authorization, x-client-info, apikey, content-type, stripe-signature, prefer";
   return {
     "Access-Control-Allow-Origin": allowOrigin,
     "Vary": "Origin",
-    "Access-Control-Allow-Methods": `${reqMethod}, OPTIONS`,
-    "Access-Control-Allow-Headers": reqHeaders,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, stripe-signature, prefer",
     "Access-Control-Max-Age": "86400",
     "Content-Type": "application/json",
   };
@@ -36,18 +32,18 @@ const isUUID = (v: unknown) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(v as string);
 
 serve(async (req) => {
-  const headers = buildCorsHeaders(req);
+  const headers = cors(req);
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (req.method !== "POST") return new Response(JSON.stringify({ error: "Méthode non autorisée" }), { status: 405, headers });
 
-  // ✅ Signature (ASYNC) — lire le body brut
+  // Vérif signature
   let event: Stripe.Event;
   try {
     const sig = req.headers.get("stripe-signature") ?? "";
     const raw = await req.text();
     event = await stripe.webhooks.constructEventAsync(raw, sig, STRIPE_WEBHOOK_SECRET);
   } catch (e: any) {
-    console.error("❌ Bad signature (async):", e?.message ?? e);
+    console.error("❌ Bad signature:", e?.message ?? e);
     return new Response(JSON.stringify({ error: "Bad signature" }), { status: 400, headers });
   }
 
@@ -56,11 +52,11 @@ serve(async (req) => {
       return new Response(JSON.stringify({ ok: true, ignored: event.type }), { status: 200, headers });
     }
 
-    // Récup objects + metadata
+    // Récup objets
     let session: Stripe.Checkout.Session | null = null;
     let pi: Stripe.PaymentIntent | null = null;
     let chargeId: string | null = null;
-    let md: Record<string,string> = {};
+    let md: Record<string, string> = {};
 
     if (event.type === "checkout.session.completed") {
       session = event.data.object as Stripe.Checkout.Session;
@@ -106,7 +102,7 @@ serve(async (req) => {
     // Montants
     const amountTotalCents = (session?.amount_total ?? (pi.amount ?? 0)) ?? 0;
 
-    // Frais Stripe
+    // Frais Stripe & receipt
     let stripeFeeCents = 0, balanceTxId: string | null = null, receiptUrl: string | null = null;
     if (chargeId) {
       const charge: any = await stripe.charges.retrieve(chargeId, { expand: ["balance_transaction"] });
@@ -127,10 +123,14 @@ serve(async (req) => {
     const { data: profil } = await supabase.from("profils_utilisateurs").select("stripe_account_id").eq("user_id", course.organisateur_id).maybeSingle();
     const destinationAccount = profil?.stripe_account_id ?? null;
 
-    // Commission plateforme
+    // Commission plateforme (5%)
     const platformFeeCents = Math.round(amountTotalCents * 0.05);
 
     // Upsert paiements
+    const inscIdsArr = mode === "individuel"
+      ? [inscription_id]
+      : (inscription_ids_csv ? inscription_ids_csv.split(",").filter((x) => isUUID(x)) : []);
+
     const row: any = {
       inscription_id: mode === "individuel" ? inscription_id : null,
       montant_total: amountTotalCents / 100,
@@ -140,9 +140,7 @@ serve(async (req) => {
       reversement_effectue: false,
       user_id,
       type: mode,
-      inscription_ids: mode === "individuel"
-        ? [inscription_id]
-        : (inscription_ids_csv ? inscription_ids_csv.split(",") : []),
+      inscription_ids: inscIdsArr,
       trace_id,
       receipt_url: receiptUrl,
       charge_id: chargeId,
@@ -152,37 +150,95 @@ serve(async (req) => {
       fee_total: stripeFeeCents,
       platform_fee_amount: platformFeeCents,
       balance_transaction_id: balanceTxId,
-      options_total_eur: md["options_total_eur"] ? Number(md["options_total_eur"]) : undefined,
     };
 
     const { data: preByPI } = await supabase.from("paiements").select("id").eq("stripe_payment_intent_id", row.stripe_payment_intent_id).maybeSingle();
-    if (preByPI?.id) await supabase.from("paiements").update(row).eq("id", preByPI.id);
-    else {
+    let paiementId: string | null = null;
+    if (preByPI?.id) {
+      await supabase.from("paiements").update(row).eq("id", preByPI.id);
+      paiementId = preByPI.id;
+    } else {
       const { data: preByTrace } = await supabase.from("paiements").select("id").eq("trace_id", trace_id).maybeSingle();
-      if (preByTrace?.id) await supabase.from("paiements").update(row).eq("id", preByTrace.id);
-      else await supabase.from("paiements").insert(row);
+      if (preByTrace?.id) {
+        await supabase.from("paiements").update(row).eq("id", preByTrace.id);
+        paiementId = preByTrace.id;
+      } else {
+        const { data: inserted } = await supabase.from("paiements").insert(row).select("id").single();
+        paiementId = inserted?.id ?? null;
+      }
     }
 
-    // Valider inscriptions / groupes + options (individuel)
+    // Valider inscriptions / groupes
     if (mode === "individuel") {
       await supabase.from("inscriptions").update({ statut: "validé" }).eq("id", inscription_id);
-      // options -> paid
-      await supabase.from("inscriptions_options").update({ status: "paid" }).eq("inscription_id", inscription_id).eq("status", "pending");
     } else {
       const groupIds = group_ids_csv ? group_ids_csv.split(",").filter((x) => isUUID(x)) : [];
-      const inscIds = inscription_ids_csv ? inscription_ids_csv.split(",").filter((x) => isUUID(x)) : [];
-      if (groupIds.length > 0) await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
-      if (inscIds.length > 0) await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
+      const inscIds = inscIdsArr;
+
+      if (groupIds.length > 0) {
+        await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
+      }
+      if (inscIds.length > 0) {
+        await supabase.from("inscriptions").update({ statut: "validé" }).in("id", inscIds);
+      }
+
+      // Lier le paiement au(x) groupe(s) (NOUVEAU)
+      if (paiementId && groupIds.length > 0) {
+        await supabase
+          .from("inscriptions_groupes")
+          .update({ paiement_id: paiementId })
+          .in("id", groupIds)
+          .is("paiement_id", null); // ne pas écraser
+      }
+
+      // Email à chaque membre si email présent
+      try {
+        if (resend && inscIds.length > 0) {
+          const { data: members } = await supabase
+            .from("inscriptions")
+            .select("id, email, nom, prenom")
+            .in("id", inscIds);
+          if (members && Array.isArray(members)) {
+            for (const m of members) {
+              if (m?.email) {
+                try {
+                  await resend.emails.send({
+                    from: "Tickrace <no-reply@tickrace.com>",
+                    to: m.email,
+                    subject: "Confirmation d’inscription (équipe)",
+                    html: `
+                      <div style="font-family:Arial,sans-serif;">
+                        <h2>Votre inscription est confirmée ✅</h2>
+                        <p>Bonjour ${m.prenom ?? ""} ${m.nom ?? ""},</p>
+                        <p>Votre numéro d’inscription : <strong>${m.id}</strong></p>
+                        <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${m.id}">Consulter mon inscription</a></p>
+                      </div>
+                    `,
+                  });
+                } catch (e) {
+                  console.error("Resend member email error:", e);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {
+        console.error("Resend batch error:", e);
+      }
     }
 
     // Enqueue reversement J+1
     const netToTransfer = Math.max(0, amountTotalCents - platformFeeCents - stripeFeeCents);
-    const { data: payRow } = await supabase.from("paiements").select("id").eq("stripe_payment_intent_id", String(pi.id)).maybeSingle();
-    if (payRow?.id && destinationAccount && netToTransfer > 0) {
-      const { data: existsQ } = await supabase.from("payout_queue").select("id").eq("paiement_id", payRow.id).eq("status","pending").maybeSingle();
+    if (paiementId && destinationAccount && netToTransfer > 0) {
+      const { data: existsQ } = await supabase
+        .from("payout_queue")
+        .select("id")
+        .eq("paiement_id", paiementId)
+        .eq("status","pending")
+        .maybeSingle();
       if (!existsQ) {
         await supabase.from("payout_queue").insert({
-          paiement_id: payRow.id,
+          paiement_id: paiementId,
           due_at: new Date(Date.now() + 24 * 3600 * 1000).toISOString(),
           amount_cents: netToTransfer,
           status: "pending",
@@ -190,66 +246,31 @@ serve(async (req) => {
       }
     }
 
-    // Emails (inchangé)
+    // Email payeur (individuel)
     try {
-      if (resend) {
-        if (mode === "individuel") {
-          const { data: insc } = await supabase.from("inscriptions").select("id, email, nom, prenom").eq("id", inscription_id).maybeSingle();
-          if (insc?.email) {
-            await resend.emails.send({
-              from: "Tickrace <no-reply@tickrace.com>",
-              to: insc.email,
-              subject: "Confirmation d’inscription",
-              html: `
-                <div style="font-family:Arial,sans-serif;">
-                  <h2>Votre inscription est confirmée ✅</h2>
-                  <p>Bonjour ${insc.prenom ?? ""} ${insc.nom ?? ""},</p>
-                  <p>Votre numéro d’inscription : <strong>${insc.id}</strong></p>
-                  <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${insc.id}">${TICKRACE_BASE_URL}/mon-inscription/${insc.id}</a></p>
-                </div>
-              `,
-            });
-          }
-        } else {
-          const inscIds = inscription_ids_csv ? inscription_ids_csv.split(",").filter(isUUID) : [];
-          if (inscIds.length > 0) {
-            const { data: members } = await supabase
-              .from("inscriptions")
-              .select("id, email, nom, prenom")
-              .in("id", inscIds);
-            if (members && Array.isArray(members)) {
-              for (const m of members) {
-                if (m?.email) {
-                  try {
-                    await resend.emails.send({
-                      from: "Tickrace <no-reply@tickrace.com>",
-                      to: m.email,
-                      subject: "Confirmation d’inscription (équipe)",
-                      html: `
-                        <div style="font-family:Arial,sans-serif;">
-                          <h2>Votre inscription est confirmée ✅</h2>
-                          <p>Bonjour ${m.prenom ?? ""} ${m.nom ?? ""},</p>
-                          <p>Votre numéro d’inscription : <strong>${m.id}</strong></p>
-                          <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${m.id}">
-                            Consulter mon inscription
-                          </a></p>
-                        </div>
-                      `,
-                    });
-                  } catch (e) {
-                    console.error("Resend member email error:", e);
-                  }
-                }
-              }
-            }
-          }
+      if (resend && mode === "individuel") {
+        const { data: insc } = await supabase.from("inscriptions").select("id, email, nom, prenom").eq("id", inscription_id).maybeSingle();
+        if (insc?.email) {
+          await resend.emails.send({
+            from: "Tickrace <no-reply@tickrace.com>",
+            to: insc.email,
+            subject: "Confirmation d’inscription",
+            html: `
+              <div style="font-family:Arial,sans-serif;">
+                <h2>Votre inscription est confirmée ✅</h2>
+                <p>Bonjour ${insc.prenom ?? ""} ${insc.nom ?? ""},</p>
+                <p>Votre numéro d’inscription : <strong>${insc.id}</strong></p>
+                <p><a href="${TICKRACE_BASE_URL}/mon-inscription/${insc.id}">${TICKRACE_BASE_URL}/mon-inscription/${insc.id}</a></p>
+              </div>
+            `,
+          });
         }
       }
-    } catch (e) { console.error("Resend email error:", e); }
+    } catch (e) { console.error("Resend payer email error:", e); }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   } catch (e: any) {
-    console.error("stripe-webhook (SCT) error:", e?.message ?? e, e?.stack);
+    console.error("stripe-webhook error:", e?.message ?? e, e?.stack);
     const debug = Deno.env.get("DEBUG") === "1";
     return new Response(JSON.stringify({ error: debug ? (e?.message ?? "Erreur serveur") : "Erreur serveur" }), { status: 500, headers });
   }
