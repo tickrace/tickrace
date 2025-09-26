@@ -185,8 +185,10 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
         </div>
       </div>
     </section>
+    
   );
 }
+
 
 /* -------------------------------------------------------------------------- */
 

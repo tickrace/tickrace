@@ -95,6 +95,7 @@ function AppContent() {
           <Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
           <Route path="/organisateur/benevoles" element={<ListeBenevoles />} />
 
+
           {/* Légal */}
           <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
           <Route path="/legal/remboursements" element={<Remboursements />} />
@@ -102,13 +103,15 @@ function AppContent() {
 
           {/* Protégées */}
           <Route
-            path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx"
-            element={
-              <ProtectedRoute>
-                <MemberDetails />
-              </ProtectedRoute>
-            }
-          />
+  path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx"
+  element={
+    <ProtectedRoute>
+      
+      <MemberDetails />
+    </ProtectedRoute>
+  }
+/>
+
 
           <Route
             path="/inscription/:courseId"
