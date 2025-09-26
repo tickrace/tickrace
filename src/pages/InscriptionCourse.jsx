@@ -1,6 +1,6 @@
 // src/pages/InscriptionCourse.jsx
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 
@@ -198,6 +198,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
 /* -------------------------------------------------------------------------- */
 
 export default function InscriptionCourse() {
+  const navigate = useNavigate();
   const { courseId } = useParams();
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
@@ -469,6 +470,31 @@ export default function InscriptionCourse() {
       .filter((t) => (teamFilter.category === "all" ? true : t.category === teamFilter.category))
       .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)));
   }, [teams, teamFilter]);
+
+  // ---- Détails membre (brouillon + navigation) ----
+  function openMemberDetails(teamIdx, memberIdx) {
+    try {
+      const draftId = uuidv4();
+      const team = teams[teamIdx];
+      const member = team?.members?.[memberIdx] || {};
+      const payload = {
+        draftId,
+        courseId,
+        formatId: inscription.format_id,
+        mode,
+        teamIndex: teamIdx,
+        memberIndex: memberIdx,
+        teamMeta: { team_name: team?.team_name || "", team_size: team?.team_size || 0 },
+        member,
+        savedAt: new Date().toISOString(),
+      };
+      localStorage.setItem(`tickrace_member_draft_${draftId}`, JSON.stringify(payload));
+      navigate(`/coureur-details?draft=${draftId}`);
+    } catch (e) {
+      console.error("openMemberDetails error:", e);
+      alert("Impossible d’ouvrir la page de détails pour ce membre.");
+    }
+  }
 
   // ----- Paiement -----
   async function handlePay() {
@@ -822,6 +848,10 @@ export default function InscriptionCourse() {
                   </h2>
                   <p className="text-sm text-neutral-500">
                     Renseigne le nom de l’équipe, la taille et les membres (nom, prénom, sexe, date de naissance).
+                    <br />
+                    <span className="text-neutral-600">
+                      Tu peux saisir le profil complet d’un membre via <b>“Ajouter des détails”</b>.
+                    </span>
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -936,6 +966,7 @@ export default function InscriptionCourse() {
                             <th className="py-2 pr-3">Sexe *</th>
                             <th className="py-2 pr-3">Date de naissance *</th>
                             <th className="py-2 pr-3">Email (optionnel)</th>
+                            <th className="py-2 pr-0 text-right">Détails</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -985,11 +1016,21 @@ export default function InscriptionCourse() {
                                   placeholder="email@exemple.com"
                                 />
                               </td>
+                              <td className="py-2 pr-0 text-right">
+                                <button
+                                  type="button"
+                                  onClick={() => openMemberDetails(tIdx, mIdx)}
+                                  className="inline-flex items-center rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold hover:bg-neutral-50"
+                                  title="Ajouter des détails (profil complet)"
+                                >
+                                  Ajouter des détails
+                                </button>
+                              </td>
                             </tr>
                           ))}
                           {team.team_size === 0 && (
                             <tr>
-                              <td colSpan={6} className="py-2 text-neutral-500">
+                              <td colSpan={7} className="py-2 text-neutral-500">
                                 Indique une taille d’équipe pour générer les lignes.
                               </td>
                             </tr>

@@ -1,4 +1,6 @@
 ﻿// src/App.jsx
+import MemberDetails from "./pages/MemberDetails.jsx";
+
 import { Navigate } from "react-router-dom";
 import UpsertCourse from "./pages/UpsertCourse";
 import Fonctionnalites from "./pages/Fonctionnalites";
@@ -109,6 +111,12 @@ function AppContent() {
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 
           {/* Protégées */}
+
+          <Route
+           path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx" 
+          element={<ProtectedRoute><MemberDetails /></ProtectedRoute>}
+          />
+
           <Route
             path="/inscription/:courseId"
             element={<ProtectedRoute><ErrorBoundary><InscriptionCourse /></ErrorBoundary></ProtectedRoute>}
