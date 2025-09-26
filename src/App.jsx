@@ -114,13 +114,14 @@ function AppContent() {
 
  
 <Route
-  path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx"
+  path="/coureur-details"
   element={
     <ProtectedRoute>
       <MemberDetails />
     </ProtectedRoute>
   }
 />
+
 
 // navigation depuis InscriptionCourse.jsx
 navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`);
