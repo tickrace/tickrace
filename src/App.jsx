@@ -1,5 +1,5 @@
 ﻿// src/App.jsx
-import MemberDetails from "./pages/MemberDetails.jsx";
+import MemberDetails from "./pages/MemberDetails";
 
 import { Navigate } from "react-router-dom";
 import UpsertCourse from "./pages/UpsertCourse";
