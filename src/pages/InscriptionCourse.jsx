@@ -185,7 +185,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
         </div>
       </div>
     </section>
-    
+
   );
 }
 
@@ -1067,13 +1067,16 @@ navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`)
                               </td>
                               <td className="py-2 pr-3">
                                 <button
-                                  type="button"
-                                  onClick={() => goToMemberDetails(tIdx, mIdx)}
-                                  className="rounded-lg border px-3 py-1.5 text-xs hover:bg-neutral-50"
-                                  title="Compléter le profil du membre"
-                                >
-                                  Ajouter des détails
-                                </button>
+   type="button"
+   className="mt-1 text-xs underline text-neutral-700"
+   onClick={() => {
+     const formatId = inscription.format_id || selectedFormat?.id;
+     if (!formatId) { alert("Choisis d’abord un format."); return; }
+     navigate(`/member-details/${courseId}/${formatId}/${tIdx}/${mIdx}`);
+   }}
+ >
+   + Ajouter des détails
+ </button>
                               </td>
                             </tr>
                           ))}
