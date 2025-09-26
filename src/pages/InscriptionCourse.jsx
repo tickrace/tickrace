@@ -527,26 +527,31 @@ export default function InscriptionCourse() {
       .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)));
   }, [teams, teamFilter]);
 
-  // Crée un draft et bascule vers /coureur-details
-  function goToMemberDetails(teamIdx, memberIdx) {
-    if (!inscription.format_id) {
+  // Crée un draft et bascule vers /member-details
+  function goToMemberDetails(tIdx, mIdx) {
+    const formatId = inscription.format_id || selectedFormat?.id;
+    if (!formatId) {
       alert("Sélectionne d’abord un format.");
       return;
     }
-    const draftId = uuidv4();
+
     const payload = {
-      draftId,
       courseId,
-      formatId: inscription.format_id,
-      teamIdx,
-      memberIdx,
-      teamName: teams?.[teamIdx]?.team_name || `Équipe ${teamIdx + 1}`,
-      member: teams?.[teamIdx]?.members?.[memberIdx] || {},
+      formatId,
+      teamIdx: tIdx,
+      memberIdx: mIdx,
+      teamName: teams?.[tIdx]?.team_name || `Équipe ${tIdx + 1}`,
+      teamSize: teams?.[tIdx]?.team_size || 0,
+      member: teams?.[tIdx]?.members?.[mIdx] || {},
       createdAt: new Date().toISOString(),
     };
-    localStorage.setItem(`tickrace_member_draft_${draftId}`, JSON.stringify(payload));
-    // Route déclarée dans App : /coureur-details
-navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`);
+
+    // clé attendue par MemberDetails
+    const draftKey = `tickrace_member_draft_${courseId}_${formatId}_${tIdx}_${mIdx}`;
+    localStorage.setItem(draftKey, JSON.stringify(payload));
+
+    // route : /member-details/:courseId/:formatId/:teamIdx/:memberIdx
+    navigate(`/member-details/${courseId}/${formatId}/${tIdx}/${mIdx}`);
   }
 
   // ----- Paiement -----
@@ -678,7 +683,7 @@ navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`)
         "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
-        setSubmitting(false);
+        setSubmitting.false;
         return;
       }
 
@@ -1067,16 +1072,12 @@ navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`)
                               </td>
                               <td className="py-2 pr-3">
                                 <button
-   type="button"
-   className="mt-1 text-xs underline text-neutral-700"
-   onClick={() => {
-     const formatId = inscription.format_id || selectedFormat?.id;
-     if (!formatId) { alert("Choisis d’abord un format."); return; }
-     navigate(`/member-details/${courseId}/${formatId}/${tIdx}/${mIdx}`);
-   }}
- >
-   + Ajouter des détails
- </button>
+                                  type="button"
+                                  className="mt-1 text-xs underline text-neutral-700"
+                                  onClick={() => goToMemberDetails(tIdx, mIdx)}
+                                >
+                                  + Ajouter des détails
+                                </button>
                               </td>
                             </tr>
                           ))}
