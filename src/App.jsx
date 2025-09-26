@@ -113,7 +113,7 @@ function AppContent() {
           {/* Protégées */}
 
  <Route
-    path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx"
+    path="/coureur-details/:courseId/:formatId/:teamIdx/:memberIdx"
     element={
       <ProtectedRoute>
         <MemberDetails />
