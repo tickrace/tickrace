@@ -4,7 +4,7 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 
-/* -------------------- Sous-composant : Options payantes (options_catalogue) -------------------- */
+/* ---------------- Options payantes ---------------- */
 function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }) {
   const [loading, setLoading] = useState(false);
   const [supported, setSupported] = useState(true);
@@ -55,18 +55,14 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
       setOptions(rows);
 
       const init = {};
-      rows.forEach((o) => {
-        init[o.id] = 0;
-      });
+      rows.forEach((o) => { init[o.id] = 0; });
       setQuantites(init);
       recomputeAndEmit(init, rows);
       setLoading(false);
     }
     load();
-    return () => {
-      abort = true;
-    };
-  }, [formatId]); // relance à chaque format
+    return () => { abort = true; };
+  }, [formatId]);
 
   // Persistance dans inscriptions_options (pending) après création d’inscription
   async function persist(inscriptionId) {
@@ -98,9 +94,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
     }
   }
 
-  useEffect(() => {
-    registerPersist?.(persist);
-  }, [registerPersist, options, quantites, supported]);
+  useEffect(() => { registerPersist?.(persist); }, [registerPersist, options, quantites, supported]);
 
   const dec = (o) => {
     const max = Number(o.max_qty_per_inscription ?? 10);
@@ -186,7 +180,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
             </div>
           );
         })}
-
         <div className="mt-2 text-right text-sm">
           Total options : <b>{(affichageTotalCents / 100).toFixed(2)} €</b>
         </div>
@@ -215,9 +208,23 @@ export default function InscriptionCourse() {
   const emptyMember = () => ({
     nom: "",
     prenom: "",
-    genre: "", // "Homme" | "Femme"
-    date_naissance: "",
+    genre: "",            // "Homme" | "Femme"
+    date_naissance: "",   // YYYY-MM-DD
     email: "",
+    telephone: "",
+    nationalite: "",
+    adresse: "",
+    adresse_complement: "",
+    code_postal: "",
+    ville: "",
+    pays: "",
+    club: "",
+    justificatif_type: "",
+    numero_licence: "",
+    pps_identifier: "",
+    contact_urgence_nom: "",
+    contact_urgence_telephone: "",
+    apparaitre_resultats: true,
   });
 
   const defaultTeam = (name = "", size = 0) => ({
@@ -239,9 +246,54 @@ export default function InscriptionCourse() {
   // Total options payantes (cents) & callback de persistance
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null);
-  function registerPersist(fn) {
-    persistOptionsFnRef.current = fn;
-  }
+  function registerPersist(fn) { persistOptionsFnRef.current = fn; }
+
+  // === Listener "storage" pour rapatrier les détails depuis MemberDetails ===
+  useEffect(() => {
+    function onStorage(e) {
+      if (!e?.key || !e.key.startsWith("tickrace_member_draft_")) return;
+      if (!e.newValue) return;
+      try {
+        const obj = JSON.parse(e.newValue);
+        // Sécurité minimale : même course & même format, indices valides
+        if (obj?.courseId !== courseId) return;
+        if (!obj?.formatId || obj.formatId !== inscription.format_id) return;
+        const tIdx = Number(obj?.teamIdx);
+        const mIdx = Number(obj?.memberIdx);
+        if (!Number.isInteger(tIdx) || !Number.isInteger(mIdx)) return;
+
+        const fields = [
+          "nom","prenom","genre","date_naissance","email",
+          "telephone","nationalite","adresse","adresse_complement",
+          "code_postal","ville","pays","club",
+          "justificatif_type","numero_licence","pps_identifier",
+          "contact_urgence_nom","contact_urgence_telephone","apparaitre_resultats",
+        ];
+
+        setTeams((prev) => {
+          if (!prev[tIdx] || !prev[tIdx].members[mIdx]) return prev;
+          const copy = [...prev];
+          const team = { ...copy[tIdx] };
+          const members = [...team.members];
+          const current = { ...members[mIdx] };
+          const incoming = obj.member || {};
+          fields.forEach((f) => {
+            if (Object.prototype.hasOwnProperty.call(incoming, f)) {
+              current[f] = incoming[f];
+            }
+          });
+          members[mIdx] = current;
+          team.members = members;
+          copy[tIdx] = team;
+          return copy;
+        });
+      } catch {
+        /* ignore parse errors */
+      }
+    }
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, [courseId, inscription.format_id]);
 
   useEffect(() => {
     let mounted = true;
@@ -324,9 +376,7 @@ export default function InscriptionCourse() {
     }
 
     fetchAll();
-    return () => {
-      mounted = false;
-    };
+    return () => { mounted = false; };
   }, [courseId]);
 
   // Helpers
@@ -449,7 +499,9 @@ export default function InscriptionCourse() {
   }
 
   function computeTeamCategory(team) {
-    const gens = (team.members || []).map((m) => (m.genre || "").toLowerCase()).filter(Boolean);
+    const gens = (team.members || [])
+      .map((m) => (m.genre || "").toLowerCase())
+      .filter(Boolean);
     if (gens.length === 0) return null;
     const allH = gens.every((g) => g.startsWith("h"));
     const allF = gens.every((g) => g.startsWith("f"));
@@ -460,7 +512,9 @@ export default function InscriptionCourse() {
 
   function isTeamComplete(team) {
     if (!team.team_size || (team.members?.length || 0) !== team.team_size) return false;
-    return team.members.every((m) => m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance);
+    return team.members.every(
+      (m) => m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance
+    );
   }
 
   const filteredTeams = useMemo(() => {
@@ -471,29 +525,26 @@ export default function InscriptionCourse() {
       .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)));
   }, [teams, teamFilter]);
 
-  // ---- Détails membre (brouillon + navigation) ----
-  function openMemberDetails(teamIdx, memberIdx) {
-    try {
-      const draftId = uuidv4();
-      const team = teams[teamIdx];
-      const member = team?.members?.[memberIdx] || {};
-      const payload = {
-        draftId,
-        courseId,
-        formatId: inscription.format_id,
-        mode,
-        teamIndex: teamIdx,
-        memberIndex: memberIdx,
-        teamMeta: { team_name: team?.team_name || "", team_size: team?.team_size || 0 },
-        member,
-        savedAt: new Date().toISOString(),
-      };
-      localStorage.setItem(`tickrace_member_draft_${draftId}`, JSON.stringify(payload));
-      navigate(`/coureur-details?draft=${draftId}`);
-    } catch (e) {
-      console.error("openMemberDetails error:", e);
-      alert("Impossible d’ouvrir la page de détails pour ce membre.");
+  // Crée un draft et bascule vers /coureur-details
+  function goToMemberDetails(teamIdx, memberIdx) {
+    if (!inscription.format_id) {
+      alert("Sélectionne d’abord un format.");
+      return;
     }
+    const draftId = uuidv4();
+    const payload = {
+      draftId,
+      courseId,
+      formatId: inscription.format_id,
+      teamIdx,
+      memberIdx,
+      teamName: teams?.[teamIdx]?.team_name || `Équipe ${teamIdx + 1}`,
+      member: teams?.[teamIdx]?.members?.[memberIdx] || {},
+      createdAt: new Date().toISOString(),
+    };
+    localStorage.setItem(`tickrace_member_draft_${draftId}`, JSON.stringify(payload));
+    // Route déclarée dans App : /coureur-details
+    navigate(`/coureur-details?draft=${encodeURIComponent(draftId)}`);
   }
 
   // ----- Paiement -----
@@ -569,7 +620,6 @@ export default function InscriptionCourse() {
           return;
         }
 
-        // IMPORTANT : ne pas envoyer prix_total (le serveur recalcule) — mais on envoie options_total_eur en secours
         const { data, error: fnError } = await supabase.functions.invoke(
           "create-checkout-session",
           {
@@ -847,11 +897,8 @@ export default function InscriptionCourse() {
                     {mode === "groupe" ? "Équipe" : "Équipes relais"}
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    Renseigne le nom de l’équipe, la taille et les membres (nom, prénom, sexe, date de naissance).
-                    <br />
-                    <span className="text-neutral-600">
-                      Tu peux saisir le profil complet d’un membre via <b>“Ajouter des détails”</b>.
-                    </span>
+                    Renseigne le nom de l’équipe, la taille et les membres (nom, prénom, sexe, date de naissance).<br />
+                    Tu peux ensuite <b>ajouter des détails</b> pour chaque membre.
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -966,7 +1013,7 @@ export default function InscriptionCourse() {
                             <th className="py-2 pr-3">Sexe *</th>
                             <th className="py-2 pr-3">Date de naissance *</th>
                             <th className="py-2 pr-3">Email (optionnel)</th>
-                            <th className="py-2 pr-0 text-right">Détails</th>
+                            <th className="py-2 pr-3">Détails</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1016,12 +1063,12 @@ export default function InscriptionCourse() {
                                   placeholder="email@exemple.com"
                                 />
                               </td>
-                              <td className="py-2 pr-0 text-right">
+                              <td className="py-2 pr-3">
                                 <button
                                   type="button"
-                                  onClick={() => openMemberDetails(tIdx, mIdx)}
-                                  className="inline-flex items-center rounded-lg border border-neutral-300 px-2.5 py-1.5 text-xs font-semibold hover:bg-neutral-50"
-                                  title="Ajouter des détails (profil complet)"
+                                  onClick={() => goToMemberDetails(tIdx, mIdx)}
+                                  className="rounded-lg border px-3 py-1.5 text-xs hover:bg-neutral-50"
+                                  title="Compléter le profil du membre"
                                 >
                                   Ajouter des détails
                                 </button>
