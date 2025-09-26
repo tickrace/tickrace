@@ -544,7 +544,7 @@ export default function InscriptionCourse() {
     };
     localStorage.setItem(`tickrace_member_draft_${draftId}`, JSON.stringify(payload));
     // Route déclarée dans App : /coureur-details
-    navigate(`/coureur-details?draft=${encodeURIComponent(draftId)}`);
+navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`);
   }
 
   // ----- Paiement -----

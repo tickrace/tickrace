@@ -1,54 +1,53 @@
 ﻿// src/App.jsx
-import MemberDetails from "./pages/MemberDetails";
-
-import { Navigate } from "react-router-dom";
-import UpsertCourse from "./pages/UpsertCourse";
-import Fonctionnalites from "./pages/Fonctionnalites";
-import BenevoleInscription from "./pages/BenevoleInscription";
-import ListeBenevoles from "./pages/ListeBenevoles";
-
 import React, { useEffect, useMemo, useState } from "react";
-import Home from "./pages/Home";
-import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+
+import { UserProvider, useUser } from "./contexts/UserContext";
+import AuthRedirectWrapper from "./components/AuthRedirectWrapper";
+import ProtectedRoute from "./components/ProtectedRoute";
+import AdminRoute from "./components/AdminRoute";
+
 import Navbar from "./components/Navbar";
 import Footer from "./components/Footer";
+import ErrorBoundary from "./components/ErrorBoundary";
+import { Toaster } from "react-hot-toast";
+
+import Home from "./pages/Home";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
-//import NouvelleCourse from "./pages/NouvelleCourse";
-import ErrorBoundary from "./components/ErrorBoundary";
-//import ModifierCourse from "./pages/ModifierCourse";
 import ListeFormats from "./pages/ListeFormats";
 import InscriptionCourse from "./pages/InscriptionCourse";
 import ProfilCoureur from "./pages/ProfilCoureur";
+import DetailsCoureur from "./pages/DetailsCoureur";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
-import MonProfilCoureur from "./pages/MonProfilCoureur";
-import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
-import { UserProvider, useUser } from "./contexts/UserContext";
-import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
-import ListeInscriptions from "./pages/ListeInscriptions";
-import AuthRedirectWrapper from "./components/AuthRedirectWrapper";
-import { Toaster } from "react-hot-toast";
-import DetailsCoureur from "./pages/DetailsCoureur";
 import ResetPassword from "./pages/ResetPassword";
 import ForgotPassword from "./pages/ForgotPassword";
 import MonInscription from "./pages/MonInscription";
 import MesInscriptions from "./pages/MesInscriptions";
+import MonProfilCoureur from "./pages/MonProfilCoureur";
+import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
+import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
+import ListeInscriptions from "./pages/ListeInscriptions";
+import UpsertCourse from "./pages/UpsertCourse";
+import Fonctionnalites from "./pages/Fonctionnalites";
+import BenevoleInscription from "./pages/BenevoleInscription";
+import ListeBenevoles from "./pages/ListeBenevoles";
 import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
+
 import CGVOrganisateurs from "./pages/legal/CGVOrganisateurs";
 import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 
-import AdminRoute from "./components/AdminRoute";
 import AdminLayout from "./pages/admin/AdminLayout";
-import AdminCourses from "./pages/admin/AdminCourses";
 import AdminDashboard from "./pages/admin/AdminDashboard";
+import AdminCourses from "./pages/admin/AdminCourses";
 import AdminInscriptions from "./pages/admin/AdminInscriptions";
 import Payouts from "./pages/admin/Payouts";
 import AdminHome from "./pages/admin";
 
-import ProtectedRoute from "./components/ProtectedRoute";
+import MemberDetails from "./pages/MemberDetails";
 
 function AppContent() {
   const { currentRole } = useUser();
@@ -58,7 +57,6 @@ function AppContent() {
   const initialMode = useMemo(() => {
     const saved = typeof window !== "undefined" ? localStorage.getItem("tickraceMode") : null;
     if (saved === "coureur" || saved === "organisateur") return saved;
-    // défaut: coureur
     return "coureur";
   }, []);
 
@@ -70,40 +68,32 @@ function AppContent() {
     } catch {}
   }, [mode]);
 
-  // Si tu veux forcer automatiquement le mode selon la route, dé-commente:
-  // useEffect(() => {
-  //   const isOrga = /^\/(organisateur|modifier-course|admin)/.test(location.pathname);
-  //   setMode(isOrga ? "organisateur" : "coureur");
-  // }, [location.pathname]);
-
   const showAdmin = currentRole === "admin";
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Navbar
-        key={`${currentRole}-${mode}`}
-        mode={mode}
-        setMode={setMode}
-        showAdmin={showAdmin}
-      />
+      <Navbar key={`${currentRole}-${mode}`} mode={mode} setMode={setMode} showAdmin={showAdmin} />
       <main className="flex-1">
         <Routes>
           {/* Public */}
-          <Route path="/fonctionnalites" element={<Fonctionnalites />} />
           <Route path="/" element={<Home />} />
+          <Route path="/fonctionnalites" element={<Fonctionnalites />} />
           <Route path="/admin" element={<AdminHome />} />
 
           <Route path="/courses" element={<Courses />} />
           <Route path="/courses/:id" element={<CourseDetail />} />
           <Route path="/formats" element={<ListeFormats />} />
+
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+
           <Route path="/merci" element={<Merci />} />
           <Route path="/paiement-annule" element={<PaiementAnnule />} />
-<Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
-<Route path="/organisateur/benevoles" element={<ListeBenevoles />} />
+
+          <Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
+          <Route path="/organisateur/benevoles" element={<ListeBenevoles />} />
 
           {/* Légal */}
           <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
@@ -111,99 +101,118 @@ function AppContent() {
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 
           {/* Protégées */}
-
- 
-<Route
-  path="/coureur-details"
-  element={
-    <ProtectedRoute>
-      <MemberDetails />
-    </ProtectedRoute>
-  }
-/>
-
-
-// navigation depuis InscriptionCourse.jsx
-navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`);
-
-
+          <Route
+            path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx"
+            element={
+              <ProtectedRoute>
+                <MemberDetails />
+              </ProtectedRoute>
+            }
+          />
 
           <Route
             path="/inscription/:courseId"
-            element={<ProtectedRoute><ErrorBoundary><InscriptionCourse /></ErrorBoundary></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <ErrorBoundary>
+                  <InscriptionCourse />
+                </ErrorBoundary>
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/mon-inscription/:id"
-            element={<ProtectedRoute><MonInscription /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <MonInscription />
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/mesinscriptions"
-            element={<ProtectedRoute><MesInscriptions /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <MesInscriptions />
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/monprofilcoureur"
-            element={<ProtectedRoute><MonProfilCoureur /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <MonProfilCoureur />
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/monprofilorganisateur"
-            element={<ProtectedRoute><MonProfilOrganisateur /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <MonProfilOrganisateur />
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/organisateur/mon-espace"
-            element={<ProtectedRoute><MonEspaceOrganisateur /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <MonEspaceOrganisateur />
+              </ProtectedRoute>
+            }
           />
           {/* Alias anti-404 */}
           <Route
             path="/mon-espace-organisateur"
-            element={<ProtectedRoute><MonEspaceOrganisateur /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <MonEspaceOrganisateur />
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/organisateur/inscriptions/:format_id"
-            element={<ProtectedRoute><ListeInscriptions /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <ListeInscriptions />
+              </ProtectedRoute>
+            }
           />
-          {/* Création protégée (nouvelle URL recommandée) */}
-<Route
-  path="/organisateur/creer-course"
-  element={
-    <ProtectedRoute>
-      <UpsertCourse />
-    </ProtectedRoute>
-  }
-/>
 
-{/* Édition protégée (on réutilise la même page) */}
-<Route
-  path="/modifier-course/:id"
-  element={
-    <ProtectedRoute>
-      <UpsertCourse />
-    </ProtectedRoute>
-  }
-/>
-
-{/* Compatibilité rétro : ancienne URL → même page */}
-<Route
-  path="/organisateur/nouvelle-course"
-  element={
-    <ProtectedRoute>
-      <UpsertCourse />
-    </ProtectedRoute>
-  }
-/>
-
-{/* (Optionnel, propre) : redirection 301 interne de l’ancienne URL vers la nouvelle */}
-<Route
-  path="/organisateur/nouvelle-course"
-  element={<Navigate to="/organisateur/creer-course" replace />}
-/>
+          {/* Création/édition protégées */}
+          <Route
+            path="/organisateur/creer-course"
+            element={
+              <ProtectedRoute>
+                <UpsertCourse />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/modifier-course/:id"
+            element={
+              <ProtectedRoute>
+                <UpsertCourse />
+              </ProtectedRoute>
+            }
+          />
+          {/* Redirection propre depuis ancienne URL */}
+          <Route path="/organisateur/nouvelle-course" element={<Navigate to="/organisateur/creer-course" replace />} />
 
           <Route
             path="/details-coureur/:id"
-            element={<ProtectedRoute><DetailsCoureur /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <DetailsCoureur />
+              </ProtectedRoute>
+            }
           />
           <Route
             path="/coureur"
-            element={<ProtectedRoute><ProfilCoureur /></ProtectedRoute>}
+            element={
+              <ProtectedRoute>
+                <ProfilCoureur />
+              </ProtectedRoute>
+            }
           />
 
           {/* Admin */}
@@ -211,7 +220,9 @@ navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`)
             path="/admin/dashboard"
             element={
               <AdminRoute>
-                <AdminLayout><AdminDashboard /></AdminLayout>
+                <AdminLayout>
+                  <AdminDashboard />
+                </AdminLayout>
               </AdminRoute>
             }
           />
@@ -219,7 +230,9 @@ navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`)
             path="/admin/courses"
             element={
               <AdminRoute>
-                <AdminLayout><AdminCourses /></AdminLayout>
+                <AdminLayout>
+                  <AdminCourses />
+                </AdminLayout>
               </AdminRoute>
             }
           />
@@ -227,7 +240,9 @@ navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`)
             path="/admin/payouts"
             element={
               <AdminRoute>
-                <AdminLayout><Payouts /></AdminLayout>
+                <AdminLayout>
+                  <Payouts />
+                </AdminLayout>
               </AdminRoute>
             }
           />
@@ -235,7 +250,9 @@ navigate(`/member-details/${courseId}/${inscription.format_id}/${tIdx}/${mIdx}`)
             path="/admin/inscriptions"
             element={
               <AdminRoute>
-                <AdminLayout><AdminInscriptions /></AdminLayout>
+                <AdminLayout>
+                  <AdminInscriptions />
+                </AdminLayout>
               </AdminRoute>
             }
           />
