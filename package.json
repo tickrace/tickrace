@@ -11,6 +11,7 @@
   "dependencies": {
     "@supabase/supabase-js": "^2.50.4",
     "@tiptap/extension-link": "^3.6.1",
+    "@tiptap/extension-placeholder": "^3.6.1",
     "@tiptap/react": "^3.6.1",
     "@tiptap/starter-kit": "^3.6.1",
     "dayjs": "^1.11.13",
