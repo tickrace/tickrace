@@ -90,9 +90,10 @@ export default function MonEspaceOrganisateur() {
     }
 
     const { data: inscOpts, error: errOpts } = await supabase
-      .from("inscriptions_options")
-      .select("inscription_id, option_id, quantity, prix_unitaire_cents, status")
-      .in("inscription_id", allInscriptionIds);
+  .from("inscriptions_options")
+  .select("inscription_id, option_id, quantity, prix_unitaire_cents")
+  .in("inscription_id", allInscriptionIds)
+  .eq("status", "confirmed");
 
     if (errOpts) {
       console.error(errOpts);
