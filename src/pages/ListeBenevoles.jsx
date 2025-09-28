@@ -1,8 +1,120 @@
-// src/pages/ListeBenevoles.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import { Link } from "react-router-dom";
+
+/* ------------------ Modal envoi email (bénévoles par course) ------------------ */
+function EmailBlastModalVolunteers({ open, onClose, courseId, defaultStatuses = ["nouveau", "valide"] }) {
+  const [subject, setSubject] = useState("");
+  const [html, setHtml] = useState("");
+  const [statuses, setStatuses] = useState(defaultStatuses);
+  const [sending, setSending] = useState(false);
+  const allStatuses = ["nouveau", "valide", "refuse"];
+
+  useEffect(() => {
+    if (open) {
+      setSubject("");
+      setHtml("");
+      setStatuses(defaultStatuses);
+      setSending(false);
+    }
+  }, [open, defaultStatuses]);
+
+  const toggleStatus = (s) => {
+    setStatuses((prev) =>
+      prev.includes(s) ? prev.filter((x) => x !== s) : [...prev, s]
+    );
+  };
+
+  async function send() {
+    if (!courseId) {
+      alert("Sélectionnez une épreuve pour envoyer un email.");
+      return;
+    }
+    if (!subject.trim() || !html.trim()) {
+      alert("Sujet et contenu sont requis.");
+      return;
+    }
+    try {
+      setSending(true);
+      const { data, error } = await supabase.functions.invoke("organiser-send-volunteer-emails", {
+        body: { course_id: courseId, subject, html, statuses },
+      });
+      if (error) throw error;
+      alert(`Email envoyé à ${data?.sent ?? 0} bénévole(s).`);
+      onClose?.();
+    } catch (e) {
+      console.error(e);
+      alert(e?.message || "Échec de l’envoi.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 bg-neutral-900/60 flex items-center justify-center p-4">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl ring-1 ring-neutral-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Envoyer un email aux bénévoles</h3>
+          <button onClick={onClose} className="h-9 w-9 grid place-items-center rounded-xl hover:bg-neutral-100">✕</button>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div>
+            <label className="text-sm font-medium">Filtrer par statut</label>
+            <div className="mt-2 flex flex-wrap gap-3 text-sm">
+              {allStatuses.map((s) => (
+                <label key={s} className="inline-flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={statuses.includes(s)}
+                    onChange={() => toggleStatus(s)}
+                  />
+                  {s}
+                </label>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Sujet</label>
+            <input
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Brief bénévoles — convocation, horaires…"
+            />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Contenu (HTML autorisé)</label>
+            <textarea
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+              rows={10}
+              value={html}
+              onChange={(e) => setHtml(e.target.value)}
+              placeholder="<p>Bonjour,</p><p>…</p>"
+            />
+            <p className="mt-1 text-xs text-neutral-500">
+              Astuce : utilisez des paragraphes &lt;p&gt; et des listes &lt;ul&gt;…&lt;/ul&gt;.
+            </p>
+          </div>
+        </div>
+        <div className="px-5 py-4 border-t border-neutral-200 flex items-center justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium">Annuler</button>
+          <button
+            onClick={send}
+            disabled={sending}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${sending ? "bg-neutral-400" : "bg-orange-600 hover:brightness-110"}`}
+          >
+            {sending ? "Envoi…" : "Envoyer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------------- */
 
 export default function ListeBenevoles() {
   const { session } = useUser();
@@ -13,7 +125,9 @@ export default function ListeBenevoles() {
   const [rows, setRows] = useState([]);
   const [selectedCourseId, setSelectedCourseId] = useState("all");
   const [q, setQ] = useState("");
-  const [saving, setSaving] = useState(null); // id en cours de sauvegarde
+  const [saving, setSaving] = useState(null);
+
+  const [emailModalOpen, setEmailModalOpen] = useState(false);
 
   useEffect(() => {
     if (!userId) return;
@@ -37,7 +151,6 @@ export default function ListeBenevoles() {
       }
 
       // 2) Demandes bénévoles (avec jointures)
-      // On récupère tout puis on filtre côté client (plus simple, RLS friendly)
       const { data: bi, error: eBI } = await supabase
         .from("benevoles_inscriptions")
         .select(`
@@ -61,7 +174,6 @@ export default function ListeBenevoles() {
     return () => { abort = true; };
   }, [userId]);
 
-  // Filtrage client (course + recherche texte)
   const filtered = useMemo(() => {
     const list = rows.filter((r) => {
       if (selectedCourseId !== "all" && r.course_id !== selectedCourseId) return false;
@@ -87,78 +199,26 @@ export default function ListeBenevoles() {
 
   async function updateStatut(rowId, statut) {
     setSaving(rowId);
-    const { error } = await supabase
-      .from("benevoles_inscriptions")
-      .update({ statut })
-      .eq("id", rowId);
+    const { error } = await supabase.from("benevoles_inscriptions").update({ statut }).eq("id", rowId);
     if (error) {
       alert("Impossible de mettre à jour le statut.");
       console.error(error);
     } else {
-      setRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, statut } : r))
-      );
+      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, statut } : r)));
     }
     setSaving(null);
   }
 
   async function updateNotes(rowId, notes_internes) {
     setSaving(rowId);
-    const { error } = await supabase
-      .from("benevoles_inscriptions")
-      .update({ notes_internes })
-      .eq("id", rowId);
+    const { error } = await supabase.from("benevoles_inscriptions").update({ notes_internes }).eq("id", rowId);
     if (error) {
       alert("Impossible d’enregistrer les notes.");
       console.error(error);
     } else {
-      setRows((prev) =>
-        prev.map((r) => (r.id === rowId ? { ...r, notes_internes } : r))
-      );
+      setRows((prev) => prev.map((r) => (r.id === rowId ? { ...r, notes_internes } : r)));
     }
     setSaving(null);
-  }
-
-  function exportCSV() {
-    const headers = [
-      "Date",
-      "Épreuve",
-      "Lieu",
-      "Nom",
-      "Prénom",
-      "Email",
-      "Téléphone",
-      "Statut",
-      "Message",
-      "Notes internes",
-    ];
-    const lines = [headers.join(";")];
-
-    filtered.forEach((r) => {
-      const cols = [
-        fmtDate(r.created_at),
-        r.course?.nom || "",
-        r.course?.lieu || "",
-        r.benevole?.nom || "",
-        r.benevole?.prenom || "",
-        r.benevole?.email || "",
-        r.benevole?.telephone || "",
-        r.statut || "",
-        clean(r.message),
-        clean(r.notes_internes),
-      ];
-      lines.push(cols.map(csvCell).join(";"));
-    });
-
-    const blob = new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = "benevoles.csv";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    URL.revokeObjectURL(url);
   }
 
   if (!userId) {
@@ -168,7 +228,9 @@ export default function ListeBenevoles() {
         <p className="mt-2 text-neutral-600">Connectez-vous pour accéder à vos demandes.</p>
       </div>
     );
-  }
+    }
+
+  const canEmail = selectedCourseId !== "all";
 
   return (
     <div className="max-w-6xl mx-auto p-6">
@@ -182,7 +244,7 @@ export default function ListeBenevoles() {
         </Link>
       </div>
 
-      {/* Filtres */}
+      {/* Filtres + action email */}
       <div className="mt-4 flex flex-col md:flex-row gap-3 md:items-center">
         <label className="inline-flex items-center gap-2">
           <span className="text-sm text-neutral-700">Épreuve</span>
@@ -208,10 +270,12 @@ export default function ListeBenevoles() {
             className="w-full md:w-80 rounded-xl border border-neutral-200 px-3 py-2 text-sm"
           />
           <button
-            onClick={exportCSV}
-            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+            onClick={() => setEmailModalOpen(true)}
+            disabled={!canEmail}
+            title={canEmail ? "Envoyer un email aux bénévoles de l’épreuve sélectionnée" : "Choisissez une épreuve"}
+            className={`rounded-xl px-3 py-2 text-sm font-semibold text-white ${canEmail ? "bg-orange-600 hover:brightness-110" : "bg-neutral-400 cursor-not-allowed"}`}
           >
-            Export CSV
+            ✉️ Envoyer un email
           </button>
         </div>
       </div>
@@ -260,24 +324,17 @@ export default function ListeBenevoles() {
                   <td className="px-4 py-3">
                     <div>
                       {r.benevole?.email ? (
-                        <a
-                          href={`mailto:${r.benevole.email}`}
-                          className="text-orange-700 hover:underline"
-                        >
+                        <a href={`mailto:${r.benevole.email}`} className="text-orange-700 hover:underline">
                           {r.benevole.email}
                         </a>
-                      ) : (
-                        "—"
-                      )}
+                      ) : ("—")}
                     </div>
                     <div className="text-xs">
                       {r.benevole?.telephone ? (
                         <a href={`tel:${r.benevole.telephone}`} className="hover:underline">
                           {r.benevole.telephone}
                         </a>
-                      ) : (
-                        "—"
-                      )}
+                      ) : ("—")}
                     </div>
                   </td>
                   <td className="px-4 py-3 whitespace-pre-line">
@@ -320,9 +377,15 @@ export default function ListeBenevoles() {
       </div>
 
       <div className="mt-3 text-xs text-neutral-500">
-        Conseil : le statut <strong>valide</strong> peut déclencher un email manuel depuis votre
-        messagerie (copiez l’adresse) en attendant la V1.5 (emails .ics automatiques).
+        Conseil : le statut <strong>valide</strong> peut déclencher un envoi groupé (bouton en haut à droite).
       </div>
+
+      {/* Modal email */}
+      <EmailBlastModalVolunteers
+        open={emailModalOpen}
+        onClose={() => setEmailModalOpen(false)}
+        courseId={selectedCourseId !== "all" ? selectedCourseId : null}
+      />
     </div>
   );
 }
@@ -342,14 +405,4 @@ function fmtDate(d) {
   } catch {
     return "—";
   }
-}
-
-function clean(s) {
-  return (s || "").replace(/\s+/g, " ").trim();
-}
-
-function csvCell(s) {
-  const v = (s ?? "").toString();
-  if (/[;"\n]/.test(v)) return `"${v.replace(/"/g, '""')}"`;
-  return v;
 }
