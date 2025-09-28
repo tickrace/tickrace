@@ -1,6 +1,6 @@
 // src/pages/InscriptionCourse.jsx
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 
@@ -185,15 +185,12 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
         </div>
       </div>
     </section>
-
   );
 }
-
 
 /* -------------------------------------------------------------------------- */
 
 export default function InscriptionCourse() {
-  const navigate = useNavigate();
   const { courseId } = useParams();
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
@@ -212,21 +209,8 @@ export default function InscriptionCourse() {
     prenom: "",
     genre: "",            // "Homme" | "Femme"
     date_naissance: "",   // YYYY-MM-DD
-    email: "",
-    telephone: "",
-    nationalite: "",
-    adresse: "",
-    adresse_complement: "",
-    code_postal: "",
-    ville: "",
-    pays: "",
-    club: "",
-    justificatif_type: "",
-    numero_licence: "",
-    pps_identifier: "",
-    contact_urgence_nom: "",
-    contact_urgence_telephone: "",
-    apparaitre_resultats: true,
+    numero_licence: "",   // <- requis (N° licence / PPS)
+    email: "",            // optionnel
   });
 
   const defaultTeam = (name = "", size = 0) => ({
@@ -249,53 +233,6 @@ export default function InscriptionCourse() {
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null);
   function registerPersist(fn) { persistOptionsFnRef.current = fn; }
-
-  // === Listener "storage" pour rapatrier les détails depuis MemberDetails ===
-  useEffect(() => {
-    function onStorage(e) {
-      if (!e?.key || !e.key.startsWith("tickrace_member_draft_")) return;
-      if (!e.newValue) return;
-      try {
-        const obj = JSON.parse(e.newValue);
-        // Sécurité minimale : même course & même format, indices valides
-        if (obj?.courseId !== courseId) return;
-        if (!obj?.formatId || obj.formatId !== inscription.format_id) return;
-        const tIdx = Number(obj?.teamIdx);
-        const mIdx = Number(obj?.memberIdx);
-        if (!Number.isInteger(tIdx) || !Number.isInteger(mIdx)) return;
-
-        const fields = [
-          "nom","prenom","genre","date_naissance","email",
-          "telephone","nationalite","adresse","adresse_complement",
-          "code_postal","ville","pays","club",
-          "justificatif_type","numero_licence","pps_identifier",
-          "contact_urgence_nom","contact_urgence_telephone","apparaitre_resultats",
-        ];
-
-        setTeams((prev) => {
-          if (!prev[tIdx] || !prev[tIdx].members[mIdx]) return prev;
-          const copy = [...prev];
-          const team = { ...copy[tIdx] };
-          const members = [...team.members];
-          const current = { ...members[mIdx] };
-          const incoming = obj.member || {};
-          fields.forEach((f) => {
-            if (Object.prototype.hasOwnProperty.call(incoming, f)) {
-              current[f] = incoming[f];
-            }
-          });
-          members[mIdx] = current;
-          team.members = members;
-          copy[tIdx] = team;
-          return copy;
-        });
-      } catch {
-        /* ignore parse errors */
-      }
-    }
-    window.addEventListener("storage", onStorage);
-    return () => window.removeEventListener("storage", onStorage);
-  }, [courseId, inscription.format_id]);
 
   useEffect(() => {
     let mounted = true;
@@ -514,44 +451,15 @@ export default function InscriptionCourse() {
 
   function isTeamComplete(team) {
     if (!team.team_size || (team.members?.length || 0) !== team.team_size) return false;
+    // maintenant, N° licence / PPS est requis aussi (numero_licence)
     return team.members.every(
-      (m) => m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance
+      (m) =>
+        m.nom?.trim() &&
+        m.prenom?.trim() &&
+        m.genre &&
+        m.date_naissance &&
+        (m.numero_licence?.trim() || m.pps_identifier?.trim() || m.numero_licence === "" === false)
     );
-  }
-
-  const filteredTeams = useMemo(() => {
-    return teams
-      .map((t) => ({ ...t, category: computeTeamCategory(t) }))
-      .filter((t) => (teamFilter.q ? (t.team_name || "").toLowerCase().includes(teamFilter.q.toLowerCase()) : true))
-      .filter((t) => (teamFilter.category === "all" ? true : t.category === teamFilter.category))
-      .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)));
-  }, [teams, teamFilter]);
-
-  // Crée un draft et bascule vers /member-details
-  function goToMemberDetails(tIdx, mIdx) {
-    const formatId = inscription.format_id || selectedFormat?.id;
-    if (!formatId) {
-      alert("Sélectionne d’abord un format.");
-      return;
-    }
-
-    const payload = {
-      courseId,
-      formatId,
-      teamIdx: tIdx,
-      memberIdx: mIdx,
-      teamName: teams?.[tIdx]?.team_name || `Équipe ${tIdx + 1}`,
-      teamSize: teams?.[tIdx]?.team_size || 0,
-      member: teams?.[tIdx]?.members?.[mIdx] || {},
-      createdAt: new Date().toISOString(),
-    };
-
-    // clé attendue par MemberDetails
-    const draftKey = `tickrace_member_draft_${courseId}_${formatId}_${tIdx}_${mIdx}`;
-    localStorage.setItem(draftKey, JSON.stringify(payload));
-
-    // route : /member-details/:courseId/:formatId/:teamIdx/:memberIdx
-    navigate(`/member-details/${courseId}/${formatId}/${tIdx}/${mIdx}`);
   }
 
   // ----- Paiement -----
@@ -667,10 +575,17 @@ export default function InscriptionCourse() {
           return;
         }
         const bad = team.members.find(
-          (m) => !m.nom?.trim() || !m.prenom?.trim() || !m.genre || !m.date_naissance
+          (m) =>
+            !m.nom?.trim() ||
+            !m.prenom?.trim() ||
+            !m.genre ||
+            !m.date_naissance ||
+            !(m.numero_licence?.trim()) // N° licence / PPS requis
         );
         if (bad) {
-          alert(`Équipe #${idx + 1} : chaque membre doit avoir nom, prénom, sexe et date de naissance.`);
+          alert(
+            `Équipe #${idx + 1} : chaque membre doit avoir nom, prénom, sexe, date de naissance et N° licence / PPS.`
+          );
           setSubmitting(false);
           return;
         }
@@ -683,7 +598,7 @@ export default function InscriptionCourse() {
         "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
-        setSubmitting.false;
+        setSubmitting(false);
         return;
       }
 
@@ -904,8 +819,7 @@ export default function InscriptionCourse() {
                     {mode === "groupe" ? "Équipe" : "Équipes relais"}
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    Renseigne le nom de l’équipe, la taille et les membres (nom, prénom, sexe, date de naissance).<br />
-                    Tu peux ensuite <b>ajouter des détails</b> pour chaque membre.
+                    Renseigne le nom de l’équipe, la taille et les membres (champs requis marqués d’un astérisque).
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -950,7 +864,12 @@ export default function InscriptionCourse() {
               </div>
 
               <div className="p-5 space-y-6">
-                {filteredTeams.map((team, tIdx) => (
+                {teams
+                  .map((t) => ({ ...t, category: computeTeamCategory(t) }))
+                  .filter((t) => (teamFilter.q ? (t.team_name || "").toLowerCase().includes(teamFilter.q.toLowerCase()) : true))
+                  .filter((t) => (teamFilter.category === "all" ? true : t.category === teamFilter.category))
+                  .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)))
+                  .map((team, tIdx) => (
                   <div key={tIdx} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
                     <div className="flex items-center justify-between mb-3">
                       <div className="font-medium flex items-center gap-2">
@@ -993,12 +912,12 @@ export default function InscriptionCourse() {
                       </div>
                       <div>
                         <label className="text-sm font-medium">
-                          Taille de l’équipe {selectedFormat.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}
+                          Taille de l’équipe {selectedFormat?.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}
                         </label>
                         <input
                           type="number"
                           className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                          value={team.team_size || selectedFormat.team_size || 0}
+                          value={team.team_size || selectedFormat?.team_size || 0}
                           min={minTeam}
                           max={maxTeam}
                           onChange={(e) => setTeamSizeAt(tIdx, e.target.value)}
@@ -1019,8 +938,8 @@ export default function InscriptionCourse() {
                             <th className="py-2 pr-3">Prénom *</th>
                             <th className="py-2 pr-3">Sexe *</th>
                             <th className="py-2 pr-3">Date de naissance *</th>
+                            <th className="py-2 pr-3">N° licence / PPS *</th>
                             <th className="py-2 pr-3">Email (optionnel)</th>
-                            <th className="py-2 pr-3">Détails</th>
                           </tr>
                         </thead>
                         <tbody>
@@ -1065,19 +984,18 @@ export default function InscriptionCourse() {
                               <td className="py-2 pr-3">
                                 <input
                                   className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.numero_licence || ""}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "numero_licence", e.target.value)}
+                                  placeholder="Numéro de licence ou PPS"
+                                />
+                              </td>
+                              <td className="py-2 pr-3">
+                                <input
+                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                   value={m.email || ""}
                                   onChange={(e) => setMemberAt(tIdx, mIdx, "email", e.target.value)}
                                   placeholder="email@exemple.com"
                                 />
-                              </td>
-                              <td className="py-2 pr-3">
-                                <button
-                                  type="button"
-                                  className="mt-1 text-xs underline text-neutral-700"
-                                  onClick={() => goToMemberDetails(tIdx, mIdx)}
-                                >
-                                  + Ajouter des détails
-                                </button>
                               </td>
                             </tr>
                           ))}
