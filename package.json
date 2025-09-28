@@ -10,6 +10,9 @@
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.50.4",
+    "@tiptap/extension-link": "^3.6.1",
+    "@tiptap/react": "^3.6.1",
+    "@tiptap/starter-kit": "^3.6.1",
     "dayjs": "^1.11.13",
     "file-saver": "^2.0.5",
     "framer-motion": "^12.23.12",
@@ -21,6 +24,7 @@
     "react-dom": "^18.2.0",
     "react-hot-toast": "^2.5.2",
     "react-leaflet": "^4.2.1",
+    "react-quill": "^2.0.0",
     "react-router-dom": "^6.30.1",
     "recharts": "^3.1.2",
     "uuid": "^11.1.0",
