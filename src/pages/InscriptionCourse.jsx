@@ -5,7 +5,7 @@ import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 
 /* ---------------- Options payantes ---------------- */
-function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }) {
+function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, registerGetSelected }) {
   const [loading, setLoading] = useState(false);
   const [supported, setSupported] = useState(true);
   const [options, setOptions] = useState([]);
@@ -95,6 +95,20 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }
   }
 
   useEffect(() => { registerPersist?.(persist); }, [registerPersist, options, quantites, supported]);
+
+  // Getter des options sélectionnées (pour groupe/relais)
+  function getSelected() {
+    return (options || [])
+      .map((o) => ({
+        option_id: o.id,
+        quantity: Number(quantites[o.id] || 0),
+        prix_unitaire_cents: Number(o.price_cents || 0),
+      }))
+      .filter((x) => x.quantity > 0);
+  }
+  useEffect(() => {
+    registerGetSelected?.(getSelected);
+  }, [registerGetSelected, options, quantites]);
 
   const dec = (o) => {
     const max = Number(o.max_qty_per_inscription ?? 10);
@@ -229,10 +243,14 @@ export default function InscriptionCourse() {
     completeOnly: false,
   });
 
-  // Total options payantes (cents) & callback de persistance
+  // Total options payantes (cents) & callbacks
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null);
   function registerPersist(fn) { persistOptionsFnRef.current = fn; }
+
+  // Getter options sélectionnées (groupe/relais)
+  const getSelectedOptionsRef = useRef(null);
+  function registerGetSelected(fn) { getSelectedOptionsRef.current = fn; }
 
   useEffect(() => {
     let mounted = true;
@@ -451,14 +469,14 @@ export default function InscriptionCourse() {
 
   function isTeamComplete(team) {
     if (!team.team_size || (team.members?.length || 0) !== team.team_size) return false;
-    // maintenant, N° licence / PPS est requis aussi (numero_licence)
+    // N° licence / PPS requis
     return team.members.every(
       (m) =>
         m.nom?.trim() &&
         m.prenom?.trim() &&
         m.genre &&
         m.date_naissance &&
-        (m.numero_licence?.trim() || m.pps_identifier?.trim() || m.numero_licence === "" === false)
+        !!(m.numero_licence && m.numero_licence.trim())
     );
   }
 
@@ -547,6 +565,7 @@ export default function InscriptionCourse() {
               successUrl: "https://www.tickrace.com/merci",
               cancelUrl: "https://www.tickrace.com/paiement-annule",
               options_total_eur: (totalOptionsCents || 0) / 100, // filet de sécurité
+              // on pourrait aussi envoyer selected_options ici si besoin
             },
           }
         );
@@ -580,7 +599,7 @@ export default function InscriptionCourse() {
             !m.prenom?.trim() ||
             !m.genre ||
             !m.date_naissance ||
-            !(m.numero_licence?.trim()) // N° licence / PPS requis
+            !(m.numero_licence && m.numero_licence.trim()) // N° licence / PPS requis
         );
         if (bad) {
           alert(
@@ -609,6 +628,10 @@ export default function InscriptionCourse() {
         members: t.members,
       }));
 
+      // Options sélectionnées pour création côté backend (pending par inscription)
+      const selected_options =
+        getSelectedOptionsRef.current ? getSelectedOptionsRef.current() : [];
+
       let body = {
         mode, // 'groupe' | 'relais'
         format_id: inscription.format_id,
@@ -618,6 +641,7 @@ export default function InscriptionCourse() {
         successUrl: "https://www.tickrace.com/merci",
         cancelUrl: "https://www.tickrace.com/paiement-annule",
         options_total_eur: (totalOptionsCents || 0) / 100,
+        selected_options, // 👈 important pour groupe/relais
       };
 
       if (teams.length > 1) {
@@ -1082,6 +1106,7 @@ export default function InscriptionCourse() {
               formatId={selectedFormat.id}
               onTotalCentsChange={(c) => setTotalOptionsCents(c)}
               registerPersist={registerPersist}
+              registerGetSelected={registerGetSelected}
             />
           )}
         </div>

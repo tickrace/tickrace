@@ -1,3 +1,4 @@
+// src/components/OptionsPayantesPicker.jsx
 import React, { useEffect, useMemo, useState, useRef, useCallback } from "react";
 import { supabase } from "../supabase";
 
@@ -6,14 +7,20 @@ import { supabase } from "../supabase";
  * - formatId: string (obligatoire pour charger le catalogue)
  * - onTotalCentsChange?: (totalCents:number) => void
  * - registerPersist?: (fn:(inscriptionId:string)=>Promise<void>) => void
+ * - registerGetSelected?: (fn:()=>Array<{option_id:string, quantity:number, prix_unitaire_cents:number}>) => void
  */
-export default function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist }) {
+export default function OptionsPayantesPicker({
+  formatId,
+  onTotalCentsChange,
+  registerPersist,
+  registerGetSelected,   // <-- NOUVEAU
+}) {
   const [loading, setLoading] = useState(false);
   const [supported, setSupported] = useState(true);
   const [options, setOptions] = useState([]);
   const [quantites, setQuantites] = useState({}); // option_id -> qty
 
-  // Refs pour conserver les dernières valeurs dans persist()
+  // Refs pour conserver les dernières valeurs dans persist() / getSelected()
   const optionsRef = useRef(options);
   const quantitesRef = useRef(quantites);
   useEffect(() => { optionsRef.current = options; }, [options]);
@@ -22,7 +29,13 @@ export default function OptionsPayantesPicker({ formatId, onTotalCentsChange, re
   useEffect(() => {
     let abort = false;
     async function load() {
-      if (!formatId) return;
+      if (!formatId) {
+        setSupported(true);
+        setOptions([]);
+        setQuantites({});
+        onTotalCentsChange?.(0);
+        return;
+      }
       setLoading(true);
 
       const { data, error } = await supabase
@@ -35,6 +48,7 @@ export default function OptionsPayantesPicker({ formatId, onTotalCentsChange, re
       if (abort) return;
 
       if (error) {
+        console.error("options_catalogue error:", error);
         setSupported(false);
         setOptions([]);
         setQuantites({});
@@ -58,7 +72,7 @@ export default function OptionsPayantesPicker({ formatId, onTotalCentsChange, re
   }, [formatId, onTotalCentsChange]);
 
   const totalOptionsCents = useMemo(() => {
-    return options.reduce((acc, o) => {
+    return (options || []).reduce((acc, o) => {
       const q = Number(quantites[o.id] || 0);
       return acc + q * Number(o.price_cents || 0);
     }, 0);
@@ -68,7 +82,24 @@ export default function OptionsPayantesPicker({ formatId, onTotalCentsChange, re
     onTotalCentsChange?.(totalOptionsCents);
   }, [totalOptionsCents, onTotalCentsChange]);
 
-  // Persistance dans inscriptions_options (pending)
+  // ---- Expose getSelected() : renvoie le détail des options (id, qty, prix) ----
+  const getSelected = useCallback(() => {
+    const curOptions = optionsRef.current || [];
+    const curQty = quantitesRef.current || {};
+    return curOptions
+      .map((o) => ({
+        option_id: o.id,
+        quantity: Number(curQty[o.id] || 0),
+        prix_unitaire_cents: Number(o.price_cents || 0),
+      }))
+      .filter((x) => Number.isFinite(x.quantity) && x.quantity > 0);
+  }, []);
+  useEffect(() => {
+    // le parent stocke un getter qu'il peut appeler au moment du checkout
+    registerGetSelected?.(getSelected);
+  }, [registerGetSelected, getSelected]);
+
+  // ---- Persistance dans inscriptions_options (pending) (comportement existant) ----
   const persist = useCallback(async (inscriptionId) => {
     if (!supported || !inscriptionId) return;
 
@@ -163,7 +194,6 @@ export default function OptionsPayantesPicker({ formatId, onTotalCentsChange, re
                     const clamped = Math.min(Math.max(v, 0), max);
                     setQuantites((s) => ({ ...s, [o.id]: clamped }));
                   }}
-                  
                   className="w-16 rounded-lg border px-2 py-1 text-sm text-center"
                 />
                 <button
