@@ -73,10 +73,10 @@ serve(async (req) => {
         const ids = payRow.inscription_ids ?? [];
         if (ids.length > 0) {
           // Confirmer inscriptions
-          await supabase.from("inscriptions").update({ statut: "confirmed" }).in("id", ids);
+          await supabase.from("inscriptions").update({ statut: "paye" }).in("id", ids);
 
           // Confirmer options attachées à ces inscriptions
-          await supabase.from("inscriptions_options").update({ status: "confirmed" }).in("inscription_id", ids);
+          await supabase.from("inscriptions_options").update({ status: "paye" }).in("inscription_id", ids);
 
           // Confirmer groupe(s) éventuel(s)
           const { data: groups } = await supabase
@@ -89,7 +89,7 @@ serve(async (req) => {
             new Set((groups ?? []).map((g: any) => g.member_of_group_id).filter(Boolean))
           );
           if (groupIds.length > 0) {
-            await supabase.from("inscriptions_groupes").update({ statut: "confirmed" }).in("id", groupIds);
+            await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", groupIds);
           }
 
           // Emails de confirmation
