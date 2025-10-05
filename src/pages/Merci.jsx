@@ -109,7 +109,7 @@ export default function Merci() {
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <Link to="/mes-inscriptions" className="text-sm text-neutral-500 hover:text-neutral-800">
+          <Link to="/mesinscriptions" className="text-sm text-neutral-500 hover:text-neutral-800">
             ← Mes inscriptions
           </Link>
           <h1 className="text-2xl sm:text-3xl font-bold mt-1">Merci pour votre inscription</h1>
@@ -270,7 +270,7 @@ export default function Merci() {
               </div>
               <div className="p-5 space-y-3">
                 <Link
-                  to="/mes-inscriptions"
+                  to="/mesinscriptions"
                   className="block w-full text-center rounded-xl bg-neutral-900 hover:bg-black text-white font-semibold px-4 py-3"
                 >
                   Voir mes inscriptions
