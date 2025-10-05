@@ -1,6 +1,8 @@
 // src/pages/Merci.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { supabase } from "../supabase"; // 👈 ajoute ceci
+
 
 function useQuery() {
   const { search } = useLocation();
@@ -56,13 +58,24 @@ export default function Merci() {
     (import.meta.env && import.meta.env.VITE_SUPABASE_URL) ||
     (typeof process !== "undefined" && process.env && process.env.VITE_SUPABASE_URL) ||
     "";
-
+async function getAuthHeader() {
+  try {
+    const { data } = await supabase.auth.getSession();
+    const token = data?.session?.access_token;
+    if (token) return { Authorization: `Bearer ${token}` };
+  } catch {}
+  const anon = (import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+               (typeof process !== "undefined" && process.env && process.env.VITE_SUPABASE_ANON_KEY) ||
+               "";
+  return anon ? { Authorization: `Bearer ${anon}` } : {};
+}
   async function fetchSummary(id) {
     setError("");
     try {
+      const auth = await getAuthHeader();
       const resp = await fetch(
         `${baseUrl}/functions/v1/payment-summary?session_id=${encodeURIComponent(id)}`,
-        { method: "GET", headers: { "Content-Type": "application/json" } }
+        { method: "GET", headers: { "Content-Type": "application/json", ...auth } }
       );
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
@@ -77,10 +90,11 @@ export default function Merci() {
     setLoading(true);
     setError("");
     try {
+      const auth = await getAuthHeader();
       // 1) Force la finalisation du paiement côté serveur (idempotent)
       await fetch(`${baseUrl}/functions/v1/verify-checkout-session`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...auth },
         body: JSON.stringify({ session_id: id, send_email: true }),
       }).catch((e) => {
         console.warn("verify-checkout-session failed (continue with summary):", e);
