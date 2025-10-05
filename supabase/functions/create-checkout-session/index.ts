@@ -1,4 +1,6 @@
 // supabase/functions/create-checkout-session/index.ts
+// Edge Function (Supabase / Deno)
+
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -30,7 +32,6 @@ function toTeamCategory(cat?: string | null): "open" | "male" | "female" | "mixe
   if (["female", "femme", "feminine", "f"].includes(v)) return "female";
   if (["mixed", "mixte"].includes(v)) return "mixed";
   if (["masters", "master"].includes(v)) return "masters";
-  if (["open"].includes(v)) return "open";
   return "open";
 }
 
@@ -57,8 +58,9 @@ const MemberSchema = z.object({
   nom: z.string().min(1),
   prenom: z.string().min(1),
   genre: z.string().optional(),
-  date_naissance: z.string().optional(),
+  date_naissance: z.string().optional(), // 'YYYY-MM-DD' accepté
   numero_licence: z.string().optional(),
+  // accepte "" -> undefined
   email: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.string().email().optional()
@@ -68,7 +70,7 @@ const MemberSchema = z.object({
 const TeamSchemaLoose = z.object({
   team_name: z.string().min(1),
   team_size: z.coerce.number().int().positive(),
-  category: z.string().nullable().optional(), // front: masculine|feminine|mixte
+  category: z.string().nullable().optional(), // front: masculine|feminine|mixte...
   members: z.array(MemberSchema).min(1),
 }).strip();
 
@@ -230,7 +232,7 @@ serve(async (req) => {
       : [{
           team_name: payload.team_name,
           team_size: Number(payload.team_size),
-          category: payload.category ?? null, // masculine|feminine|mixte
+          category: payload.category ?? null, // masculine|feminine|mixte...
           members: payload.members ?? [],
         }];
 
@@ -254,16 +256,16 @@ serve(async (req) => {
       const teamSize = Math.max(1, Number(t.team_size || 0));
       const members  = Array.isArray(t.members) ? t.members : [];
 
-      // ⬇️ insert groupe conforme à TON schéma
+      // Insert GROUPE conforme à ton schéma
       const groupPayload = {
-        format_id: payload.format_id,                   // NOT NULL
+        format_id: payload.format_id,              // NOT NULL
         nom_groupe: teamName,
-        team_size: teamSize,                            // NOT NULL
-        statut: "en_attente",                           // CHECK (en_attente|paye|annule)
+        team_size: teamSize,                       // NOT NULL
+        statut: "en_attente",                      // CHECK (en_attente|paye|annule)
         team_name: teamName,
         team_name_public: teamName,
-        category: t.category ?? null,                   // libre (on garde la valeur front)
-        team_category: toTeamCategory(t.category ?? ""),// CHECK: male/female/mixed/open/masters
+        category: t.category ?? null,              // libre
+        team_category: toTeamCategory(t.category), // CHECK (male|female|mixed|open|masters)
         members_count: teamSize,
         capitaine_user_id: payload.user_id ?? null,
       };
@@ -280,7 +282,7 @@ serve(async (req) => {
       }
       createdGroupIds.push(g.id);
 
-      // Frais d’équipe
+      // Frais d’équipe si définis
       if (teamFeeCents > 0) {
         items.push({
           quantity: 1,
@@ -292,12 +294,11 @@ serve(async (req) => {
         });
       }
 
-      // Inscriptions membres
+      // Inscriptions MEMBRES (statut 'en attente', coureur_id=null pour éviter défaut FK)
       const rows = members.map((m: any) => ({
-        course_id: payload.course_id ?? null,  // facultatif dans ton schéma
+        course_id: payload.course_id ?? null,
         format_id: payload.format_id,
-          coureur_id: null,
-
+        coureur_id: null,                  // <-- crucial pour éviter DEFAULT gen_random_uuid() -> FK
         nom: m.nom,
         prenom: m.prenom,
         email: m.email ?? null,
@@ -306,7 +307,7 @@ serve(async (req) => {
         numero_licence: m.numero_licence ?? null,
         team_name: teamName,
         member_of_group_id: g.id,
-        statut: "en attente",                 // avec espace
+        statut: "en attente",
       }));
 
       const { data: inscs, error: ie2 } = await supabase
@@ -321,7 +322,7 @@ serve(async (req) => {
       const ids = inscs.map((r: any) => r.id);
       allInscriptionIds.push(...ids);
 
-      // Lignes Stripe (par membre)
+      // Lignes Stripe par membre (inscription de base)
       for (const r of inscs) {
         items.push({
           quantity: 1,
@@ -332,46 +333,50 @@ serve(async (req) => {
           },
         });
       }
+    }
 
-      // Options d’équipe dupliquées sur chaque inscription
-      const teamOptions = payload.selected_options ?? [];
-      if (teamOptions.length > 0) {
-        const optionsRows: any[] = [];
-        for (const inscId of ids) {
-          for (const o of teamOptions) {
-            const qty  = Math.max(1, Number(o.quantity || 1));
-            const unit = Math.max(0, Number(o.prix_unitaire_cents || 0));
-            optionsRows.push({
-              inscription_id: inscId,
-              option_id: o.option_id,
-              quantity: qty,
-              prix_unitaire_cents: unit,
-              status: "pending",
-            });
-            items.push({
-              quantity: qty,
-              price_data: {
-                currency: "eur",
-                unit_amount: unit,
-                product_data: { name: `Option — ${o.option_id} — ${teamName}` },
-              },
-            });
-          }
-        }
-        const { error: ioe } = await supabase.from("inscriptions_options").insert(optionsRows);
-        if (ioe) {
-          console.error("OPTIONS_INSERT_ERROR", { optionsRows, ioe });
-          throw new Error(`insert options échouée: ${ioe.message}`);
-        }
+    // ---------- OPTIONS : une seule fois pour toute la commande ----------
+    const orderOptions = payload.selected_options ?? [];
+    if (orderOptions.length > 0 && allInscriptionIds.length > 0) {
+      const anchorInscriptionId = allInscriptionIds[0]; // rattacher à la 1ère inscription
+      const optionsRows: any[] = [];
+
+      for (const o of orderOptions) {
+        const qty  = Math.max(1, Number(o.quantity || 1));
+        const unit = Math.max(0, Number(o.prix_unitaire_cents || 0));
+
+        optionsRows.push({
+          inscription_id: anchorInscriptionId,
+          option_id: o.option_id,
+          quantity: qty,
+          prix_unitaire_cents: unit,
+          status: "pending",
+        });
+
+        items.push({
+          quantity: qty,
+          price_data: {
+            currency: "eur",
+            unit_amount: unit,
+            product_data: { name: `Option — ${o.option_id}` },
+          },
+        });
+      }
+
+      const { error: ioe } = await supabase.from("inscriptions_options").insert(optionsRows);
+      if (ioe) {
+        console.error("OPTIONS_INSERT_ERROR", { optionsRows, ioe });
+        throw new Error(`insert options échouée: ${ioe.message}`);
       }
     }
 
+    // ---------- Stripe Checkout ----------
     const payerEmail = payload.email || undefined;
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: items,
-      customer_email: payerEmail,
-      payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
+      customer_email: payerEmail,                                              // pré-rempli
+      payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined, // reçu Stripe
       success_url: ensureSuccessUrl(payload.successUrl),
       cancel_url: ensureCancelUrl(payload.cancelUrl),
       metadata: {
