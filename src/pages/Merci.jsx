@@ -1,7 +1,6 @@
 // src/pages/Merci.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { supabase } from "../supabase";
 
 function useQuery() {
   const { search } = useLocation();
@@ -53,46 +52,57 @@ export default function Merci() {
   const [summary, setSummary] = useState(null);
   const [error, setError] = useState("");
 
+  const baseUrl =
+    (import.meta.env && import.meta.env.VITE_SUPABASE_URL) ||
+    (typeof process !== "undefined" && process.env && process.env.VITE_SUPABASE_URL) ||
+    "";
+
   async function fetchSummary(id) {
-    setLoading(true);
     setError("");
     try {
-      // On passe par fetch direct (plus fiable que invoke en GET pour les functions)
-      const { data: sess } = await supabase.auth.getSession();
-      const token = sess?.session?.access_token;
-
-      const baseUrl = import.meta.env.VITE_SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-      const url = `${baseUrl}/functions/v1/payment-summary?session_id=${encodeURIComponent(id)}`;
-
-      const resp = await fetch(url, {
-        method: "GET",
-        headers: {
-          "Content-Type": "application/json",
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
-      });
-
-      if (!resp.ok) {
-        const j = await resp.json().catch(() => ({}));
-        throw new Error(j?.error || `HTTP ${resp.status}`);
-      }
-      const data = await resp.json();
+      const resp = await fetch(
+        `${baseUrl}/functions/v1/payment-summary?session_id=${encodeURIComponent(id)}`,
+        { method: "GET", headers: { "Content-Type": "application/json" } }
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
       setSummary(data);
     } catch (e) {
       console.error("payment-summary error:", e);
       setError(String(e?.message || e));
+    }
+  }
+
+  async function verifyThenLoad(id) {
+    setLoading(true);
+    setError("");
+    try {
+      // 1) Force la finalisation du paiement côté serveur (idempotent)
+      await fetch(`${baseUrl}/functions/v1/verify-checkout-session`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: id, send_email: true }),
+      }).catch((e) => {
+        console.warn("verify-checkout-session failed (continue with summary):", e);
+      });
+
+      // 2) Charge le récapitulatif
+      await fetchSummary(id);
     } finally {
       setLoading(false);
     }
   }
 
   useEffect(() => {
-    if (sessionId) fetchSummary(sessionId);
-    else setLoading(false);
+    if (!sessionId) {
+      setLoading(false);
+      return;
+    }
+    verifyThenLoad(sessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
-  // Regroupement des inscriptions par équipe (si applicable)
+  // Regroupe les inscriptions par équipe (si applicable)
   const grouped = useMemo(() => {
     const g = new Map();
     const list = summary?.inscriptions || [];
@@ -113,20 +123,15 @@ export default function Merci() {
             ← Mes inscriptions
           </Link>
           <h1 className="text-2xl sm:text-3xl font-bold mt-1">Merci pour votre inscription</h1>
-          <p className="text-neutral-600 mt-1">
-            Voici le récapitulatif de votre paiement.
-          </p>
+          <p className="text-neutral-600 mt-1">Voici le récapitulatif de votre paiement.</p>
         </div>
-        {/* Icône état */}
         <div className="hidden sm:flex items-center justify-center w-12 h-12 rounded-full bg-emerald-100 text-emerald-700">
-          {/* check icon */}
           <svg viewBox="0 0 24 24" className="w-7 h-7" fill="none" stroke="currentColor" strokeWidth="2">
             <path d="M5 13l4 4L19 7" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
         </div>
       </div>
 
-      {/* Erreur / Param manquant */}
       {!sessionId && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
           <div className="font-semibold mb-1">Paramètres manquants</div>
@@ -150,7 +155,6 @@ export default function Merci() {
                 {summary?.payment?.status && <StatusBadge status={summary.payment.status} />}
               </div>
 
-              {/* contenu */}
               {loading ? (
                 <div className="p-5">
                   <div className="h-4 w-56 bg-neutral-100 rounded mb-3 animate-pulse" />
@@ -162,7 +166,7 @@ export default function Merci() {
                   <div className="font-medium mb-1">Détails indisponibles</div>
                   <p>{error}</p>
                   <button
-                    onClick={() => fetchSummary(sessionId)}
+                    onClick={() => verifyThenLoad(sessionId)}
                     className="mt-3 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-neutral-50"
                   >
                     Réessayer
@@ -199,7 +203,7 @@ export default function Merci() {
                 <p className="text-sm text-neutral-500">
                   {loading
                     ? "Chargement…"
-                    : `${(summary?.inscriptions || []).length} inscription(s) confirmée(s)`}
+                    : `${(summary?.inscriptions || []).length} inscription(s) trouvée(s)`}
                 </p>
               </div>
 
@@ -245,15 +249,9 @@ export default function Merci() {
                   {summary.groupes.map((g) => (
                     <div key={g.id} className="rounded-xl border border-neutral-200 p-4">
                       <div className="font-medium mb-1">{g.team_name_public || g.team_name || g.nom_groupe || "Équipe"}</div>
-                      <div className="text-sm text-neutral-600">
-                        Catégorie&nbsp;: {g.team_category || "—"}
-                      </div>
-                      <div className="text-sm text-neutral-600">
-                        Membres&nbsp;: {g.members_count ?? "—"}
-                      </div>
-                      <div className="mt-2">
-                        <StatusBadge status={g.statut} />
-                      </div>
+                      <div className="text-sm text-neutral-600">Catégorie&nbsp;: {g.team_category || "—"}</div>
+                      <div className="text-sm text-neutral-600">Membres&nbsp;: {g.members_count ?? "—"}</div>
+                      <div className="mt-2"><StatusBadge status={g.statut} /></div>
                     </div>
                   ))}
                 </div>
@@ -276,7 +274,7 @@ export default function Merci() {
                   Voir mes inscriptions
                 </Link>
                 <button
-                  onClick={() => fetchSummary(sessionId)}
+                  onClick={() => verifyThenLoad(sessionId)}
                   className="w-full rounded-xl border border-neutral-300 px-4 py-3 font-semibold hover:bg-neutral-50"
                 >
                   Rafraîchir les détails
@@ -287,8 +285,6 @@ export default function Merci() {
                 >
                   Retour à l’accueil
                 </Link>
-
-                {/* Aide */}
                 <div className="pt-3 border-t border-neutral-100 text-xs text-neutral-500">
                   Besoin d’aide&nbsp;? Écrivez-nous via la page contact.
                 </div>
