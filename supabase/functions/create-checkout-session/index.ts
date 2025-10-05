@@ -1,4 +1,6 @@
 // supabase/functions/create-checkout-session/index.ts
+// Edge Function (Supabase / Deno)
+
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -13,7 +15,8 @@ const BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com"
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
 
-// ---------- Helpers ----------
+/* --------------------------------- Helpers --------------------------------- */
+
 function normMode(raw?: string): "individual" | "team" | "relay" {
   const m = (raw || "").toLowerCase();
   if (!raw) return "individual";
@@ -22,6 +25,8 @@ function normMode(raw?: string): "individual" | "team" | "relay" {
   if (["relais", "relay"].includes(m)) return "relay";
   return "team";
 }
+
+// Ajoute automatiquement ?session_id={CHECKOUT_SESSION_ID} si absent
 function ensureSuccessUrl(u?: string) {
   if (!u || u.trim() === "") return `${BASE_URL}/mes-inscriptions?session_id={CHECKOUT_SESSION_ID}`;
   if (u.includes("{CHECKOUT_SESSION_ID}")) return u;
@@ -33,23 +38,28 @@ function ensureCancelUrl(u?: string) {
   return u;
 }
 
-// ---------- Schemas (assouplis) ----------
+/* ----------------------------------- Zod ----------------------------------- */
+// Options payantes (du catalogue) pour duplication côté backend
 const OptionSchema = z.object({
   option_id: z.string().uuid(),
   quantity: z.coerce.number().int().positive(),
   prix_unitaire_cents: z.coerce.number().int().nonnegative(),
 });
 
+// Membre d'équipe : on accepte les emails vides "" (transformés en undefined)
 const MemberSchema = z.object({
   nom: z.string().min(1),
   prenom: z.string().min(1),
-  // on rend les autres champs optionnels côté backend
   genre: z.string().optional(),
   date_naissance: z.string().optional(),
   numero_licence: z.string().optional(),
-  email: z.string().email().optional(),
+  email: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().email().optional()
+  ),
 }).strip();
 
+// Équipe "souple" (coercition de team_size, category facultatif)
 const TeamSchemaLoose = z.object({
   team_name: z.string().min(1),
   team_size: z.coerce.number().int().positive(),
@@ -57,6 +67,7 @@ const TeamSchemaLoose = z.object({
   members: z.array(MemberSchema).min(1),
 }).strip();
 
+// INDIVIDUEL : on part de l'inscription déjà créée côté front (id + options persistées)
 const BodyIndividualSchema = z.object({
   inscription_id: z.string().uuid(),
   email: z.string().email().optional(),
@@ -66,12 +77,16 @@ const BodyIndividualSchema = z.object({
   trace_id: z.string().optional(),
 }).strip();
 
+// GROUPE / RELAIS : version assouplie — accepte teams[] OU un seul bloc team_name/team_size/members
 const BodyGroupRelayBase = z.object({
-  mode: z.string(),                 // FR/EN
+  mode: z.string(), // FR/EN
   format_id: z.string().uuid(),
   user_id: z.string().uuid().optional(),
   course_id: z.string().uuid().optional(),
-  email: z.string().email().optional(),
+  email: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().email().optional()
+  ),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
   options_total_eur: z.number().optional(),
@@ -88,7 +103,8 @@ const BodyGroupRelaySchema = z.union([
   }),
 ]);
 
-// ---------- Handler ----------
+/* --------------------------------- Handler --------------------------------- */
+
 serve(async (req) => {
   const headers = new Headers({
     "content-type": "application/json; charset=utf-8",
@@ -96,17 +112,18 @@ serve(async (req) => {
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": "content-type, authorization",
   });
+
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
   try {
     const body = await req.json();
 
-    // --- A) INDIVIDUEL via inscription_id (OK chez toi)
+    /* -------------------------- A) INDIVIDUEL via ID -------------------------- */
     const tryInd = BodyIndividualSchema.safeParse(body);
     if (tryInd.success) {
       const { inscription_id, email, successUrl, cancelUrl, trace_id } = tryInd.data;
 
-      // Inscription + format
+      // Récup inscription + format
       const { data: insc, error: ie } = await supabase
         .from("inscriptions")
         .select("id, format_id, email, nombre_repas")
@@ -125,7 +142,7 @@ serve(async (req) => {
       const repasUnitCents   = Math.round((Number(format.prix_repas) || 0) * 100);
       const repasQty         = Math.max(0, Number(insc.nombre_repas || 0));
 
-      // options pending déjà stockées
+      // Options pending déjà stockées côté front
       const { data: opts } = await supabase
         .from("inscriptions_options")
         .select("option_id, quantity, prix_unitaire_cents")
@@ -142,6 +159,7 @@ serve(async (req) => {
           },
         },
       ];
+
       if (repasQty > 0 && repasUnitCents > 0) {
         items.push({
           quantity: repasQty,
@@ -152,6 +170,7 @@ serve(async (req) => {
           },
         });
       }
+
       for (const o of opts ?? []) {
         if (!o?.prix_unitaire_cents || !o?.quantity) continue;
         items.push({
@@ -165,11 +184,12 @@ serve(async (req) => {
       }
 
       const payerEmail = email || insc.email || undefined;
+
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: items,
-        customer_email: payerEmail,
-        payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
+        customer_email: payerEmail,                                    // pré-rempli
+        payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined, // reçu Stripe
         success_url: ensureSuccessUrl(successUrl),
         cancel_url: ensureCancelUrl(cancelUrl),
         metadata: {
@@ -191,10 +211,10 @@ serve(async (req) => {
       return new Response(JSON.stringify({ url: session.url }), { status: 200, headers });
     }
 
-    // --- B) GROUPE / RELAIS (assoupli)
+    /* ------------------------- B) GROUPE / RELAIS souple ---------------------- */
     const tryGrp = BodyGroupRelaySchema.safeParse(body);
     if (!tryGrp.success) {
-      // log détaillé pour debug
+      // Log dans l’edge (visible dans les logs Supabase)
       console.error("ZOD_GROUP_FAIL:", JSON.stringify(tryGrp.error.issues, null, 2));
       return new Response(
         JSON.stringify({ error: "payload invalide", details: tryGrp.error.issues }),
@@ -203,9 +223,9 @@ serve(async (req) => {
     }
 
     const payload = tryGrp.data as any;
-    const mode = normMode(payload.mode); // 'team' ou 'relay' ici
+    const mode = normMode(payload.mode); // 'team' ou 'relay'
 
-    // Normalisation teams: soit payload.teams, soit team unique
+    // Normaliser la liste des équipes
     const teams = Array.isArray(payload.teams)
       ? payload.teams
       : [{
@@ -215,7 +235,7 @@ serve(async (req) => {
           members: payload.members ?? [],
         }];
 
-    // Format / tarifs
+    // Récup format / tarifs
     const { data: format, error: fe2 } = await supabase
       .from("formats")
       .select("id, nom, prix, prix_equipe")
@@ -231,12 +251,11 @@ serve(async (req) => {
     const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
 
     for (const t of teams) {
-      // sécurités supplémentaires
       const teamName = String(t.team_name || "").trim();
       const teamSize = Math.max(1, Number(t.team_size || 0));
       const members  = Array.isArray(t.members) ? t.members : [];
 
-      // créer groupe
+      // Créer le groupe
       const { data: g, error: ge } = await supabase
         .from("inscriptions_groupes")
         .insert({
@@ -250,6 +269,7 @@ serve(async (req) => {
       if (ge || !g) throw new Error(`création groupe impossible (${teamName})`);
       createdGroupIds.push(g.id);
 
+      // Frais d’équipe (si > 0)
       if (teamFeeCents > 0) {
         items.push({
           quantity: 1,
@@ -261,7 +281,7 @@ serve(async (req) => {
         });
       }
 
-      // créer inscriptions membres
+      // Créer les inscriptions membres (pending)
       const rows = members.map((m: any) => ({
         format_id: payload.format_id,
         prenom: m.prenom,
@@ -284,6 +304,7 @@ serve(async (req) => {
       const ids = inscs.map((r: any) => r.id);
       allInscriptionIds.push(...ids);
 
+      // Lignes Stripe pour chaque membre (inscription de base)
       for (const r of inscs) {
         items.push({
           quantity: 1,
@@ -295,7 +316,7 @@ serve(async (req) => {
         });
       }
 
-      // options dupliquées
+      // Dupliquer les options sélectionnées sur chaque inscription
       const teamOptions = payload.selected_options ?? [];
       if (teamOptions.length > 0) {
         const optionsRows: any[] = [];
@@ -328,11 +349,12 @@ serve(async (req) => {
     }
 
     const payerEmail = payload.email || undefined;
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: items,
-      customer_email: payerEmail,
-      payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
+      customer_email: payerEmail,                                              // pré-rempli
+      payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined, // reçu Stripe
       success_url: ensureSuccessUrl(payload.successUrl),
       cancel_url: ensureCancelUrl(payload.cancelUrl),
       metadata: {
@@ -354,15 +376,17 @@ serve(async (req) => {
       .select("id")
       .single();
     if (!pe && pay?.id && createdGroupIds.length > 0) {
-      await supabase.from("inscriptions_groupes").update({ paiement_id: pay.id }).in("id", createdGroupIds);
+      await supabase.from("inscriptions_groupes")
+        .update({ paiement_id: pay.id })
+        .in("id", createdGroupIds);
     }
 
     return new Response(JSON.stringify({ url: session.url }), { status: 200, headers });
   } catch (e) {
     console.error("CREATE_CHECKOUT_SESSION_FATAL:", e);
-    return new Response(JSON.stringify({ error: "payload invalide", details: String(e?.message ?? e) }), {
-      status: 400,
-      headers,
-    });
+    return new Response(
+      JSON.stringify({ error: "payload invalide", details: String(e?.message ?? e) }),
+      { status: 400, headers },
+    );
   }
 });
