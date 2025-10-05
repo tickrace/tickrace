@@ -43,6 +43,7 @@ const IndividualByIdSchema = z.object({
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
   options_total_eur: z.number().optional(),
+  trace_id: z.string().optional(), // 👈 ajouté pour pouvoir renvoyer un param alternatif si tu veux
 });
 
 const GroupRelaySchemaBase = z.object({
@@ -50,7 +51,7 @@ const GroupRelaySchemaBase = z.object({
   format_id: z.string().uuid(),
   user_id: z.string().uuid().optional(),
   course_id: z.string().uuid().optional(),
-  email: z.string().email().optional(),
+  email: z.string().email().optional(), // email payeur (pré-remplissage Checkout)
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
   options_total_eur: z.number().optional(),
@@ -75,21 +76,29 @@ function normMode(raw: string): "individual" | "team" | "relay" {
   if (["individuel", "individual"].includes(m)) return "individual";
   if (["groupe", "team"].includes(m)) return "team";
   if (["relais", "relay"].includes(m)) return "relay";
-  // Par défaut si inconnu, considérer "team" si fourni, sinon individual
   return m ? "team" : "individual";
 }
 
-function cors(headers: Headers) {
-  headers.set("Access-Control-Allow-Origin", "*");
-  headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  headers.set("Access-Control-Allow-Headers", "content-type, authorization");
-  return headers;
+// Ajoute automatiquement ?session_id={CHECKOUT_SESSION_ID} si absent
+function ensureSuccessUrl(u?: string, traceId?: string) {
+  if (!u || u.trim() === "") return `${BASE_URL}/mes-inscriptions?session_id={CHECKOUT_SESSION_ID}`;
+  if (u.includes("{CHECKOUT_SESSION_ID}")) return u;
+  const sep = u.includes("?") ? "&" : "?";
+  // On privilégie session_id (ta page merci accepte session_id OU trace_id)
+  return `${u}${sep}session_id={CHECKOUT_SESSION_ID}`;
+}
+function ensureCancelUrl(u?: string) {
+  if (!u || u.trim() === "") return `${BASE_URL}/mes-inscriptions?canceled=1`;
+  return u;
 }
 
 /* --------------------------------- Serving --------------------------------- */
 
 serve(async (req) => {
-  const headers = cors(new Headers({ "content-type": "application/json; charset=utf-8" }));
+  const headers = new Headers({ "content-type": "application/json; charset=utf-8" });
+  headers.set("Access-Control-Allow-Origin", "*");
+  headers.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  headers.set("Access-Control-Allow-Headers", "content-type, authorization");
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
   try {
@@ -102,14 +111,14 @@ serve(async (req) => {
       );
     }
 
-    // --------------- CAS A : INDIVIDUEL via inscription_id (aligné à InscriptionCourse.jsx)
+    // -------- A) INDIVIDUEL via inscription_id (aligné avec InscriptionCourse.jsx)
     if ("inscription_id" in parsed.data) {
-      const { inscription_id, email, successUrl, cancelUrl } = parsed.data;
+      const { inscription_id, email, successUrl, cancelUrl, trace_id } = parsed.data;
 
       // Récupérer inscription + format
       const { data: insc, error: ie } = await supabase
         .from("inscriptions")
-        .select("id, format_id, prenom, nom, email, nombre_repas, prix_total_repas")
+        .select("id, format_id, prenom, nom, email, nombre_repas")
         .eq("id", inscription_id)
         .single();
       if (ie || !insc) throw new Error("inscription introuvable");
@@ -134,8 +143,6 @@ serve(async (req) => {
 
       // Construire line_items
       const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
-
-      // Inscription de base
       lineItems.push({
         quantity: 1,
         price_data: {
@@ -144,8 +151,6 @@ serve(async (req) => {
           product_data: { name: `Inscription — ${format.nom}` },
         },
       });
-
-      // Repas si présents
       if (repasQty > 0 && repasUnitCents > 0) {
         lineItems.push({
           quantity: repasQty,
@@ -156,8 +161,6 @@ serve(async (req) => {
           },
         });
       }
-
-      // Options sélectionnées (déjà persistées)
       for (const o of opts ?? []) {
         if (!o || !o.prix_unitaire_cents || !o.quantity) continue;
         lineItems.push({
@@ -170,20 +173,22 @@ serve(async (req) => {
         });
       }
 
-      // Créer session Stripe
+      const payerEmail = email || insc.email || undefined;
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: lineItems,
-        success_url: successUrl || `${BASE_URL}/mes-inscriptions?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: cancelUrl || `${BASE_URL}/mes-inscriptions?canceled=1`,
+        customer_email: payerEmail,                            // 👈 pré-remplir l’email
+        payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined, // 👈 reçu Stripe
+        success_url: ensureSuccessUrl(successUrl, trace_id),   // 👈 garantit ?session_id=...
+        cancel_url: ensureCancelUrl(cancelUrl),
         metadata: {
           mode: "individual",
           format_id: String(insc.format_id || ""),
           inscription_id: insc.id,
+          trace_id: trace_id || "",
         },
       });
 
-      // Paiement pending
       const totalAmountCents = lineItems.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
       await supabase.from("paiements").insert({
         stripe_session_id: session.id,
@@ -195,32 +200,29 @@ serve(async (req) => {
       return new Response(JSON.stringify({ url: session.url }), { status: 200, headers });
     }
 
-    // --------------- CAS B : GROUPE / RELAIS (teams ou team unique)
+    // -------- B) GROUPE / RELAIS
     const payload = parsed.data;
-    const mode = normMode(payload.mode);
+    const mode = normMode((payload as any).mode);
     if (mode === "individual") {
-      // fallback si jamais "individuel" est envoyé à tort dans ce bloc
       return new Response(
         JSON.stringify({ error: "Pour le mode individuel, envoyer `inscription_id` (déjà créé côté front)." }),
         { status: 400, headers },
       );
     }
 
-    // Normaliser teams
     const teams: z.infer<typeof TeamSchema>[] = "teams" in payload
-      ? payload.teams
+      ? (payload as any).teams
       : [{
-          team_name: payload.team_name!,
-          team_size: payload.team_size!,
+          team_name: (payload as any).team_name!,
+          team_size: (payload as any).team_size!,
           category: (payload as any).category ?? null,
           members: (payload as any).members ?? [],
         }];
 
-    // Récup format / tarifs
     const { data: format, error: fe2 } = await supabase
       .from("formats")
       .select("id, nom, prix, prix_equipe")
-      .eq("id", payload.format_id)
+      .eq("id", (payload as any).format_id)
       .single();
     if (fe2 || !format) throw new Error("format introuvable");
 
@@ -232,7 +234,6 @@ serve(async (req) => {
     const lineItems: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
 
     for (const t of teams) {
-      // créer groupe
       const { data: g, error: ge } = await supabase
         .from("inscriptions_groupes")
         .insert({
@@ -246,7 +247,6 @@ serve(async (req) => {
       if (ge || !g) throw new Error(`création groupe impossible (${t.team_name})`);
       createdGroupIds.push(g.id);
 
-      // fraIS d’équipe (si > 0)
       if (teamFeeCents > 0) {
         lineItems.push({
           quantity: 1,
@@ -258,9 +258,8 @@ serve(async (req) => {
         });
       }
 
-      // créer inscriptions membres
       const rows = t.members.map((m) => ({
-        format_id: payload.format_id,
+        format_id: (payload as any).format_id,
         prenom: m.prenom,
         nom: m.nom,
         email: m.email ?? null,
@@ -281,7 +280,6 @@ serve(async (req) => {
       const ids = inscs.map((r: any) => r.id);
       allInscriptionIds.push(...ids);
 
-      // line_items: inscription de base pour chaque membre
       for (const r of inscs) {
         lineItems.push({
           quantity: 1,
@@ -293,8 +291,7 @@ serve(async (req) => {
         });
       }
 
-      // options dupliquées sur chaque inscription (si envoyées)
-      const teamOptions = payload.selected_options ?? [];
+      const teamOptions = (payload as any).selected_options ?? [];
       if (teamOptions.length > 0) {
         const optionsRows: any[] = [];
         for (const inscId of ids) {
@@ -306,7 +303,6 @@ serve(async (req) => {
               prix_unitaire_cents: o.prix_unitaire_cents,
               status: "pending",
             });
-            // et ligne Stripe
             lineItems.push({
               quantity: o.quantity,
               price_data: {
@@ -324,20 +320,21 @@ serve(async (req) => {
       }
     }
 
-    // Créer session Stripe
+    const payerEmail = (payload as any).email || undefined;
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: lineItems,
-      success_url: payload.successUrl || `${BASE_URL}/mes-inscriptions?session_id={CHECKOUT_SESSION_ID}`,
-      cancel_url: payload.cancelUrl || `${BASE_URL}/mes-inscriptions?canceled=1`,
+      customer_email: payerEmail,                                              // 👈 pré-remplir l’email
+      payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined, // 👈 reçu Stripe
+      success_url: ensureSuccessUrl((payload as any).successUrl),
+      cancel_url: ensureCancelUrl((payload as any).cancelUrl),
       metadata: {
         mode,
-        format_id: payload.format_id,
+        format_id: (payload as any).format_id,
         groups: createdGroupIds.join(","),
       },
     });
 
-    // Paiement pending
     const totalAmountCents = lineItems.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
     const { data: pay, error: pe } = await supabase.from("paiements").insert({
       stripe_session_id: session.id,
@@ -345,11 +342,9 @@ serve(async (req) => {
       total_amount_cents: totalAmountCents,
       inscription_ids: allInscriptionIds,
     }).select("id").single();
-    if (pe) {
-      console.error("paiements insert error:", pe);
-    } else if (createdGroupIds.length > 0 && pay?.id) {
-      // Lier le paiement aux groupes
-      await supabase.from("inscriptions_groupes")
+    if (!pe && pay?.id && createdGroupIds.length > 0) {
+      await supabase
+        .from("inscriptions_groupes")
         .update({ paiement_id: pay.id })
         .in("id", createdGroupIds);
     }
