@@ -296,6 +296,8 @@ serve(async (req) => {
       const rows = members.map((m: any) => ({
         course_id: payload.course_id ?? null,  // facultatif dans ton schéma
         format_id: payload.format_id,
+          coureur_id: null,
+
         nom: m.nom,
         prenom: m.prenom,
         email: m.email ?? null,
