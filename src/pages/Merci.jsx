@@ -1,8 +1,7 @@
 // src/pages/Merci.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
-import { supabase } from "../supabase"; // 👈 ajoute ceci
-
+import { supabase } from "../supabase";
 
 function useQuery() {
   const { search } = useLocation();
@@ -36,10 +35,7 @@ function StatusBadge({ status }) {
     annule: "bg-rose-100 text-rose-800",
   };
   const cls = map[s] || "bg-neutral-100 text-neutral-800";
-  const label =
-    s === "paye" ? "Payé" :
-    s === "annule" ? "Annulé" :
-    "En attente";
+  const label = s === "paye" ? "Payé" : s === "annule" ? "Annulé" : "En attente";
   return (
     <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${cls}`}>
       {label}
@@ -58,50 +54,37 @@ export default function Merci() {
     (import.meta.env && import.meta.env.VITE_SUPABASE_URL) ||
     (typeof process !== "undefined" && process.env && process.env.VITE_SUPABASE_URL) ||
     "";
-async function getAuthHeader() {
-  try {
-    const { data } = await supabase.auth.getSession();
-    const token = data?.session?.access_token;
-    if (token) return { Authorization: `Bearer ${token}` };
-  } catch {}
-  const anon = (import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
-               (typeof process !== "undefined" && process.env && process.env.VITE_SUPABASE_ANON_KEY) ||
-               "";
-  return anon ? { Authorization: `Bearer ${anon}` } : {};
-}
-  async function fetchSummary(id) {
+
+  async function getAuthHeader() {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const token = data?.session?.access_token;
+      if (token) return { Authorization: `Bearer ${token}` };
+    } catch {}
+    const anon =
+      (import.meta.env && import.meta.env.VITE_SUPABASE_ANON_KEY) ||
+      (typeof process !== "undefined" && process.env && process.env.VITE_SUPABASE_ANON_KEY) ||
+      "";
+    return anon ? { Authorization: `Bearer ${anon}` } : {};
+  }
+
+  async function loadSummary(id) {
     setError("");
+    setLoading(true);
     try {
       const auth = await getAuthHeader();
+      // ➜ Un seul endpoint central : finalize-payment (finalise + renvoie le récap)
       const resp = await fetch(
-        `${baseUrl}/functions/v1/payment-summary?session_id=${encodeURIComponent(id)}`,
+        `${baseUrl}/functions/v1/finalize-payment?session_id=${encodeURIComponent(id)}`,
         { method: "GET", headers: { "Content-Type": "application/json", ...auth } }
       );
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok) throw new Error(data?.error || `HTTP ${resp.status}`);
-      setSummary(data);
+      // ⚠️ finalize-payment renvoie { ok, paid, summary } → on extrait summary
+      setSummary(data.summary || null);
     } catch (e) {
-      console.error("payment-summary error:", e);
+      console.error("finalize-payment error:", e);
       setError(String(e?.message || e));
-    }
-  }
-
-  async function verifyThenLoad(id) {
-    setLoading(true);
-    setError("");
-    try {
-      const auth = await getAuthHeader();
-      // 1) Force la finalisation du paiement côté serveur (idempotent)
-      await fetch(`${baseUrl}/functions/v1/verify-checkout-session`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", ...auth },
-        body: JSON.stringify({ session_id: id, send_email: true }),
-      }).catch((e) => {
-        console.warn("verify-checkout-session failed (continue with summary):", e);
-      });
-
-      // 2) Charge le récapitulatif
-      await fetchSummary(id);
     } finally {
       setLoading(false);
     }
@@ -112,7 +95,7 @@ async function getAuthHeader() {
       setLoading(false);
       return;
     }
-    verifyThenLoad(sessionId);
+    loadSummary(sessionId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId]);
 
@@ -133,7 +116,7 @@ async function getAuthHeader() {
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <Link to="/mesinscriptions" className="text-sm text-neutral-500 hover:text-neutral-800">
+          <Link to="/mes-inscriptions" className="text-sm text-neutral-500 hover:text-neutral-800">
             ← Mes inscriptions
           </Link>
           <h1 className="text-2xl sm:text-3xl font-bold mt-1">Merci pour votre inscription</h1>
@@ -149,7 +132,9 @@ async function getAuthHeader() {
       {!sessionId && (
         <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
           <div className="font-semibold mb-1">Paramètres manquants</div>
-          <div className="text-sm">Le paramètre <code>session_id</code> est requis.</div>
+          <div className="text-sm">
+            Le paramètre <code>session_id</code> est requis.
+          </div>
         </div>
       )}
 
@@ -180,7 +165,7 @@ async function getAuthHeader() {
                   <div className="font-medium mb-1">Détails indisponibles</div>
                   <p>{error}</p>
                   <button
-                    onClick={() => verifyThenLoad(sessionId)}
+                    onClick={() => loadSummary(sessionId)}
                     className="mt-3 inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-neutral-50"
                   >
                     Réessayer
@@ -198,10 +183,12 @@ async function getAuthHeader() {
                   </div>
                   <div className="flex items-center justify-between">
                     <span className="text-neutral-600">Statut</span>
-                    <span><StatusBadge status={summary.payment?.status} /></span>
+                    <span>
+                      <StatusBadge status={summary.payment?.status} />
+                    </span>
                   </div>
                   <p className="text-xs text-neutral-500 pt-1">
-                    Un email de confirmation vous est envoyé à l’adresse utilisée lors du paiement.  
+                    Un email de confirmation vous est envoyé à l’adresse utilisée lors du paiement.
                     En cas d’absence d’email, vérifiez vos spams.
                   </p>
                 </div>
@@ -242,7 +229,9 @@ async function getAuthHeader() {
                       <div className="divide-y">
                         {list.map((p) => (
                           <div key={p.id} className="px-4 py-3 text-sm flex items-center justify-between">
-                            <div className="font-medium">{p.prenom} {p.nom}</div>
+                            <div className="font-medium">
+                              {p.prenom} {p.nom}
+                            </div>
                             <div className="text-xs text-neutral-500">{p.email || "—"}</div>
                           </div>
                         ))}
@@ -262,10 +251,14 @@ async function getAuthHeader() {
                 <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
                   {summary.groupes.map((g) => (
                     <div key={g.id} className="rounded-xl border border-neutral-200 p-4">
-                      <div className="font-medium mb-1">{g.team_name_public || g.team_name || g.nom_groupe || "Équipe"}</div>
+                      <div className="font-medium mb-1">
+                        {g.team_name_public || g.team_name || g.nom_groupe || "Équipe"}
+                      </div>
                       <div className="text-sm text-neutral-600">Catégorie&nbsp;: {g.team_category || "—"}</div>
                       <div className="text-sm text-neutral-600">Membres&nbsp;: {g.members_count ?? "—"}</div>
-                      <div className="mt-2"><StatusBadge status={g.statut} /></div>
+                      <div className="mt-2">
+                        <StatusBadge status={g.statut} />
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -282,13 +275,13 @@ async function getAuthHeader() {
               </div>
               <div className="p-5 space-y-3">
                 <Link
-                  to="/mesinscriptions"
+                  to="/mes-inscriptions"
                   className="block w-full text-center rounded-xl bg-neutral-900 hover:bg-black text-white font-semibold px-4 py-3"
                 >
                   Voir mes inscriptions
                 </Link>
                 <button
-                  onClick={() => verifyThenLoad(sessionId)}
+                  onClick={() => loadSummary(sessionId)}
                   className="w-full rounded-xl border border-neutral-300 px-4 py-3 font-semibold hover:bg-neutral-50"
                 >
                   Rafraîchir les détails

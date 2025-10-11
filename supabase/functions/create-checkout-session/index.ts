@@ -7,15 +7,31 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import Stripe from "https://esm.sh/stripe@16.6.0?target=deno";
 import { z } from "https://esm.sh/zod@3.23.8";
 
+/* ------------------------------ ENV ------------------------------ */
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
 
+/* --------------------------- Clients ----------------------------- */
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
 
-/* --------------------------------- Helpers --------------------------------- */
+/* ------------------------------ CORS ----------------------------- */
+function corsHeaders() {
+  const h = new Headers();
+  h.set("Access-Control-Allow-Origin", "*");
+  h.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  // Autoriser les en-têtes que supabase-js envoie depuis le navigateur
+  h.set("Access-Control-Allow-Headers", "authorization, content-type, apikey, x-client-info");
+  h.set("Access-Control-Max-Age", "86400");
+  h.set("content-type", "application/json; charset=utf-8");
+  return h;
+}
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: corsHeaders() });
+
+/* ----------------------------- Helpers --------------------------- */
 
 function normMode(raw?: string): "individual" | "team" | "relay" {
   const m = (raw || "").toLowerCase();
@@ -35,18 +51,19 @@ function toTeamCategory(cat?: string | null): "open" | "male" | "female" | "mixe
   return "open";
 }
 
+// ➜ Par défaut on redirige vers /merci (ta page récap) avec session_id
 function ensureSuccessUrl(u?: string) {
-  if (!u || u.trim() === "") return `${BASE_URL}/mes-inscriptions?session_id={CHECKOUT_SESSION_ID}`;
+  if (!u || u.trim() === "") return `${BASE_URL}/merci?session_id={CHECKOUT_SESSION_ID}`;
   if (u.includes("{CHECKOUT_SESSION_ID}")) return u;
   const sep = u.includes("?") ? "&" : "?";
   return `${u}${sep}session_id={CHECKOUT_SESSION_ID}`;
 }
 function ensureCancelUrl(u?: string) {
-  if (!u || u.trim() === "") return `${BASE_URL}/mes-inscriptions?canceled=1`;
+  if (!u || u.trim() === "") return `${BASE_URL}/paiement-annule`;
   return u;
 }
 
-/* ----------------------------------- Zod ----------------------------------- */
+/* ------------------------------- Zod ----------------------------- */
 
 const OptionSchema = z.object({
   option_id: z.string().uuid(),
@@ -58,7 +75,7 @@ const MemberSchema = z.object({
   nom: z.string().min(1),
   prenom: z.string().min(1),
   genre: z.string().optional(),
-  date_naissance: z.string().optional(), // 'YYYY-MM-DD' accepté
+  date_naissance: z.string().optional(), // YYYY-MM-DD toléré en string
   numero_licence: z.string().optional(),
   // accepte "" -> undefined
   email: z.preprocess(
@@ -76,10 +93,13 @@ const TeamSchemaLoose = z.object({
 
 const BodyIndividualSchema = z.object({
   inscription_id: z.string().uuid(),
-  email: z.string().email().optional(),
+  email: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().email().optional()
+  ),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
-  options_total_eur: z.number().optional(),
+  options_total_eur: z.number().optional(), // non utilisé ici (on relit la table)
   trace_id: z.string().optional(),
 }).strip();
 
@@ -108,22 +128,16 @@ const BodyGroupRelaySchema = z.union([
   }),
 ]);
 
-/* --------------------------------- Handler --------------------------------- */
+/* ------------------------------ Handler -------------------------- */
 
 serve(async (req) => {
-  const headers = new Headers({
-    "content-type": "application/json; charset=utf-8",
-    "Access-Control-Allow-Origin": "*",
-    "Access-Control-Allow-Methods": "POST, OPTIONS",
-    "Access-Control-Allow-Headers": "content-type, authorization",
-  });
-
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
+  if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
 
   try {
     const body = await req.json();
 
-    /* -------------------------- A) INDIVIDUEL via ID -------------------------- */
+    /* --------------------- A) INDIVIDUEL via inscription_id --------------------- */
     const tryInd = BodyIndividualSchema.safeParse(body);
     if (tryInd.success) {
       const { inscription_id, email, successUrl, cancelUrl, trace_id } = tryInd.data;
@@ -147,7 +161,7 @@ serve(async (req) => {
       const repasUnitCents   = Math.round((Number(format.prix_repas) || 0) * 100);
       const repasQty         = Math.max(0, Number(insc.nombre_repas || 0));
 
-      // Options pending existantes
+      // Options pending existantes (persistées côté front)
       const { data: opts } = await supabase
         .from("inscriptions_options")
         .select("option_id, quantity, prix_unitaire_cents")
@@ -190,7 +204,7 @@ serve(async (req) => {
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: items,
-        customer_email: payerEmail,                                    // pré-rempli
+        customer_email: payerEmail, // pré-rempli
         payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
         success_url: ensureSuccessUrl(successUrl),
         cancel_url: ensureCancelUrl(cancelUrl),
@@ -210,23 +224,20 @@ serve(async (req) => {
         inscription_ids: [insc.id],
       });
 
-      return new Response(JSON.stringify({ url: session.url }), { status: 200, headers });
+      return json({ url: session.url }, 200);
     }
 
-    /* ------------------------- B) GROUPE / RELAIS (DB réelle) ------------------------- */
+    /* ---------------------- B) GROUPE / RELAIS (vraies DB) ---------------------- */
     const tryGrp = BodyGroupRelaySchema.safeParse(body);
     if (!tryGrp.success) {
       console.error("ZOD_GROUP_FAIL:", JSON.stringify(tryGrp.error.issues, null, 2));
-      return new Response(
-        JSON.stringify({ error: "payload invalide", details: tryGrp.error.issues }),
-        { status: 400, headers },
-      );
+      return json({ error: "payload invalide", details: tryGrp.error.issues }, 400);
     }
 
     const payload = tryGrp.data as any;
     const mode = normMode(payload.mode); // 'team' ou 'relay'
 
-    // Normaliser teams
+    // Normaliser en tableau de teams
     const teams = Array.isArray(payload.teams)
       ? payload.teams
       : [{
@@ -256,7 +267,7 @@ serve(async (req) => {
       const teamSize = Math.max(1, Number(t.team_size || 0));
       const members  = Array.isArray(t.members) ? t.members : [];
 
-      // Insert GROUPE conforme à ton schéma
+      // Insert GROUPE selon ton schéma
       const groupPayload = {
         format_id: payload.format_id,              // NOT NULL
         nom_groupe: teamName,
@@ -278,7 +289,7 @@ serve(async (req) => {
 
       if (ge || !g) {
         console.error("GROUP_INSERT_ERROR", { groupPayload, ge });
-        throw new Error(`création groupe impossible (${teamName})`);
+        return json({ error: "payload invalide", details: `création groupe impossible (${teamName})` }, 400);
       }
       createdGroupIds.push(g.id);
 
@@ -298,7 +309,7 @@ serve(async (req) => {
       const rows = members.map((m: any) => ({
         course_id: payload.course_id ?? null,
         format_id: payload.format_id,
-        coureur_id: null,                  // <-- crucial pour éviter DEFAULT gen_random_uuid() -> FK
+        coureur_id: null, // ⚠️ éviter gen_random_uuid() par défaut -> FK auth.users
         nom: m.nom,
         prenom: m.prenom,
         email: m.email ?? null,
@@ -316,7 +327,7 @@ serve(async (req) => {
         .select("id, prenom, nom");
       if (ie2 || !inscs) {
         console.error("INSCRIPTIONS_INSERT_ERROR", { rows, ie2 });
-        throw new Error("insertion inscriptions échouée");
+        return json({ error: "payload invalide", details: "insertion inscriptions échouée" }, 400);
       }
 
       const ids = inscs.map((r: any) => r.id);
@@ -366,7 +377,7 @@ serve(async (req) => {
       const { error: ioe } = await supabase.from("inscriptions_options").insert(optionsRows);
       if (ioe) {
         console.error("OPTIONS_INSERT_ERROR", { optionsRows, ioe });
-        throw new Error(`insert options échouée: ${ioe.message}`);
+        return json({ error: "payload invalide", details: `insert options échouée: ${ioe.message}` }, 400);
       }
     }
 
@@ -375,14 +386,14 @@ serve(async (req) => {
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: items,
-      customer_email: payerEmail,                                              // pré-rempli
+      customer_email: payerEmail, // pré-rempli
       payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined, // reçu Stripe
       success_url: ensureSuccessUrl(payload.successUrl),
       cancel_url: ensureCancelUrl(payload.cancelUrl),
       metadata: {
         mode,
         format_id: payload.format_id,
-        groups: createdGroupIds.join(","),
+        groups: createdGroupIds.join(","), // exploité côté finalize-payment
       },
     });
 
@@ -408,12 +419,9 @@ serve(async (req) => {
       console.error("PAIEMENTS_INSERT_ERROR", pe);
     }
 
-    return new Response(JSON.stringify({ url: session.url }), { status: 200, headers });
+    return json({ url: session.url }, 200);
   } catch (e) {
     console.error("CREATE_CHECKOUT_SESSION_FATAL:", e);
-    return new Response(
-      JSON.stringify({ error: "payload invalide", details: String(e?.message ?? e) }),
-      { status: 400, headers },
-    );
+    return json({ error: "payload invalide", details: String(e?.message ?? e) }, 400);
   }
 });
