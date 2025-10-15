@@ -592,9 +592,9 @@ export default function ListeInscriptions({ courseId = null }) {
 
   function csvEscape(val) {
     const s = String(val ?? "");
-    // Entoure de quotes si la valeur contient une virgule, un guillemet ou un saut de ligne
-    if (/[",
-]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    // Utilise RegExp pour éviter les problèmes de littéraux multi-lignes en build
+    const needsQuote = new RegExp('[",\n]').test(s);
+    if (needsQuote) return '"' + s.replace(/"/g, '""') + '"';
     return s;
   }
 
