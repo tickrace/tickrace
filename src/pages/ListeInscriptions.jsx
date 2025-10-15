@@ -86,12 +86,12 @@ const fmtDate = (iso) => {
 };
 const dedupe = (arr) => Array.from(new Set(arr.filter(Boolean)));
 function csvEscape(val) {
-  const s = String(val ?? "");
-  const needsQuote = new RegExp('[",
-]').test(s);
-  if (needsQuote) return '"' + s.replace(/"/g, '""') + '"';
-  return s;
-}
+    const s = String(val ?? "");
+    const needsQuote = s.includes('"') || s.includes(',') || s.includes('
+');
+    if (needsQuote) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  }
 
 /* ---------------------- TipTap lazy (fallback textarea) ---------------------- */
 function useTipTap() {
