@@ -141,6 +141,259 @@ function EmailModal({ open, onClose, recipients, onSend }) {
   );
 }
 
+/* ---------------------- Modale Ajout Manuel ---------------------- */
+function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
+  const [saving, setSaving] = useState(false);
+  const [form, setForm] = useState({
+    nom: "",
+    prenom: "",
+    email: "",
+    team_name: "",
+    format_id: "",
+    statut: "en_attente",
+  });
+
+  useEffect(() => {
+    if (!open) {
+      setForm({ nom: "", prenom: "", email: "", team_name: "", format_id: "", statut: "en_attente" });
+      setSaving(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const onChange = (e) => {
+    const { name, value } = e.target;
+    setForm((f) => ({ ...f, [name]: value }));
+  };
+
+  const handleSave = async () => {
+    if (!form.nom.trim() || !form.prenom.trim() || !form.format_id) {
+      alert("Nom, prénom et format sont requis.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const fmt = formats.find((f) => f.id === form.format_id);
+      const payload = {
+        nom: form.nom.trim(),
+        prenom: form.prenom.trim(),
+        email: form.email.trim() || null,
+        team_name: form.team_name.trim() || null,
+        format_id: form.format_id,
+        statut: form.statut,
+        // essaye d'affecter course_id si disponible dans le contexte ou via le format
+        ...(courseId ? { course_id: courseId } : fmt?.course_id ? { course_id: fmt.course_id } : {}),
+      };
+
+      const { data, error } = await supabase.from("inscriptions").insert(payload).select("id").single();
+      if (error) throw error;
+      onCreated?.(data?.id);
+      onClose();
+      alert("Coureur ajouté.");
+    } catch (e) {
+      console.error("ADD_INSCRIPTION_ERROR", e);
+      alert("Erreur lors de l’ajout.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Ajouter un coureur</h3>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">Fermer</button>
+        </div>
+
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <label className="text-sm font-medium">Nom *</label>
+            <input name="nom" value={form.nom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Prénom *</label>
+            <input name="prenom" value={form.prenom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium">Email</label>
+            <input name="email" value={form.email} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium">Équipe</label>
+            <input name="team_name" value={form.team_name} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
+          </div>
+          <div>
+            <label className="text-sm font-medium">Format *</label>
+            <select name="format_id" value={form.format_id} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
+              <option value="">—</option>
+              {formats.map((f) => (
+                <option key={f.id} value={f.id}>
+                  {f.nom} {f.date ? `— ${f.date}` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-sm font-medium">Statut</label>
+            <select name="statut" value={form.statut} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
+              <option value="en_attente">En attente</option>
+              <option value="paye">Payé</option>
+              <option value="annule">Annulé</option>
+            </select>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">
+            Annuler
+          </button>
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className={cls(
+              "rounded-xl px-4 py-2 text-sm font-semibold text-white",
+              saving ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"
+            )}
+          >
+            {saving ? "Ajout…" : "Ajouter"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------- Modale Export CSV ---------------------- */
+function ExportCsvModal({ open, onClose, rows, groupsById, optionsById }) {
+  const [cols, setCols] = useState([
+    "id",
+    "created_at",
+    "nom",
+    "prenom",
+    "email",
+    "team_name",
+    "statut",
+    "group_status",
+    "options",
+  ]);
+
+  const allCols = [
+    { key: "id", label: "ID inscription" },
+    { key: "created_at", label: "Créé le" },
+    { key: "nom", label: "Nom" },
+    { key: "prenom", label: "Prénom" },
+    { key: "email", label: "Email" },
+    { key: "team_name", label: "Équipe" },
+    { key: "statut", label: "Statut" },
+    { key: "group_status", label: "Statut groupe" },
+    { key: "options", label: "Options confirmées" },
+  ];
+
+  useEffect(() => {
+    if (!open) {
+      // reset par défaut à l'ouverture suivante
+      setCols(["id","created_at","nom","prenom","email","team_name","statut","group_status","options"]);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const toggleCol = (k) => {
+    setCols((c) => (c.includes(k) ? c.filter((x) => x !== k) : [...c, k]));
+  };
+
+  const csvEscape = (v) => {
+    if (v == null) return "";
+    const s = String(v);
+    if (s.includes('"') || s.includes(";") || s.includes("\n")) {
+      return `"${s.replaceAll('"', '""')}"`;
+    }
+    return s;
+  };
+
+  const handleExport = () => {
+    if (cols.length === 0) {
+      alert("Sélectionnez au moins une colonne.");
+      return;
+    }
+    const header = cols.map((k) => csvEscape(allCols.find((c) => c.key === k)?.label || k)).join(";");
+    const lines = rows.map((r) => {
+      const group = r.member_of_group_id ? groupsById.get(r.member_of_group_id) : null;
+      const opts = optionsById.get(r.id) || [];
+      const optsTxt = opts.length
+        ? opts.map((o) => `#${o.option_id.slice(0, 8)}×${o.quantity}`).join(", ")
+        : "—";
+
+      const map = {
+        id: r.id,
+        created_at: formatDateTime(r.created_at),
+        nom: r.nom || "—",
+        prenom: r.prenom || "—",
+        email: r.email || "—",
+        team_name: r.team_name || "—",
+        statut: r.statut || "—",
+        group_status: group?.statut || "—",
+        options: optsTxt,
+      };
+      return cols.map((k) => csvEscape(map[k])).join(";");
+    });
+
+    const csv = [header, ...lines].join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    const ts = new Date().toISOString().slice(0,19).replace(/[:T]/g,"-");
+    a.href = url;
+    a.download = `inscriptions-${ts}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    onClose?.();
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Exporter en CSV</h3>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">Fermer</button>
+        </div>
+
+        <div className="p-5">
+          <div className="text-sm font-medium mb-2">Colonnes à inclure</div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {allCols.map((c) => (
+              <label key={c.key} className="inline-flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={cols.includes(c.key)}
+                  onChange={() => toggleCol(c.key)}
+                />
+                {c.label}
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">
+            Annuler
+          </button>
+          <button
+            onClick={handleExport}
+            className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
+          >
+            Exporter
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------- Page ListeInscriptions ----------------------- */
 export default function ListeInscriptions() {
   const { courseId } = useParams(); // facultatif : si ta page est par course
@@ -191,8 +444,10 @@ export default function ListeInscriptions() {
     });
   };
 
-  // Modale email
+  // Modales
   const [showEmail, setShowEmail] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   /* -------------------------- Charger Formats -------------------------- */
   useEffect(() => {
@@ -221,7 +476,7 @@ export default function ListeInscriptions() {
     try {
       let query = supabase
         .from("inscriptions")
-        .select("id, created_at, nom, prenom, email, statut, format_id, member_of_group_id, team_name", { count: "exact" });
+        .select("id, created_at, nom, prenom, email, statut, format_id, member_of_group_id, team_name, course_id", { count: "exact" });
 
       if (courseId) query = query.eq("course_id", courseId);
       if (formatId) query = query.eq("format_id", formatId);
@@ -356,6 +611,18 @@ export default function ListeInscriptions() {
     }
   };
 
+  /* -------------------------- Update Statut -------------------------- */
+  const handleUpdateStatut = async (id, newStatut) => {
+    try {
+      const { error } = await supabase.from("inscriptions").update({ statut: newStatut }).eq("id", id);
+      if (error) throw error;
+      setRows((rs) => rs.map((r) => (r.id === id ? { ...r, statut: newStatut } : r)));
+    } catch (e) {
+      console.error("UPDATE_STATUT_ERROR", e);
+      alert("Impossible de mettre à jour le statut.");
+    }
+  };
+
   /* ----------------------------- Rendu UI ----------------------------- */
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const changeSort = (col) => {
@@ -366,6 +633,8 @@ export default function ListeInscriptions() {
       setSortDir(col === "created_at" ? "desc" : "asc");
     }
   };
+
+  const selectedRows = useMemo(() => rows.filter((r) => selected.has(r.id)), [rows, selected]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -387,7 +656,7 @@ export default function ListeInscriptions() {
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setShowEmail(true)}
             disabled={recipients.length === 0}
@@ -400,6 +669,29 @@ export default function ListeInscriptions() {
           >
             Email aux sélectionnés ({recipients.length})
           </button>
+
+          {/* (2) Ajouter manuellement */}
+          <button
+            onClick={() => setShowAdd(true)}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
+          >
+            + Ajouter un coureur
+          </button>
+
+          {/* (4) Export CSV avec sélection */}
+          <button
+            onClick={() => {
+              if (selectedRows.length === 0) {
+                alert("Sélectionnez au moins une inscription (case à cocher).");
+                return;
+              }
+              setShowExport(true);
+            }}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
+          >
+            Export CSV ({selectedRows.length})
+          </button>
+
           <button
             onClick={load}
             className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
@@ -500,6 +792,8 @@ export default function ListeInscriptions() {
                 <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("statut")}>Statut</th>
                 <th className="px-4 py-3">Options</th>
                 <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("created_at")}>Créé le</th>
+                {/* (1) Lien vers détails */}
+                <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y">
@@ -515,11 +809,12 @@ export default function ListeInscriptions() {
                     <td className="px-4 py-3"><div className="h-5 w-20 rounded bg-neutral-100" /></td>
                     <td className="px-4 py-3"><div className="h-4 w-32 rounded bg-neutral-100" /></td>
                     <td className="px-4 py-3"><div className="h-4 w-28 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-7 w-20 rounded bg-neutral-100" /></td>
                   </tr>
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="px-4 py-6 text-center text-neutral-600">
+                  <td colSpan={10} className="px-4 py-6 text-center text-neutral-600">
                     Aucun résultat — ajustez vos filtres.
                   </td>
                 </tr>
@@ -549,9 +844,39 @@ export default function ListeInscriptions() {
                       <td className="px-4 py-3 align-top">
                         {group ? <GroupBadge status={group.statut} /> : <span className="text-neutral-500">—</span>}
                       </td>
-                      <td className="px-4 py-3 align-top"><StatusBadge status={r.statut} /></td>
+
+                      {/* (3) Statut modifiable */}
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={r.statut} />
+                          <select
+                            value={(r.statut || "").toLowerCase() === "en attente" ? "en_attente" : (r.statut || "")}
+                            onChange={(e) => handleUpdateStatut(r.id, e.target.value)}
+                            className="rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                          >
+                            <option value="en_attente">En attente</option>
+                            <option value="paye">Payé</option>
+                            <option value="annule">Annulé</option>
+                          </select>
+                        </div>
+                      </td>
+
                       <td className="px-4 py-3 align-top text-neutral-700">{optsTxt}</td>
                       <td className="px-4 py-3 align-top text-neutral-600">{formatDateTime(r.created_at)}</td>
+
+                      {/* (1) Lien vers détails */}
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-wrap gap-2">
+                          {/* Adapte la route si nécessaire (ex: /mon-inscription/:id) */}
+                          <Link
+                            to={`/inscriptions/${r.id}`}
+                            className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
+                            title="Voir le détail de l'inscription"
+                          >
+                            Voir
+                          </Link>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })
@@ -593,12 +918,28 @@ export default function ListeInscriptions() {
         </div>
       </div>
 
-      {/* Modale Email */}
+      {/* Modales */}
       <EmailModal
         open={showEmail}
         onClose={() => setShowEmail(false)}
         recipients={recipients}
         onSend={handleSendEmails}
+      />
+
+      <AddInscriptionModal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        onCreated={() => load()}
+        formats={formats}
+        courseId={courseId}
+      />
+
+      <ExportCsvModal
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        rows={selectedRows}
+        groupsById={groupMap}
+        optionsById={optionsMap}
       />
     </div>
   );
