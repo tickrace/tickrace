@@ -87,9 +87,7 @@ const fmtDate = (iso) => {
 const dedupe = (arr) => Array.from(new Set(arr.filter(Boolean)));
 function csvEscape(val) {
     const s = String(val ?? "");
-    // Pas de littéraux qui peuvent être reformatés : pas de "
-" direct, on utilise le codepoint 10
-    const needsQuote = (s.indexOf('"') !== -1) || (s.indexOf(',') !== -1) || (s.indexOf(String.fromCharCode(10)) !== -1);
+    const needsQuote = (s.indexOf('"') !== -1) || (s.indexOf(',') !== -1) || (s.indexOf('\x0A') !== -1);
     if (needsQuote) return '"' + s.replace(/"/g, '""') + '"';
     return s;
   }
