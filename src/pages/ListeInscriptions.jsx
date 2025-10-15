@@ -205,7 +205,6 @@ export default function ListeInscriptions({ courseId = null }) {
 
   // Sélection
   const [selectedIds, setSelectedIds] = useState(new Set());
-  const allSelectedOnPage = useMemo(() => rows.length > 0 && rows.every((r) => selectedIds.has(r.id)), [rows, selectedIds]);
 
   // Email modal
   const [emailOpen, setEmailOpen] = useState(false);
@@ -575,8 +574,7 @@ export default function ListeInscriptions({ courseId = null }) {
         ];
       });
 
-      const csv = [headers.join(","), ...rowsCsv.map((arr) => arr.map(csvEscape).join(","))].join("
-");
+      const csv = [headers.join(","), ...rowsCsv.map((arr) => arr.map(csvEscape).join(","))].join("\n");
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
