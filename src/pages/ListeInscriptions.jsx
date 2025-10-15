@@ -1,14 +1,16 @@
 // src/pages/ListeInscriptions.jsx
-// Tickrace – Page organisateur : liste, filtres, tri, sélection, email ciblé, panneau équipe, export CSV par format
-// Dépendances : React, supabase-js v2, TailwindCSS, (optionnel) TipTap
+// Tickrace – Page organisateur : liste, filtres, tri, sélection, email ciblé,
+// panneau équipe, export CSV par format
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { supabase } from "../supabase"; // ← adapter si chemin différent
+import { supabase } from "../supabase"; // adapte le chemin si nécessaire
 
-/* ===================== CONFIG EMAIL EDGE FUNCTION ===================== */
-const EMAIL_FUNCTION_NAME = "organiser-send-emails"; // { subject, html, to: string[] }
+/* ===================== CONFIG ===================== */
+const EMAIL_FUNCTION_NAME = "organiser-send-emails"; // payload: { subject, html, to: string[] }
+const NEWLINE = "
+"; // séparateur de lignes CSV (LF)
 
-/* ---------------------- UI helpers ---------------------- */
+/* ===================== UI HELPERS ===================== */
 function Badge({ children, tone = "neutral" }) {
   const tones = {
     neutral: "bg-neutral-100 text-neutral-700",
@@ -66,9 +68,9 @@ function Modal({ open, onClose, title, children, footer, widthClass = "max-w-2xl
 }
 function SidePanel({ open, onClose, title, children }) {
   return (
-    <div className={`fixed inset-0 z-50 ${open ? '' : 'pointer-events-none'}`}>
-      <div className={`absolute inset-0 bg-black/30 transition-opacity ${open ? 'opacity-100' : 'opacity-0'}`} onClick={onClose} />
-      <div className={`absolute right-0 top-0 h-full w-full max-w-xl transform rounded-l-2xl bg-white shadow-2xl transition-transform ${open ? 'translate-x-0' : 'translate-x-full'}`}>
+    <div className={`fixed inset-0 z-50 ${open ? "" : "pointer-events-none"}`}>
+      <div className={`absolute inset-0 bg-black/30 transition-opacity ${open ? "opacity-100" : "opacity-0"}`} onClick={onClose} />
+      <div className={`absolute right-0 top-0 h-full w-full max-w-xl transform rounded-l-2xl bg-white shadow-2xl transition-transform ${open ? "translate-x-0" : "translate-x-full"}`}>
         <div className="flex items-center justify-between border-b p-4">
           <h3 className="text-lg font-semibold">{title}</h3>
           <button onClick={onClose} className="rounded-full p-2 hover:bg-neutral-100" aria-label="fermer">✕</button>
@@ -79,20 +81,21 @@ function SidePanel({ open, onClose, title, children }) {
   );
 }
 
-/* ---------------------- Utils ---------------------- */
+/* ===================== UTILS ===================== */
 const fmtDate = (iso) => {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleString(); } catch { return iso; }
 };
 const dedupe = (arr) => Array.from(new Set(arr.filter(Boolean)));
 function csvEscape(val) {
-    const s = String(val ?? "");
-    const needsQuote = (s.indexOf('"') !== -1) || (s.indexOf(',') !== -1) || (s.indexOf('\x0A') !== -1);
-    if (needsQuote) return '"' + s.replace(/"/g, '""') + '"';
-    return s;
-  }
+  const s = String(val ?? "");
+  const needsQuote = (s.indexOf('"') !== -1) || (s.indexOf(',') !== -1) || (s.indexOf('
+') !== -1);
+  if (needsQuote) return '"' + s.replace(/"/g, '""') + '"';
+  return s;
+}
 
-/* ---------------------- TipTap lazy (fallback textarea) ---------------------- */
+/* ===================== TipTap (lazy) ===================== */
 function useTipTap() {
   const [Editor, setEditor] = useState(null);
   const [EditorContent, setEditorContent] = useState(null);
@@ -108,8 +111,13 @@ function useTipTap() {
           import("@tiptap/starter-kit").then((m) => m.default),
         ]);
         if (!mounted) return;
-        setEditor(() => Editor); setEditorContent(() => EditorContent); setStarterKit(() => StarterKit); setIsReady(true);
-      } catch { setIsReady(false); }
+        setEditor(() => Editor);
+        setEditorContent(() => EditorContent);
+        setStarterKit(() => StarterKit);
+        setIsReady(true);
+      } catch {
+        setIsReady(false);
+      }
     })();
     return () => { mounted = false; };
   }, []);
@@ -128,7 +136,7 @@ function EmailEditor({ value, onChange }) {
     });
     editorRef.current = instance;
     return () => instance?.destroy();
-  }, [isReady, Editor, StarterKit, onChange, value]);
+  }, [isReady, Editor, StarterKit]);
   if (!isReady) {
     return (
       <textarea className="h-64 w-full rounded-xl border border-neutral-200 p-3 text-sm" defaultValue={value} onChange={(e) => onChange?.(e.target.value)} placeholder="Votre message (HTML ou texte)" />
@@ -137,7 +145,7 @@ function EmailEditor({ value, onChange }) {
   return <EditorContent editor={editorRef.current} />;
 }
 
-/* ---------------------- Page principale ---------------------- */
+/* ===================== PAGE ===================== */
 export default function ListeInscriptions({ courseId = null }) {
   // Filtres & tri
   const [formatId, setFormatId] = useState("");
@@ -160,7 +168,7 @@ export default function ListeInscriptions({ courseId = null }) {
   // Enrichissements
   const [groupsById, setGroupsById] = useState({});
   const [formatsById, setFormatsById] = useState({});
-  const [formatsList, setFormatsList] = useState([]); // formats de la course
+  const [formatsList, setFormatsList] = useState([]);
   const [optionsByInscrId, setOptionsByInscrId] = useState({});
 
   // Sélection
@@ -182,26 +190,28 @@ export default function ListeInscriptions({ courseId = null }) {
   const [teamPanelMembers, setTeamPanelMembers] = useState([]);
   const [teamPanelGroup, setTeamPanelGroup] = useState(null);
 
-  // Reset page when filters change
+  // Reset page quand filtres changent
   useEffect(() => { setPage(1); }, [formatId, statutInscription, statutGroupe, search, onlyCompleteTeams, pageSize, orderBy]);
 
-  // Charger formats pour la course
-  useEffect(() => { (async () => {
-    try {
-      if (!courseId) { setFormatsList([]); return; }
-      const { data, error } = await supabase
-        .from("formats")
-        .select("id, nom, distance_km, denivele_dplus, course_id")
-        .eq("course_id", courseId)
-        .order("nom", { ascending: true });
-      if (error) throw error;
-      setFormatsList(data || []);
-      const map = {}; (data || []).forEach((f) => (map[f.id] = f));
-      setFormatsById((prev) => ({ ...prev, ...map }));
-    } catch (e) { console.error(e); }
-  })(); }, [courseId]);
+  // Charger formats (select de la course)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (!courseId) { setFormatsList([]); return; }
+        const { data, error } = await supabase
+          .from("formats")
+          .select("id, nom, distance_km, denivele_dplus, course_id")
+          .eq("course_id", courseId)
+          .order("nom", { ascending: true });
+        if (error) throw error;
+        setFormatsList(data || []);
+        const map = {}; (data || []).forEach((f) => (map[f.id] = f));
+        setFormatsById((prev) => ({ ...prev, ...map }));
+      } catch (e) { console.error(e); }
+    })();
+  }, [courseId]);
 
-  // Chargement principal
+  // Charger la page
   useEffect(() => { fetchPage(); }, [page, formatId, statutInscription, search, orderBy, pageSize, courseId]);
 
   async function fetchPage() {
@@ -219,6 +229,7 @@ export default function ListeInscriptions({ courseId = null }) {
       }
       query = query.order(orderBy.column, { ascending: orderBy.ascending, nullsFirst: false });
       const from = (page - 1) * pageSize; const to = from + pageSize - 1; query = query.range(from, to);
+
       const { data: inscriptions, count, error: e1 } = await query; if (e1) throw e1;
       setRows(inscriptions || []); setTotal(count || 0);
 
@@ -241,13 +252,16 @@ export default function ListeInscriptions({ courseId = null }) {
       const inscrIds = dedupe((inscriptions || []).map((r) => r.id));
       if (inscrIds.length) {
         const { data: opts, error: e4 } = await supabase
-          .from("inscriptions_options").select("id, inscription_id, option_id, quantity, prix_unitaire_cents, status")
-          .eq("status", "confirmed").in("inscription_id", inscrIds);
+          .from("inscriptions_options")
+          .select("id, inscription_id, option_id, quantity, prix_unitaire_cents, status")
+          .eq("status", "confirmed")
+          .in("inscription_id", inscrIds);
         if (e4) throw e4; const byInscr = {}; (opts || []).forEach((o) => { (byInscr[o.inscription_id] ||= []).push(o); }); setOptionsByInscrId(byInscr);
       } else { setOptionsByInscrId({}); }
     } catch (e) { console.error(e); setError(e.message || "Erreur inconnue"); } finally { setLoading(false); }
   }
 
+  // Filtres client supplémentaires
   const filteredRows = useMemo(() => {
     let list = rows;
     if (onlyCompleteTeams) {
@@ -264,6 +278,7 @@ export default function ListeInscriptions({ courseId = null }) {
     return list;
   }, [rows, onlyCompleteTeams, groupsById, statutGroupe]);
 
+  // Sélection
   const allSelectedOnPage = useMemo(() => filteredRows.length > 0 && filteredRows.every((r) => selectedIds.has(r.id)), [filteredRows, selectedIds]);
   function toggleRow(id) { setSelectedIds((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; }); }
   function toggleAllOnPage() {
@@ -274,6 +289,7 @@ export default function ListeInscriptions({ courseId = null }) {
   const selectedRows = filteredRows.filter((r) => selectedIds.has(r.id));
   const audienceEmails = useMemo(() => dedupe(selectedRows.map((r) => r.email)), [selectedRows]);
 
+  // Email
   async function sendEmail() {
     setEmailSending(true); setEmailFeedback("");
     try {
@@ -284,6 +300,7 @@ export default function ListeInscriptions({ courseId = null }) {
     } catch (e) { setEmailFeedback(e.message || "Échec envoi"); } finally { setEmailSending(false); }
   }
 
+  // Helpers rendu
   function statutBadge(s) {
     if (!s) return <Badge>—</Badge>;
     const map = { en_attente: { label: "en attente", tone: "amber" }, "en attente": { label: "en attente", tone: "amber" }, pending: { label: "en attente", tone: "amber" }, paye: { label: "payé", tone: "green" }, "payé": { label: "payé", tone: "green" }, annule: { label: "annulé", tone: "rose" }, "annulé": { label: "annulé", tone: "rose" } };
@@ -327,33 +344,53 @@ export default function ListeInscriptions({ courseId = null }) {
     );
   }
 
+  // Export CSV
   async function exportCSVForFormat(fId) {
     try {
-      let q = supabase.from("inscriptions").select("id, created_at, nom, prenom, email, format_id, statut, member_of_group_id, team_name, dossard, is_waitlist, course_id").eq("format_id", fId);
+      let q = supabase
+        .from("inscriptions")
+        .select("id, created_at, nom, prenom, email, format_id, statut, member_of_group_id, team_name, dossard, is_waitlist, course_id")
+        .eq("format_id", fId);
       if (courseId) q = q.eq("course_id", courseId);
       if (statutInscription) q = q.eq("statut", statutInscription);
       if (search) { const s = `%${search}%`; q = q.or(`email.ilike.${s},nom.ilike.${s},prenom.ilike.${s},team_name.ilike.${s}`); }
       const { data: allInscr, error } = await q.order("created_at", { ascending: false }); if (error) throw error;
+
       const groupIds = dedupe((allInscr || []).map((r) => r.member_of_group_id));
-      let groupsMap = {}; if (groupIds.length) { const { data: gs } = await supabase.from("inscriptions_groupes").select("id, team_name, statut, team_category, team_size, members_count").in("id", groupIds); (gs || []).forEach((g) => (groupsMap[g.id] = g)); }
-      const inscrIds = dedupe((allInscr || []).map((r) => r.id)); let optionsMap = {};
-      if (inscrIds.length) { const { data: opts } = await supabase.from("inscriptions_options").select("inscription_id, option_id, quantity, prix_unitaire_cents, status").eq("status", "confirmed").in("inscription_id", inscrIds); (opts || []).forEach((o) => { (optionsMap[o.inscription_id] ||= []).push(o); }); }
+      let groupsMap = {}; if (groupIds.length) {
+        const { data: gs } = await supabase.from("inscriptions_groupes").select("id, team_name, statut, team_category, team_size, members_count").in("id", groupIds);
+        (gs || []).forEach((g) => (groupsMap[g.id] = g));
+      }
+
+      const inscrIds = dedupe((allInscr || []).map((r) => r.id));
+      let optionsMap = {}; if (inscrIds.length) {
+        const { data: opts } = await supabase
+          .from("inscriptions_options")
+          .select("inscription_id, option_id, quantity, prix_unitaire_cents, status")
+          .eq("status", "confirmed")
+          .in("inscription_id", inscrIds);
+        (opts || []).forEach((o) => { (optionsMap[o.inscription_id] ||= []).push(o); });
+      }
+
       const f = formatsById[fId] || formatsList.find((x) => x.id === fId) || {};
       const headers = ["nom","prenom","email","format","team_name","groupe_statut","groupe_categorie","groupe_members","inscription_statut","created_at","dossard","is_waitlist","options"];
       const rowsCsv = (allInscr || []).map((r) => {
         const g = r.member_of_group_id ? groupsMap[r.member_of_group_id] : null;
         const opts = (optionsMap[r.id] || []).map((o) => `#${String(o.option_id).slice(0, 6)} x${o.quantity}`).join(" | ");
-        const formatText = f?.nom ? `${f.nom}${f.distance_km ? ` ${f.distance_km}km` : ''}${f.denivele_dplus ? ` +${f.denivele_dplus}m` : ''}` : String(r.format_id);
+        const formatText = f?.nom ? `${f.nom}${f.distance_km ? ` ${f.distance_km}km` : ""}${f.denivele_dplus ? ` +${f.denivele_dplus}m` : ""}` : String(r.format_id);
         return [ r.nom || "", r.prenom || "", r.email || "", formatText, (g?.team_name || r.team_name || ""), (g?.statut || ""), (g?.team_category || ""), g ? `${g.members_count || 0}/${g.team_size || 0}` : "", r.statut || "", r.created_at || "", r.dossard ?? "", r.is_waitlist ? "1" : "0", opts ];
       });
-      const csv = [headers.join(","), ...rowsCsv.map((arr) => arr.map(csvEscape).join(","))].join("
-");
+
+      const csv = [headers.join(','), ...rowsCsv.map((arr) => arr.map(csvEscape).join(','))].join(NEWLINE);
       const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob); const a = document.createElement("a"); a.href = url;
-      a.download = `inscriptions_${(f?.nom || fId).toString().replace(/[^a-z0-9_-]+/gi, "_")}.csv`; document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a"); a.href = url;
+      a.download = `inscriptions_${(f?.nom || fId).toString().replace(/[^a-z0-9_-]+/gi, "_")}.csv`;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a); URL.revokeObjectURL(url);
     } catch (e) { console.error("exportCSVForFormat", e); alert("Export CSV échoué : " + (e.message || e)); }
   }
 
+  // Rendu
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const selectedCount = selectedIds.size;
   const exportableFormats = useMemo(() => {
@@ -375,7 +412,7 @@ export default function ListeInscriptions({ courseId = null }) {
             <Select value={formatId} onChange={(e) => setFormatId(e.target.value)} style={{ minWidth: 220 }}>
               <option value="">Tous formats (course)</option>
               {formatsList.map((f) => (
-                <option key={f.id} value={f.id}>{f.nom}{f.distance_km ? ` • ${f.distance_km}km` : ''}{f.denivele_dplus ? ` • +${f.denivele_dplus}m` : ''}</option>
+                <option key={f.id} value={f.id}>{f.nom}{f.distance_km ? ` • ${f.distance_km}km` : ""}{f.denivele_dplus ? ` • +${f.denivele_dplus}m` : ""}</option>
               ))}
             </Select>
             <Select value={statutInscription} onChange={(e) => setStatutInscription(e.target.value)}>
@@ -477,7 +514,7 @@ export default function ListeInscriptions({ courseId = null }) {
             <label className="mb-1 block text-xs font-semibold text-neutral-600">Aperçu (HTML brut)</label>
             <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-sm"><div dangerouslySetInnerHTML={{ __html: emailHtml }} /></div>
           </div>
-          <div className="text-xs text-neutral-500">Les emails seront envoyés à : {audienceEmails.slice(0, 5).join(", ")}{audienceEmails.length > 5 ? `, +${audienceEmails.length - 5}…` : ""}</div>
+          <div className="text-xs text-neutral-500">Destinataires : {audienceEmails.slice(0, 5).join(", ")}{audienceEmails.length > 5 ? `, +${audienceEmails.length - 5}…` : ""}</div>
         </div>
         <div className="mt-4 flex items-center justify-end gap-2">
           <Button onClick={() => setEmailOpen(false)} className="border-neutral-300">Annuler</Button>
@@ -488,7 +525,7 @@ export default function ListeInscriptions({ courseId = null }) {
 
       {/* Modal Export CSV */}
       <Modal open={exportOpen} onClose={() => setExportOpen(false)} title="Exporter en CSV" widthClass="max-w-xl">
-        <p className="text-sm text-neutral-600">Choisissez un format à exporter. Les filtres de recherche et de statut (inscription) seront appliqués à l'export.</p>
+        <p className="text-sm text-neutral-600">Choisissez un format à exporter. Les filtres de recherche et de statut (inscription) seront appliqués.</p>
         <div className="mt-3 grid gap-2">
           {exportableFormats.length === 0 && (<div className="rounded-xl border border-neutral-200 p-3 text-sm text-neutral-500">Aucun format disponible.</div>)}
           {exportableFormats.map((f) => (
@@ -503,84 +540,9 @@ export default function ListeInscriptions({ courseId = null }) {
         </div>
       </Modal>
 
-      {/* Panneau latéral équipe */}
-      <SidePanel open={teamPanelOpen} onClose={() => setTeamPanelOpen(false)} title={teamPanelGroup?.team_name || "Équipe"}>
-        {!teamPanelGroup && (<div className="text-sm text-neutral-500">Chargement…</div>)}
-        {teamPanelGroup && (
-          <div className="space-y-4">
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div><div className="text-neutral-500">Statut</div><div>{statutBadge(teamPanelGroup.statut)}</div></div>
-              <div><div className="text-neutral-500">Catégorie</div><div>{teamPanelGroup.team_category || "—"}</div></div>
-              <div><div className="text-neutral-500">Taille</div><div>{teamPanelGroup.members_count || 0}/{teamPanelGroup.team_size || 0}</div></div>
-              <div><div className="text-neutral-500">Format</div><div>{formatLabel(teamPanelGroup.format_id)}</div></div>
-            </div>
-            <div>
-              <div className="mb-2 text-sm font-semibold">Membres</div>
-              <div className="overflow-hidden rounded-xl border">
-                <table className="min-w-full text-sm">
-                  <thead className="bg-neutral-50 text-left text-xs font-semibold uppercase text-neutral-600">
-                    <tr>
-                      <th className="p-2">Nom</th>
-                      <th className="p-2">Prénom</th>
-                      <th className="p-2">Email</th>
-                      <th className="p-2">Statut</th>
-                      <th className="p-2">Dossard</th>
-                      <th className="p-2">Inscrit le</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {teamPanelMembers.map((m) => (
-                      <tr key={m.id} className="border-t">
-                        <td className="p-2">{m.nom || "—"}</td>
-                        <td className="p-2">{m.prenom || "—"}</td>
-                        <td className="p-2"><a href={`mailto:${m.email}`} className="text-blue-600 hover:underline">{m.email || "—"}</a></td>
-                        <td className="p-2">{statutBadge(m.statut)}</td>
-                        <td className="p-2">{m.dossard ?? "—"}</td>
-                        <td className="p-2">{fmtDate(m.created_at)}</td>
-                      </tr>
-                    ))}
-                    {teamPanelMembers.length === 0 && (<tr><td colSpan={6} className="p-3 text-center text-neutral-500">Aucun membre.</td></tr>)}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
-        )}
-      </SidePanel>
-
-      <div className="mt-8 text-xs text-neutral-400">
-        NB : le sélecteur de formats se base sur <code>courseId</code>. Pour un mode multi-courses, requêter tous les formats où <code>courses.organisateur_id = auth.uid()</code>.
-      </div>
+      <div className="mt-8 text-xs text-neutral-400">Le sélecteur de formats utilise <code>courseId</code>. Pour un mode multi-courses, requêter tous les formats de l'organisateur.</div>
     </div>
   );
 }
-
-/*
-===========================
-SUGGESTIONS D'INDEX SQL
-===========================
-create index if not exists idx_inscriptions_course_id on public.inscriptions(course_id);
-create index if not exists idx_inscriptions_format_id on public.inscriptions(format_id);
-create index if not exists idx_inscriptions_member_group on public.inscriptions(member_of_group_id);
-create index if not exists idx_inscriptions_email on public.inscriptions(email);
-create index if not exists idx_inscriptions_statut on public.inscriptions(statut);
-create index if not exists idx_inscriptions_created_at on public.inscriptions(created_at desc);
-create index if not exists idx_inscr_groupes_statut on public.inscriptions_groupes(statut);
-create index if not exists idx_inscr_groupes_team_name on public.inscriptions_groupes(team_name);
-create index if not exists idx_inscriptions_options_inscription_id on public.inscriptions_options(inscription_id);
-create index if not exists idx_inscriptions_options_status on public.inscriptions_options(status);
-
-===========================
-POLICIES (exemple indicatif)
-===========================
--- L'organisateur peut lire les inscriptions des formats de ses courses
--- (courses.organisateur_id -> formats.course_id -> inscriptions.format_id)
--- create policy "read organiser inscriptions" on public.inscriptions for select to authenticated using (
---   exists (
---     select 1 from public.formats f join public.courses c on c.id = f.course_id
---     where f.id = inscriptions.format_id and c.organisateur_id = auth.uid()
---   )
--- );
-*/
 
 // EOF
