@@ -7,8 +7,7 @@ import { supabase } from "../supabase"; // adapte le chemin si nécessaire
 
 /* ===================== CONFIG ===================== */
 const EMAIL_FUNCTION_NAME = "organiser-send-emails"; // payload: { subject, html, to: string[] }
-const NEWLINE = "
-"; // séparateur de lignes CSV (LF)
+const NEWLINE = String.fromCharCode(10); // séparateur de lignes CSV (LF)
 
 /* ===================== UI HELPERS ===================== */
 function Badge({ children, tone = "neutral" }) {
