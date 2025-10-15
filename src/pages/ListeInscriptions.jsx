@@ -623,6 +623,43 @@ export default function ListeInscriptions() {
     }
   };
 
+  /* ---------------------- Indices MemberDetails ---------------------- */
+  // Calcule teamIdx/memberIdx par format et équipe pour construire l'URL attendue /member-details/:courseId/:formatId/:teamIdx/:memberIdx
+  const indicesByInscriptionId = useMemo(() => {
+    const byFormat = new Map();
+    for (const r of rows) {
+      const f = r.format_id || "nofmt";
+      const teamKey = r.member_of_group_id || (r.team_name ? `team:${r.team_name}` : `__solo__:${r.id}`);
+      if (!byFormat.has(f)) byFormat.set(f, new Map());
+      const mapTeam = byFormat.get(f);
+      if (!mapTeam.has(teamKey)) mapTeam.set(teamKey, []);
+      mapTeam.get(teamKey).push(r);
+    }
+
+    const out = new Map();
+    for (const [, teams] of byFormat.entries()) {
+      const orderedTeams = [...teams.entries()].map(([key, arr]) => {
+        const firstCreated = arr.reduce((min, x) => (new Date(x.created_at) < new Date(min) ? x.created_at : min), arr[0].created_at);
+        const name = key.startsWith("__solo__") ? "solo" : (key.startsWith("team:") ? key.slice(5) : key);
+        return { key, arr, firstCreated, name };
+      }).sort((a, b) => {
+        const an = (a.name || "").toString().toLowerCase();
+        const bn = (b.name || "").toString().toLowerCase();
+        if (an < bn) return -1;
+        if (an > bn) return 1;
+        return new Date(a.firstCreated) - new Date(b.firstCreated);
+      });
+
+      orderedTeams.forEach((t, teamIdx) => {
+        const membersOrdered = t.arr.sort((x, y) => new Date(x.created_at) - new Date(y.created_at));
+        membersOrdered.forEach((m, memberIdx) => {
+          out.set(m.id, { teamIdx, memberIdx });
+        });
+      });
+    }
+    return out;
+  }, [rows]);
+
   /* ----------------------------- Rendu UI ----------------------------- */
   const pageCount = Math.max(1, Math.ceil(total / pageSize));
   const changeSort = (col) => {
@@ -826,6 +863,12 @@ export default function ListeInscriptions() {
                     ? opts.map(o => `#${o.option_id.slice(0, 8)}×${o.quantity}`).join(", ")
                     : "—";
 
+                  // URL attendue par MemberDetails: /member-details/:courseId/:formatId/:teamIdx/:memberIdx
+                  const idx = indicesByInscriptionId.get(r.id) || { teamIdx: 0, memberIdx: 0 };
+                  const detailUrl = (r.course_id && r.format_id)
+                    ? `/member-details/${encodeURIComponent(r.course_id)}/${encodeURIComponent(r.format_id)}/${idx.teamIdx}/${idx.memberIdx}`
+                    : "#";
+
                   return (
                     <tr key={r.id} className="hover:bg-neutral-50/60">
                       <td className="px-4 py-3 align-top">
@@ -867,14 +910,14 @@ export default function ListeInscriptions() {
                       {/* (1) Lien vers détails */}
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-wrap gap-2">
-                          {/* Adapte la route si nécessaire (ex: /mon-inscription/:id) */}
                           <Link
-  to={`/mon-inscription/${r.id}`}
-  className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
-  title="Voir le détail de l'inscription"
->
-  Voir
-</Link>
+                            to={detailUrl}
+                            onClick={(e) => { if (detailUrl === "#") e.preventDefault(); }}
+                            className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
+                            title="Voir le détail du membre"
+                          >
+                            Voir
+                          </Link>
                         </div>
                       </td>
                     </tr>

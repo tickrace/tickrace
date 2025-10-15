@@ -1,244 +1,429 @@
 // src/pages/MemberDetails.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { Link, useParams, useNavigate } from "react-router-dom";
+import { supabase } from "../supabase";
 
-export default function MemberDetails() {
-  const navigate = useNavigate();
-  const { courseId, formatId, teamIdx, memberIdx } = useParams();
-
-  // Clé du brouillon alignée avec InscriptionCourse
-  const draftKey = useMemo(() => {
-    if (!courseId || !formatId) return null;
-    return `tickrace_member_draft_${courseId}_${formatId}_${teamIdx}_${memberIdx}`;
-  }, [courseId, formatId, teamIdx, memberIdx]);
-
-  const [draft, setDraft] = useState(null);
-  const [notFound, setNotFound] = useState(false);
-
-  // Champs étendus (mappés sur la table inscriptions)
-  const [form, setForm] = useState({
-    nom: "",
-    prenom: "",
-    genre: "",
-    date_naissance: "",
-    email: "",
-    nationalite: "",
-    telephone: "",
-    adresse: "",
-    adresse_complement: "",
-    code_postal: "",
-    ville: "",
-    pays: "",
-    club: "",
-    justificatif_type: "",
-    numero_licence: "",
-    pps_identifier: "",
-    contact_urgence_nom: "",
-    contact_urgence_telephone: "",
-    apparaitre_resultats: true,
+/* ----------------------------- Utils ----------------------------- */
+function cls(...xs) {
+  return xs.filter(Boolean).join(" ");
+}
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("fr-FR", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
   });
+}
+function StatusBadge({ status }) {
+  const s = (status || "").toLowerCase();
+  const map = {
+    paye: "bg-emerald-100 text-emerald-800",
+    "en attente": "bg-amber-100 text-amber-800",
+    en_attente: "bg-amber-100 text-amber-800",
+    pending: "bg-amber-100 text-amber-800",
+    annule: "bg-rose-100 text-rose-800",
+  };
+  const txt =
+    s === "paye" ? "Payé" : s === "annule" ? "Annulé" : "En attente";
+  return (
+    <span
+      className={cls(
+        "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
+        map[s] || "bg-neutral-100 text-neutral-800"
+      )}
+    >
+      {txt}
+    </span>
+  );
+}
+
+/* -------------------------- MemberDetails -------------------------- */
+export default function MemberDetails() {
+  const params = useParams();
+  const navigate = useNavigate();
+
+  const courseId = params.courseId;
+  const formatId = params.formatId;
+  const teamIdxParam = Number(params.teamIdx ?? 0);
+  const memberIdxParam = Number(params.memberIdx ?? 0);
+
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [rows, setRows] = useState([]);
 
   useEffect(() => {
-    try {
-      if (!draftKey) return;
-      const raw = localStorage.getItem(draftKey);
-      if (!raw) {
-        setNotFound(true);
-        return;
+    let alive = true;
+    (async () => {
+      setLoading(true);
+      setErr(null);
+      try {
+        if (!courseId || !formatId) {
+          throw new Error("Paramètres manquants dans l’URL.");
+        }
+        // Charge toutes les inscriptions du couple (courseId, formatId)
+        const { data, error } = await supabase
+          .from("inscriptions")
+          .select(
+            "id, created_at, nom, prenom, email, statut, format_id, member_of_group_id, team_name, course_id"
+          )
+          .eq("course_id", courseId)
+          .eq("format_id", formatId)
+          .order("created_at", { ascending: true }); // ordre stable pour les membres
+
+        if (error) throw error;
+        if (alive) setRows(data || []);
+      } catch (e) {
+        if (alive) setErr(e);
+      } finally {
+        if (alive) setLoading(false);
       }
-      const parsed = JSON.parse(raw);
-      setDraft(parsed);
-
-      // Préremplir depuis le membre si dispo
-      const m = parsed?.member || {};
-      setForm((prev) => ({
-        ...prev,
-        nom: m.nom || "",
-        prenom: m.prenom || "",
-        genre: m.genre || "",
-        date_naissance: m.date_naissance || "",
-        email: m.email || "",
-        // le reste reste vide par défaut
-      }));
-    } catch {
-      setNotFound(true);
-    }
-  }, [draftKey]);
-
-  function setField(name, value) {
-    setForm((p) => ({ ...p, [name]: value }));
-  }
-
-  function saveDraft() {
-    if (!draftKey || !draft) return;
-    const next = {
-      ...draft,
-      // on garde teamIdx/memberIdx dans le draft
-      teamIdx: Number(teamIdx),
-      memberIdx: Number(memberIdx),
-      // on fusionne les champs étendus sous une clé "extended"
-      extended: { ...(draft.extended || {}), [memberIdx]: { ...form } },
-      // on met aussi à jour le snapshot direct du membre pour visibilité
-      member: { ...(draft.member || {}), ...form },
+    })();
+    return () => {
+      alive = false;
     };
-    localStorage.setItem(draftKey, JSON.stringify(next));
-  }
+  }, [courseId, formatId]);
 
-  function handleSaveAndBack() {
-    saveDraft();
-    // Retour à l’inscription de la course
-    navigate(`/inscription/${courseId}`);
-  }
+  // Reconstitue EXACTEMENT la même logique d’indices que dans ListeInscriptions.jsx
+  const { orderedTeams, memberByIndices } = useMemo(() => {
+    // Regroupe par format_id (ici identique pour tout) puis par teamKey
+    const teamsMap = new Map(); // teamKey -> rows[]
+    for (const r of rows) {
+      const teamKey =
+        r.member_of_group_id ||
+        (r.team_name ? `team:${r.team_name}` : `__solo__:${r.id}`);
+      if (!teamsMap.has(teamKey)) teamsMap.set(teamKey, []);
+      teamsMap.get(teamKey).push(r);
+    }
 
-  if (notFound) {
+    // Crée un tableau ordonné des teams (alpha sur name, puis firstCreated)
+    const teams = [...teamsMap.entries()]
+      .map(([key, arr]) => {
+        const firstCreated = arr.reduce(
+          (min, x) =>
+            new Date(x.created_at) < new Date(min) ? x.created_at : min,
+          arr[0]?.created_at
+        );
+        const name = key.startsWith("__solo__")
+          ? "solo"
+          : key.startsWith("team:")
+          ? key.slice(5)
+          : key; // group id sinon
+        // Ordonne les membres par created_at asc
+        const membersOrdered = [...arr].sort(
+          (a, b) => new Date(a.created_at) - new Date(b.created_at)
+        );
+        return { key, name, firstCreated, members: membersOrdered };
+      })
+      .sort((a, b) => {
+        const an = (a.name || "").toString().toLowerCase();
+        const bn = (b.name || "").toString().toLowerCase();
+        if (an < bn) return -1;
+        if (an > bn) return 1;
+        return new Date(a.firstCreated) - new Date(b.firstCreated);
+      });
+
+    // Pour un accès direct par indices
+    const memberByIndices = (ti, mi) => {
+      if (ti < 0 || ti >= teams.length) return null;
+      const team = teams[ti];
+      if (!team) return null;
+      if (mi < 0 || mi >= team.members.length) return null;
+      return { team, member: team.members[mi] };
+    };
+
+    return { orderedTeams: teams, memberByIndices };
+  }, [rows]);
+
+  const current = memberByIndices(teamIdxParam, memberIdxParam);
+
+  const buildUrl = (ti, mi) =>
+    `/member-details/${encodeURIComponent(courseId)}/${encodeURIComponent(
+      formatId
+    )}/${ti}/${mi}`;
+
+  const goPrev = () => {
+    if (!current) return;
+    let ti = teamIdxParam;
+    let mi = memberIdxParam - 1;
+    if (mi < 0) {
+      ti = teamIdxParam - 1;
+      if (ti < 0) return;
+      mi = (orderedTeams[ti]?.members?.length || 1) - 1;
+    }
+    navigate(buildUrl(ti, mi));
+  };
+
+  const goNext = () => {
+    if (!current) return;
+    let ti = teamIdxParam;
+    let mi = memberIdxParam + 1;
+    const len = orderedTeams[ti]?.members?.length || 0;
+    if (mi >= len) {
+      ti = teamIdxParam + 1;
+      if (ti >= orderedTeams.length) return;
+      mi = 0;
+    }
+    navigate(buildUrl(ti, mi));
+  };
+
+  if (loading) return <div className="p-6">Chargement…</div>;
+
+  if (err) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12">
-        <div className="rounded-2xl border border-neutral-200 bg-white p-6">
-          <h1 className="text-xl font-bold mb-2">Brouillon introuvable</h1>
-          <p className="text-neutral-700">
-            Fermez cette page et réessayez depuis l’inscription (bouton “Ajouter des détails”).
-          </p>
-          <div className="mt-4">
-            <Link
-              to={`/inscription/${courseId || ""}`}
-              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm hover:bg-neutral-50"
-            >
-              ← Retourner à l’inscription
-            </Link>
+      <div className="max-w-4xl mx-auto p-6 space-y-4">
+        <Link
+          to={courseId ? `/courses/${courseId}` : "/"}
+          className="text-sm text-neutral-500 hover:text-neutral-800"
+        >
+          ← Retour
+        </Link>
+        <h1 className="text-2xl font-bold">Détail membre</h1>
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
+          <div className="font-semibold mb-1">Impossible de charger</div>
+          <div className="text-sm">{String(err.message || err)}</div>
+          <div className="text-xs mt-2">
+            Vérifie les paramètres d’URL et les règles RLS de{" "}
+            <code>inscriptions</code>.
           </div>
         </div>
       </div>
     );
   }
 
-  if (!draft) {
+  if (!orderedTeams.length) {
     return (
-      <div className="max-w-3xl mx-auto px-4 py-12 text-neutral-600">
-        Chargement…
+      <div className="max-w-4xl mx-auto p-6 space-y-4">
+        <Link
+          to={courseId ? `/courses/${courseId}` : "/"}
+          className="text-sm text-neutral-500 hover:text-neutral-800"
+        >
+          ← Retour
+        </Link>
+        <h1 className="text-2xl font-bold">Détail membre</h1>
+        <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+          Aucun membre trouvé pour ce format.
+        </div>
       </div>
     );
   }
 
-  const title = draft?.teamName
-    ? `Détails — ${draft.teamName} · Coureur #${Number(memberIdx) + 1}`
-    : `Détails coureur #${Number(memberIdx) + 1}`;
-
-  return (
-    <div className="max-w-3xl mx-auto px-4 py-8">
-      <div className="mb-4">
+  // Gestion d’indices hors bornes
+  if (!current) {
+    return (
+      <div className="max-w-4xl mx-auto p-6 space-y-4">
         <Link
-          to={`/inscription/${courseId}`}
+          to={courseId ? `/courses/${courseId}` : "/"}
           className="text-sm text-neutral-500 hover:text-neutral-800"
         >
-          ← Retour à l’inscription
+          ← Retour
         </Link>
-      </div>
-
-      <h1 className="text-2xl font-bold">{title}</h1>
-      <p className="text-neutral-600 mt-1">
-        Complète les informations optionnelles du coureur. Tes saisies sont enregistrées dans ton navigateur
-        et seront reprises lors du paiement.
-      </p>
-
-      <div className="mt-6 rounded-2xl border border-neutral-200 bg-white p-5 space-y-4">
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <Input label="Nom" name="nom" value={form.nom} onChange={setField} />
-          <Input label="Prénom" name="prenom" value={form.prenom} onChange={setField} />
-          <Select
-            label="Genre"
-            name="genre"
-            value={form.genre}
-            onChange={setField}
-            options={[
-              { label: "—", value: "" },
-              { label: "Homme", value: "Homme" },
-              { label: "Femme", value: "Femme" },
-            ]}
-          />
-          <Input
-            label="Date de naissance"
-            name="date_naissance"
-            type="date"
-            value={form.date_naissance}
-            onChange={setField}
-          />
-          <Input label="Email" name="email" type="email" value={form.email} onChange={setField} />
-          <Input label="Nationalité" name="nationalite" value={form.nationalite} onChange={setField} />
-          <Input label="Téléphone" name="telephone" value={form.telephone} onChange={setField} />
-          <Input label="Adresse" name="adresse" value={form.adresse} onChange={setField} full />
-          <Input label="Complément d’adresse" name="adresse_complement" value={form.adresse_complement} onChange={setField} full />
-          <Input label="Code postal" name="code_postal" value={form.code_postal} onChange={setField} />
-          <Input label="Ville" name="ville" value={form.ville} onChange={setField} />
-          <Input label="Pays" name="pays" value={form.pays} onChange={setField} />
-          <Input label="Club" name="club" value={form.club} onChange={setField} />
-          <Input label="Justificatif (licence / pps)" name="justificatif_type" value={form.justificatif_type} onChange={setField} />
-          <Input label="N° de licence" name="numero_licence" value={form.numero_licence} onChange={setField} />
-          <Input label="Identifiant PPS" name="pps_identifier" value={form.pps_identifier} onChange={setField} />
-          <Input label="Urgence — Nom" name="contact_urgence_nom" value={form.contact_urgence_nom} onChange={setField} full />
-          <Input label="Urgence — Téléphone" name="contact_urgence_telephone" value={form.contact_urgence_telephone} onChange={setField} />
+        <h1 className="text-2xl font-bold">Détail membre</h1>
+        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
+          Indices invalides (<code>teamIdx={teamIdxParam}</code>,{" "}
+          <code>memberIdx={memberIdxParam}</code>). Sélectionnez un membre
+          existant ci-dessous.
         </div>
 
-        <div className="pt-2">
-          <label className="inline-flex items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={!!form.apparaitre_resultats}
-              onChange={(e) => setField("apparaitre_resultats", e.target.checked)}
-              className="h-4 w-4 rounded border-neutral-300 accent-orange-500"
-            />
-            <span className="text-neutral-800">
-              J’accepte d’apparaître dans les résultats officiels
-            </span>
-          </label>
+        {/* Liste de toutes les équipes pour que l’utilisateur puisse naviguer */}
+        <TeamsIndex
+          courseId={courseId}
+          formatId={formatId}
+          orderedTeams={orderedTeams}
+          buildUrl={buildUrl}
+        />
+      </div>
+    );
+  }
+
+  const { team, member } = current;
+
+  return (
+    <div className="max-w-5xl mx-auto p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div className="space-y-1">
+          <Link
+            to={courseId ? `/courses/${courseId}` : "/"}
+            className="text-sm text-neutral-500 hover:text-neutral-800"
+          >
+            ← Retour
+          </Link>
+          <h1 className="text-2xl font-bold">Détail membre</h1>
+          <div className="text-neutral-600 text-sm">
+            Format <code className="font-mono">{formatId}</code> • Équipe{" "}
+            <b>
+              {team.key.startsWith("__solo__")
+                ? "Solo"
+                : team.key.startsWith("team:")
+                ? team.key.slice(5)
+                : team.key}
+            </b>{" "}
+            • Membre {memberIdxParam + 1} / {team.members.length} • Équipe{" "}
+            {teamIdxParam + 1} / {orderedTeams.length}
+          </div>
+        </div>
+
+        {/* Navigation membre */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={goPrev}
+            className={cls(
+              "rounded-lg border px-3 py-1.5 text-sm",
+              teamIdxParam === 0 && memberIdxParam === 0
+                ? "text-neutral-400 border-neutral-200 cursor-not-allowed"
+                : "hover:bg-neutral-50"
+            )}
+            disabled={teamIdxParam === 0 && memberIdxParam === 0}
+          >
+            ← Précédent
+          </button>
+          <button
+            onClick={goNext}
+            className={cls(
+              "rounded-lg border px-3 py-1.5 text-sm",
+              teamIdxParam === orderedTeams.length - 1 &&
+                memberIdxParam === team.members.length - 1
+                ? "text-neutral-400 border-neutral-200 cursor-not-allowed"
+                : "hover:bg-neutral-50"
+            )}
+            disabled={
+              teamIdxParam === orderedTeams.length - 1 &&
+              memberIdxParam === team.members.length - 1
+            }
+          >
+            Suivant →
+          </button>
         </div>
       </div>
 
-      <div className="mt-5 flex gap-2">
-        <button
-          onClick={() => { saveDraft(); }}
-          className="rounded-xl border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50"
-        >
-          Enregistrer le brouillon
-        </button>
-        <button
-          onClick={handleSaveAndBack}
-          className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
-        >
-          Enregistrer et revenir à l’inscription
-        </button>
+      {/* Carte détail membre */}
+      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <div className="grid sm:grid-cols-2 gap-4 text-sm">
+          <Field label="ID">
+            <code className="font-mono break-all">{member.id}</code>
+          </Field>
+          <Field label="Statut">
+            <StatusBadge status={member.statut} />
+          </Field>
+          <Field label="Nom">{member.nom || "—"}</Field>
+          <Field label="Prénom">{member.prenom || "—"}</Field>
+          <Field label="Email">
+            {member.email ? (
+              <a
+                className="text-neutral-900 hover:underline"
+                href={`mailto:${member.email}`}
+              >
+                {member.email}
+              </a>
+            ) : (
+              "—"
+            )}
+          </Field>
+          <Field label="Équipe">{member.team_name || "—"}</Field>
+          <Field label="Groupe">
+            {member.member_of_group_id ? member.member_of_group_id : "—"}
+          </Field>
+          <Field label="Créé le">{formatDateTime(member.created_at)}</Field>
+        </div>
       </div>
+
+      {/* Teammates / autres membres de l’équipe */}
+      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+        <div className="flex items-center justify-between mb-3">
+          <h2 className="text-base font-semibold">
+            Membres de l’équipe ({team.members.length})
+          </h2>
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+          {team.members.map((m, i) => {
+            const isCurrent = i === memberIdxParam;
+            return (
+              <Link
+                key={m.id}
+                to={buildUrl(teamIdxParam, i)}
+                className={cls(
+                  "rounded-xl border p-3 hover:bg-neutral-50",
+                  isCurrent
+                    ? "border-neutral-900"
+                    : "border-neutral-200"
+                )}
+              >
+                <div className="text-sm font-medium">
+                  {m.prenom || "—"} {m.nom || ""}
+                </div>
+                <div className="text-xs text-neutral-600">
+                  {m.email || "—"}
+                </div>
+                <div className="mt-1">
+                  <StatusBadge status={m.statut} />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Index des équipes pour navigation rapide */}
+      <TeamsIndex
+        courseId={courseId}
+        formatId={formatId}
+        orderedTeams={orderedTeams}
+        buildUrl={buildUrl}
+      />
     </div>
   );
 }
 
-function Input({ label, name, value, onChange, type = "text", full = false }) {
+/* ----------------------------- Subcomponents ----------------------------- */
+function Field({ label, children }) {
   return (
-    <label className={`flex flex-col ${full ? "md:col-span-2" : ""}`}>
-      <span className="text-xs font-semibold text-neutral-600">{label}</span>
-      <input
-        type={type}
-        value={value || ""}
-        onChange={(e) => onChange(name, e.target.value)}
-        className="mt-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-        placeholder={label}
-      />
-    </label>
+    <div>
+      <div className="text-neutral-500 text-xs">{label}</div>
+      <div className="mt-0.5">{children}</div>
+    </div>
   );
 }
 
-function Select({ label, name, value, onChange, options = [] }) {
+function TeamsIndex({ courseId, formatId, orderedTeams, buildUrl }) {
+  if (!orderedTeams?.length) return null;
   return (
-    <label className="flex flex-col">
-      <span className="text-xs font-semibold text-neutral-600">{label}</span>
-      <select
-        value={value || ""}
-        onChange={(e) => onChange(name, e.target.value)}
-        className="mt-1 rounded-xl border border-neutral-200 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-      >
-        {options.map((opt) => (
-          <option key={opt.value} value={opt.value}>{opt.label}</option>
-        ))}
-      </select>
-    </label>
+    <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-semibold">Toutes les équipes</h2>
+        <div className="text-sm text-neutral-600">
+          {orderedTeams.length} équipe{orderedTeams.length > 1 ? "s" : ""}
+        </div>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+        {orderedTeams.map((t, ti) => {
+          const label =
+            t.key.startsWith("__solo__")
+              ? `Solo (${t.members.length})`
+              : t.key.startsWith("team:")
+              ? `${t.key.slice(5)} (${t.members.length})`
+              : `${t.key} (${t.members.length})`;
+        return (
+          <div key={t.key} className="rounded-xl border border-neutral-200 p-3">
+            <div className="text-sm font-medium mb-2">{label}</div>
+            <div className="flex flex-wrap gap-2">
+              {t.members.map((m, mi) => (
+                <Link
+                  key={m.id}
+                  to={buildUrl(ti, mi)}
+                  className="text-xs rounded-lg border border-neutral-300 px-2 py-1 hover:bg-neutral-50"
+                  title={`${m.prenom || ""} ${m.nom || ""}`}
+                >
+                  {mi + 1}
+                </Link>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+      </div>
+    </div>
   );
 }
