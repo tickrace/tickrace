@@ -869,12 +869,12 @@ export default function ListeInscriptions() {
                         <div className="flex flex-wrap gap-2">
                           {/* Adapte la route si nécessaire (ex: /mon-inscription/:id) */}
                           <Link
-                            to={`/inscriptions/${r.id}`}
-                            className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
-                            title="Voir le détail de l'inscription"
-                          >
-                            Voir
-                          </Link>
+  to={`/mon-inscription/${r.id}`}
+  className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
+  title="Voir le détail de l'inscription"
+>
+  Voir
+</Link>
                         </div>
                       </td>
                     </tr>
