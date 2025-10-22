@@ -1,6 +1,6 @@
 // src/pages/ListeInscriptions.jsx
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { supabase } from "../supabase";
 
 /* ------------------------------ TipTap ------------------------------ */
@@ -407,7 +407,11 @@ export default function ListeInscriptions() {
 
   // Filtres & tri
   const [formats, setFormats] = useState([]);
-  const [formatId, setFormatId] = useState("");
+ // const [formatId, setFormatId] = useState("");
+ 
+ const [searchParams] = useSearchParams();
+ const initialFormatId = searchParams.get("formatId") || "";
+ const [formatId, setFormatId] = useState(initialFormatId);
   const [statut, setStatut] = useState("all"); // all | paye | en_attente | annule
   const [q, setQ] = useState("");
   const debouncedQ = useDebounced(q, 400);
