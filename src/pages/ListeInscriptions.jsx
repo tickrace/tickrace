@@ -133,33 +133,16 @@ function EmailModal({ open, onClose, recipients, onSend }) {
   );
 }
 
-/* ---------------------- Modale Ajout Manuel (riche) ---------------------- */
-function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
+/* ---------------------- Modale Ajout Manuel (format figé) ---------------------- */
+function AddInscriptionModal({ open, onClose, onCreated, courseId, fixedFormatId }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    nom: "", prenom: "", email: "", team_name: "", format_id: "", statut: "en_attente",
-    genre: "", date_naissance: "", nationalite: "", telephone: "",
-    adresse: "", code_postal: "", ville: "", pays: "", club: "",
-    justificatif_type: "", justificatif_numero: "",
-    contact_urgence_nom: "", contact_urgence_tel: "",
-    dossard: "", nombre_repas: 0,
+    nom: "", prenom: "", email: "", team_name: "", statut: "en_attente",
   });
-
-  const formatSelected = useMemo(
-    () => formats.find((f) => f.id === form.format_id),
-    [formats, form.format_id]
-  );
 
   useEffect(() => {
     if (!open) {
-      setForm({
-        nom: "", prenom: "", email: "", team_name: "", format_id: "", statut: "en_attente",
-        genre: "", date_naissance: "", nationalite: "", telephone: "",
-        adresse: "", code_postal: "", ville: "", pays: "", club: "",
-        justificatif_type: "", justificatif_numero: "",
-        contact_urgence_nom: "", contact_urgence_tel: "",
-        dossard: "", nombre_repas: 0,
-      });
+      setForm({ nom: "", prenom: "", email: "", team_name: "", statut: "en_attente" });
       setSaving(false);
     }
   }, [open]);
@@ -172,40 +155,24 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
   };
 
   const handleSave = async () => {
-    if (!form.nom.trim() || !form.prenom.trim() || !form.format_id) {
-      alert("Nom, prénom et format sont requis.");
+    if (!form.nom.trim() || !form.prenom.trim()) {
+      alert("Nom et prénom sont requis.");
+      return;
+    }
+    if (!fixedFormatId) {
+      alert("Format introuvable.");
       return;
     }
     setSaving(true);
     try {
-      const fmt = formats.find((f) => f.id === form.format_id);
       const payload = {
         nom: form.nom.trim(),
         prenom: form.prenom.trim(),
         email: form.email.trim() || null,
         team_name: form.team_name.trim() || null,
-        format_id: form.format_id,
+        format_id: fixedFormatId,
+        course_id: courseId || null,
         statut: form.statut,
-        course_id: courseId || fmt?.course_id || null,
-        genre: form.genre || null,
-        date_naissance: form.date_naissance || null,
-        nationalite: form.nationalite || null,
-        telephone: form.telephone || null,
-        adresse: form.adresse || null,
-        code_postal: form.code_postal || null,
-        ville: form.ville || null,
-        pays: form.pays || null,
-        club: form.club || null,
-        justificatif_type: form.justificatif_type || null,
-        justificatif_numero: form.justificatif_numero || null,
-        contact_urgence_nom: form.contact_urgence_nom || null,
-        contact_urgence_tel: form.contact_urgence_tel || null,
-        dossard: form.dossard ? Number(form.dossard) : null,
-        prix_total_repas:
-          fmt?.propose_repas && fmt?.prix_repas != null
-            ? Number(form.nombre_repas || 0) * Number(fmt.prix_repas || 0)
-            : null,
-        nombre_repas: fmt?.propose_repas ? Number(form.nombre_repas || 0) : null,
       };
 
       const { data, error } = await supabase
@@ -227,37 +194,13 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
 
   return (
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Ajouter un coureur</h3>
           <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">Fermer</button>
         </div>
 
-        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="md:col-span-1">
-            <label className="text-sm font-medium">Format *</label>
-            <select name="format_id" value={form.format_id} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
-              <option value="">—</option>
-              {formats.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nom} {f.date ? `— ${f.date}` : ""}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Statut</label>
-            <select name="statut" value={form.statut} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
-              <option value="en_attente">En attente</option>
-              <option value="paye">Payé</option>
-              <option value="annule">Annulé</option>
-            </select>
-          </div>
-          <div>
-            <label className="text-sm font-medium">Équipe</label>
-            <input name="team_name" value={form.team_name} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="Team / Relais" />
-          </div>
-
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <label className="text-sm font-medium">Nom *</label>
             <input name="nom" value={form.nom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
@@ -266,119 +209,29 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
             <label className="text-sm font-medium">Prénom *</label>
             <input name="prenom" value={form.prenom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
-          <div>
+          <div className="sm:col-span-2">
             <label className="text-sm font-medium">Email</label>
-            <input name="email" value={form.email} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="ex: nom@domaine.com" />
+            <input name="email" value={form.email} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-sm font-medium">Équipe</label>
+            <input name="team_name" value={form.team_name} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
 
           <div>
-            <label className="text-sm font-medium">Genre</label>
-            <select name="genre" value={form.genre} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
-              <option value="">—</option>
-              <option value="F">F</option>
-              <option value="M">M</option>
-              <option value="X">X</option>
+            <label className="text-sm font-medium">Statut</label>
+            <select name="statut" value={form.statut} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
+              <option value="en_attente">En attente</option>
+              <option value="paye">Payé</option>
+              <option value="annule">Annulé</option>
             </select>
           </div>
-          <div>
-            <label className="text-sm font-medium">Date de naissance</label>
-            <input type="date" name="date_naissance" value={form.date_naissance} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Nationalité</label>
-            <input name="nationalite" value={form.nationalite} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
 
-          <div>
-            <label className="text-sm font-medium">Téléphone</label>
-            <input name="telephone" value={form.telephone} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
+          <div className="sm:col-span-2">
+            <div className="text-xs text-neutral-600 rounded-lg bg-neutral-50 ring-1 ring-neutral-200 px-3 py-2">
+              Format sélectionné&nbsp;: <b>{fixedFormatId || "—"}</b>
+            </div>
           </div>
-          <div className="md:col-span-2">
-            <label className="text-sm font-medium">Adresse</label>
-            <input name="adresse" value={form.adresse} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Code postal</label>
-            <input name="code_postal" value={form.code_postal} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Ville</label>
-            <input name="ville" value={form.ville} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Pays</label>
-            <input name="pays" value={form.pays} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Club</label>
-            <input name="club" value={form.club} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Justificatif (type)</label>
-            <input name="justificatif_type" value={form.justificatif_type} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="Licence / PPS" />
-          </div>
-          <div>
-            <label className="text-sm font-medium">N° licence / PPS</label>
-            <input name="justificatif_numero" value={form.justificatif_numero} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Contact urgence (nom)</label>
-            <input name="contact_urgence_nom" value={form.contact_urgence_nom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Contact urgence (téléphone)</label>
-            <input name="contact_urgence_tel" value={form.contact_urgence_tel} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Dossard</label>
-            <input
-              name="dossard"
-              value={form.dossard}
-              onChange={(e) => {
-                const v = e.target.value.replace(/[^\d]/g, "");
-                setForm((f) => ({ ...f, dossard: v }));
-              }}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              placeholder="ex: 125"
-              inputMode="numeric"
-            />
-          </div>
-
-          {formatSelected?.propose_repas && (
-            <>
-              <div>
-                <label className="text-sm font-medium">
-                  Nombre de repas {formatSelected?.prix_repas != null ? `(× ${Number(formatSelected.prix_repas).toFixed(2)} €)` : ""}
-                </label>
-                <input
-                  name="nombre_repas"
-                  value={form.nombre_repas}
-                  onChange={(e) =>
-                    setForm((f) => ({
-                      ...f,
-                      nombre_repas: e.target.value.replace(/[^\d]/g, ""),
-                    }))
-                  }
-                  className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-                  placeholder="0"
-                  inputMode="numeric"
-                />
-              </div>
-              <div className="md:col-span-2 text-sm text-neutral-600 flex items-end">
-                Total repas estimé&nbsp;:
-                <b className="ml-1">
-                  {(() => {
-                    const n = Number(form.nombre_repas || 0);
-                    const pu = Number(formatSelected?.prix_repas || 0);
-                    return (n * pu).toFixed(2) + " €";
-                  })()}
-                </b>
-              </div>
-            </>
-          )}
         </div>
 
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
@@ -401,11 +254,10 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
   );
 }
 
-/* ---------------------- Modale Export CSV (par format) ---------------------- */
+/* ---------------------- Modale Export CSV ---------------------- */
 function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLabelById, filenameBase }) {
   const [cols, setCols] = useState([
-    "id","created_at","nom","prenom","email","team_name","statut","group_status",
-    "dossard","licence","club","telephone","adresse","code_postal","ville","pays","options",
+    "id","created_at","nom","prenom","email","team_name","statut","group_status","options",
   ]);
 
   const allCols = [
@@ -417,23 +269,12 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
     { key: "team_name", label: "Équipe" },
     { key: "statut", label: "Statut" },
     { key: "group_status", label: "Statut groupe" },
-    { key: "dossard", label: "Dossard" },
-    { key: "licence", label: "Licence/PPS" },
-    { key: "club", label: "Club" },
-    { key: "telephone", label: "Téléphone" },
-    { key: "adresse", label: "Adresse" },
-    { key: "code_postal", label: "Code postal" },
-    { key: "ville", label: "Ville" },
-    { key: "pays", label: "Pays" },
     { key: "options", label: "Options confirmées" },
   ];
 
   useEffect(() => {
     if (!open) {
-      setCols([
-        "id","created_at","nom","prenom","email","team_name","statut","group_status",
-        "dossard","licence","club","telephone","adresse","code_postal","ville","pays","options",
-      ]);
+      setCols(["id","created_at","nom","prenom","email","team_name","statut","group_status","options"]);
     }
   }, [open]);
 
@@ -478,14 +319,6 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
         team_name: r.team_name || "—",
         statut: r.statut || "—",
         group_status: group?.statut || "—",
-        dossard: r.dossard ?? "—",
-        licence: r.justificatif_numero || "—",
-        club: r.club || "—",
-        telephone: r.telephone || "—",
-        adresse: r.adresse || "—",
-        code_postal: r.code_postal || "—",
-        ville: r.ville || "—",
-        pays: r.pays || "—",
         options: optsTxt,
       };
       return cols.map((k) => csvEscape(map[k])).join(";");
@@ -546,9 +379,9 @@ export default function ListeInscriptions() {
 
   const [resolvedCourseId, setResolvedCourseId] = useState(null);
 
+  // format = obligatoire pour cette page (mais pas d’UI). On le prend dans la query.
   const initialFormatId = searchParams.get("formatId") || "";
   const [formatId, setFormatId] = useState(initialFormatId);
-  const lockedFormat = !!initialFormatId;
 
   const [statut, setStatut] = useState(searchParams.get("statut") || "all"); // all | paye | en_attente | annule
   const [q, setQ] = useState(searchParams.get("q") || "");
@@ -566,13 +399,13 @@ export default function ListeInscriptions() {
   const [optionsMap, setOptionsMap] = useState(new Map());
   const [optionLabelMap, setOptionLabelMap] = useState(new Map());
 
-  // Pagination & sélection par format
+  // Pagination & sélection
   const PAGE_SIZE = 25;
-  const [pageByFormat, setPageByFormat] = useState({});
-  const [selectedByFormat, setSelectedByFormat] = useState({});
-  const [showEmailByFormat, setShowEmailByFormat] = useState({});
-  const [showAddByFormat, setShowAddByFormat] = useState({});
-  const [showExportByFormat, setShowExportByFormat] = useState({});
+  const [page, setPage] = useState(1);
+  const [selected, setSelected] = useState(new Set());
+  const [showEmail, setShowEmail] = useState(false);
+  const [showAdd, setShowAdd] = useState(false);
+  const [showExport, setShowExport] = useState(false);
 
   const updateQueryString = useCallback(
     (next) => {
@@ -608,7 +441,7 @@ export default function ListeInscriptions() {
         return;
       }
 
-      // 2) routeParam comme formatId → récupère sa course
+      // 2) routeParam comme formatId → récupère sa course et force formatId si absent
       const { data: fmt } = await supabase
         .from("formats")
         .select("id, course_id")
@@ -638,13 +471,13 @@ export default function ListeInscriptions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeParam]);
 
-  /* -------------------------- Charger Formats -------------------------- */
+  /* -------------------------- Charger Formats (pour le libellé) -------------------------- */
   useEffect(() => {
     let alive = true;
     (async () => {
       const query = supabase
         .from("formats")
-        .select("id, nom, date, course_id, nb_max_coureurs, propose_repas, prix_repas")
+        .select("id, nom, date, course_id") // colonnes sûres
         .order("date", { ascending: true });
 
       const { data, error } = resolvedCourseId
@@ -657,52 +490,42 @@ export default function ListeInscriptions() {
     return () => { alive = false; };
   }, [resolvedCourseId]);
 
-  const targetedFormatIds = useMemo(() => {
-    if (formatId) return [formatId];
-    return formats.map((f) => f.id);
-  }, [formats, formatId]);
-
-  const currentFormatLabel = useMemo(() => {
-    const f = formats.find((x) => x.id === formatId);
-    if (!f) return formatId ? `Format ${formatId}` : "Tous les formats";
-    return `${f.nom}${f.date ? ` — ${f.date}` : ""}`;
-  }, [formats, formatId]);
+  const formatObj = useMemo(
+    () => (formatId ? formats.find(f => f.id === formatId) : null),
+    [formats, formatId]
+  );
+  const formatLabel = formatObj ? `${formatObj.nom}${formatObj.date ? ` — ${formatObj.date}` : ""}` : (formatId || "—");
 
   /* ---------------------- Charger Inscriptions (course + format) ---------------------- */
   const load = useCallback(async () => {
     setLoading(true);
+    setSelected(new Set());
     try {
-      // Garde-fou cohérence course/format
-      const targeted = targetedFormatIds;
-      if (resolvedCourseId && targeted.length === 1) {
-        const f = formats.find((x) => x.id === targeted[0]);
-        if (f && f.course_id && f.course_id !== resolvedCourseId) {
-          setInscriptions([]); setTotal(0);
-          setOptionsMap(new Map()); setOptionLabelMap(new Map()); setGroupMap(new Map());
-          setLoading(false);
-          return;
-        }
-      }
-
-      let query = supabase
-        .from("inscriptions")
-        .select(
-          "id, created_at, nom, prenom, email, statut, format_id, member_of_group_id, team_name, course_id, dossard, justificatif_numero, club, telephone, adresse, code_postal, ville, pays",
-          { count: "exact" }
-        );
-
-      // ⚠️ Filtrer par course_id ET format_id (exigence)
-      if (resolvedCourseId) query = query.eq("course_id", resolvedCourseId);
-
-      if (targeted.length > 0) {
-        query = query.in("format_id", targeted);
-      } else {
-        // aucun format → on vide
+      // Garde-fou : format obligatoire sur cette page
+      if (!formatId) {
         setInscriptions([]); setTotal(0);
         setOptionsMap(new Map()); setOptionLabelMap(new Map()); setGroupMap(new Map());
         setLoading(false);
         return;
       }
+
+      // Si on a course + format, vérifier l’appartenance
+      if (resolvedCourseId && formatObj && formatObj.course_id && formatObj.course_id !== resolvedCourseId) {
+        setInscriptions([]); setTotal(0);
+        setOptionsMap(new Map()); setOptionLabelMap(new Map()); setGroupMap(new Map());
+        setLoading(false);
+        return;
+      }
+
+      let query = supabase
+        .from("inscriptions")
+        .select(
+          "id, created_at, nom, prenom, email, statut, format_id, member_of_group_id, team_name, course_id",
+          { count: "exact" }
+        );
+
+      if (resolvedCourseId) query = query.eq("course_id", resolvedCourseId);
+      query = query.eq("format_id", formatId);
 
       if (statut && statut !== "all") {
         const s = (statut || "").toLowerCase();
@@ -726,12 +549,6 @@ export default function ListeInscriptions() {
             `prenom.ilike.%${debouncedQ}%`,
             `email.ilike.%${debouncedQ}%`,
             `team_name.ilike.%${debouncedQ}%`,
-            `justificatif_numero.ilike.%${debouncedQ}%`,
-            `club.ilike.%${debouncedQ}%`,
-            `telephone.ilike.%${debouncedQ}%`,
-            `adresse.ilike.%${debouncedQ}%`,
-            `ville.ilike.%${debouncedQ}%`,
-            `pays.ilike.%${debouncedQ}%`,
           ].join(",")
         );
       }
@@ -820,95 +637,54 @@ export default function ListeInscriptions() {
     } finally {
       setLoading(false);
     }
-  }, [targetedFormatIds, statut, debouncedQ, sortBy, sortDir, resolvedCourseId, formats]);
+  }, [formatId, statut, debouncedQ, sortBy, sortDir, resolvedCourseId, formatObj]);
 
-  // Sync URL sur changement de filtres
+  // Sync URL sur changement de filtres (sans format UI, on garde formatId si présent)
   useEffect(() => {
     updateQueryString({ formatId, statut, q, sortBy, sortDir });
   }, [formatId, statut, q, sortBy, sortDir]); // eslint-disable-line
 
-  // Reset pagination/sélection quand filtres changent
   useEffect(() => {
-    setPageByFormat({});
+    setPage(1);
+    setSelected(new Set());
   }, [formatId, statut, debouncedQ, sortBy, sortDir]);
 
   useEffect(() => {
     load();
   }, [load]);
 
-  /* ----------------------------- Groupage par format ----------------------------- */
-  const byFormat = useMemo(() => {
-    const map = new Map();
-    for (const r of inscriptions) {
-      const fid = r.format_id || "__nofmt__";
-      if (!map.has(fid)) map.set(fid, []);
-      map.get(fid).push(r);
-    }
-    const sorters = {
-      created_at: (a, b) =>
-        sortDir === "asc"
-          ? new Date(a.created_at) - new Date(b.created_at)
-          : new Date(b.created_at) - new Date(a.created_at),
-      nom: (a, b) => {
-        const an = (a.nom || "").toLowerCase();
-        const bn = (b.nom || "").toLowerCase();
-        if (an < bn) return sortDir === "asc" ? -1 : 1;
-        if (an > bn) return sortDir === "asc" ? 1 : -1;
-        return 0;
-      },
-      statut: (a, b) => {
-        const an = (a.statut || "").toLowerCase();
-        const bn = (b.statut || "").toLowerCase();
-        if (an < bn) return sortDir === "asc" ? -1 : 1;
-        if (an > bn) return sortDir === "asc" ? 1 : -1;
-        return 0;
-      },
-    };
-    const sorter = sorters[sortBy] || sorters.created_at;
-    for (const [k, arr] of map.entries()) {
-      map.set(k, [...arr].sort(sorter));
-    }
-    return map;
-  }, [inscriptions, sortBy, sortDir]);
+  // Pagination & sélection
+  const pageCount = Math.max(1, Math.ceil((inscriptions.length || 0) / PAGE_SIZE));
+  const from = (page - 1) * PAGE_SIZE;
+  const to = from + PAGE_SIZE;
+  const pageRows = inscriptions.slice(from, to);
 
-  // Helpers sélection/pagination par format
-  const pageOf = (fid) => pageByFormat[fid] || 1;
-  const setPageOf = (fid, n) =>
-    setPageByFormat((p) => ({ ...p, [fid]: Math.max(1, n) }));
-
-  const sectionMeta = (fid, arr) => {
-    const totalRows = arr.length;
-    const pageCount = Math.max(1, Math.ceil(totalRows / PAGE_SIZE));
-    const page = Math.min(pageOf(fid), pageCount);
-    const from = (page - 1) * PAGE_SIZE;
-    const to = from + PAGE_SIZE;
-    return { page, pageCount, from, to, totalRows };
+  const allChecked = pageRows.length > 0 && pageRows.every((r) => selected.has(r.id));
+  const toggleRow = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allChecked) pageRows.forEach((r) => next.delete(r.id));
+      else pageRows.forEach((r) => next.add(r.id));
+      return next;
+    });
   };
 
-  const selectedRowsFor = (fid, arr) => {
-    const set = selectedByFormat[fid] || new Set();
-    return arr.filter((r) => set.has(r.id));
-  };
+  const recipients = useMemo(() => {
+    const emails = new Set();
+    inscriptions.forEach(r => {
+      if (selected.has(r.id) && r.email) emails.add(r.email.trim().toLowerCase());
+    });
+    return Array.from(emails);
+  }, [inscriptions, selected]);
 
-  const changeSort = (col) => {
-    if (sortBy === col) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(col);
-      setSortDir(col === "created_at" ? "desc" : "asc");
-    }
-  };
-
-  const allSections = useMemo(() => {
-    const keys = targetedFormatIds.length ? targetedFormatIds : [];
-    return keys.filter((fid) => byFormat.has(fid));
-  }, [byFormat, targetedFormatIds]);
-
-  const formatName = (fid) => {
-    const f = formats.find((x) => x.id === fid);
-    if (!f) return "Format inconnu";
-    return `${f.nom}${f.date ? ` — ${f.date}` : ""}`;
-  };
+  const selectedRows = inscriptions.filter((r) => selected.has(r.id));
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -926,42 +702,49 @@ export default function ListeInscriptions() {
           )}
           <h1 className="text-2xl sm:text-3xl font-bold mt-1">Inscriptions</h1>
           <p className="text-neutral-600 mt-1">
-            {total} résultat{total > 1 ? "s" : ""}
+            {total} résultat{total > 1 ? "s" : ""}{formatObj ? ` — ${formatLabel}` : ""}
           </p>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <button onClick={() => load()} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50">
+          <button
+            onClick={() => setShowEmail(true)}
+            disabled={recipients.length === 0}
+            className={cls(
+              "rounded-xl px-4 py-2 text-sm font-semibold",
+              recipients.length === 0
+                ? "bg-neutral-300 text-neutral-600 cursor-not-allowed"
+                : "bg-neutral-900 text-white hover:bg-black"
+            )}
+          >
+            Email aux sélectionnés ({recipients.length})
+          </button>
+
+          <button
+            onClick={() => setShowAdd(true)}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
+          >
+            + Ajouter un coureur
+          </button>
+
+          <button
+            onClick={() => setShowExport(true)}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
+          >
+            Export CSV {selectedRows.length > 0 ? `(${selectedRows.length})` : "(tout)"}
+          </button>
+
+          <button
+            onClick={() => load()}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
+          >
             Rafraîchir
           </button>
         </div>
       </div>
 
-      {/* Filtres */}
-      <div className="mb-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
-        <div>
-          <label className="block text-sm font-medium">Format</label>
-          {lockedFormat ? (
-            <div className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 bg-neutral-50 text-neutral-800 flex items-center justify-between">
-              <span>{currentFormatLabel}</span>
-              <span className="text-xs rounded-full bg-neutral-200 px-2 py-0.5">verrouillé</span>
-            </div>
-          ) : (
-            <select
-              value={formatId}
-              onChange={(e) => setFormatId(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            >
-              <option value="">Tous les formats</option>
-              {formats.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nom} {f.date ? `— ${f.date}` : ""}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-
+      {/* Filtres (sans sélecteur de format) */}
+      <div className="mb-4 grid grid-cols-1 md:grid-cols-3 gap-3">
         <div>
           <label className="block text-sm font-medium">Statut</label>
           <select
@@ -982,19 +765,27 @@ export default function ListeInscriptions() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            placeholder="Nom, prénom, email, équipe, licence, club, téléphone…"
+            placeholder="Nom, prénom, email, équipe…"
           />
         </div>
 
         <div>
           <label className="block text-sm font-medium">Tri</label>
           <div className="mt-1 grid grid-cols-2 gap-2">
-            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="rounded-xl border border-neutral-300 px-3 py-2">
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="rounded-xl border border-neutral-300 px-3 py-2"
+            >
               <option value="created_at">Date</option>
               <option value="nom">Nom</option>
               <option value="statut">Statut</option>
             </select>
-            <select value={sortDir} onChange={(e) => setSortDir(e.target.value)} className="rounded-xl border border-neutral-300 px-3 py-2">
+            <select
+              value={sortDir}
+              onChange={(e) => setSortDir(e.target.value)}
+              className="rounded-xl border border-neutral-300 px-3 py-2"
+            >
               <option value="desc">Desc</option>
               <option value="asc">Asc</option>
             </select>
@@ -1002,328 +793,195 @@ export default function ListeInscriptions() {
         </div>
       </div>
 
-      {/* Sections par format */}
-      {loading && (
-        <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden mb-6">
-          <div className="p-6 text-neutral-600">Chargement…</div>
+      {/* Table */}
+      <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-4 py-2 bg-neutral-50 border-b border-neutral-200 text-sm flex items-center gap-3">
+          <label className="inline-flex items-center gap-2">
+            <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+            Tout sélectionner (page)
+          </label>
+          <div className="text-neutral-500">
+            {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
+          </div>
         </div>
-      )}
 
-      {!loading && allSections.length === 0 && (
-        <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
-          <div className="p-6 text-neutral-600">Aucun format disponible.</div>
-        </div>
-      )}
+        <div className="overflow-x-auto">
+          <table className="min-w-full text-sm">
+            <thead>
+              <tr className="text-left text-neutral-600">
+                <th className="px-4 py-3 w-10">
+                  <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+                </th>
+                <th className="px-4 py-3 cursor-pointer" onClick={() => { setSortBy("nom"); setSortDir(sortDir === "asc" ? "desc" : "asc"); }}>Nom</th>
+                <th className="px-4 py-3">Prénom</th>
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Équipe</th>
+                <th className="px-4 py-3">Groupe</th>
+                <th className="px-4 py-3 cursor-pointer" onClick={() => { setSortBy("statut"); setSortDir(sortDir === "asc" ? "desc" : "asc"); }}>Statut</th>
+                <th className="px-4 py-3 cursor-pointer" onClick={() => { setSortBy("created_at"); setSortDir(sortDir === "asc" ? "desc" : "asc"); }}>Créé le</th>
+                <th className="px-4 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {loading ? (
+                [...Array(6)].map((_, i) => (
+                  <tr key={i} className="animate-pulse">
+                    <td className="px-4 py-3"><div className="h-4 w-4 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-24 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-20 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-40 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-24 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-5 w-28 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-5 w-20 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-4 w-28 rounded bg-neutral-100" /></td>
+                    <td className="px-4 py-3"><div className="h-7 w-20 rounded bg-neutral-100" /></td>
+                  </tr>
+                ))
+              ) : pageRows.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="px-4 py-6 text-center text-neutral-600">
+                    Aucun résultat — ajustez vos filtres.
+                  </td>
+                </tr>
+              ) : (
+                pageRows.map((r) => {
+                  const group = r.member_of_group_id ? groupMap.get(r.member_of_group_id) : null;
 
-      {!loading &&
-        allSections.map((fid) => {
-          const rows = byFormat.get(fid) || [];
-          const totalRows = rows.length;
-
-          const page = Math.max(1, Math.min(pageOf(fid), Math.ceil(Math.max(1, totalRows) / PAGE_SIZE)));
-          const from = (page - 1) * PAGE_SIZE;
-          const to = from + PAGE_SIZE;
-          const pageRows = rows.slice(from, to);
-          const pageCount = Math.max(1, Math.ceil(Math.max(1, totalRows) / PAGE_SIZE));
-
-          const selectedSet = selectedByFormat[fid] || new Set();
-          const allChecked = pageRows.length > 0 && pageRows.every((r) => selectedSet.has(r.id));
-          const selectedRows = rows.filter((r) => selectedSet.has(r.id));
-
-          const f = formats.find((x) => x.id === fid);
-          const filenameBase = `inscriptions-${(f?.nom || "format").toString().toLowerCase().replace(/\s+/g, "-")}`;
-
-          const toggleRow = (id) => {
-            const cur = new Set(selectedSet);
-            if (cur.has(id)) cur.delete(id);
-            else cur.add(id);
-            setSelectedByFormat((prev) => ({ ...prev, [fid]: cur }));
-          };
-
-          const toggleAll = () => {
-            const cur = new Set(selectedSet);
-            if (allChecked) pageRows.forEach((r) => cur.delete(r.id));
-            else pageRows.forEach((r) => cur.add(r.id));
-            setSelectedByFormat((prev) => ({ ...prev, [fid]: cur }));
-          };
-
-          const recipients = Array.from(
-            new Set(
-              selectedRows.map((r) => (r.email || "").trim().toLowerCase()).filter(Boolean)
-            )
-          );
-
-          const showEmail = !!showEmailByFormat[fid];
-          const showAdd = !!showAddByFormat[fid];
-          const showExport = !!showExportByFormat[fid];
-
-          return (
-            <div key={fid} className="mb-6 rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
-              {/* Entête de section */}
-              <div className="px-4 py-3 border-b border-neutral-200 bg-neutral-50 flex items-center justify-between">
-                <div className="min-w-0">
-                  <div className="text-sm font-semibold text-neutral-700">{formatName(fid)}</div>
-                  <div className="text-xs text-neutral-500">
-                    {totalRows} inscrit{totalRows > 1 ? "s" : ""} • {PAGE_SIZE} par page
-                    {f?.nb_max_coureurs ? <> • capacité&nbsp;: {f.nb_max_coureurs}</> : null}
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  <button
-                    onClick={() => setShowEmailByFormat((m) => ({ ...m, [fid]: true }))}
-                    disabled={recipients.length === 0}
-                    className={cls(
-                      "rounded-xl px-3 py-2 text-xs font-semibold",
-                      recipients.length === 0
-                        ? "bg-neutral-300 text-neutral-600 cursor-not-allowed"
-                        : "bg-neutral-900 text-white hover:bg-black"
-                    )}
-                  >
-                    Email aux sélectionnés ({recipients.length})
-                  </button>
-
-                  <button
-                    onClick={() => setShowAddByFormat((m) => ({ ...m, [fid]: true }))}
-                    className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
-                  >
-                    + Ajouter un coureur
-                  </button>
-
-                  <button
-                    onClick={() => setShowExportByFormat((m) => ({ ...m, [fid]: true }))}
-                    className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
-                  >
-                    Export CSV {selectedRows.length > 0 ? `(${selectedRows.length})` : "(tout)"}
-                  </button>
-
-                  <button
-                    onClick={() => load()}
-                    className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
-                  >
-                    Rafraîchir
-                  </button>
-                </div>
-              </div>
-
-              {/* Table */}
-              <div className="overflow-x-auto">
-                <table className="min-w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-neutral-600">
-                      <th className="px-4 py-3 w-10">
-                        <input type="checkbox" checked={allChecked} onChange={toggleAll} />
-                      </th>
-                      <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("nom")}>Nom</th>
-                      <th className="px-4 py-3">Prénom</th>
-                      <th className="px-4 py-3">Email</th>
-                      <th className="px-4 py-3">Équipe</th>
-                      <th className="px-4 py-3">Groupe</th>
-                      <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("statut")}>Statut</th>
-                      <th className="px-4 py-3">Dossard</th>
-                      <th className="px-4 py-3">Options</th>
-                      <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("created_at")}>Créé le</th>
-                      <th className="px-4 py-3">Actions</th>
+                  return (
+                    <tr key={r.id} className="hover:bg-neutral-50/60">
+                      <td className="px-4 py-3 align-top">
+                        <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} />
+                      </td>
+                      <td className="px-4 py-3 align-top font-medium">{r.nom || "—"}</td>
+                      <td className="px-4 py-3 align-top">{r.prenom || "—"}</td>
+                      <td className="px-4 py-3 align-top">
+                        {r.email ? <a className="text-neutral-900 hover:underline" href={`mailto:${r.email}`}>{r.email}</a> : "—"}
+                      </td>
+                      <td className="px-4 py-3 align-top">{r.team_name || "—"}</td>
+                      <td className="px-4 py-3 align-top">
+                        {group ? <GroupBadge status={group.statut} /> : <span className="text-neutral-500">—</span>}
+                      </td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={r.statut} />
+                          <select
+                            value={(r.statut || "").toLowerCase() === "en attente" ? "en_attente" : (r.statut || "")}
+                            onChange={(e) => {
+                              const newStatut = e.target.value;
+                              // MAJ optimiste
+                              setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, statut: newStatut } : x)));
+                              // envoi serveur
+                              supabase.from("inscriptions").update({ statut: newStatut }).eq("id", r.id).then(({ error }) => {
+                                if (error) {
+                                  // rollback
+                                  setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, statut: r.statut } : x)));
+                                  alert("Impossible de mettre à jour le statut.");
+                                }
+                              });
+                            }}
+                            className="rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                          >
+                            <option value="en_attente">En attente</option>
+                            <option value="paye">Payé</option>
+                            <option value="annule">Annulé</option>
+                          </select>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 align-top text-neutral-600">{formatDateTime(r.created_at)}</td>
+                      <td className="px-4 py-3 align-top">
+                        <div className="flex flex-wrap gap-2">
+                          <Link
+                            to={r.id ? `/inscription/${encodeURIComponent(r.id)}` : "#"}
+                            onClick={(e) => { if (!r.id) e.preventDefault(); }}
+                            className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
+                            title="Voir le détail de l’inscription"
+                          >
+                            Voir
+                          </Link>
+                        </div>
+                      </td>
                     </tr>
-                  </thead>
-                  <tbody className="divide-y">
-                    {pageRows.length === 0 ? (
-                      <tr>
-                        <td colSpan={11} className="px-4 py-6 text-center text-neutral-600">
-                          Aucun résultat — ajustez vos filtres.
-                        </td>
-                      </tr>
-                    ) : (
-                      pageRows.map((r) => {
-                        const group = r.member_of_group_id ? groupMap.get(r.member_of_group_id) : null;
-                        const opts = optionsMap.get(r.id) || [];
-                        const optBadges = opts.length ? (
-                          <div className="flex flex-wrap gap-1.5">
-                            {opts.map((o, i) => {
-                              const label = optionLabelMap.get(o.option_id) || `#${String(o.option_id).slice(0, 8)}`;
-                              return (
-                                <span key={o.option_id + i} className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-2 py-0.5 text-xs ring-1 ring-neutral-200">
-                                  {label}{o.quantity > 1 ? ` ×${o.quantity}` : ""}
-                                </span>
-                              );
-                            })}
-                          </div>
-                        ) : (
-                          <span className="text-neutral-500">—</span>
-                        );
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
 
-                        const detailUrl = r.id ? `/inscription/${encodeURIComponent(r.id)}` : "#";
+        {/* Pagination */}
+        <div className="px-4 py-3 border-t border-neutral-200 flex items-center justify-between text-sm">
+          <div className="text-neutral-600">
+            {inscriptions.length} résultat{inscriptions.length > 1 ? "s" : ""} • {PAGE_SIZE} par page
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page <= 1}
+              className={cls(
+                "rounded-lg border px-3 py-1.5",
+                page <= 1 ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
+              )}
+            >
+              Précédent
+            </button>
+            <span className="text-neutral-600">
+              Page {page} / {pageCount}
+            </span>
+            <button
+              onClick={() => setPage((p) => Math.min(pageCount, p + 1))}
+              disabled={page >= pageCount}
+              className={cls(
+                "rounded-lg border px-3 py-1.5",
+                page >= pageCount ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
+              )}
+            >
+              Suivant
+            </button>
+          </div>
+        </div>
+      </div>
 
-                        return (
-                          <tr key={r.id} className="hover:bg-neutral-50/60">
-                            <td className="px-4 py-3 align-top">
-                              <input
-                                type="checkbox"
-                                checked={selectedSet.has(r.id)}
-                                onChange={() => toggleRow(r.id)}
-                              />
-                            </td>
-                            <td className="px-4 py-3 align-top font-medium">{r.nom || "—"}</td>
-                            <td className="px-4 py-3 align-top">{r.prenom || "—"}</td>
-                            <td className="px-4 py-3 align-top">
-                              {r.email ? <a className="text-neutral-900 hover:underline" href={`mailto:${r.email}`}>{r.email}</a> : "—"}
-                            </td>
-                            <td className="px-4 py-3 align-top">{r.team_name || "—"}</td>
-                            <td className="px-4 py-3 align-top">
-                              {group ? <GroupBadge status={group.statut} /> : <span className="text-neutral-500">—</span>}
-                            </td>
+      {/* Modales */}
+      <EmailModal
+        open={showEmail}
+        onClose={() => setShowEmail(false)}
+        recipients={recipients}
+        onSend={({ subject, html }) => {
+          if (recipients.length === 0) return alert("Aucun destinataire sélectionné.");
+          if (!subject?.trim()) return alert("Le sujet est requis.");
+          if (!html?.trim()) return alert("Le message est requis.");
+          supabase.functions
+            .invoke("organiser-send-emails", { body: { subject, html, to: recipients } })
+            .then(({ error }) => {
+              if (error) {
+                console.error("organiser-send-emails error", error);
+                alert("Erreur d’envoi des emails.");
+              } else {
+                alert(`Email envoyé à ${recipients.length} destinataire(s).`);
+                setShowEmail(false);
+              }
+            })
+            .catch(() => alert("Erreur d’envoi."));
+        }}
+      />
 
-                            <td className="px-4 py-3 align-top">
-                              <div className="flex items-center gap-2">
-                                <StatusBadge status={r.statut} />
-                                <select
-                                  value={(r.statut || "").toLowerCase() === "en attente" ? "en_attente" : (r.statut || "")}
-                                  onChange={(e) => {
-                                    const newStatut = e.target.value;
-                                    // MAJ optimiste
-                                    setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, statut: newStatut } : x)));
-                                    // envoi serveur
-                                    supabase.from("inscriptions").update({ statut: newStatut }).eq("id", r.id).then(({ error }) => {
-                                      if (error) {
-                                        // rollback
-                                        setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, statut: r.statut } : x)));
-                                        alert("Impossible de mettre à jour le statut.");
-                                      }
-                                    });
-                                  }}
-                                  className="rounded-lg border border-neutral-300 px-2 py-1 text-xs"
-                                >
-                                  <option value="en_attente">En attente</option>
-                                  <option value="paye">Payé</option>
-                                  <option value="annule">Annulé</option>
-                                </select>
-                              </div>
-                            </td>
+      <AddInscriptionModal
+        open={showAdd}
+        onClose={() => setShowAdd(false)}
+        onCreated={() => load()}
+        courseId={resolvedCourseId}
+        fixedFormatId={formatId}
+      />
 
-                            <td className="px-4 py-3 align-top">
-                              <input
-                                className="w-24 rounded-lg border border-neutral-300 px-2 py-1 text-sm"
-                                value={r.dossard ?? ""}
-                                onChange={(e) => {
-                                  const v = e.target.value.replace(/[^\d]/g, "");
-                                  setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, dossard: v } : x)));
-                                }}
-                                onBlur={(e) => {
-                                  const raw = e.target.value;
-                                  const val = raw === "" ? null : Number(raw);
-                                  if (val != null && (Number.isNaN(val) || val < 0)) {
-                                    alert("Dossard invalide.");
-                                    setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, dossard: r.dossard ?? "" } : x)));
-                                    return;
-                                  }
-                                  supabase.from("inscriptions").update({ dossard: val }).eq("id", r.id).then(({ error }) => {
-                                    if (error) {
-                                      alert("Impossible de mettre à jour le dossard.");
-                                      setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, dossard: r.dossard ?? "" } : x)));
-                                    }
-                                  });
-                                }}
-                                placeholder="—"
-                                inputMode="numeric"
-                              />
-                            </td>
-
-                            <td className="px-4 py-3 align-top text-neutral-700">{optBadges}</td>
-                            <td className="px-4 py-3 align-top text-neutral-600">{formatDateTime(r.created_at)}</td>
-
-                            <td className="px-4 py-3 align-top">
-                              <div className="flex flex-wrap gap-2">
-                                <Link
-                                  to={detailUrl}
-                                  onClick={(e) => { if (detailUrl === "#") e.preventDefault(); }}
-                                  className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
-                                  title="Voir le détail de l’inscription"
-                                >
-                                  Voir
-                                </Link>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Footer section : pagination */}
-              <div className="px-4 py-3 border-t border-neutral-200 flex items-center justify-between text-sm">
-                <div className="text-neutral-600">
-                  {totalRows} résultat{totalRows > 1 ? "s" : ""} • {PAGE_SIZE} par page
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => setPageOf(fid, page - 1)}
-                    disabled={page <= 1}
-                    className={cls(
-                      "rounded-lg border px-3 py-1.5",
-                      page <= 1 ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
-                    )}
-                  >
-                    Précédent
-                  </button>
-                  <span className="text-neutral-600">
-                    Page {page} / {pageCount}
-                  </span>
-                  <button
-                    onClick={() => setPageOf(fid, page + 1)}
-                    disabled={page >= pageCount}
-                    className={cls(
-                      "rounded-lg border px-3 py-1.5",
-                      page >= pageCount ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
-                    )}
-                  >
-                    Suivant
-                  </button>
-                </div>
-              </div>
-
-              {/* Modales sectionnelles */}
-              <EmailModal
-                open={showEmail}
-                onClose={() => setShowEmailByFormat((m) => ({ ...m, [fid]: false }))}
-                recipients={recipients}
-                onSend={(payload) => {
-                  if (recipients.length === 0) return alert("Aucun destinataire sélectionné.");
-                  supabase.functions
-                    .invoke("organiser-send-emails", { body: { subject: payload.subject, html: payload.html, to: recipients } })
-                    .then(({ error }) => {
-                      if (error) {
-                        console.error("organiser-send-emails error", error);
-                        alert("Erreur d’envoi des emails.");
-                      } else {
-                        alert(`Email envoyé à ${recipients.length} destinataire(s).`);
-                      }
-                    })
-                    .finally(() => setShowEmailByFormat((m) => ({ ...m, [fid]: false })));
-                }}
-              />
-
-              <AddInscriptionModal
-                open={showAdd}
-                onClose={() => setShowAddByFormat((m) => ({ ...m, [fid]: false }))}
-                onCreated={() => load()}
-                formats={formatId ? formats.filter((x) => x.id === fid) : formats}
-                courseId={resolvedCourseId}
-              />
-
-              <ExportCsvModal
-                open={showExport}
-                onClose={() => setShowExportByFormat((m) => ({ ...m, [fid]: false }))}
-                rows={selectedRows.length > 0 ? selectedRows : rows}
-                groupsById={groupMap}
-                optionsById={optionsMap}
-                optionLabelById={optionLabelMap}
-                filenameBase={filenameBase}
-              />
-            </div>
-          );
-        })}
+      <ExportCsvModal
+        open={showExport}
+        onClose={() => setShowExport(false)}
+        rows={selectedRows.length > 0 ? selectedRows : inscriptions}
+        groupsById={groupMap}
+        optionsById={optionsMap}
+        optionLabelById={optionLabelMap}
+        filenameBase={`inscriptions-${(formatObj?.nom || "format").toString().toLowerCase().replace(/\s+/g, "-")}`}
+      />
     </div>
   );
 }
