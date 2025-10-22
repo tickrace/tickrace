@@ -182,7 +182,6 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
         team_name: form.team_name.trim() || null,
         format_id: form.format_id,
         statut: form.statut,
-        // essaye d'affecter course_id si disponible dans le contexte ou via le format
         ...(courseId ? { course_id: courseId } : fmt?.course_id ? { course_id: fmt.course_id } : {}),
       };
 
@@ -266,7 +265,7 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
 }
 
 /* ---------------------- Modale Export CSV ---------------------- */
-function ExportCsvModal({ open, onClose, rows, groupsById, optionsById }) {
+function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLabelById }) {
   const [cols, setCols] = useState([
     "id",
     "created_at",
@@ -293,7 +292,6 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById }) {
 
   useEffect(() => {
     if (!open) {
-      // reset par défaut à l'ouverture suivante
       setCols(["id","created_at","nom","prenom","email","team_name","statut","group_status","options"]);
     }
   }, [open]);
@@ -323,7 +321,10 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById }) {
       const group = r.member_of_group_id ? groupsById.get(r.member_of_group_id) : null;
       const opts = optionsById.get(r.id) || [];
       const optsTxt = opts.length
-        ? opts.map((o) => `#${o.option_id.slice(0, 8)}×${o.quantity}`).join(", ")
+        ? opts.map((o) => {
+            const label = optionLabelById.get(o.option_id) || `#${o.option_id.slice(0, 8)}`;
+            return `${label}×${o.quantity}`;
+          }).join(", ")
         : "—";
 
       const map = {
@@ -404,14 +405,15 @@ export default function ListeInscriptions() {
   // Maps d’enrichissement
   const [groupMap, setGroupMap] = useState(new Map());        // groupId -> group row
   const [optionsMap, setOptionsMap] = useState(new Map());    // inscriptionId -> [{...}]
+  const [optionLabelMap, setOptionLabelMap] = useState(new Map()); // optionId -> label
 
   // Filtres & tri
   const [formats, setFormats] = useState([]);
- // const [formatId, setFormatId] = useState("");
- 
- const [searchParams] = useSearchParams();
- const initialFormatId = searchParams.get("formatId") || "";
- const [formatId, setFormatId] = useState(initialFormatId);
+  const [searchParams] = useSearchParams();
+  const initialFormatId = searchParams.get("formatId") || "";
+  const [formatId, setFormatId] = useState(initialFormatId);
+  const lockedFormat = useMemo(() => !!initialFormatId, [initialFormatId]);
+
   const [statut, setStatut] = useState("all"); // all | paye | en_attente | annule
   const [q, setQ] = useState("");
   const debouncedQ = useDebounced(q, 400);
@@ -457,7 +459,6 @@ export default function ListeInscriptions() {
   useEffect(() => {
     let alive = true;
     (async () => {
-      // Charge les formats (pour le filtre) – si courseId est présent, filtre par course
       const query = supabase
         .from("formats")
         .select("id, nom, date, course_id")
@@ -473,6 +474,12 @@ export default function ListeInscriptions() {
     return () => { alive = false; };
   }, [courseId]);
 
+  const currentFormatLabel = useMemo(() => {
+    const f = formats.find(x => x.id === formatId);
+    if (!f) return formatId ? `Format ${formatId}` : "Tous les formats";
+    return `${f.nom}${f.date ? ` — ${f.date}` : ""}`;
+  }, [formats, formatId]);
+
   /* ---------------------- Charger Inscriptions page ---------------------- */
   const load = useCallback(async () => {
     setLoading(true);
@@ -487,7 +494,6 @@ export default function ListeInscriptions() {
       if (statut && statut !== "all") query = query.eq("statut", statut);
 
       if (debouncedQ) {
-        // recherche sur nom/prenom/email/team_name
         query = query.or([
           `nom.ilike.%${debouncedQ}%`,
           `prenom.ilike.%${debouncedQ}%`,
@@ -496,7 +502,6 @@ export default function ListeInscriptions() {
         ].join(","));
       }
 
-      // Tri
       if (sortBy === "nom") {
         query = query.order("nom", { ascending: sortDir === "asc", nullsFirst: false });
       } else if (sortBy === "statut") {
@@ -505,7 +510,6 @@ export default function ListeInscriptions() {
         query = query.order("created_at", { ascending: sortDir === "asc", nullsFirst: false });
       }
 
-      // Pagination
       query = query.range(from, to);
 
       const { data, error, count } = await query;
@@ -514,7 +518,6 @@ export default function ListeInscriptions() {
       setRows(data || []);
       setTotal(count || 0);
 
-      // Enrichissements : groupes + options confirmées
       const ids = (data || []).map(r => r.id);
       const grpIds = [...new Set((data || []).map(r => r.member_of_group_id).filter(Boolean))];
 
@@ -535,7 +538,7 @@ export default function ListeInscriptions() {
         setGroupMap(new Map());
       }
 
-      // Options confirmées
+      // Options confirmées + libellés
       if (ids.length > 0) {
         const { data: opts, error: oe } = await supabase
           .from("inscriptions_options")
@@ -544,17 +547,45 @@ export default function ListeInscriptions() {
           .eq("status", "confirmed");
 
         if (!oe && opts) {
+          // map inscription -> options[]
           const m = new Map();
           for (const o of opts) {
             if (!m.has(o.inscription_id)) m.set(o.inscription_id, []);
             m.get(o.inscription_id).push(o);
           }
           setOptionsMap(m);
+
+          // Récupère les libellés d’options
+          const optionIds = [...new Set(opts.map(o => o.option_id))];
+          if (optionIds.length > 0) {
+            // Table supposée "options" avec { id, nom } (ou name/label) — fallback sur l’ID si manquant
+            const { data: defs, error: de } = await supabase
+              .from("options")
+              .select("id, nom, name, label")
+              .in("id", optionIds);
+            if (!de && defs) {
+              const mm = new Map();
+              defs.forEach(d => {
+                const l = d.nom || d.name || d.label || `#${String(d.id).slice(0,8)}`;
+                mm.set(d.id, l);
+              });
+              setOptionLabelMap(mm);
+            } else {
+              // fallback : juste afficher #id
+              const mm = new Map();
+              optionIds.forEach(id => mm.set(id, `#${String(id).slice(0,8)}`));
+              setOptionLabelMap(mm);
+            }
+          } else {
+            setOptionLabelMap(new Map());
+          }
         } else {
           setOptionsMap(new Map());
+          setOptionLabelMap(new Map());
         }
       } else {
         setOptionsMap(new Map());
+        setOptionLabelMap(new Map());
       }
     } catch (e) {
       console.error("LOAD_INSC_ERROR", e);
@@ -565,7 +596,7 @@ export default function ListeInscriptions() {
   }, [courseId, formatId, statut, debouncedQ, sortBy, sortDir, page]);
 
   useEffect(() => {
-    setPage(1); // reset page si filtres changent
+    setPage(1);
   }, [formatId, statut, debouncedQ, sortBy, sortDir]);
 
   useEffect(() => {
@@ -596,12 +627,9 @@ export default function ListeInscriptions() {
         alert("Le message est requis.");
         return;
       }
-
-      // Edge Function à adapter si ton nom diffère
-      const { data, error } = await supabase.functions.invoke("organiser-send-emails", {
+      const { error } = await supabase.functions.invoke("organiser-send-emails", {
         body: { subject, html, to: recipients },
       });
-
       if (error) {
         console.error("organiser-send-emails error", error);
         alert("Erreur d’envoi des emails.");
@@ -628,7 +656,6 @@ export default function ListeInscriptions() {
   };
 
   /* ---------------------- Indices MemberDetails ---------------------- */
-  // Calcule teamIdx/memberIdx par format et équipe pour construire l'URL attendue /member-details/:courseId/:formatId/:teamIdx/:memberIdx
   const indicesByInscriptionId = useMemo(() => {
     const byFormat = new Map();
     for (const r of rows) {
@@ -711,7 +738,6 @@ export default function ListeInscriptions() {
             Email aux sélectionnés ({recipients.length})
           </button>
 
-          {/* (2) Ajouter manuellement */}
           <button
             onClick={() => setShowAdd(true)}
             className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
@@ -719,7 +745,6 @@ export default function ListeInscriptions() {
             + Ajouter un coureur
           </button>
 
-          {/* (4) Export CSV avec sélection */}
           <button
             onClick={() => {
               if (selectedRows.length === 0) {
@@ -744,21 +769,30 @@ export default function ListeInscriptions() {
 
       {/* Filtres */}
       <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
+        {/* Format : soit verrouillé (via ?formatId=), soit sélecteur */}
         <div>
           <label className="block text-sm font-medium">Format</label>
-          <select
-            value={formatId}
-            onChange={(e) => setFormatId(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-          >
-            <option value="">Tous les formats</option>
-            {formats.map(f => (
-              <option key={f.id} value={f.id}>
-                {f.nom} {f.date ? `— ${f.date}` : ""}
-              </option>
-            ))}
-          </select>
+          {lockedFormat ? (
+            <div className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 bg-neutral-50 text-neutral-800 flex items-center justify-between">
+              <span>{currentFormatLabel}</span>
+              <span className="text-xs rounded-full bg-neutral-200 px-2 py-0.5">verrouillé</span>
+            </div>
+          ) : (
+            <select
+              value={formatId}
+              onChange={(e) => setFormatId(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+            >
+              <option value="">Tous les formats</option>
+              {formats.map(f => (
+                <option key={f.id} value={f.id}>
+                  {f.nom} {f.date ? `— ${f.date}` : ""}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
+
         <div>
           <label className="block text-sm font-medium">Statut</label>
           <select
@@ -773,6 +807,7 @@ export default function ListeInscriptions() {
             <option value="annule">Annulé</option>
           </select>
         </div>
+
         <div>
           <label className="block text-sm font-medium">Recherche</label>
           <input
@@ -782,6 +817,7 @@ export default function ListeInscriptions() {
             placeholder="Nom, prénom, email, équipe…"
           />
         </div>
+
         <div>
           <label className="block text-sm font-medium">Tri</label>
           <div className="mt-1 grid grid-cols-2 gap-2">
@@ -833,7 +869,6 @@ export default function ListeInscriptions() {
                 <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("statut")}>Statut</th>
                 <th className="px-4 py-3">Options</th>
                 <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("created_at")}>Créé le</th>
-                {/* (1) Lien vers détails */}
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
@@ -863,11 +898,22 @@ export default function ListeInscriptions() {
                 rows.map((r) => {
                   const group = r.member_of_group_id ? groupMap.get(r.member_of_group_id) : null;
                   const opts = optionsMap.get(r.id) || [];
-                  const optsTxt = opts.length
-                    ? opts.map(o => `#${o.option_id.slice(0, 8)}×${o.quantity}`).join(", ")
-                    : "—";
+                  const optBadges = opts.length
+                    ? (
+                      <div className="flex flex-wrap gap-1.5">
+                        {opts.map((o, i) => {
+                          const label = optionLabelMap.get(o.option_id) || `#${o.option_id.slice(0,8)}`;
+                          return (
+                            <span key={o.option_id + i} className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-2 py-0.5 text-xs ring-1 ring-neutral-200">
+                              {label}{o.quantity > 1 ? ` ×${o.quantity}` : ""}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    )
+                    : <span className="text-neutral-500">—</span>;
 
-                  // URL attendue par MemberDetails: /member-details/:courseId/:formatId/:teamIdx/:memberIdx
+                  // URL attendue par MemberDetails
                   const idx = indicesByInscriptionId.get(r.id) || { teamIdx: 0, memberIdx: 0 };
                   const detailUrl = (r.course_id && r.format_id)
                     ? `/member-details/${encodeURIComponent(r.course_id)}/${encodeURIComponent(r.format_id)}/${idx.teamIdx}/${idx.memberIdx}`
@@ -892,7 +938,6 @@ export default function ListeInscriptions() {
                         {group ? <GroupBadge status={group.statut} /> : <span className="text-neutral-500">—</span>}
                       </td>
 
-                      {/* (3) Statut modifiable */}
                       <td className="px-4 py-3 align-top">
                         <div className="flex items-center gap-2">
                           <StatusBadge status={r.statut} />
@@ -908,10 +953,9 @@ export default function ListeInscriptions() {
                         </div>
                       </td>
 
-                      <td className="px-4 py-3 align-top text-neutral-700">{optsTxt}</td>
+                      <td className="px-4 py-3 align-top text-neutral-700">{optBadges}</td>
                       <td className="px-4 py-3 align-top text-neutral-600">{formatDateTime(r.created_at)}</td>
 
-                      {/* (1) Lien vers détails */}
                       <td className="px-4 py-3 align-top">
                         <div className="flex flex-wrap gap-2">
                           <Link
@@ -987,6 +1031,7 @@ export default function ListeInscriptions() {
         rows={selectedRows}
         groupsById={groupMap}
         optionsById={optionsMap}
+        optionLabelById={optionLabelMap}
       />
     </div>
   );
