@@ -540,7 +540,7 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
 
 /* ----------------------- Page ListeInscriptions ----------------------- */
 export default function ListeInscriptions() {
-  // --- Paramètres & Querystring (avec auto-détection courseId/formatId)
+  // --- Paramètres & Querystring (auto-détection courseId/formatId)
   const { courseId: routeParam } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -568,10 +568,8 @@ export default function ListeInscriptions() {
 
   // Pagination & sélection par format
   const PAGE_SIZE = 25;
-  const [pageByFormat, setPageByFormat] = useState({}); // { [formatId]: number }
-  const [selectedByFormat, setSelectedByFormat] = useState({}); // { [formatId]: Set(ids) }
-
-  // États de modales par format
+  const [pageByFormat, setPageByFormat] = useState({});
+  const [selectedByFormat, setSelectedByFormat] = useState({});
   const [showEmailByFormat, setShowEmailByFormat] = useState({});
   const [showAddByFormat, setShowAddByFormat] = useState({});
   const [showExportByFormat, setShowExportByFormat] = useState({});
@@ -670,10 +668,22 @@ export default function ListeInscriptions() {
     return `${f.nom}${f.date ? ` — ${f.date}` : ""}`;
   }, [formats, formatId]);
 
-  /* ---------------------- Charger Inscriptions (toutes) ---------------------- */
+  /* ---------------------- Charger Inscriptions (course + format) ---------------------- */
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      // Garde-fou cohérence course/format
+      const targeted = targetedFormatIds;
+      if (resolvedCourseId && targeted.length === 1) {
+        const f = formats.find((x) => x.id === targeted[0]);
+        if (f && f.course_id && f.course_id !== resolvedCourseId) {
+          setInscriptions([]); setTotal(0);
+          setOptionsMap(new Map()); setOptionLabelMap(new Map()); setGroupMap(new Map());
+          setLoading(false);
+          return;
+        }
+      }
+
       let query = supabase
         .from("inscriptions")
         .select(
@@ -681,24 +691,32 @@ export default function ListeInscriptions() {
           { count: "exact" }
         );
 
-      // IMPORTANT: on ne filtre pas par course_id (certaines anciennes lignes peuvent être nulles)
-      if (targetedFormatIds.length > 0) {
-        query = query.in("format_id", targetedFormatIds);
+      // ⚠️ Filtrer par course_id ET format_id (exigence)
+      if (resolvedCourseId) query = query.eq("course_id", resolvedCourseId);
+
+      if (targeted.length > 0) {
+        query = query.in("format_id", targeted);
       } else {
-        // aucun format → on court-circuite
-        setInscriptions([]);
-        setTotal(0);
-        setOptionsMap(new Map());
-        setOptionLabelMap(new Map());
-        setGroupMap(new Map());
+        // aucun format → on vide
+        setInscriptions([]); setTotal(0);
+        setOptionsMap(new Map()); setOptionLabelMap(new Map()); setGroupMap(new Map());
         setLoading(false);
         return;
       }
 
       if (statut && statut !== "all") {
-        const normalized = (statut || "").toLowerCase();
-        const value = normalized === "en attente" ? "en_attente" : normalized;
-        query = query.eq("statut", value);
+        const s = (statut || "").toLowerCase();
+        const STATUS_SET = {
+          paye: ["paye", "payé", "payee", "paid", "valide", "validé", "confirme", "confirmé", "confirmed"],
+          annule: ["annule", "annulé", "canceled", "cancelled"],
+          en_attente: ["en_attente", "en attente", "pending", "attente"],
+        };
+        const key =
+          s === "paye" ? "paye" :
+          s === "annule" ? "annule" :
+          s === "en_attente" || s === "en attente" ? "en_attente" :
+          null;
+        if (key) query = query.in("statut", STATUS_SET[key]);
       }
 
       if (debouncedQ) {
@@ -802,7 +820,7 @@ export default function ListeInscriptions() {
     } finally {
       setLoading(false);
     }
-  }, [targetedFormatIds, statut, debouncedQ, sortBy, sortDir]);
+  }, [targetedFormatIds, statut, debouncedQ, sortBy, sortDir, resolvedCourseId, formats]);
 
   // Sync URL sur changement de filtres
   useEffect(() => {
@@ -812,7 +830,6 @@ export default function ListeInscriptions() {
   // Reset pagination/sélection quand filtres changent
   useEffect(() => {
     setPageByFormat({});
-    setSelectedByFormat({});
   }, [formatId, statut, debouncedQ, sortBy, sortDir]);
 
   useEffect(() => {
@@ -866,14 +883,6 @@ export default function ListeInscriptions() {
     const from = (page - 1) * PAGE_SIZE;
     const to = from + PAGE_SIZE;
     return { page, pageCount, from, to, totalRows };
-  };
-
-  const setSelectedForFormat = (fid, updater) => {
-    setSelectedByFormat((prev) => {
-      const cur = new Set(prev[fid] || []);
-      const next = updater(cur);
-      return { ...prev, [fid]: next };
-    });
   };
 
   const selectedRowsFor = (fid, arr) => {
@@ -1009,34 +1018,34 @@ export default function ListeInscriptions() {
       {!loading &&
         allSections.map((fid) => {
           const rows = byFormat.get(fid) || [];
-          const meta = sectionMeta(fid, rows);
-          const pageRows = rows.slice(meta.from, meta.to);
+          const totalRows = rows.length;
+
+          const page = Math.max(1, Math.min(pageOf(fid), Math.ceil(Math.max(1, totalRows) / PAGE_SIZE)));
+          const from = (page - 1) * PAGE_SIZE;
+          const to = from + PAGE_SIZE;
+          const pageRows = rows.slice(from, to);
+          const pageCount = Math.max(1, Math.ceil(Math.max(1, totalRows) / PAGE_SIZE));
 
           const selectedSet = selectedByFormat[fid] || new Set();
           const allChecked = pageRows.length > 0 && pageRows.every((r) => selectedSet.has(r.id));
-          const selectedRows = selectedRowsFor(fid, rows);
+          const selectedRows = rows.filter((r) => selectedSet.has(r.id));
 
           const f = formats.find((x) => x.id === fid);
           const filenameBase = `inscriptions-${(f?.nom || "format").toString().toLowerCase().replace(/\s+/g, "-")}`;
 
-          const toggleRow = (id) =>
-            setSelectedForFormat(fid, (cur) => {
-              const next = new Set(cur);
-              if (next.has(id)) next.delete(id);
-              else next.add(id);
-              return next;
-            });
+          const toggleRow = (id) => {
+            const cur = new Set(selectedSet);
+            if (cur.has(id)) cur.delete(id);
+            else cur.add(id);
+            setSelectedByFormat((prev) => ({ ...prev, [fid]: cur }));
+          };
 
-          const toggleAll = () =>
-            setSelectedForFormat(fid, (cur) => {
-              const next = new Set(cur);
-              if (allChecked) {
-                pageRows.forEach((r) => next.delete(r.id));
-              } else {
-                pageRows.forEach((r) => next.add(r.id));
-              }
-              return next;
-            });
+          const toggleAll = () => {
+            const cur = new Set(selectedSet);
+            if (allChecked) pageRows.forEach((r) => cur.delete(r.id));
+            else pageRows.forEach((r) => cur.add(r.id));
+            setSelectedByFormat((prev) => ({ ...prev, [fid]: cur }));
+          };
 
           const recipients = Array.from(
             new Set(
@@ -1055,7 +1064,7 @@ export default function ListeInscriptions() {
                 <div className="min-w-0">
                   <div className="text-sm font-semibold text-neutral-700">{formatName(fid)}</div>
                   <div className="text-xs text-neutral-500">
-                    {rows.length} inscrit{rows.length > 1 ? "s" : ""} • {PAGE_SIZE} par page
+                    {totalRows} inscrit{totalRows > 1 ? "s" : ""} • {PAGE_SIZE} par page
                     {f?.nb_max_coureurs ? <> • capacité&nbsp;: {f.nb_max_coureurs}</> : null}
                   </div>
                 </div>
@@ -1151,11 +1160,7 @@ export default function ListeInscriptions() {
                               <input
                                 type="checkbox"
                                 checked={selectedSet.has(r.id)}
-                                onChange={() => setSelectedForFormat(fid, (cur) => {
-                                  const next = new Set(cur);
-                                  if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
-                                  return next;
-                                })}
+                                onChange={() => toggleRow(r.id)}
                               />
                             </td>
                             <td className="px-4 py-3 align-top font-medium">{r.nom || "—"}</td>
@@ -1180,7 +1185,7 @@ export default function ListeInscriptions() {
                                     // envoi serveur
                                     supabase.from("inscriptions").update({ statut: newStatut }).eq("id", r.id).then(({ error }) => {
                                       if (error) {
-                                        // rollback en cas d'erreur
+                                        // rollback
                                         setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, statut: r.statut } : x)));
                                         alert("Impossible de mettre à jour le statut.");
                                       }
@@ -1249,28 +1254,28 @@ export default function ListeInscriptions() {
               {/* Footer section : pagination */}
               <div className="px-4 py-3 border-t border-neutral-200 flex items-center justify-between text-sm">
                 <div className="text-neutral-600">
-                  {meta.totalRows} résultat{meta.totalRows > 1 ? "s" : ""} • {PAGE_SIZE} par page
+                  {totalRows} résultat{totalRows > 1 ? "s" : ""} • {PAGE_SIZE} par page
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={() => setPageOf(fid, meta.page - 1)}
-                    disabled={meta.page <= 1}
+                    onClick={() => setPageOf(fid, page - 1)}
+                    disabled={page <= 1}
                     className={cls(
                       "rounded-lg border px-3 py-1.5",
-                      meta.page <= 1 ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
+                      page <= 1 ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
                     )}
                   >
                     Précédent
                   </button>
                   <span className="text-neutral-600">
-                    Page {meta.page} / {meta.pageCount}
+                    Page {page} / {pageCount}
                   </span>
                   <button
-                    onClick={() => setPageOf(fid, meta.page + 1)}
-                    disabled={meta.page >= meta.pageCount}
+                    onClick={() => setPageOf(fid, page + 1)}
+                    disabled={page >= pageCount}
                     className={cls(
                       "rounded-lg border px-3 py-1.5",
-                      meta.page >= meta.pageCount ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
+                      page >= pageCount ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
                     )}
                   >
                     Suivant
