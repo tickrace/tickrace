@@ -13,10 +13,6 @@ function formatDateTime(iso) {
     hour: "2-digit", minute: "2-digit",
   });
 }
-function eurCents(cents) {
-  const n = (Number(cents || 0) / 100);
-  return n.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
-}
 function useDebounced(value, delay = 400) {
   const [v, setV] = useState(value);
   useEffect(() => { const t = setTimeout(() => setV(value), delay); return () => clearTimeout(t); }, [value, delay]);
@@ -40,7 +36,6 @@ function StatusBadge({ status }) {
 function EmailModal({ open, onClose, recipients, onSend }) {
   const [subject, setSubject] = useState("");
   const [message, setMessage] = useState("Bonjour,\n\n…\n");
-
   useEffect(() => { if (!open) { setSubject(""); setMessage("Bonjour,\n\n…\n"); } }, [open]);
   if (!open) return null;
 
@@ -82,9 +77,16 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
     code_postal:"", ville:"", pays:"", club:"",
     justificatif_type:"", numero_licence:"", pps_identifier:"",
     contact_urgence_nom:"", contact_urgence_telephone:"",
-    apparaitre_resultats:true, statut:"en_attente", team_name:"",
+    apparaitre_resultats:true, statut:"en_attente", team_name:"", dossard:""
   });
-  useEffect(()=>{ if(!open){ setSaving(false); setF({ ...f, nom:"", prenom:"", email:"", genre:"", date_naissance:"", nationalite:"", telephone:"", adresse:"", adresse_complement:"", code_postal:"", ville:"", pays:"", club:"", justificatif_type:"", numero_licence:"", pps_identifier:"", contact_urgence_nom:"", contact_urgence_telephone:"", apparaitre_resultats:true, statut:"en_attente", team_name:"", }); } },[open]); // eslint-disable-line
+  useEffect(()=>{ if(!open){ setSaving(false); setF({
+    nom:"", prenom:"", email:"", genre:"", date_naissance:"",
+    nationalite:"", telephone:"", adresse:"", adresse_complement:"",
+    code_postal:"", ville:"", pays:"", club:"",
+    justificatif_type:"", numero_licence:"", pps_identifier:"",
+    contact_urgence_nom:"", contact_urgence_telephone:"",
+    apparaitre_resultats:true, statut:"en_attente", team_name:"", dossard:""
+  }); } },[open]);
   if (!open) return null;
   const onChange = (e)=>{ const {name,value,type,checked}=e.target; setF(p=>({...p,[name]: type==="checkbox"?checked:value})); };
   const save = async ()=>{
@@ -97,6 +99,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
         email: f.email?.trim() || null,
         course_id: courseId || null, format_id: formatId,
         team_name: f.team_name?.trim() || null,
+        dossard: f.dossard!=="" ? Number(f.dossard) : null
       };
       const { error } = await supabase.from("inscriptions").insert(payload);
       if (error) throw error;
@@ -132,7 +135,8 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
           <input name="pps_identifier" value={f.pps_identifier} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Identifiant PPS"/>
           <input name="contact_urgence_nom" value={f.contact_urgence_nom} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Contact urgence - Nom"/>
           <input name="contact_urgence_telephone" value={f.contact_urgence_telephone} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Contact urgence - Téléphone"/>
-          <input name="team_name" value={f.team_name} onChange={onChange} className="rounded-xl border px-3 py-2 md:col-span-2" placeholder="Équipe (si applicable)"/>
+          <input name="team_name" value={f.team_name} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Équipe (si applicable)"/>
+          <input name="dossard" value={f.dossard} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Dossard (optionnel)"/>
           <div className="flex items-center gap-2 md:col-span-2">
             <input id="apres" type="checkbox" name="apparaitre_resultats" checked={f.apparaitre_resultats} onChange={onChange}/>
             <label htmlFor="apres" className="text-sm">Apparaître dans les résultats</label>
@@ -187,7 +191,7 @@ function AddTeamModal({ open, onClose, onCreated, courseId, formatId, defaultSiz
     }
     setSaving(true);
     try {
-      // 1) Crée le groupe
+      // 1) Groupe
       const { data: group, error: gerr } = await supabase.from("inscriptions_groupes").insert({
         team_name: teamName.trim(),
         team_category: null,
@@ -196,7 +200,7 @@ function AddTeamModal({ open, onClose, onCreated, courseId, formatId, defaultSiz
       }).select("id").single();
       if (gerr) throw gerr;
 
-      // 2) Crée les inscriptions membres
+      // 2) Membres
       const rows = members.map(m => ({
         course_id: courseId || null,
         format_id: formatId,
@@ -286,7 +290,7 @@ function ExportCsvModal({ open, onClose, rows, columns, filenameBase = "inscript
     const s = String(v);
     if (s.includes('"') || s.includes(";") || s.includes("\n")) return `"${s.replaceAll('"','""')}"`;
     return s;
-    };
+  };
   const exportCsv = () => {
     const visible = columns.filter(c=>c.visible);
     const header = visible.map(c=>csvEscape(c.label)).join(";");
@@ -330,6 +334,155 @@ function ExportCsvModal({ open, onClose, rows, columns, filenameBase = "inscript
   );
 }
 
+/* ---------------------- Modale Attribution Dossards ---------------------- */
+function AssignBibModal({ open, onClose, rows, selectedIds, onDone }) {
+  const [start, setStart] = useState(100);
+  const [end, setEnd] = useState(500);
+  const [scope, setScope] = useState(selectedIds.length ? "selected" : "all"); // selected | all
+  const [orderBy, setOrderBy] = useState("created_at"); // created_at | nom | prenom | dossard
+  const [overwrite, setOverwrite] = useState(false);
+  const [onlyMissing, setOnlyMissing] = useState(true);
+  const [assignCount, setAssignCount] = useState(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(()=>{ if(!open){ setStart(100); setEnd(500); setScope(selectedIds.length ? "selected":"all"); setOrderBy("created_at"); setOverwrite(false); setOnlyMissing(true); setAssignCount(null); setSaving(false);} },[open, selectedIds]);
+
+  if (!open) return null;
+
+  const targetRows = useMemo(()=>{
+    let list = rows || [];
+    if (scope === "selected") {
+      const set = new Set(selectedIds || []);
+      list = list.filter(r => set.has(r.id));
+    }
+    list = [...list].sort((a,b)=>{
+      const A = (a[orderBy] ?? "").toString().toLowerCase();
+      const B = (b[orderBy] ?? "").toString().toLowerCase();
+      if (A < B) return -1; if (A > B) return 1; return 0;
+    });
+    if (onlyMissing && !overwrite) list = list.filter(r => r.dossard == null || r.dossard === "");
+    return list;
+  }, [rows, selectedIds, scope, orderBy, onlyMissing, overwrite]);
+
+  const validRange = Number.isFinite(Number(start)) && Number.isFinite(Number(end)) && Number(end) >= Number(start);
+  const capacity = validRange ? (Number(end) - Number(start) + 1) : 0;
+
+  const simulate = ()=> {
+    if (!validRange) { setAssignCount(0); return; }
+    setAssignCount(Math.min(capacity, targetRows.length));
+  };
+
+  const run = async ()=>{
+    if (!validRange) return alert("Plage invalide.");
+    if (capacity <= 0) return alert("Plage vide.");
+    if (targetRows.length === 0) return alert("Aucun coureur à numéroter dans la sélection.");
+
+    setSaving(true);
+    try {
+      // Numéros déjà pris (dans les rows chargées)
+      const taken = new Set(
+        (rows || [])
+          .map(r => r.dossard)
+          .filter(v => v !== null && v !== undefined && String(v).trim() !== "")
+          .map(v => Number(v))
+          .filter(n => Number.isFinite(n))
+      );
+      const seq = [];
+      for (let n = Number(start); n <= Number(end); n++) {
+        if (overwrite) { seq.push(n); continue; }
+        if (!taken.has(n)) seq.push(n);
+      }
+      if (seq.length === 0) { alert("Aucun numéro disponible dans la plage."); setSaving(false); return; }
+
+      const toAssign = targetRows.slice(0, seq.length);
+
+      const updates = toAssign.map((r, idx) => {
+        const value = seq[idx];
+        return supabase.from("inscriptions").update({ dossard: value }).eq("id", r.id);
+      });
+      const results = await Promise.allSettled(updates);
+      const ok = results.filter(x=>x.status==="fulfilled").length;
+      const ko = results.length - ok;
+
+      alert(`Dossards attribués : ${ok}${ko>0?` • Échecs : ${ko}`:""}`);
+      onDone?.();
+    } catch(e) {
+      console.error("ASSIGN_BIB_ERROR", e);
+      alert("Erreur lors de l’attribution des dossards.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Attribuer des dossards</h3>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">Fermer</button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">Début</label>
+              <input type="number" value={start} onChange={(e)=>setStart(Number(e.target.value))} className="mt-1 w-full rounded-xl border px-3 py-2" />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Fin</label>
+              <input type="number" value={end} onChange={(e)=>setEnd(Number(e.target.value))} className="mt-1 w-full rounded-xl border px-3 py-2" />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">Portée</label>
+              <select value={scope} onChange={(e)=>setScope(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2">
+                <option value="selected">Coureurs sélectionnés</option>
+                <option value="all">Tous les résultats filtrés</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-sm font-medium">Ordre d’attribution</label>
+              <select value={orderBy} onChange={(e)=>setOrderBy(e.target.value)} className="mt-1 w-full rounded-xl border px-3 py-2">
+                <option value="created_at">Date de création</option>
+                <option value="nom">Nom</option>
+                <option value="prenom">Prénom</option>
+                <option value="dossard">Dossard actuel</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-2 text-sm">
+            <label className="inline-flex items-center gap-2">
+              <input type="checkbox" checked={onlyMissing} onChange={(e)=>setOnlyMissing(e.target.checked)} />
+              N’attribuer que si dossard manquant
+            </label>
+            <label className="inline-flex items-center gap-2">
+              <input type="checkbox" checked={overwrite} onChange={(e)=>setOverwrite(e.target.checked)} />
+              Écraser les dossards existants
+            </label>
+          </div>
+
+          <div className="rounded-lg bg-neutral-50 border border-neutral-200 p-3 text-sm">
+            <div>Éligibles : <b>{targetRows.length}</b></div>
+            <div>Capacité de la plage : <b>{capacity}</b></div>
+            <div>Attribuables (approx.) : <b>{assignCount ?? "—"}</b></div>
+            <button onClick={simulate} className="mt-2 rounded-lg border px-3 py-1.5 text-xs hover:bg-white">Simuler</button>
+          </div>
+        </div>
+
+        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">Annuler</button>
+          <button onClick={run} disabled={saving} className={cls("rounded-xl px-4 py-2 text-sm font-semibold text-white", saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black")}>
+            {saving ? "Attribution…" : "Attribuer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ----------------------- Page ListeInscriptions ----------------------- */
 export default function ListeInscriptions() {
   const { courseId: routeParam } = useParams();
@@ -339,10 +492,10 @@ export default function ListeInscriptions() {
   const initialFormatId = searchParams.get("formatId") || "";
   const [formatId, setFormatId] = useState(initialFormatId);
 
-  const [statut, setStatut] = useState(searchParams.get("statut") || "all"); // all | paye | en_attente | annule
+  const [statut, setStatut] = useState(searchParams.get("statut") || "all");
   const [q, setQ] = useState(searchParams.get("q") || "");
   const debouncedQ = useDebounced(q, 400);
-  const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "created_at"); // created_at | nom | statut
+  const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "created_at");
   const [sortDir, setSortDir] = useState(searchParams.get("sortDir") || "desc");
 
   const [loading, setLoading] = useState(true);
@@ -350,14 +503,14 @@ export default function ListeInscriptions() {
   const [total, setTotal] = useState(0);
 
   const [formats, setFormats] = useState([]);
-  const [formatType, setFormatType] = useState("individuel"); // pour afficher bouton équipe
+  const [formatType, setFormatType] = useState("individuel");
   const [defaultTeamSize, setDefaultTeamSize] = useState(2);
 
   const [groupMap, setGroupMap] = useState(new Map());
   const [optionsMap, setOptionsMap] = useState(new Map());
   const [optionLabelMap, setOptionLabelMap] = useState(new Map());
 
-  // UI state
+  // UI
   const [page, setPage] = useState(1);
   const PAGE_SIZE = 25;
   const [selected, setSelected] = useState(new Set());
@@ -365,6 +518,7 @@ export default function ListeInscriptions() {
   const [showAddRunner, setShowAddRunner] = useState(false);
   const [showAddTeam, setShowAddTeam] = useState(false);
   const [showExport, setShowExport] = useState(false);
+  const [showAssignBib, setShowAssignBib] = useState(false);
 
   const updateQS = useCallback((next)=>{
     const sp = new URLSearchParams(searchParams.toString());
@@ -377,8 +531,6 @@ export default function ListeInscriptions() {
     let alive = true;
     (async () => {
       if (!routeParam) { setResolvedCourseId(null); return; }
-
-      // routeParam = courseId ?
       const { data: fmtByCourse } = await supabase
         .from("formats")
         .select("id")
@@ -389,7 +541,6 @@ export default function ListeInscriptions() {
       if (fmtByCourse && fmtByCourse.length > 0) {
         setResolvedCourseId(routeParam);
       } else {
-        // routeParam = formatId → trouve course
         const { data: fmt } = await supabase
           .from("formats")
           .select("id, course_id")
@@ -431,7 +582,7 @@ export default function ListeInscriptions() {
         }
       }
     })();
-    return ()=>{ alive=false; };
+  return ()=>{ alive=false; };
   },[resolvedCourseId, formatId]);
 
   const formatObj = useMemo(()=> formatId ? formats.find(f=>f.id===formatId) : null, [formats, formatId]);
@@ -444,6 +595,7 @@ export default function ListeInscriptions() {
     { key:"statut", label:"Statut", visible:true },
     { key:"nom", label:"Nom", visible:true },
     { key:"prenom", label:"Prénom", visible:true },
+    { key:"dossard", label:"Dossard", visible:true }, // NEW
     { key:"email", label:"Email", visible:true },
     { key:"genre", label:"Genre", visible:false },
     { key:"date_naissance", label:"Naissance", visible:false },
@@ -477,7 +629,7 @@ export default function ListeInscriptions() {
 
       let query = supabase.from("inscriptions").select(
         "id, created_at, statut, course_id, format_id, member_of_group_id, team_name," +
-        "nom, prenom, email, genre, date_naissance, nationalite, telephone, adresse, adresse_complement, code_postal, ville, pays, apparaitre_resultats, club, justificatif_type, numero_licence, pps_identifier, contact_urgence_nom, contact_urgence_telephone",
+        "nom, prenom, email, genre, date_naissance, nationalite, telephone, adresse, adresse_complement, code_postal, ville, pays, apparaitre_resultats, club, justificatif_type, numero_licence, pps_identifier, contact_urgence_nom, contact_urgence_telephone, dossard",
         { count: "exact" }
       );
 
@@ -504,6 +656,7 @@ export default function ListeInscriptions() {
           `numero_licence.ilike.%${debouncedQ}%`,
           `club.ilike.%${debouncedQ}%`,
           `ville.ilike.%${debouncedQ}%`,
+          `dossard::text.ilike.%${debouncedQ}%`,
         ].join(","));
       }
 
@@ -517,7 +670,7 @@ export default function ListeInscriptions() {
       setRows(data || []);
       setTotal(count || (data?.length || 0));
 
-      // Groupes (badge info)
+      // Groupes
       const grpIds = [...new Set((data||[]).map(r=>r.member_of_group_id).filter(Boolean))];
       if (grpIds.length) {
         const { data: groups } = await supabase.from("inscriptions_groupes").select("id, team_name, team_category, statut, members_count").in("id", grpIds);
@@ -562,20 +715,36 @@ export default function ListeInscriptions() {
     return Array.from(emails);
   },[rows, selected]);
 
-  // Edition inline de statut
+  // Edition inline
   const updateStatut = async (row, newStatut)=>{
     const prev = row.statut;
     setRows(rs => rs.map(r=> r.id===row.id ? ({...r, statut:newStatut}) : r));
     const { error } = await supabase.from("inscriptions").update({ statut:newStatut }).eq("id", row.id);
     if (error) { setRows(rs => rs.map(r=> r.id===row.id ? ({...r, statut:prev}) : r)); alert("Impossible de mettre à jour le statut."); }
   };
-
-  // Modification inline champs texte (ex: numero_licence, club, etc.)
   const updateField = async (row, key, value)=>{
     const prev = row[key];
     setRows(rs => rs.map(r => r.id===row.id ? ({...r, [key]: value}) : r));
-    const { error } = await supabase.from("inscriptions").update({ [key]: value }).eq("id", row.id);
+    const payload = key==="dossard" && value!=="" ? { dossard: Number(value) } : { [key]: value==="" ? null : value };
+    const { error } = await supabase.from("inscriptions").update(payload).eq("id", row.id);
     if (error) { setRows(rs => rs.map(r => r.id===row.id ? ({...r, [key]: prev}) : r)); alert("Sauvegarde impossible."); }
+  };
+
+  // Effacer dossards (sélection ou tout filtré)
+  const clearBibNumbers = async (scope="selected")=>{
+    const ids = scope==="selected" ? Array.from(selected) : rows.map(r=>r.id);
+    if (ids.length===0) return alert("Aucun coureur concerné.");
+    const confirm = window.confirm(`Effacer le dossard de ${ids.length} coureur(s) ?`);
+    if (!confirm) return;
+    try {
+      const chunks = (arr, n)=> Array.from({length: Math.ceil(arr.length/n)}, (_,i)=>arr.slice(i*n,(i+1)*n));
+      // PostgREST a une limite d'IN ; on chunk par 500
+      const batches = chunks(ids, 500).map(part => supabase.from("inscriptions").update({ dossard: null }).in("id", part));
+      const res = await Promise.allSettled(batches);
+      const ok = res.filter(r=>r.status==="fulfilled").length;
+      if (ok===batches.length) { alert("Dossards effacés."); load(); }
+      else { alert("Certains effacements ont échoué (voir console)."); console.warn(res); load(); }
+    } catch(e){ console.error(e); alert("Erreur lors de l’effacement des dossards."); }
   };
 
   const visibleColumns = columns.map((c,i)=>({ ...c, onToggle:(idx,vis)=>toggleCol(idx,vis) })).filter(Boolean);
@@ -615,6 +784,19 @@ export default function ListeInscriptions() {
             </button>
           )}
 
+          <button onClick={()=>setShowAssignBib(true)} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50">
+            Attribuer des dossards {selected.size>0 ? `(${selected.size})` : ""}
+          </button>
+
+          <div className="relative inline-flex">
+            <button onClick={()=>clearBibNumbers("selected")} className="rounded-l-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50">
+              Effacer dossards (sélection)
+            </button>
+            <button onClick={()=>clearBibNumbers("all")} className="rounded-r-xl border-t border-b border-r border-neutral-300 px-3 py-2 text-sm hover:bg-neutral-50">
+              Tout filtré
+            </button>
+          </div>
+
           <button onClick={()=>setShowExport(true)} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50">
             Export CSV {selected.size>0 ? `(${selected.size})` : "(tout)"}
           </button>
@@ -638,7 +820,7 @@ export default function ListeInscriptions() {
         </div>
         <div className="md:col-span-2">
           <label className="block text-sm font-medium">Recherche</label>
-          <input value={q} onChange={(e)=>setQ(e.target.value)} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="Nom, prénom, email, équipe, licence, club, ville…"/>
+          <input value={q} onChange={(e)=>setQ(e.target.value)} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="Nom, prénom, email, équipe, licence, ville, dossard…" />
         </div>
         <div>
           <label className="block text-sm font-medium">Tri</label>
@@ -709,18 +891,21 @@ export default function ListeInscriptions() {
 
                     {columns.filter(c=>c.visible).map(c=>{
                       const content = typeof c.accessor === "function" ? c.accessor(r) : r[c.key];
-                      // champs éditables inline pour quelques colonnes utiles
-                      if (["numero_licence","club","email","telephone","team_name"].includes(c.key)) {
+
+                      // champs éditables inline
+                      if (["numero_licence","club","email","telephone","team_name","dossard"].includes(c.key)) {
                         return (
                           <td key={c.key} className="px-4 py-2 align-top">
                             <input
-                              className="w-56 rounded-lg border border-neutral-300 px-2 py-1 text-sm"
-                              value={content || ""}
+                              className="w-40 rounded-lg border border-neutral-300 px-2 py-1 text-sm"
+                              value={content ?? ""}
                               onChange={(e)=> updateField(r, c.key, e.target.value)}
+                              placeholder={c.key==="dossard" ? "—" : ""}
                             />
                           </td>
                         );
                       }
+
                       if (c.key === "statut") {
                         const v = (r.statut || "").toLowerCase() === "en attente" ? "en_attente" : (r.statut || "");
                         return (
@@ -736,14 +921,13 @@ export default function ListeInscriptions() {
                           </td>
                         );
                       }
+
                       return <td key={c.key} className="px-4 py-2 align-top">{content ?? "—"}</td>;
                     })}
 
                     <td className="px-4 py-2 align-top">
                       <div className="flex flex-wrap gap-2">
-                        {/* Pas de lien MemberDetails, tout est ici */}
-                        {/* exemple : supprimer (optionnel) */}
-                        {/* <button className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50">Supprimer</button> */}
+                        {/* actions par ligne (facultatif) */}
                       </div>
                     </td>
                   </tr>
@@ -796,6 +980,14 @@ export default function ListeInscriptions() {
         courseId={resolvedCourseId}
         formatId={formatId}
         defaultSize={defaultTeamSize}
+      />
+
+      <AssignBibModal
+        open={showAssignBib}
+        onClose={()=>setShowAssignBib(false)}
+        rows={rows}
+        selectedIds={Array.from(selected)}
+        onDone={()=>{ setShowAssignBib(false); load(); }}
       />
 
       <ExportCsvModal
