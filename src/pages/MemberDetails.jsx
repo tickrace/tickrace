@@ -1,9 +1,8 @@
-// src/pages/MemberDetails.jsx
+// src/pages/InscriptionDetail.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 
-/* ----------------------------- Utils ----------------------------- */
 function cls(...xs) {
   return xs.filter(Boolean).join(" ");
 }
@@ -24,7 +23,6 @@ function StatusBadge({ status }) {
     paye: "bg-emerald-100 text-emerald-800",
     "en attente": "bg-amber-100 text-amber-800",
     en_attente: "bg-amber-100 text-amber-800",
-    pending: "bg-amber-100 text-amber-800",
     annule: "bg-rose-100 text-rose-800",
   };
   const txt = s === "paye" ? "Payé" : s === "annule" ? "Annulé" : "En attente";
@@ -35,300 +33,280 @@ function StatusBadge({ status }) {
   );
 }
 
-/* -------------------------- Page MemberDetails -------------------------- */
-export default function MemberDetails() {
-  const { courseId, formatId, teamIdx, memberIdx } = useParams();
-  const teamIdxNum = Number(teamIdx ?? 0);
-  const memberIdxNum = Number(memberIdx ?? 0);
-
+export default function InscriptionDetail() {
+  const { id } = useParams();
   const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState(null);
-  const [rows, setRows] = useState([]);
+  const [row, setRow] = useState(null);
+  const [group, setGroup] = useState(null);
+  const [format, setFormat] = useState(null);
+  const [course, setCourse] = useState(null);
+  const [options, setOptions] = useState([]);
+  const [optionLabels, setOptionLabels] = useState(new Map());
 
-  // Form state (editable)
-  const [form, setForm] = useState({
-    id: null,
-    nom: "",
-    prenom: "",
-    email: "",
-    team_name: "",
-    statut: "en_attente",
-    created_at: null,
-  });
-  const [saving, setSaving] = useState(false);
+  // champs éditables
+  const [statut, setStatut] = useState("");
+  const [dossard, setDossard] = useState("");
 
-  /* --------- Charger toutes les inscriptions du couple (courseId, formatId) --------- */
   useEffect(() => {
     let alive = true;
     (async () => {
       setLoading(true);
-      setErr(null);
       try {
-        if (!courseId || !formatId) throw new Error("Paramètres manquants.");
-        const { data, error } = await supabase
+        // Inscription
+        const { data: insc, error } = await supabase
           .from("inscriptions")
-          .select("id, created_at, nom, prenom, email, statut, format_id, member_of_group_id, team_name, course_id")
-          .eq("course_id", courseId)
-          .eq("format_id", formatId);
+          .select("*")
+          .eq("id", id)
+          .maybeSingle();
         if (error) throw error;
-        if (alive) setRows(data || []);
+        if (!alive) return;
+        setRow(insc || null);
+        setStatut(insc?.statut || "");
+        setDossard(insc?.dossard ?? "");
+
+        // Format
+        if (insc?.format_id) {
+          const { data: fmt } = await supabase
+            .from("formats")
+            .select("id, nom, date, nb_max_coureurs, course_id, propose_repas, prix_repas")
+            .eq("id", insc.format_id)
+            .maybeSingle();
+          if (!alive) return;
+          setFormat(fmt || null);
+
+          // Course
+          const cid = insc.course_id || fmt?.course_id;
+          if (cid) {
+            const { data: crs } = await supabase
+              .from("courses")
+              .select("id, nom, lieu, date, organisateur_id")
+              .eq("id", cid)
+              .maybeSingle();
+            if (!alive) return;
+            setCourse(crs || null);
+          }
+        }
+
+        // Groupe
+        if (insc?.member_of_group_id) {
+          const { data: grp } = await supabase
+            .from("inscriptions_groupes")
+            .select("id, team_name, team_category, statut, members_count")
+            .eq("id", insc.member_of_group_id)
+            .maybeSingle();
+          if (!alive) return;
+          setGroup(grp || null);
+        }
+
+        // Options confirmées + labels
+        const { data: opts } = await supabase
+          .from("inscriptions_options")
+          .select("inscription_id, option_id, quantity, prix_unitaire_cents, status")
+          .eq("inscription_id", id)
+          .eq("status", "confirmed");
+
+        if (!alive) return;
+        setOptions(opts || []);
+        const ids = [...new Set((opts || []).map((o) => o.option_id))];
+        if (ids.length > 0) {
+          const { data: defs } = await supabase
+            .from("options")
+            .select("id, nom, name, label")
+            .in("id", ids);
+          if (!alive) return;
+          const map = new Map();
+          (defs || []).forEach((d) => {
+            map.set(d.id, d.nom || d.name || d.label || `#${String(d.id).slice(0, 8)}`);
+          });
+          setOptionLabels(map);
+        } else {
+          setOptionLabels(new Map());
+        }
       } catch (e) {
-        if (alive) setErr(e);
+        console.error("LOAD_INSCRIPTION_DETAIL_ERROR", e);
       } finally {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
-  }, [courseId, formatId]);
+    return () => {
+      alive = false;
+    };
+  }, [id]);
 
-  /* --------- Même logique d’indexation que dans ListeInscriptions (simple) --------- */
-  const current = useMemo(() => {
-    if (!rows.length) return null;
+  const optionsView = useMemo(() => {
+    if (!options?.length) return <span className="text-neutral-500">—</span>;
+    return (
+      <div className="flex flex-wrap gap-1.5">
+        {options.map((o, i) => {
+          const label = optionLabels.get(o.option_id) || `#${String(o.option_id).slice(0, 8)}`;
+          return (
+            <span key={o.option_id + i} className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-2 py-0.5 text-xs ring-1 ring-neutral-200">
+              {label}{o.quantity > 1 ? ` ×${o.quantity}` : ""}
+            </span>
+          );
+        })}
+      </div>
+    );
+  }, [options, optionLabels]);
 
-    // teamKey: group_id || team:team_name || __solo__:id
-    const teamsMap = new Map();
-    for (const r of rows) {
-      const key = r.member_of_group_id || (r.team_name ? `team:${r.team_name}` : `__solo__:${r.id}`);
-      if (!teamsMap.has(key)) teamsMap.set(key, []);
-      teamsMap.get(key).push(r);
-    }
-
-    // Ordonne équipes puis membres
-    const orderedTeams = [...teamsMap.entries()]
-      .map(([key, arr]) => {
-        const members = [...arr].sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
-        const firstCreated = members[0]?.created_at;
-        const name = key.startsWith("__solo__") ? "solo" : key.startsWith("team:") ? key.slice(5) : key;
-        return { key, name, members, firstCreated };
-      })
-      .sort((a, b) => {
-        const an = (a.name || "").toLowerCase();
-        const bn = (b.name || "").toLowerCase();
-        if (an < bn) return -1;
-        if (an > bn) return 1;
-        return new Date(a.firstCreated) - new Date(b.firstCreated);
-      });
-
-    if (teamIdxNum < 0 || teamIdxNum >= orderedTeams.length) return { error: "Indice d’équipe invalide.", teamsCount: orderedTeams.length };
-    const team = orderedTeams[teamIdxNum];
-    if (memberIdxNum < 0 || memberIdxNum >= team.members.length) return { error: "Indice de membre invalide.", team };
-
-    return { team, member: team.members[memberIdxNum], teamsCount: orderedTeams.length };
-  }, [rows, teamIdxNum, memberIdxNum]);
-
-  /* --------- Hydrate le formulaire quand current change --------- */
-  useEffect(() => {
-    if (!current || !current.member || current.error) return;
-    const m = current.member;
-    setForm({
-      id: m.id,
-      nom: m.nom || "",
-      prenom: m.prenom || "",
-      email: m.email || "",
-      team_name: m.team_name || "",
-      statut: (m.statut || "en_attente"),
-      created_at: m.created_at || null,
-    });
-  }, [current]);
-
-  /* --------- Enregistrer --------- */
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((f) => ({ ...f, [name]: value }));
-  };
-
-  const handleSave = async () => {
-    if (!form.id) return;
-    if (!form.nom.trim() || !form.prenom.trim()) {
-      alert("Nom et prénom sont requis.");
-      return;
-    }
-    setSaving(true);
+  const saveStatut = async () => {
     try {
-      const payload = {
-        nom: form.nom.trim(),
-        prenom: form.prenom.trim(),
-        email: form.email.trim() || null,
-        team_name: form.team_name.trim() || null,
-        statut: form.statut,
-      };
-      const { error } = await supabase.from("inscriptions").update(payload).eq("id", form.id);
+      const { error } = await supabase.from("inscriptions").update({ statut }).eq("id", id);
       if (error) throw error;
-      alert("Modifications enregistrées.");
+      alert("Statut mis à jour.");
     } catch (e) {
-      console.error("SAVE_MEMBER_ERROR", e);
-      alert("Échec de l’enregistrement.");
-    } finally {
-      setSaving(false);
+      console.error(e);
+      alert("Impossible de mettre à jour le statut.");
     }
   };
 
-  /* --------- UI --------- */
-  if (loading) return <div className="p-6">Chargement…</div>;
-
-  if (err) {
-    return (
-      <div className="max-w-3xl mx-auto p-6 space-y-4">
-        <Link to={courseId ? `/courses/${courseId}` : "/"} className="text-sm text-neutral-500 hover:text-neutral-800">← Retour</Link>
-        <h1 className="text-2xl font-bold">Membre</h1>
-        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
-          <div className="font-semibold mb-1">Impossible de charger</div>
-          <div className="text-sm">{String(err.message || err)}</div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!current) {
-    return (
-      <div className="max-w-3xl mx-auto p-6 space-y-4">
-        <Link to={courseId ? `/courses/${courseId}` : "/"} className="text-sm text-neutral-500 hover:text-neutral-800">← Retour</Link>
-        <h1 className="text-2xl font-bold">Membre</h1>
-        <div className="rounded-2xl border border-neutral-200 bg-white p-4">Aucun membre trouvé.</div>
-      </div>
-    );
-  }
-
-  if (current.error) {
-    return (
-      <div className="max-w-3xl mx-auto p-6 space-y-4">
-        <Link to={courseId ? `/courses/${courseId}` : "/"} className="text-sm text-neutral-500 hover:text-neutral-800">← Retour</Link>
-        <h1 className="text-2xl font-bold">Membre</h1>
-        <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4 text-amber-800">
-          {current.error}
-        </div>
-      </div>
-    );
-  }
-
-  const { team, member } = current;
+  const saveDossard = async () => {
+    try {
+      const val = dossard === "" ? null : Number(dossard);
+      if (val != null && (Number.isNaN(val) || val < 0)) {
+        alert("Dossard invalide.");
+        return;
+      }
+      const { error } = await supabase.from("inscriptions").update({ dossard: val }).eq("id", id);
+      if (error) throw error;
+      alert("Dossard mis à jour.");
+    } catch (e) {
+      console.error(e);
+      alert("Impossible de mettre à jour le dossard.");
+    }
+  };
 
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-6">
-      <div className="space-y-1">
-        <Link to={courseId ? `/courses/${courseId}` : "/"} className="text-sm text-neutral-500 hover:text-neutral-800">← Retour</Link>
-        <h1 className="text-2xl font-bold">Membre</h1>
-        <div className="text-neutral-600 text-sm">
-          Format <code className="font-mono">{formatId}</code>
-          {" • "}Équipe{" "}
-          <b>{team.key.startsWith("__solo__") ? "Solo" : team.key.startsWith("team:") ? team.key.slice(5) : team.key}</b>
-        </div>
+    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <div className="mb-6">
+        <Link to={row?.course_id ? `/courses/${row.course_id}` : "/"} className="text-sm text-neutral-500 hover:text-neutral-800">
+          ← Retour
+        </Link>
+        <h1 className="text-2xl sm:text-3xl font-bold mt-1">Détail inscription</h1>
+        <p className="text-neutral-600 mt-1">ID&nbsp;: <span className="font-mono">{id}</span></p>
       </div>
 
-      {/* Carte édition simple */}
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <div className="grid sm:grid-cols-2 gap-4">
-          <div>
-            <label className="text-xs text-neutral-500">ID</label>
-            <div className="mt-0.5 text-sm font-mono break-all">{form.id}</div>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Colonne 1 : Infos coureur */}
+        <div className="lg:col-span-2 rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          <div className="px-5 py-4 border-b border-neutral-200">
+            <h2 className="text-lg font-semibold">Coureur</h2>
           </div>
-          <div>
-            <label className="text-xs text-neutral-500">Créé le</label>
-            <div className="mt-0.5 text-sm">{formatDateTime(form.created_at)}</div>
+          <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <Field label="Nom">{row?.nom || "—"}</Field>
+            <Field label="Prénom">{row?.prenom || "—"}</Field>
+            <Field label="Email">
+              {row?.email ? <a className="hover:underline" href={`mailto:${row.email}`}>{row.email}</a> : "—"}
+            </Field>
+            <Field label="Téléphone">{row?.telephone || "—"}</Field>
+            <Field label="Adresse" className="sm:col-span-2">{row?.adresse || "—"}</Field>
+            <Field label="Code postal">{row?.code_postal || "—"}</Field>
+            <Field label="Ville">{row?.ville || "—"}</Field>
+            <Field label="Pays">{row?.pays || "—"}</Field>
+            <Field label="Genre">{row?.genre || "—"}</Field>
+            <Field label="Date de naissance">{row?.date_naissance || "—"}</Field>
+            <Field label="Nationalité">{row?.nationalite || "—"}</Field>
+            <Field label="Club">{row?.club || "—"}</Field>
+            <Field label="Licence / PPS">{row?.justificatif_numero || "—"}</Field>
+            <Field label="Contact urgence (nom)">{row?.contact_urgence_nom || "—"}</Field>
+            <Field label="Contact urgence (tél)">{row?.contact_urgence_tel || "—"}</Field>
           </div>
+        </div>
 
-          <div>
-            <label className="text-sm font-medium">Nom *</label>
-            <input
-              name="nom"
-              value={form.nom}
-              onChange={handleChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
-            />
-          </div>
-          <div>
-            <label className="text-sm font-medium">Prénom *</label>
-            <input
-              name="prenom"
-              value={form.prenom}
-              onChange={handleChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
-            />
-          </div>
+        {/* Colonne 2 : Statut / gestion */}
+        <div className="space-y-6">
+          <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="px-5 py-4 border-b border-neutral-200">
+              <h2 className="text-lg font-semibold">Statut & dossard</h2>
+            </div>
+            <div className="p-5 space-y-4 text-sm">
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <div className="text-neutral-600">Statut actuel</div>
+                  <StatusBadge status={row?.statut} />
+                </div>
+                <div className="flex items-center gap-2">
+                  <select
+                    value={(statut || "").toLowerCase() === "en attente" ? "en_attente" : (statut || "")}
+                    onChange={(e) => setStatut(e.target.value)}
+                    className="rounded-lg border border-neutral-300 px-2 py-1"
+                  >
+                    <option value="en_attente">En attente</option>
+                    <option value="paye">Payé</option>
+                    <option value="annule">Annulé</option>
+                  </select>
+                  <button onClick={saveStatut} className="rounded-lg bg-neutral-900 text-white px-3 py-1.5 hover:bg-black">
+                    Enregistrer
+                  </button>
+                </div>
+              </div>
 
-          <div className="sm:col-span-2">
-            <label className="text-sm font-medium">Email</label>
-            <input
-              name="email"
-              value={form.email}
-              onChange={handleChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
-              placeholder="email@exemple.com"
-            />
-          </div>
+              <div className="h-px bg-neutral-200" />
 
-          <div className="sm:col-span-2">
-            <label className="text-sm font-medium">Équipe</label>
-            <input
-              name="team_name"
-              value={form.team_name}
-              onChange={handleChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
-              placeholder="Nom de l’équipe"
-            />
-          </div>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1">
+                  <div className="text-neutral-600">Dossard</div>
+                  <div className="text-neutral-900 font-medium">{row?.dossard ?? "—"}</div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    className="w-24 rounded-lg border border-neutral-300 px-2 py-1"
+                    value={dossard ?? ""}
+                    onChange={(e) => setDossard(e.target.value.replace(/[^\d]/g, ""))}
+                    inputMode="numeric"
+                    placeholder="—"
+                  />
+                  <button onClick={saveDossard} className="rounded-lg border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">
+                    Mettre à jour
+                  </button>
+                </div>
+              </div>
 
-          <div className="sm:col-span-2">
-            <label className="text-sm font-medium">Statut</label>
-            <div className="mt-1 flex items-center gap-3">
-              <StatusBadge status={form.statut} />
-              <select
-                name="statut"
-                value={form.statut}
-                onChange={handleChange}
-                className="rounded-lg border border-neutral-300 px-2 py-1 text-sm"
-              >
-                <option value="en_attente">En attente</option>
-                <option value="paye">Payé</option>
-                <option value="annule">Annulé</option>
-              </select>
+              <div className="h-px bg-neutral-200" />
+
+              <Field label="Créée le">{formatDateTime(row?.created_at)}</Field>
             </div>
           </div>
-        </div>
 
-        <div className="mt-5 flex items-center justify-end gap-2">
-          <Link
-            to={courseId ? `/courses/${courseId}` : "/"}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
-          >
-            Annuler
-          </Link>
-          <button
-            onClick={handleSave}
-            disabled={saving || !form.id}
-            className={cls(
-              "rounded-xl px-4 py-2 text-sm font-semibold text-white",
-              saving ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"
-            )}
-          >
-            {saving ? "Enregistrement…" : "Enregistrer"}
-          </button>
-        </div>
-      </div>
-
-      {/* Aperçu rapide des autres membres de l’équipe (clic pour info rapide) */}
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5 shadow-sm">
-        <h2 className="text-base font-semibold mb-3">Membres de l’équipe</h2>
-        <div className="grid sm:grid-cols-2 gap-3">
-          {team.members.map((m, i) => (
-            <div
-              key={m.id}
-              className={cls(
-                "rounded-xl border p-3 text-sm",
-                m.id === form.id ? "border-neutral-900" : "border-neutral-200"
-              )}
-            >
-              <div className="font-medium">
-                {m.prenom || "—"} {m.nom || ""}
-              </div>
-              <div className="text-xs text-neutral-600">{m.email || "—"}</div>
-              <div className="mt-1">
-                <StatusBadge status={m.statut} />
-              </div>
+          <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="px-5 py-4 border-b border-neutral-200">
+              <h2 className="text-lg font-semibold">Format / Groupe</h2>
             </div>
-          ))}
+            <div className="p-5 space-y-3 text-sm">
+              <Field label="Course">
+                {course ? (
+                  <Link className="hover:underline" to={`/courses/${course.id}`}>
+                    {course.nom || `Course #${course.id.slice(0, 8)}`} {course.lieu ? `— ${course.lieu}` : ""}
+                  </Link>
+                ) : "—"}
+              </Field>
+              <Field label="Format">
+                {format ? `${format.nom}${format.date ? ` — ${format.date}` : ""}` : "—"}
+              </Field>
+              <Field label="Équipe">{row?.team_name || "—"}</Field>
+              <Field label="Groupe">
+                {group ? `${group.team_name || "Groupe"} — ${group.statut || "—"}` : "—"}
+              </Field>
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="px-5 py-4 border-b border-neutral-200">
+              <h2 className="text-lg font-semibold">Options confirmées</h2>
+            </div>
+            <div className="p-5">{optionsView}</div>
+          </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+function Field({ label, children, className }) {
+  return (
+    <div className={cls("min-w-0", className)}>
+      <div className="text-xs text-neutral-500">{label}</div>
+      <div className="mt-0.5 text-neutral-900">{children}</div>
     </div>
   );
 }
