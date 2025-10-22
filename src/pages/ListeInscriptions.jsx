@@ -1,6 +1,6 @@
 // src/pages/ListeInscriptions.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, Link, useSearchParams, useNavigate } from "react-router-dom";
+import { useParams, Link, useSearchParams } from "react-router-dom";
 import { supabase } from "../supabase";
 
 /* ------------------------------ TipTap ------------------------------ */
@@ -40,15 +40,9 @@ function StatusBadge({ status }) {
     pending: "bg-amber-100 text-amber-800",
     annule: "bg-rose-100 text-rose-800",
   };
-  const txt =
-    s === "paye" ? "Payé" : s === "annule" ? "Annulé" : "En attente";
+  const txt = s === "paye" ? "Payé" : s === "annule" ? "Annulé" : "En attente";
   return (
-    <span
-      className={cls(
-        "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-        map[s] || "bg-neutral-100 text-neutral-800"
-      )}
-    >
+    <span className={cls("inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium", map[s] || "bg-neutral-100 text-neutral-800")}>
       {txt}
     </span>
   );
@@ -61,18 +55,9 @@ function GroupBadge({ status }) {
     annule: "bg-rose-50 text-rose-700 ring-1 ring-rose-200",
   };
   const txt =
-    s === "paye"
-      ? "Groupe payé"
-      : s === "annule"
-      ? "Groupe annulé"
-      : "Groupe en attente";
+    s === "paye" ? "Groupe payé" : s === "annule" ? "Groupe annulé" : "Groupe en attente";
   return (
-    <span
-      className={cls(
-        "inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium",
-        map[s] || "bg-neutral-50 text-neutral-700 ring-1 ring-neutral-200"
-      )}
-    >
+    <span className={cls("inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium", map[s] || "bg-neutral-50 text-neutral-700 ring-1 ring-neutral-200")}>
       {txt}
     </span>
   );
@@ -82,10 +67,7 @@ function GroupBadge({ status }) {
 function EmailModal({ open, onClose, recipients, onSend }) {
   const [subject, setSubject] = useState("");
   const editor = useEditor({
-    extensions: [
-      StarterKit,
-      Placeholder.configure({ placeholder: "Tapez votre message…" }),
-    ],
+    extensions: [StarterKit, Placeholder.configure({ placeholder: "Tapez votre message…" })],
     content: "<p>Bonjour,</p><p>…</p>",
   });
 
@@ -103,19 +85,12 @@ function EmailModal({ open, onClose, recipients, onSend }) {
       <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Envoyer un email</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
-            Fermer
-          </button>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">Fermer</button>
         </div>
 
         <div className="p-5 space-y-4">
           <div className="text-xs text-neutral-600">
-            Destinataires&nbsp;: <b>{recipients.length}</b>{" "}
-            adresse{recipients.length > 1 ? "s" : ""} unique
-            {recipients.length > 1 ? "s" : ""}
+            Destinataires&nbsp;: <b>{recipients.length}</b> adresse{recipients.length > 1 ? "s" : ""} unique{recipients.length > 1 ? "s" : ""}
           </div>
 
           <div>
@@ -143,10 +118,7 @@ function EmailModal({ open, onClose, recipients, onSend }) {
         </div>
 
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
-          >
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">
             Annuler
           </button>
           <button
@@ -165,27 +137,12 @@ function EmailModal({ open, onClose, recipients, onSend }) {
 function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    nom: "",
-    prenom: "",
-    email: "",
-    team_name: "",
-    format_id: "",
-    statut: "en_attente",
-    genre: "",
-    date_naissance: "",
-    nationalite: "",
-    telephone: "",
-    adresse: "",
-    code_postal: "",
-    ville: "",
-    pays: "",
-    club: "",
-    justificatif_type: "",
-    justificatif_numero: "",
-    contact_urgence_nom: "",
-    contact_urgence_tel: "",
-    dossard: "",
-    nombre_repas: 0,
+    nom: "", prenom: "", email: "", team_name: "", format_id: "", statut: "en_attente",
+    genre: "", date_naissance: "", nationalite: "", telephone: "",
+    adresse: "", code_postal: "", ville: "", pays: "", club: "",
+    justificatif_type: "", justificatif_numero: "",
+    contact_urgence_nom: "", contact_urgence_tel: "",
+    dossard: "", nombre_repas: 0,
   });
 
   const formatSelected = useMemo(
@@ -196,27 +153,12 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
   useEffect(() => {
     if (!open) {
       setForm({
-        nom: "",
-        prenom: "",
-        email: "",
-        team_name: "",
-        format_id: "",
-        statut: "en_attente",
-        genre: "",
-        date_naissance: "",
-        nationalite: "",
-        telephone: "",
-        adresse: "",
-        code_postal: "",
-        ville: "",
-        pays: "",
-        club: "",
-        justificatif_type: "",
-        justificatif_numero: "",
-        contact_urgence_nom: "",
-        contact_urgence_tel: "",
-        dossard: "",
-        nombre_repas: 0,
+        nom: "", prenom: "", email: "", team_name: "", format_id: "", statut: "en_attente",
+        genre: "", date_naissance: "", nationalite: "", telephone: "",
+        adresse: "", code_postal: "", ville: "", pays: "", club: "",
+        justificatif_type: "", justificatif_numero: "",
+        contact_urgence_nom: "", contact_urgence_tel: "",
+        dossard: "", nombre_repas: 0,
       });
       setSaving(false);
     }
@@ -259,13 +201,11 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
         contact_urgence_nom: form.contact_urgence_nom || null,
         contact_urgence_tel: form.contact_urgence_tel || null,
         dossard: form.dossard ? Number(form.dossard) : null,
-        // Bloc repas (si pris en charge côté base)
         prix_total_repas:
           fmt?.propose_repas && fmt?.prix_repas != null
             ? Number(form.nombre_repas || 0) * Number(fmt.prix_repas || 0)
             : null,
-        nombre_repas:
-          fmt?.propose_repas ? Number(form.nombre_repas || 0) : null,
+        nombre_repas: fmt?.propose_repas ? Number(form.nombre_repas || 0) : null,
       };
 
       const { data, error } = await supabase
@@ -290,23 +230,13 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
       <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Ajouter un coureur</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
-            Fermer
-          </button>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">Fermer</button>
         </div>
 
         <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-4">
           <div className="md:col-span-1">
             <label className="text-sm font-medium">Format *</label>
-            <select
-              name="format_id"
-              value={form.format_id}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            >
+            <select name="format_id" value={form.format_id} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
               <option value="">—</option>
               {formats.map((f) => (
                 <option key={f.id} value={f.id}>
@@ -317,12 +247,7 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
           </div>
           <div>
             <label className="text-sm font-medium">Statut</label>
-            <select
-              name="statut"
-              value={form.statut}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            >
+            <select name="statut" value={form.statut} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
               <option value="en_attente">En attente</option>
               <option value="paye">Payé</option>
               <option value="annule">Annulé</option>
@@ -330,52 +255,25 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
           </div>
           <div>
             <label className="text-sm font-medium">Équipe</label>
-            <input
-              name="team_name"
-              value={form.team_name}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              placeholder="Team / Relais"
-            />
+            <input name="team_name" value={form.team_name} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="Team / Relais" />
           </div>
 
           <div>
             <label className="text-sm font-medium">Nom *</label>
-            <input
-              name="nom"
-              value={form.nom}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="nom" value={form.nom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Prénom *</label>
-            <input
-              name="prenom"
-              value={form.prenom}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="prenom" value={form.prenom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Email</label>
-            <input
-              name="email"
-              value={form.email}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              placeholder="ex: nom@domaine.com"
-            />
+            <input name="email" value={form.email} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="ex: nom@domaine.com" />
           </div>
 
           <div>
             <label className="text-sm font-medium">Genre</label>
-            <select
-              name="genre"
-              value={form.genre}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            >
+            <select name="genre" value={form.genre} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
               <option value="">—</option>
               <option value="F">F</option>
               <option value="M">M</option>
@@ -384,117 +282,55 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
           </div>
           <div>
             <label className="text-sm font-medium">Date de naissance</label>
-            <input
-              type="date"
-              name="date_naissance"
-              value={form.date_naissance}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input type="date" name="date_naissance" value={form.date_naissance} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Nationalité</label>
-            <input
-              name="nationalite"
-              value={form.nationalite}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="nationalite" value={form.nationalite} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
 
           <div>
             <label className="text-sm font-medium">Téléphone</label>
-            <input
-              name="telephone"
-              value={form.telephone}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="telephone" value={form.telephone} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div className="md:col-span-2">
             <label className="text-sm font-medium">Adresse</label>
-            <input
-              name="adresse"
-              value={form.adresse}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="adresse" value={form.adresse} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
 
           <div>
             <label className="text-sm font-medium">Code postal</label>
-            <input
-              name="code_postal"
-              value={form.code_postal}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="code_postal" value={form.code_postal} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Ville</label>
-            <input
-              name="ville"
-              value={form.ville}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="ville" value={form.ville} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Pays</label>
-            <input
-              name="pays"
-              value={form.pays}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="pays" value={form.pays} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
 
           <div>
             <label className="text-sm font-medium">Club</label>
-            <input
-              name="club"
-              value={form.club}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="club" value={form.club} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Justificatif (type)</label>
-            <input
-              name="justificatif_type"
-              value={form.justificatif_type}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              placeholder="Licence / PPS"
-            />
+            <input name="justificatif_type" value={form.justificatif_type} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" placeholder="Licence / PPS" />
           </div>
           <div>
             <label className="text-sm font-medium">N° licence / PPS</label>
-            <input
-              name="justificatif_numero"
-              value={form.justificatif_numero}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="justificatif_numero" value={form.justificatif_numero} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
 
           <div>
             <label className="text-sm font-medium">Contact urgence (nom)</label>
-            <input
-              name="contact_urgence_nom"
-              value={form.contact_urgence_nom}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="contact_urgence_nom" value={form.contact_urgence_nom} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Contact urgence (téléphone)</label>
-            <input
-              name="contact_urgence_tel"
-              value={form.contact_urgence_tel}
-              onChange={onChange}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-            />
+            <input name="contact_urgence_tel" value={form.contact_urgence_tel} onChange={onChange} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2" />
           </div>
           <div>
             <label className="text-sm font-medium">Dossard</label>
@@ -546,10 +382,7 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
         </div>
 
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
-          >
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">
             Annuler
           </button>
           <button
@@ -571,23 +404,8 @@ function AddInscriptionModal({ open, onClose, onCreated, formats, courseId }) {
 /* ---------------------- Modale Export CSV (par format) ---------------------- */
 function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLabelById, filenameBase }) {
   const [cols, setCols] = useState([
-    "id",
-    "created_at",
-    "nom",
-    "prenom",
-    "email",
-    "team_name",
-    "statut",
-    "group_status",
-    "dossard",
-    "licence",
-    "club",
-    "telephone",
-    "adresse",
-    "code_postal",
-    "ville",
-    "pays",
-    "options",
+    "id","created_at","nom","prenom","email","team_name","statut","group_status",
+    "dossard","licence","club","telephone","adresse","code_postal","ville","pays","options",
   ]);
 
   const allCols = [
@@ -613,23 +431,8 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
   useEffect(() => {
     if (!open) {
       setCols([
-        "id",
-        "created_at",
-        "nom",
-        "prenom",
-        "email",
-        "team_name",
-        "statut",
-        "group_status",
-        "dossard",
-        "licence",
-        "club",
-        "telephone",
-        "adresse",
-        "code_postal",
-        "ville",
-        "pays",
-        "options",
+        "id","created_at","nom","prenom","email","team_name","statut","group_status",
+        "dossard","licence","club","telephone","adresse","code_postal","ville","pays","options",
       ]);
     }
   }, [open]);
@@ -654,20 +457,16 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
       alert("Sélectionnez au moins une colonne.");
       return;
     }
-    const header = cols
-      .map((k) => csvEscape(allCols.find((c) => c.key === k)?.label || k))
-      .join(";");
+    const header = cols.map((k) => csvEscape(allCols.find((c) => c.key === k)?.label || k)).join(";");
 
     const lines = rows.map((r) => {
       const group = r.member_of_group_id ? groupsById.get(r.member_of_group_id) : null;
       const opts = optionsById.get(r.id) || [];
       const optsTxt = opts.length
-        ? opts
-            .map((o) => {
-              const label = optionLabelById.get(o.option_id) || `#${String(o.option_id).slice(0, 8)}`;
-              return `${label}×${o.quantity}`;
-            })
-            .join(", ")
+        ? opts.map((o) => {
+            const label = optionLabelById.get(o.option_id) || `#${String(o.option_id).slice(0, 8)}`;
+            return `${label}×${o.quantity}`;
+          }).join(", ")
         : "—";
 
       const map = {
@@ -711,12 +510,7 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
       <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Exporter en CSV</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
-            Fermer
-          </button>
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">Fermer</button>
         </div>
 
         <div className="p-5">
@@ -724,11 +518,7 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {allCols.map((c) => (
               <label key={c.key} className="inline-flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={cols.includes(c.key)}
-                  onChange={() => toggleCol(c.key)}
-                />
+                <input type="checkbox" checked={cols.includes(c.key)} onChange={() => toggleCol(c.key)} />
                 {c.label}
               </label>
             ))}
@@ -736,16 +526,10 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
         </div>
 
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
-          >
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">
             Annuler
           </button>
-          <button
-            onClick={handleExport}
-            className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
-          >
+          <button onClick={handleExport} className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black">
             Exporter
           </button>
         </div>
@@ -756,41 +540,41 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
 
 /* ----------------------- Page ListeInscriptions ----------------------- */
 export default function ListeInscriptions() {
- // ...
-const { courseId: courseIdParam } = useParams();
-const [searchParams, setSearchParams] = useSearchParams();
-const courseId = courseIdParam || searchParams.get("courseId") || null;
-// ...
+  // --- Paramètres & Querystring (avec auto-détection courseId/formatId)
+  const { courseId: routeParam } = useParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
+  const [resolvedCourseId, setResolvedCourseId] = useState(null);
 
-  // Formats + filtre format (verrouillable par ?formatId=)
-  const [formats, setFormats] = useState([]);
   const initialFormatId = searchParams.get("formatId") || "";
-  const lockedFormat = !!initialFormatId;
   const [formatId, setFormatId] = useState(initialFormatId);
+  const lockedFormat = !!initialFormatId;
 
-  // Filtres globaux
   const [statut, setStatut] = useState(searchParams.get("statut") || "all"); // all | paye | en_attente | annule
   const [q, setQ] = useState(searchParams.get("q") || "");
   const debouncedQ = useDebounced(q, 400);
 
-  // Tri (appliqué par section, même réglage)
-  const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "created_at"); // 'created_at' | 'nom' | 'statut'
-  const [sortDir, setSortDir] = useState(searchParams.get("sortDir") || "desc"); // 'asc' | 'desc'
+  const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "created_at");
+  const [sortDir, setSortDir] = useState(searchParams.get("sortDir") || "desc");
 
-  // Données
+  // Données / enrichissements
+  const [formats, setFormats] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [inscriptions, setInscriptions] = useState([]); // toutes les lignes matching filtres
+  const [inscriptions, setInscriptions] = useState([]);
   const [total, setTotal] = useState(0);
+  const [groupMap, setGroupMap] = useState(new Map());
+  const [optionsMap, setOptionsMap] = useState(new Map());
+  const [optionLabelMap, setOptionLabelMap] = useState(new Map());
 
-  // Enrichissements
-  const [groupMap, setGroupMap] = useState(new Map()); // groupId -> group row
-  const [optionsMap, setOptionsMap] = useState(new Map()); // inscriptionId -> options[]
-  const [optionLabelMap, setOptionLabelMap] = useState(new Map()); // optionId -> label
-
-  // Pagination PAR FORMAT (clé = formatId | '__nofmt__')
+  // Pagination & sélection par format
   const PAGE_SIZE = 25;
-  const [pageByFormat, setPageByFormat] = useState({}); // { [key]: number }
+  const [pageByFormat, setPageByFormat] = useState({}); // { [formatId]: number }
+  const [selectedByFormat, setSelectedByFormat] = useState({}); // { [formatId]: Set(ids) }
+
+  // États de modales par format
+  const [showEmailByFormat, setShowEmailByFormat] = useState({});
+  const [showAddByFormat, setShowAddByFormat] = useState({});
+  const [showExportByFormat, setShowExportByFormat] = useState({});
 
   const updateQueryString = useCallback(
     (next) => {
@@ -804,6 +588,58 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
     [searchParams, setSearchParams]
   );
 
+  /* -------------------- Auto-détection courseId ⇄ formatId -------------------- */
+  useEffect(() => {
+    let alive = true;
+    (async () => {
+      if (!routeParam) {
+        setResolvedCourseId(null);
+        return;
+      }
+
+      // 1) routeParam comme courseId → a-t-il des formats ?
+      const { data: fmtByCourse } = await supabase
+        .from("formats")
+        .select("id")
+        .eq("course_id", routeParam)
+        .limit(1);
+      if (!alive) return;
+
+      if (fmtByCourse && fmtByCourse.length > 0) {
+        setResolvedCourseId(routeParam);
+        return;
+      }
+
+      // 2) routeParam comme formatId → récupère sa course
+      const { data: fmt } = await supabase
+        .from("formats")
+        .select("id, course_id")
+        .eq("id", routeParam)
+        .maybeSingle();
+
+      if (!alive) return;
+
+      if (fmt?.course_id) {
+        setResolvedCourseId(fmt.course_id);
+        if (!initialFormatId) {
+          setFormatId(fmt.id);
+          const next = new URLSearchParams(searchParams.toString());
+          next.set("formatId", fmt.id);
+          setSearchParams(next, { replace: true });
+        }
+        return;
+      }
+
+      // 3) rien trouvé
+      setResolvedCourseId(null);
+    })();
+
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [routeParam]);
+
   /* -------------------------- Charger Formats -------------------------- */
   useEffect(() => {
     let alive = true;
@@ -813,17 +649,15 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
         .select("id, nom, date, course_id, nb_max_coureurs, propose_repas, prix_repas")
         .order("date", { ascending: true });
 
-      const { data, error } = courseId
-        ? await query.eq("course_id", courseId)
+      const { data, error } = resolvedCourseId
+        ? await query.eq("course_id", resolvedCourseId)
         : await query;
 
       if (!alive) return;
       if (!error && data) setFormats(data);
     })();
-    return () => {
-      alive = false;
-    };
-  }, [courseId]);
+    return () => { alive = false; };
+  }, [resolvedCourseId]);
 
   const targetedFormatIds = useMemo(() => {
     if (formatId) return [formatId];
@@ -836,7 +670,7 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
     return `${f.nom}${f.date ? ` — ${f.date}` : ""}`;
   }, [formats, formatId]);
 
-  /* ---------------------- Charger Inscriptions (une fois) ---------------------- */
+  /* ---------------------- Charger Inscriptions (toutes) ---------------------- */
   const load = useCallback(async () => {
     setLoading(true);
     try {
@@ -847,11 +681,11 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
           { count: "exact" }
         );
 
-    //  if (courseId) query = query.eq("course_id", courseId);
+      // IMPORTANT: on ne filtre pas par course_id (certaines anciennes lignes peuvent être nulles)
       if (targetedFormatIds.length > 0) {
         query = query.in("format_id", targetedFormatIds);
       } else {
-        // aucun format (encore) -> vide
+        // aucun format → on court-circuite
         setInscriptions([]);
         setTotal(0);
         setOptionsMap(new Map());
@@ -862,13 +696,12 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
       }
 
       if (statut && statut !== "all") {
-        // normaliser "en attente" vers "en_attente"
-        const normalized = statut === "en attente" ? "en_attente" : statut;
-        query = query.eq("statut", normalized);
+        const normalized = (statut || "").toLowerCase();
+        const value = normalized === "en attente" ? "en_attente" : normalized;
+        query = query.eq("statut", value);
       }
 
       if (debouncedQ) {
-        // recherche large (si colonnes absentes, PostgREST ignore silencieusement)
         query = query.or(
           [
             `nom.ilike.%${debouncedQ}%`,
@@ -885,22 +718,12 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
         );
       }
 
-      // tri global (on re-triera par section aussi si besoin)
       if (sortBy === "nom") {
-        query = query.order("nom", {
-          ascending: sortDir === "asc",
-          nullsFirst: false,
-        });
+        query = query.order("nom", { ascending: sortDir === "asc", nullsFirst: false });
       } else if (sortBy === "statut") {
-        query = query.order("statut", {
-          ascending: sortDir === "asc",
-          nullsFirst: false,
-        });
+        query = query.order("statut", { ascending: sortDir === "asc", nullsFirst: false });
       } else {
-        query = query.order("created_at", {
-          ascending: sortDir === "asc",
-          nullsFirst: false,
-        });
+        query = query.order("created_at", { ascending: sortDir === "asc", nullsFirst: false });
       }
 
       const { data, error, count } = await query;
@@ -910,13 +733,7 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
       setTotal(count || 0);
 
       const ids = (data || []).map((r) => r.id);
-      const grpIds = [
-        ...new Set(
-          (data || [])
-            .map((r) => r.member_of_group_id)
-            .filter(Boolean)
-        ),
-      ];
+      const grpIds = [...new Set((data || []).map((r) => r.member_of_group_id).filter(Boolean))];
 
       // Groupes
       if (grpIds.length > 0) {
@@ -960,16 +777,13 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
             if (!de && defs) {
               const mm = new Map();
               defs.forEach((d) => {
-                const l =
-                  d.nom || d.name || d.label || `#${String(d.id).slice(0, 8)}`;
+                const l = d.nom || d.name || d.label || `#${String(d.id).slice(0, 8)}`;
                 mm.set(d.id, l);
               });
               setOptionLabelMap(mm);
             } else {
               const mm = new Map();
-              optionIds.forEach((id) =>
-                mm.set(id, `#${String(id).slice(0, 8)}`)
-              );
+              optionIds.forEach((id) => mm.set(id, `#${String(id).slice(0, 8)}`));
               setOptionLabelMap(mm);
             }
           } else {
@@ -988,22 +802,17 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
     } finally {
       setLoading(false);
     }
-  }, [courseId, targetedFormatIds, statut, debouncedQ, sortBy, sortDir]);
+  }, [targetedFormatIds, statut, debouncedQ, sortBy, sortDir]);
 
-  // Sync URL avec filtres
+  // Sync URL sur changement de filtres
   useEffect(() => {
-    updateQueryString({
-      formatId,
-      statut,
-      q,
-      sortBy,
-      sortDir,
-    });
+    updateQueryString({ formatId, statut, q, sortBy, sortDir });
   }, [formatId, statut, q, sortBy, sortDir]); // eslint-disable-line
 
-  // Reset pagination par format quand filtres changent
+  // Reset pagination/sélection quand filtres changent
   useEffect(() => {
     setPageByFormat({});
+    setSelectedByFormat({});
   }, [formatId, statut, debouncedQ, sortBy, sortDir]);
 
   useEffect(() => {
@@ -1012,13 +821,12 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
 
   /* ----------------------------- Groupage par format ----------------------------- */
   const byFormat = useMemo(() => {
-    const map = new Map(); // formatId -> rows[]
+    const map = new Map();
     for (const r of inscriptions) {
       const fid = r.format_id || "__nofmt__";
       if (!map.has(fid)) map.set(fid, []);
       map.get(fid).push(r);
     }
-    // tri par section (au cas où l'ordre global n'ait pas suffi après filtrage)
     const sorters = {
       created_at: (a, b) =>
         sortDir === "asc"
@@ -1046,101 +854,7 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
     return map;
   }, [inscriptions, sortBy, sortDir]);
 
-  // Sélection par format
-  const [selectedByFormat, setSelectedByFormat] = useState({}); // { [formatId]: Set(ids) }
-  const resetSelection = useCallback(() => setSelectedByFormat({}), []);
-  useEffect(() => {
-    // reset sélection si on recharge
-    resetSelection();
-  }, [inscriptions.length]); // eslint-disable-line
-
-  const setSelectedForFormat = (fid, updater) => {
-    setSelectedByFormat((prev) => {
-      const cur = new Set(prev[fid] || []);
-      const next = updater(cur);
-      return { ...prev, [fid]: next };
-    });
-  };
-
-  /* ----------------------------- Actions ----------------------------- */
-  const handleSendEmails = async (emails, { subject, html }) => {
-    try {
-      if (!emails || emails.length === 0) {
-        alert("Aucun destinataire sélectionné.");
-        return;
-      }
-      if (!subject?.trim()) {
-        alert("Le sujet est requis.");
-        return;
-      }
-      if (!html?.trim()) {
-        alert("Le message est requis.");
-        return;
-      }
-      const { error } = await supabase.functions.invoke("organiser-send-emails", {
-        body: { subject, html, to: emails },
-      });
-      if (error) {
-        console.error("organiser-send-emails error", error);
-        alert(
-          "Erreur d’envoi des emails. (Vérifiez la fonction Edge et les en-têtes CORS/allowed-origins.)"
-        );
-        return;
-      }
-      alert(`Email envoyé à ${emails.length} destinataire(s).`);
-    } catch (e) {
-      console.error("SEND_EMAIL_FATAL", e);
-      alert("Erreur d’envoi.");
-    }
-  };
-
-  const handleUpdateStatut = async (id, newStatut) => {
-    try {
-      const { error } = await supabase
-        .from("inscriptions")
-        .update({ statut: newStatut })
-        .eq("id", id);
-      if (error) throw error;
-      setInscriptions((rs) =>
-        rs.map((r) => (r.id === id ? { ...r, statut: newStatut } : r))
-      );
-    } catch (e) {
-      console.error("UPDATE_STATUT_ERROR", e);
-      alert("Impossible de mettre à jour le statut.");
-    }
-  };
-
-  const handleUpdateDossard = async (id, newDossard) => {
-    try {
-      const val = newDossard === "" ? null : Number(newDossard);
-      if (val != null && (Number.isNaN(val) || val < 0)) {
-        alert("Dossard invalide.");
-        return;
-      }
-      const { error } = await supabase
-        .from("inscriptions")
-        .update({ dossard: val })
-        .eq("id", id);
-      if (error) throw error;
-      setInscriptions((rs) =>
-        rs.map((r) => (r.id === id ? { ...r, dossard: val } : r))
-      );
-    } catch (e) {
-      console.error("UPDATE_DOSSARD_ERROR", e);
-      alert("Impossible de mettre à jour le dossard.");
-    }
-  };
-
-  /* ----------------------------- UI Helpers ----------------------------- */
-  const changeSort = (col) => {
-    if (sortBy === col) {
-      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
-    } else {
-      setSortBy(col);
-      setSortDir(col === "created_at" ? "desc" : "asc");
-    }
-  };
-
+  // Helpers sélection/pagination par format
   const pageOf = (fid) => pageByFormat[fid] || 1;
   const setPageOf = (fid, n) =>
     setPageByFormat((p) => ({ ...p, [fid]: Math.max(1, n) }));
@@ -1154,10 +868,12 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
     return { page, pageCount, from, to, totalRows };
   };
 
-  const formatName = (fid) => {
-    const f = formats.find((x) => x.id === fid);
-    if (!f) return "Format inconnu";
-    return `${f.nom}${f.date ? ` — ${f.date}` : ""}`;
+  const setSelectedForFormat = (fid, updater) => {
+    setSelectedByFormat((prev) => {
+      const cur = new Set(prev[fid] || []);
+      const next = updater(cur);
+      return { ...prev, [fid]: next };
+    });
   };
 
   const selectedRowsFor = (fid, arr) => {
@@ -1165,23 +881,33 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
     return arr.filter((r) => set.has(r.id));
   };
 
-  /* ----------------------------- Rendu ----------------------------- */
+  const changeSort = (col) => {
+    if (sortBy === col) {
+      setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortBy(col);
+      setSortDir(col === "created_at" ? "desc" : "asc");
+    }
+  };
+
   const allSections = useMemo(() => {
     const keys = targetedFormatIds.length ? targetedFormatIds : [];
-    // Si un format est verrouillé mais n’existe pas encore (chargement), on n’affiche rien
     return keys.filter((fid) => byFormat.has(fid));
   }, [byFormat, targetedFormatIds]);
+
+  const formatName = (fid) => {
+    const f = formats.find((x) => x.id === fid);
+    if (!f) return "Format inconnu";
+    return `${f.nom}${f.date ? ` — ${f.date}` : ""}`;
+  };
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header global */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          {courseId ? (
-            <Link
-              to={`/courses/${courseId}`}
-              className="text-sm text-neutral-500 hover:text-neutral-800"
-            >
+          {resolvedCourseId ? (
+            <Link to={`/courses/${resolvedCourseId}`} className="text-sm text-neutral-500 hover:text-neutral-800">
               ← Retour à la course
             </Link>
           ) : (
@@ -1195,35 +921,26 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
           </p>
         </div>
 
-        {/* Filtres globaux */}
         <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => load()}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
-          >
+          <button onClick={() => load()} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50">
             Rafraîchir
           </button>
         </div>
       </div>
 
-      {/* Filtres ligne 2 */}
+      {/* Filtres */}
       <div className="mb-4 grid grid-cols-1 lg:grid-cols-4 gap-3">
-        {/* Format : verrouillé (via ?formatId=) ou sélecteur */}
         <div>
           <label className="block text-sm font-medium">Format</label>
           {lockedFormat ? (
             <div className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 bg-neutral-50 text-neutral-800 flex items-center justify-between">
               <span>{currentFormatLabel}</span>
-              <span className="text-xs rounded-full bg-neutral-200 px-2 py-0.5">
-                verrouillé
-              </span>
+              <span className="text-xs rounded-full bg-neutral-200 px-2 py-0.5">verrouillé</span>
             </div>
           ) : (
             <select
               value={formatId}
-              onChange={(e) => {
-                setFormatId(e.target.value);
-              }}
+              onChange={(e) => setFormatId(e.target.value)}
               className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
             >
               <option value="">Tous les formats</option>
@@ -1263,20 +980,12 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
         <div>
           <label className="block text-sm font-medium">Tri</label>
           <div className="mt-1 grid grid-cols-2 gap-2">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="rounded-xl border border-neutral-300 px-3 py-2"
-            >
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="rounded-xl border border-neutral-300 px-3 py-2">
               <option value="created_at">Date</option>
               <option value="nom">Nom</option>
               <option value="statut">Statut</option>
             </select>
-            <select
-              value={sortDir}
-              onChange={(e) => setSortDir(e.target.value)}
-              className="rounded-xl border border-neutral-300 px-3 py-2"
-            >
+            <select value={sortDir} onChange={(e) => setSortDir(e.target.value)} className="rounded-xl border border-neutral-300 px-3 py-2">
               <option value="desc">Desc</option>
               <option value="asc">Asc</option>
             </select>
@@ -1302,6 +1011,7 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
           const rows = byFormat.get(fid) || [];
           const meta = sectionMeta(fid, rows);
           const pageRows = rows.slice(meta.from, meta.to);
+
           const selectedSet = selectedByFormat[fid] || new Set();
           const allChecked = pageRows.length > 0 && pageRows.every((r) => selectedSet.has(r.id));
           const selectedRows = selectedRowsFor(fid, rows);
@@ -1330,400 +1040,285 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
 
           const recipients = Array.from(
             new Set(
-              selectedRows
-                .map((r) => (r.email || "").trim().toLowerCase())
-                .filter(Boolean)
+              selectedRows.map((r) => (r.email || "").trim().toLowerCase()).filter(Boolean)
             )
           );
 
-          const [showEmail, setShowEmail] = [
-            sectionShowEmailState(f),
-            sectionSetShowEmailState(f),
-          ];
-
-          const [showAdd, setShowAdd] = [
-            sectionShowAddState(f),
-            sectionSetShowAddState(f),
-          ];
-
-          const [showExport, setShowExport] = [
-            sectionShowExportState(f),
-            sectionSetShowExportState(f),
-          ];
+          const showEmail = !!showEmailByFormat[fid];
+          const showAdd = !!showAddByFormat[fid];
+          const showExport = !!showExportByFormat[fid];
 
           return (
-            <SectionStateBridge key={fid}>
+            <div key={fid} className="mb-6 rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
               {/* Entête de section */}
-              <div className="mb-6 rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
-                <div className="px-4 py-3 border-b border-neutral-200 bg-neutral-50 flex items-center justify-between">
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-neutral-700">
-                      {formatName(fid)}
-                    </div>
-                    <div className="text-xs text-neutral-500">
-                      {rows.length} inscrit{rows.length > 1 ? "s" : ""} •{" "}
-                      {PAGE_SIZE} par page
-                      {f?.nb_max_coureurs ? (
-                        <>
-                          {" "}
-                          • capacité&nbsp;: {f.nb_max_coureurs}
-                        </>
-                      ) : null}
-                    </div>
-                  </div>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      onClick={() => setShowEmail(true)}
-                      disabled={recipients.length === 0}
-                      className={cls(
-                        "rounded-xl px-3 py-2 text-xs font-semibold",
-                        recipients.length === 0
-                          ? "bg-neutral-300 text-neutral-600 cursor-not-allowed"
-                          : "bg-neutral-900 text-white hover:bg-black"
-                      )}
-                    >
-                      Email aux sélectionnés ({recipients.length})
-                    </button>
-
-                    <button
-                      onClick={() => setShowAdd(true)}
-                      className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
-                    >
-                      + Ajouter un coureur
-                    </button>
-
-                    <button
-                      onClick={() => {
-                        if (selectedRows.length === 0) {
-                          // Autoriser l’export de tout le tableau si rien n’est coché
-                          setShowExport(true);
-                        } else {
-                          setShowExport(true);
-                        }
-                      }}
-                      className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
-                    >
-                      Export CSV{" "}
-                      {selectedRows.length > 0 ? `(${selectedRows.length})` : "(tout)"}
-                    </button>
-
-                    <button
-                      onClick={() => load()}
-                      className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
-                    >
-                      Rafraîchir
-                    </button>
+              <div className="px-4 py-3 border-b border-neutral-200 bg-neutral-50 flex items-center justify-between">
+                <div className="min-w-0">
+                  <div className="text-sm font-semibold text-neutral-700">{formatName(fid)}</div>
+                  <div className="text-xs text-neutral-500">
+                    {rows.length} inscrit{rows.length > 1 ? "s" : ""} • {PAGE_SIZE} par page
+                    {f?.nb_max_coureurs ? <> • capacité&nbsp;: {f.nb_max_coureurs}</> : null}
                   </div>
                 </div>
 
-                {/* Table */}
-                <div className="overflow-x-auto">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-neutral-600">
-                        <th className="px-4 py-3 w-10">
-                          <input
-                            type="checkbox"
-                            checked={allChecked}
-                            onChange={toggleAll}
-                          />
-                        </th>
-                        <th
-                          className="px-4 py-3 cursor-pointer"
-                          onClick={() => changeSort("nom")}
-                        >
-                          Nom
-                        </th>
-                        <th className="px-4 py-3">Prénom</th>
-                        <th className="px-4 py-3">Email</th>
-                        <th className="px-4 py-3">Équipe</th>
-                        <th className="px-4 py-3">Groupe</th>
-                        <th
-                          className="px-4 py-3 cursor-pointer"
-                          onClick={() => changeSort("statut")}
-                        >
-                          Statut
-                        </th>
-                        <th className="px-4 py-3">Dossard</th>
-                        <th className="px-4 py-3">Options</th>
-                        <th
-                          className="px-4 py-3 cursor-pointer"
-                          onClick={() => changeSort("created_at")}
-                        >
-                          Créé le
-                        </th>
-                        <th className="px-4 py-3">Actions</th>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    onClick={() => setShowEmailByFormat((m) => ({ ...m, [fid]: true }))}
+                    disabled={recipients.length === 0}
+                    className={cls(
+                      "rounded-xl px-3 py-2 text-xs font-semibold",
+                      recipients.length === 0
+                        ? "bg-neutral-300 text-neutral-600 cursor-not-allowed"
+                        : "bg-neutral-900 text-white hover:bg-black"
+                    )}
+                  >
+                    Email aux sélectionnés ({recipients.length})
+                  </button>
+
+                  <button
+                    onClick={() => setShowAddByFormat((m) => ({ ...m, [fid]: true }))}
+                    className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
+                  >
+                    + Ajouter un coureur
+                  </button>
+
+                  <button
+                    onClick={() => setShowExportByFormat((m) => ({ ...m, [fid]: true }))}
+                    className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
+                  >
+                    Export CSV {selectedRows.length > 0 ? `(${selectedRows.length})` : "(tout)"}
+                  </button>
+
+                  <button
+                    onClick={() => load()}
+                    className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
+                  >
+                    Rafraîchir
+                  </button>
+                </div>
+              </div>
+
+              {/* Table */}
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-neutral-600">
+                      <th className="px-4 py-3 w-10">
+                        <input type="checkbox" checked={allChecked} onChange={toggleAll} />
+                      </th>
+                      <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("nom")}>Nom</th>
+                      <th className="px-4 py-3">Prénom</th>
+                      <th className="px-4 py-3">Email</th>
+                      <th className="px-4 py-3">Équipe</th>
+                      <th className="px-4 py-3">Groupe</th>
+                      <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("statut")}>Statut</th>
+                      <th className="px-4 py-3">Dossard</th>
+                      <th className="px-4 py-3">Options</th>
+                      <th className="px-4 py-3 cursor-pointer" onClick={() => changeSort("created_at")}>Créé le</th>
+                      <th className="px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y">
+                    {pageRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={11} className="px-4 py-6 text-center text-neutral-600">
+                          Aucun résultat — ajustez vos filtres.
+                        </td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y">
-                      {pageRows.length === 0 ? (
-                        <tr>
-                          <td
-                            colSpan={11}
-                            className="px-4 py-6 text-center text-neutral-600"
-                          >
-                            Aucun résultat — ajustez vos filtres.
-                          </td>
-                        </tr>
-                      ) : (
-                        pageRows.map((r) => {
-                          const group = r.member_of_group_id
-                            ? groupMap.get(r.member_of_group_id)
-                            : null;
-                          const opts = optionsMap.get(r.id) || [];
-                          const optBadges = opts.length ? (
-                            <div className="flex flex-wrap gap-1.5">
-                              {opts.map((o, i) => {
-                                const label =
-                                  optionLabelMap.get(o.option_id) ||
-                                  `#${String(o.option_id).slice(0, 8)}`;
-                                return (
-                                  <span
-                                    key={o.option_id + i}
-                                    className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-2 py-0.5 text-xs ring-1 ring-neutral-200"
-                                  >
-                                    {label}
-                                    {o.quantity > 1 ? ` ×${o.quantity}` : ""}
-                                  </span>
-                                );
-                              })}
-                            </div>
-                          ) : (
-                            <span className="text-neutral-500">—</span>
-                          );
+                    ) : (
+                      pageRows.map((r) => {
+                        const group = r.member_of_group_id ? groupMap.get(r.member_of_group_id) : null;
+                        const opts = optionsMap.get(r.id) || [];
+                        const optBadges = opts.length ? (
+                          <div className="flex flex-wrap gap-1.5">
+                            {opts.map((o, i) => {
+                              const label = optionLabelMap.get(o.option_id) || `#${String(o.option_id).slice(0, 8)}`;
+                              return (
+                                <span key={o.option_id + i} className="inline-flex items-center rounded-full bg-neutral-100 text-neutral-800 px-2 py-0.5 text-xs ring-1 ring-neutral-200">
+                                  {label}{o.quantity > 1 ? ` ×${o.quantity}` : ""}
+                                </span>
+                              );
+                            })}
+                          </div>
+                        ) : (
+                          <span className="text-neutral-500">—</span>
+                        );
 
-                          const detailUrl = r.id
-                            ? `/inscription/${encodeURIComponent(r.id)}`
-                            : "#";
+                        const detailUrl = r.id ? `/inscription/${encodeURIComponent(r.id)}` : "#";
 
-                          return (
-                            <tr key={r.id} className="hover:bg-neutral-50/60">
-                              <td className="px-4 py-3 align-top">
-                                <input
-                                  type="checkbox"
-                                  checked={selectedSet.has(r.id)}
-                                  onChange={() => toggleRow(r.id)}
-                                />
-                              </td>
-                              <td className="px-4 py-3 align-top font-medium">
-                                {r.nom || "—"}
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                {r.prenom || "—"}
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                {r.email ? (
-                                  <a
-                                    className="text-neutral-900 hover:underline"
-                                    href={`mailto:${r.email}`}
-                                  >
-                                    {r.email}
-                                  </a>
-                                ) : (
-                                  "—"
-                                )}
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                {r.team_name || "—"}
-                              </td>
-                              <td className="px-4 py-3 align-top">
-                                {group ? (
-                                  <GroupBadge status={group.statut} />
-                                ) : (
-                                  <span className="text-neutral-500">—</span>
-                                )}
-                              </td>
+                        return (
+                          <tr key={r.id} className="hover:bg-neutral-50/60">
+                            <td className="px-4 py-3 align-top">
+                              <input
+                                type="checkbox"
+                                checked={selectedSet.has(r.id)}
+                                onChange={() => setSelectedForFormat(fid, (cur) => {
+                                  const next = new Set(cur);
+                                  if (next.has(r.id)) next.delete(r.id); else next.add(r.id);
+                                  return next;
+                                })}
+                              />
+                            </td>
+                            <td className="px-4 py-3 align-top font-medium">{r.nom || "—"}</td>
+                            <td className="px-4 py-3 align-top">{r.prenom || "—"}</td>
+                            <td className="px-4 py-3 align-top">
+                              {r.email ? <a className="text-neutral-900 hover:underline" href={`mailto:${r.email}`}>{r.email}</a> : "—"}
+                            </td>
+                            <td className="px-4 py-3 align-top">{r.team_name || "—"}</td>
+                            <td className="px-4 py-3 align-top">
+                              {group ? <GroupBadge status={group.statut} /> : <span className="text-neutral-500">—</span>}
+                            </td>
 
-                              <td className="px-4 py-3 align-top">
-                                <div className="flex items-center gap-2">
-                                  <StatusBadge status={r.statut} />
-                                  <select
-                                    value={
-                                      (r.statut || "").toLowerCase() ===
-                                      "en attente"
-                                        ? "en_attente"
-                                        : r.statut || ""
-                                    }
-                                    onChange={(e) =>
-                                      handleUpdateStatut(r.id, e.target.value)
-                                    }
-                                    className="rounded-lg border border-neutral-300 px-2 py-1 text-xs"
-                                  >
-                                    <option value="en_attente">
-                                      En attente
-                                    </option>
-                                    <option value="paye">Payé</option>
-                                    <option value="annule">Annulé</option>
-                                  </select>
-                                </div>
-                              </td>
-
-                              <td className="px-4 py-3 align-top">
-                                <input
-                                  className="w-24 rounded-lg border border-neutral-300 px-2 py-1 text-sm"
-                                  value={r.dossard ?? ""}
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex items-center gap-2">
+                                <StatusBadge status={r.statut} />
+                                <select
+                                  value={(r.statut || "").toLowerCase() === "en attente" ? "en_attente" : (r.statut || "")}
                                   onChange={(e) => {
-                                    const v = e.target.value.replace(/[^\d]/g, "");
-                                    setInscriptions((rs) =>
-                                      rs.map((x) =>
-                                        x.id === r.id ? { ...x, dossard: v } : x
-                                      )
-                                    );
+                                    const newStatut = e.target.value;
+                                    // MAJ optimiste
+                                    setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, statut: newStatut } : x)));
+                                    // envoi serveur
+                                    supabase.from("inscriptions").update({ statut: newStatut }).eq("id", r.id).then(({ error }) => {
+                                      if (error) {
+                                        // rollback en cas d'erreur
+                                        setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, statut: r.statut } : x)));
+                                        alert("Impossible de mettre à jour le statut.");
+                                      }
+                                    });
                                   }}
-                                  onBlur={(e) =>
-                                    handleUpdateDossard(r.id, e.target.value)
+                                  className="rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                                >
+                                  <option value="en_attente">En attente</option>
+                                  <option value="paye">Payé</option>
+                                  <option value="annule">Annulé</option>
+                                </select>
+                              </div>
+                            </td>
+
+                            <td className="px-4 py-3 align-top">
+                              <input
+                                className="w-24 rounded-lg border border-neutral-300 px-2 py-1 text-sm"
+                                value={r.dossard ?? ""}
+                                onChange={(e) => {
+                                  const v = e.target.value.replace(/[^\d]/g, "");
+                                  setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, dossard: v } : x)));
+                                }}
+                                onBlur={(e) => {
+                                  const raw = e.target.value;
+                                  const val = raw === "" ? null : Number(raw);
+                                  if (val != null && (Number.isNaN(val) || val < 0)) {
+                                    alert("Dossard invalide.");
+                                    setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, dossard: r.dossard ?? "" } : x)));
+                                    return;
                                   }
-                                  placeholder="—"
-                                  inputMode="numeric"
-                                />
-                              </td>
+                                  supabase.from("inscriptions").update({ dossard: val }).eq("id", r.id).then(({ error }) => {
+                                    if (error) {
+                                      alert("Impossible de mettre à jour le dossard.");
+                                      setInscriptions((rs) => rs.map((x) => (x.id === r.id ? { ...x, dossard: r.dossard ?? "" } : x)));
+                                    }
+                                  });
+                                }}
+                                placeholder="—"
+                                inputMode="numeric"
+                              />
+                            </td>
 
-                              <td className="px-4 py-3 align-top text-neutral-700">
-                                {optBadges}
-                              </td>
-                              <td className="px-4 py-3 align-top text-neutral-600">
-                                {formatDateTime(r.created_at)}
-                              </td>
+                            <td className="px-4 py-3 align-top text-neutral-700">{optBadges}</td>
+                            <td className="px-4 py-3 align-top text-neutral-600">{formatDateTime(r.created_at)}</td>
 
-                              <td className="px-4 py-3 align-top">
-                                <div className="flex flex-wrap gap-2">
-                                  <Link
-                                    to={detailUrl}
-                                    onClick={(e) => {
-                                      if (detailUrl === "#") e.preventDefault();
-                                    }}
-                                    className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
-                                    title="Voir le détail de l’inscription"
-                                  >
-                                    Voir
-                                  </Link>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })
-                      )}
-                    </tbody>
-                  </table>
+                            <td className="px-4 py-3 align-top">
+                              <div className="flex flex-wrap gap-2">
+                                <Link
+                                  to={detailUrl}
+                                  onClick={(e) => { if (detailUrl === "#") e.preventDefault(); }}
+                                  className="inline-flex items-center rounded-lg border border-neutral-300 px-2 py-1 text-xs hover:bg-neutral-50"
+                                  title="Voir le détail de l’inscription"
+                                >
+                                  Voir
+                                </Link>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Footer section : pagination */}
+              <div className="px-4 py-3 border-t border-neutral-200 flex items-center justify-between text-sm">
+                <div className="text-neutral-600">
+                  {meta.totalRows} résultat{meta.totalRows > 1 ? "s" : ""} • {PAGE_SIZE} par page
                 </div>
-
-                {/* Footer section : pagination */}
-                <div className="px-4 py-3 border-t border-neutral-200 flex items-center justify-between text-sm">
-                  <div className="text-neutral-600">
-                    {meta.totalRows} résultat{meta.totalRows > 1 ? "s" : ""} •{" "}
-                    {PAGE_SIZE} par page
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => setPageOf(fid, meta.page - 1)}
-                      disabled={meta.page <= 1}
-                      className={cls(
-                        "rounded-lg border px-3 py-1.5",
-                        meta.page <= 1
-                          ? "text-neutral-400 border-neutral-200 cursor-not-allowed"
-                          : "hover:bg-neutral-50"
-                      )}
-                    >
-                      Précédent
-                    </button>
-                    <span className="text-neutral-600">
-                      Page {meta.page} / {meta.pageCount}
-                    </span>
-                    <button
-                      onClick={() => setPageOf(fid, meta.page + 1)}
-                      disabled={meta.page >= meta.pageCount}
-                      className={cls(
-                        "rounded-lg border px-3 py-1.5",
-                        meta.page >= meta.pageCount
-                          ? "text-neutral-400 border-neutral-200 cursor-not-allowed"
-                          : "hover:bg-neutral-50"
-                      )}
-                    >
-                      Suivant
-                    </button>
-                  </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => setPageOf(fid, meta.page - 1)}
+                    disabled={meta.page <= 1}
+                    className={cls(
+                      "rounded-lg border px-3 py-1.5",
+                      meta.page <= 1 ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
+                    )}
+                  >
+                    Précédent
+                  </button>
+                  <span className="text-neutral-600">
+                    Page {meta.page} / {meta.pageCount}
+                  </span>
+                  <button
+                    onClick={() => setPageOf(fid, meta.page + 1)}
+                    disabled={meta.page >= meta.pageCount}
+                    className={cls(
+                      "rounded-lg border px-3 py-1.5",
+                      meta.page >= meta.pageCount ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
+                    )}
+                  >
+                    Suivant
+                  </button>
                 </div>
               </div>
 
               {/* Modales sectionnelles */}
               <EmailModal
-                open={showEmail.value}
-                onClose={() => showEmail.set(false)}
+                open={showEmail}
+                onClose={() => setShowEmailByFormat((m) => ({ ...m, [fid]: false }))}
                 recipients={recipients}
                 onSend={(payload) => {
-                  handleSendEmails(recipients, payload);
-                  showEmail.set(false);
+                  if (recipients.length === 0) return alert("Aucun destinataire sélectionné.");
+                  supabase.functions
+                    .invoke("organiser-send-emails", { body: { subject: payload.subject, html: payload.html, to: recipients } })
+                    .then(({ error }) => {
+                      if (error) {
+                        console.error("organiser-send-emails error", error);
+                        alert("Erreur d’envoi des emails.");
+                      } else {
+                        alert(`Email envoyé à ${recipients.length} destinataire(s).`);
+                      }
+                    })
+                    .finally(() => setShowEmailByFormat((m) => ({ ...m, [fid]: false })));
                 }}
               />
 
               <AddInscriptionModal
-                open={showAdd.value}
-                onClose={() => showAdd.set(false)}
+                open={showAdd}
+                onClose={() => setShowAddByFormat((m) => ({ ...m, [fid]: false }))}
                 onCreated={() => load()}
                 formats={formatId ? formats.filter((x) => x.id === fid) : formats}
-                courseId={courseId}
+                courseId={resolvedCourseId}
               />
 
               <ExportCsvModal
-                open={showExport.value}
-                onClose={() => showExport.set(false)}
+                open={showExport}
+                onClose={() => setShowExportByFormat((m) => ({ ...m, [fid]: false }))}
                 rows={selectedRows.length > 0 ? selectedRows : rows}
                 groupsById={groupMap}
                 optionsById={optionsMap}
                 optionLabelById={optionLabelMap}
                 filenameBase={filenameBase}
               />
-            </SectionStateBridge>
+            </div>
           );
         })}
     </div>
   );
-}
-
-/* ------------- Petites aides pour avoir un état modal par section ------------- */
-/** Bridge de contexte local pour stocker 3 modales par section (email/add/export) */
-function SectionStateBridge({ children }) {
-  const [showEmail, setShowEmail] = useState(false);
-  const [showAdd, setShowAdd] = useState(false);
-  const [showExport, setShowExport] = useState(false);
-
-  return (
-    <SectionStateCtx.Provider
-      value={{
-        showEmail: { value: showEmail, set: setShowEmail },
-        showAdd: { value: showAdd, set: setShowAdd },
-        showExport: { value: showExport, set: setShowExport },
-      }}
-    >
-      {children}
-    </SectionStateCtx.Provider>
-  );
-}
-
-const SectionStateCtx = React.createContext(null);
-function useSectionState() {
-  const ctx = React.useContext(SectionStateCtx);
-  if (!ctx) {
-    throw new Error("useSectionState must be used within SectionStateBridge");
-  }
-  return ctx;
-}
-function sectionShowEmailState() {
-  return useSectionState().showEmail;
-}
-function sectionSetShowEmailState() {
-  return useSectionState().showEmail;
-}
-function sectionShowAddState() {
-  return useSectionState().showAdd;
-}
-function sectionSetShowAddState() {
-  return useSectionState().showAdd;
-}
-function sectionShowExportState() {
-  return useSectionState().showExport;
-}
-function sectionSetShowExportState() {
-  return useSectionState().showExport;
 }
