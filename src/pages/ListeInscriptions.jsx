@@ -847,7 +847,7 @@ const courseId = courseIdParam || searchParams.get("courseId") || null;
           { count: "exact" }
         );
 
-      if (courseId) query = query.eq("course_id", courseId);
+    //  if (courseId) query = query.eq("course_id", courseId);
       if (targetedFormatIds.length > 0) {
         query = query.in("format_id", targetedFormatIds);
       } else {
