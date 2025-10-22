@@ -2,6 +2,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
+import AssignBibModal from "../components/AssignBibModal";
 
 /* ----------------------------- Utils ----------------------------- */
 function cls(...xs) { return xs.filter(Boolean).join(" "); }
@@ -989,6 +990,7 @@ export default function ListeInscriptions() {
         selectedIds={Array.from(selected)}
         onDone={()=>{ setShowAssignBib(false); load(); }}
       />
+
 
       <ExportCsvModal
         open={showExport}
