@@ -756,9 +756,12 @@ function ExportCsvModal({ open, onClose, rows, groupsById, optionsById, optionLa
 
 /* ----------------------- Page ListeInscriptions ----------------------- */
 export default function ListeInscriptions() {
-  const { courseId } = useParams(); // facultatif : si page par course
-  const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
+ // ...
+const { courseId: courseIdParam } = useParams();
+const [searchParams, setSearchParams] = useSearchParams();
+const courseId = courseIdParam || searchParams.get("courseId") || null;
+// ...
+
 
   // Formats + filtre format (verrouillable par ?formatId=)
   const [formats, setFormats] = useState([]);

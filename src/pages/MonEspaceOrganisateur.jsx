@@ -390,7 +390,7 @@ export default function MonEspaceOrganisateur() {
                             {/* Liens rapides */}
                             <div className="mt-3 flex flex-wrap gap-2">
                               <Link
-                                to={`/organisateur/inscriptions/${f.id}`}
+                                to={`/organisateur/inscriptions/${course.id}?formatId=${encodeURIComponent(f.id)}`}
                                 className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-1.5 text-white text-xs font-semibold hover:brightness-110"
                               >
                                 👥 Voir les inscrits
