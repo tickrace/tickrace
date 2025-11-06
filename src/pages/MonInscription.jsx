@@ -1,185 +1,178 @@
 // src/pages/MonInscription.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 
 /* ------------------------------ UI helpers ------------------------------ */
-function Card({ title, children, right }) {
+function Pill({ children, tone = "neutral" }) {
+  const map = {
+    neutral: "bg-neutral-100 text-neutral-800 ring-neutral-200",
+    success: "bg-emerald-100 text-emerald-800 ring-emerald-200",
+    warning: "bg-amber-100 text-amber-800 ring-amber-200",
+    danger: "bg-rose-100 text-rose-800 ring-rose-200",
+    info: "bg-blue-100 text-blue-800 ring-blue-200",
+  };
   return (
-    <section className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
-      <div className="p-5 border-b border-neutral-200 flex items-center justify-between">
-        <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
-        {right}
-      </div>
-      <div className="p-5">{children}</div>
-    </section>
+    <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs ring-1 ${map[tone] || map.neutral}`}>
+      {children}
+    </span>
   );
 }
-const Row = ({ label, value }) => (
-  <div className="flex items-start justify-between gap-6 py-2 border-b last:border-b-0">
-    <div className="text-neutral-600 text-sm">{label}</div>
-    <div className="font-medium text-sm text-right">{value ?? "—"}</div>
-  </div>
-);
 
-function eur(n) {
-  if (!Number.isFinite(Number(n))) return "—";
-  return Number(n).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+function eur(v) {
+  if (!Number.isFinite(v)) v = 0;
+  return v.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
 
-/* --------------------------------- Page --------------------------------- */
+/* --------------------------------- Page -------------------------------- */
 export default function MonInscription() {
-  // Route: /mon-inscription/:id
-  const { id, inscriptionId } = useParams();
-  const INSCRIPTION_ID = inscriptionId || id;
+  const { id } = useParams(); // id d'inscription
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
-  const [inscription, setInscription] = useState(null);
+  const [insc, setInsc] = useState(null);
   const [course, setCourse] = useState(null);
   const [format, setFormat] = useState(null);
-  const [credit, setCredit] = useState(null);
-  const [working, setWorking] = useState(false);
+
+  const [optRows, setOptRows] = useState([]); // [{option_id,label,quantity,prix_unitaire_cents,status}]
+  const [optTotalEur, setOptTotalEur] = useState(0);
+
+  const statutTone = useMemo(() => {
+    switch ((insc?.statut || "").toLowerCase()) {
+      case "validé":
+      case "paye":
+      case "payé":
+        return "success";
+      case "en attente":
+      case "pending":
+        return "warning";
+      case "annulé":
+      case "annule":
+        return "danger";
+      default:
+        return "neutral";
+    }
+  }, [insc?.statut]);
 
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoading(true);
-      try {
-        // 1) Inscription
-        const { data: ins, error: insErr } = await supabase
-          .from("inscriptions")
-          .select("*")
-          .eq("id", INSCRIPTION_ID)
-          .maybeSingle();
-        if (insErr) throw insErr;
-        if (!ins) {
-          setInscription(null);
-          setLoading(false);
-          return;
-        }
-        if (!mounted) return;
-        setInscription(ins);
 
-        // 2) Course + Format (requêtes séparées pour éviter les FK implicites)
-        if (ins.course_id) {
-          const { data: c } = await supabase
-            .from("courses")
-            .select("id, nom, lieu, departement, code_postal, image_url")
-            .eq("id", ins.course_id)
-            .maybeSingle();
-          if (mounted) setCourse(c || null);
-        }
-        if (ins.format_id) {
-          const { data: f } = await supabase
-            .from("formats")
-            .select("id, nom, date, heure_depart, distance_km, denivele_dplus, type_format, prix, prix_equipe")
-            .eq("id", ins.format_id)
-            .maybeSingle();
-          if (mounted) setFormat(f || null);
-        }
+      // 1) Inscription
+      const { data: ins, error: errIns } = await supabase
+        .from("inscriptions")
+        .select("*")
+        .eq("id", id)
+        .maybeSingle();
 
-        // 3) Dernier crédit d’annulation (s’il existe déjà)
-        const { data: cr } = await supabase
-          .from("credits_annulation")
-          .select("*")
-          .eq("inscription_id", INSCRIPTION_ID)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (mounted) setCredit(cr || null);
-      } catch (e) {
-        console.error(e);
-      } finally {
-        if (mounted) setLoading(false);
+      if (!mounted) return;
+      if (errIns || !ins) {
+        setLoading(false);
+        alert("Inscription introuvable.");
+        return;
+      }
+      setInsc(ins);
+
+      // 2) Course & Format (requêtes séparées pour éviter les erreurs de FK PostgREST)
+      if (ins.course_id) {
+        const { data: c } = await supabase.from("courses").select("*").eq("id", ins.course_id).maybeSingle();
+        if (mounted) setCourse(c || null);
+      }
+      if (ins.format_id) {
+        const { data: f } = await supabase.from("formats").select("*").eq("id", ins.format_id).maybeSingle();
+        if (mounted) setFormat(f || null);
+      }
+
+      // 3) Options associées (confirmed + pending visibles ici)
+      const { data: io } = await supabase
+        .from("inscriptions_options")
+        .select("option_id, quantity, prix_unitaire_cents, status")
+        .eq("inscription_id", id);
+
+      const rows = io || [];
+      let labels = {};
+      if (rows.length) {
+        const ids = Array.from(new Set(rows.map((r) => r.option_id))).filter(Boolean);
+        if (ids.length) {
+          const { data: optsMeta } = await supabase
+            .from("options_catalogue")
+            .select("id,label,price_cents")
+            .in("id", ids);
+          labels = (optsMeta || []).reduce((acc, o) => {
+            acc[o.id] = { label: o.label, price_cents: o.price_cents };
+            return acc;
+          }, {});
+        }
+      }
+
+      const withLabels = rows.map((r) => ({
+        ...r,
+        label: labels[r.option_id]?.label || "Option",
+        unit_cents: Number(r.prix_unitaire_cents ?? labels[r.option_id]?.price_cents ?? 0),
+      }));
+
+      const totalEur =
+        withLabels.reduce((s, r) => s + (Number(r.quantity || 0) * Number(r.unit_cents || 0)) / 100, 0) || 0;
+
+      if (mounted) {
+        setOptRows(withLabels);
+        setOptTotalEur(totalEur);
+        setLoading(false);
       }
     })();
+
     return () => {
       mounted = false;
     };
-  }, [INSCRIPTION_ID]);
-
-  const raceDate = useMemo(() => {
-    if (!format?.date) return null;
-    try {
-      // On combine date + heure si fournis
-      const d = new Date(format.date);
-      if (format.heure_depart) {
-        const [hh, mm] = String(format.heure_depart).split(":");
-        d.setHours(Number(hh || 0), Number(mm || 0), 0, 0);
-      }
-      return d;
-    } catch {
-      return null;
-    }
-  }, [format?.date, format?.heure_depart]);
+  }, [id]);
 
   const canCancel = useMemo(() => {
-    if (!inscription) return false;
-    if (inscription.statut === "annulé") return false;
-    // Laisser la logique de fenêtre à la fonction SQL ; ici on permet l’action,
-    // mais tu peux restreindre si tu veux :
-    // if (raceDate && new Date() >= raceDate) return false;
-    return true;
-  }, [inscription, raceDate]);
+    const st = (insc?.statut || "").toLowerCase();
+    return st === "validé" || st === "paye" || st === "payé" || st === "en attente";
+  }, [insc?.statut]);
 
-  async function handleCancelAndCredit() {
-    if (!INSCRIPTION_ID || !canCancel) return;
+  async function handleCancel() {
+    if (!insc?.id) return;
     const ok = window.confirm(
-      "Confirmer l’annulation de cette inscription ? Un crédit sera calculé et enregistré."
+      "Confirmer l'annulation ?\n\nCela lancera le calcul du crédit d'annulation et mettra l'inscription à “annulé”."
     );
     if (!ok) return;
 
-    setWorking(true);
-    try {
-      // 1) Appel de la fonction SQL
-      const { data: rpcData, error: rpcErr } = await supabase.rpc(
-        "calculer_credit_annulation",
-        { inscription_id: INSCRIPTION_ID }
+    // Appel de la fonction SQL calculer_credit_annulation(uuid)
+    // Le nom du paramètre peut varier. On tente le plus probable `inscription_id`.
+    // Si votre fonction l’attend sous un autre nom, adaptez ci-dessous.
+    const { data, error } = await supabase.rpc("calculer_credit_annulation", {
+      inscription_id: insc.id,
+    });
+
+    if (error) {
+      console.error("RPC calculer_credit_annulation:", error);
+      alert(
+        "Impossible d'annuler via la fonction SQL. Vérifiez le nom du paramètre de la fonction `calculer_credit_annulation`.\n" +
+          (error.message || "")
       );
-      if (rpcErr) {
-        console.error(rpcErr);
-        alert(rpcErr.message || "Échec du calcul de crédit.");
-        setWorking(false);
-        return;
-      }
-
-      // 2) Rafraîchir l’inscription (statut devrait être 'annulé')
-      const { data: ins } = await supabase
-        .from("inscriptions")
-        .select("*")
-        .eq("id", INSCRIPTION_ID)
-        .maybeSingle();
-      if (ins) setInscription(ins);
-
-      // 3) Récupérer le dernier crédit inséré si le RPC ne le renvoie pas
-      if (rpcData && typeof rpcData === "object") {
-        // Beaucoup de fonctions renvoient le row inséré : on tente d’afficher rpcData
-        setCredit(rpcData);
-      } else {
-        const { data: cr } = await supabase
-          .from("credits_annulation")
-          .select("*")
-          .eq("inscription_id", INSCRIPTION_ID)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-        if (cr) setCredit(cr);
-      }
-
-      alert("Inscription annulée et crédit généré.");
-    } catch (e) {
-      console.error(e);
-      alert("Erreur lors de l’annulation/crédit.");
-    } finally {
-      setWorking(false);
+      return;
     }
+
+    // Recharger l’inscription (statut devrait passer à 'annulé')
+    const { data: insRefetch } = await supabase
+      .from("inscriptions")
+      .select("*")
+      .eq("id", insc.id)
+      .maybeSingle();
+
+    if (insRefetch) setInsc(insRefetch);
+
+    alert("Annulation effectuée. Un crédit d'annulation a été calculé et enregistré.");
   }
 
   if (loading) {
     return (
-      <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+      <div className="max-w-5xl mx-auto px-4 py-10">
         <div className="h-7 w-64 bg-neutral-200 rounded animate-pulse mb-6" />
         <div className="grid gap-4">
+          <div className="h-40 bg-neutral-100 rounded-2xl animate-pulse" />
           <div className="h-40 bg-neutral-100 rounded-2xl animate-pulse" />
           <div className="h-40 bg-neutral-100 rounded-2xl animate-pulse" />
         </div>
@@ -187,133 +180,245 @@ export default function MonInscription() {
     );
   }
 
-  if (!inscription) {
+  if (!insc) {
     return (
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+      <div className="max-w-3xl mx-auto px-4 py-16">
         <p className="text-neutral-600">Inscription introuvable.</p>
       </div>
     );
   }
 
+  // Totaux côté affichage (pour cohérence avec ancienne page)
+  const prixInscription = Number(format?.prix || 0);
+  const totalIndiv = (prixInscription + Number(insc?.prix_total_repas || 0)) || 0;
+  const totalAvecOptions = totalIndiv + Number(optTotalEur || 0);
+
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+    <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
-      <div className="mb-6 flex items-center justify-between">
-        <div>
-          <Link to="/" className="text-sm text-neutral-500 hover:text-neutral-800">← Accueil</Link>
-          <h1 className="text-2xl sm:text-3xl font-bold mt-1">
-            Mon inscription
-          </h1>
-          {course && (
+      <section className="bg-white border-b border-neutral-200">
+        <div className="mx-auto max-w-5xl px-4 py-8 flex items-start justify-between gap-3">
+          <div>
+            <Link to="/mesinscriptions" className="text-sm text-neutral-500 hover:text-neutral-800">
+              ← Retour à mes inscriptions
+            </Link>
+            <h1 className="text-2xl sm:text-3xl font-bold mt-1">
+              {course?.nom || "Épreuve"} — {format?.nom || "Format"}
+            </h1>
             <p className="text-neutral-600 mt-1">
-              Épreuve : <Link to={`/courses/${course.id}`} className="underline hover:no-underline">{course.nom}</Link>
-              {course.lieu ? ` — ${course.lieu}` : ""} {course.departement ? ` (${course.departement})` : ""}
+              {course?.lieu && `${course.lieu}${course?.departement ? ` (${course.departement})` : ""}`}
             </p>
-          )}
-        </div>
-
-        <div className="text-sm">
-          <span className={[
-            "px-2.5 py-1 rounded-full ring-1",
-            inscription.statut === "annulé"
-              ? "bg-rose-50 text-rose-700 ring-rose-200"
-              : inscription.statut === "validé"
-              ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-              : "bg-amber-50 text-amber-700 ring-amber-200"
-          ].join(" ")}>
-            {inscription.statut || "—"}
-          </span>
-        </div>
-      </div>
-
-      {/* Détails inscription */}
-      <div className="grid gap-6">
-        <Card
-          title="Détails de l’inscription"
-          right={
-            canCancel ? (
-              <button
-                type="button"
-                onClick={handleCancelAndCredit}
-                disabled={working}
-                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
-                  working ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"
-                }`}
-                title="Annuler l’inscription et générer un crédit"
-              >
-                {working ? "Traitement…" : "Annuler et générer un crédit"}
-              </button>
-            ) : null
-          }
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            <div>
-              <Row label="Nom" value={`${inscription.prenom || ""} ${inscription.nom || ""}`.trim() || "—"} />
-              <Row label="Email" value={inscription.email || "—"} />
-              <Row label="Téléphone" value={inscription.telephone || "—"} />
-              <Row label="Club" value={inscription.club || "—"} />
-              <Row label="N° licence / PPS" value={inscription.numero_licence || inscription.pps_identifier || "—"} />
-              <Row label="Adresse" value={[
-                inscription.adresse,
-                inscription.adresse_complement,
-                inscription.code_postal,
-                inscription.ville,
-                inscription.pays
-              ].filter(Boolean).join(", ") || "—"} />
-            </div>
-            <div>
-              <Row label="Format" value={format?.nom || "—"} />
-              <Row label="Date de course" value={
-                format?.date ? new Date(format.date + (format.heure_depart ? `T${format.heure_depart}:00` : "T00:00:00")).toLocaleString() : "—"
-              } />
-              <Row label="Distance / D+" value={
-                (format?.distance_km ? `${format.distance_km} km` : "—") +
-                (Number.isFinite(Number(format?.denivele_dplus)) ? ` / ${format.denivele_dplus} m` : "")
-              } />
-              <Row label="Type d’inscription" value={format?.type_format || "—"} />
-              <Row label="Dossard" value={inscription.dossard || "—"} />
-              <Row label="Créée le" value={inscription.created_at ? new Date(inscription.created_at).toLocaleString() : "—"} />
+            <div className="mt-2 flex items-center gap-2">
+              <Pill tone={statutTone}>
+                Statut : <b className="ml-1">{insc.statut}</b>
+              </Pill>
+              {insc?.dossard ? <Pill tone="info">Dossard : <b className="ml-1">{insc.dossard}</b></Pill> : null}
+              {format?.date ? <Pill tone="neutral">Départ : {format.date}{format?.heure_depart ? ` • ${format.heure_depart}` : ""}</Pill> : null}
             </div>
           </div>
-        </Card>
 
-        {/* Crédit d’annulation (si existant) */}
-        {credit && (
-          <Card title="Crédit d’annulation">
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Actions principales */}
+          <div className="flex flex-col items-end gap-2">
+            <button
+              type="button"
+              onClick={() => window.print()}
+              className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold hover:bg-neutral-50"
+            >
+              🖨️ Imprimer
+            </button>
+            <button
+              type="button"
+              disabled={!canCancel}
+              onClick={handleCancel}
+              className={`rounded-xl px-3 py-2 text-sm font-semibold text-white ${
+                canCancel ? "bg-rose-600 hover:bg-rose-700" : "bg-neutral-400 cursor-not-allowed"
+              }`}
+              title={canCancel ? "Annuler et générer un crédit" : "Annulation indisponible pour ce statut"}
+            >
+              ❌ Annuler l’inscription & générer un crédit
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Corps */}
+      <div className="mx-auto max-w-5xl px-4 py-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Colonne gauche */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Carte — Détails coureur */}
+          <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
+            <div className="p-5 border-b border-neutral-200">
+              <h2 className="text-lg sm:text-xl font-bold">Détails du participant</h2>
+              <p className="mt-1 text-sm text-neutral-600">Vos informations enregistrées pour cette inscription.</p>
+            </div>
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <Field label="Nom">{insc.nom || "—"}</Field>
+              <Field label="Prénom">{insc.prenom || "—"}</Field>
+              <Field label="Email">{insc.email || "—"}</Field>
+              <Field label="Téléphone">{insc.telephone || "—"}</Field>
+              <Field label="Date de naissance">{insc.date_naissance || "—"}</Field>
+              <Field label="Genre">{insc.genre || "—"}</Field>
+              <Field label="Nationalité">{insc.nationalite || "—"}</Field>
+              <Field label="Club">{insc.club || "—"}</Field>
+              <Field label="Adresse" className="sm:col-span-2">
+                {[insc.adresse, insc.adresse_complement, [insc.code_postal, insc.ville].filter(Boolean).join(" "), insc.pays]
+                  .filter(Boolean)
+                  .join(" · ") || "—"}
+              </Field>
+              <Field label="Afficher dans les résultats ?">
+                {insc.apparaitre_resultats === false ? "Non" : "Oui"}
+              </Field>
+              <Field label="N° licence / PPS">{insc.numero_licence || insc.pps_identifier || "—"}</Field>
+              <Field label="Contact d’urgence">
+                {insc.contact_urgence_nom ? `${insc.contact_urgence_nom} (${insc.contact_urgence_telephone || "—"})` : "—"}
+              </Field>
+            </div>
+          </div>
+
+          {/* Carte — Format & parcours */}
+          <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
+            <div className="p-5 border-b border-neutral-200">
+              <h2 className="text-lg sm:text-xl font-bold">Format & parcours</h2>
+            </div>
+            <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+              <Field label="Format">{format?.nom || "—"}</Field>
+              <Field label="Type">{format?.type_format || "—"}</Field>
+              <Field label="Distance">{format?.distance_km ? `${format.distance_km} km` : "—"}</Field>
+              <Field label="D+">{format?.denivele_dplus ? `${format.denivele_dplus} m` : "—"}</Field>
+              <Field label="Date">{format?.date || "—"}</Field>
+              <Field label="Heure de départ">{format?.heure_depart || "—"}</Field>
+              <Field label="Adresse départ">{format?.adresse_depart || "—"}</Field>
+              <Field label="Adresse arrivée">{format?.adresse_arrivee || "—"}</Field>
+            </div>
+            <div className="p-5 pt-0 text-sm text-neutral-700">
+              {format?.presentation_parcours ? (
+                <p className="whitespace-pre-wrap">{format.presentation_parcours}</p>
+              ) : (
+                <p className="text-neutral-500">Aucune description fournie.</p>
+              )}
+            </div>
+          </div>
+
+          {/* Carte — Options payantes */}
+          <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
+            <div className="p-5 border-b border-neutral-200 flex items-center justify-between">
               <div>
-                <Row label="Date" value={credit.created_at ? new Date(credit.created_at).toLocaleString() : "—"} />
-                <Row label="Jours avant course (calc.)" value={Number.isFinite(Number(credit.jours_avant_course)) ? credit.jours_avant_course : "—"} />
-                <Row label="Pourcentage appliqué" value={
-                  Number.isFinite(Number(credit.pourcentage)) ? `${(Number(credit.pourcentage) * 100).toFixed(0)} %` : "—"
-                } />
-              </div>
-              <div>
-                <Row label="Remboursement inscription" value={eur(credit.remboursement_inscription)} />
-                <Row label="Remboursement repas" value={eur(credit.remboursement_repas)} />
-                <Row label="Frais d’annulation" value={eur(credit.frais_annulation)} />
-                <div className="mt-2 pt-2 border-t">
-                  <Row label="Montant total crédité" value={<span className="font-bold">{eur(credit.montant_total)}</span>} />
-                </div>
+                <h2 className="text-lg sm:text-xl font-bold">Options sélectionnées</h2>
+                <p className="mt-1 text-sm text-neutral-600">Quantités et montants unitaires enregistrés.</p>
               </div>
             </div>
-            {inscription.statut === "annulé" && (
-              <p className="mt-4 text-sm text-neutral-600">
-                L’inscription est désormais <b>annulée</b>. Le crédit ci-dessus a été enregistré.
-              </p>
-            )}
-          </Card>
-        )}
 
-        {/* Astuces / Aide */}
-        <Card title="Aide">
-          <ul className="list-disc pl-5 text-sm text-neutral-700 space-y-1">
-            <li>Le crédit est calculé automatiquement selon la date de l’épreuve et vos règles internes.</li>
-            <li>En cas d’erreur, contactez l’organisateur pour toute correction manuelle.</li>
-            <li>Si vous avez payé des options (repas, etc.), elles sont prises en compte dans le calcul.</li>
-          </ul>
-        </Card>
+            <div className="p-5">
+              {optRows.length === 0 ? (
+                <div className="text-sm text-neutral-500">Aucune option.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-neutral-600">
+                        <th className="py-2 pr-3">Option</th>
+                        <th className="py-2 pr-3">Statut</th>
+                        <th className="py-2 pr-3 text-right">Quantité</th>
+                        <th className="py-2 pr-0 text-right">Prix unitaire</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {optRows.map((o, idx) => (
+                        <tr key={idx} className="border-t">
+                          <td className="py-2 pr-3">{o.label}</td>
+                          <td className="py-2 pr-3">
+                            {o.status === "confirmed" ? <Pill tone="success">confirmée</Pill> :
+                             o.status === "pending" ? <Pill tone="warning">en attente</Pill> :
+                             <Pill tone="neutral">{o.status || "—"}</Pill>}
+                          </td>
+                          <td className="py-2 pr-3 text-right">{o.quantity}</td>
+                          <td className="py-2 pr-0 text-right">{eur((o.unit_cents || 0) / 100)}</td>
+                        </tr>
+                      ))}
+                      <tr className="border-t">
+                        <td colSpan={3} className="py-2 pr-3 text-right font-semibold">Total options</td>
+                        <td className="py-2 pr-0 text-right font-semibold">{eur(optTotalEur)}</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Colonne droite — Résumé paiement */}
+        <aside className="lg:col-span-1">
+          <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm sticky top-6">
+            <div className="p-5 border-b border-neutral-100">
+              <h3 className="text-lg font-semibold">Résumé paiement</h3>
+              <p className="text-sm text-neutral-500">Montants estimés enregistrés pour cette inscription.</p>
+            </div>
+
+            <div className="p-5 space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-neutral-600">Inscription</span>
+                <span className="font-medium">{eur(prixInscription)}</span>
+              </div>
+              {Number(insc?.prix_total_repas || 0) > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">Repas</span>
+                  <span className="font-medium">{eur(Number(insc.prix_total_repas || 0))}</span>
+                </div>
+              )}
+              {optTotalEur > 0 && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">Options</span>
+                  <span className="font-medium">{eur(optTotalEur)}</span>
+                </div>
+              )}
+              <div className="h-px bg-neutral-200 my-2" />
+              <div className="flex justify-between text-base">
+                <span className="font-semibold">Total</span>
+                <span className="font-bold">{eur(totalAvecOptions)}</span>
+              </div>
+
+              {/* Aide / infos statut */}
+              <div className="mt-3 text-xs text-neutral-500">
+                Statut actuel : <b className="text-neutral-700">{insc.statut}</b>.
+                {canCancel
+                  ? " Vous pouvez annuler et générer un crédit si besoin."
+                  : " L'annulation n'est pas disponible pour ce statut."}
+              </div>
+            </div>
+
+            <div className="p-5 flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => navigate(`/courses/${insc.course_id}`)}
+                className="w-full rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50"
+              >
+                Voir la page de l’épreuve
+              </button>
+              <button
+                type="button"
+                disabled={!canCancel}
+                onClick={handleCancel}
+                className={`w-full rounded-xl px-4 py-2 text-sm font-semibold text-white ${
+                  canCancel ? "bg-rose-600 hover:bg-rose-700" : "bg-neutral-400 cursor-not-allowed"
+                }`}
+              >
+                Annuler & générer un crédit
+              </button>
+            </div>
+          </div>
+        </aside>
       </div>
+    </div>
+  );
+}
+
+/* --------------------------------- Field -------------------------------- */
+function Field({ label, children, className = "" }) {
+  return (
+    <div className={className}>
+      <div className="text-[11px] font-semibold text-neutral-500 uppercase tracking-wide">{label}</div>
+      <div className="mt-0.5 text-neutral-900">{children}</div>
     </div>
   );
 }
