@@ -281,6 +281,7 @@ export default function MonInscription() {
   );
 }
 
+
 function Info({ label, value }) {
   return (
     <div className="flex flex-col">
