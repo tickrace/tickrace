@@ -105,9 +105,10 @@ export default function MonInscription() {
   async function handleAnnuler() {
     if (!window.confirm("Confirmer l’annulation de cette inscription ?")) return;
     setCancelLoading(true);
-    const { data, error } = await supabase.rpc("calculer_credit_annulation", {
-      p_inscription_id: id,
-    });
+   const { data, error } = await supabase.rpc("calculer_credit_annulation", {
+  inscription_id: inscriptionId,   // ← le paramètre DOIT s’appeler exactement comme ça
+});
+
     setCancelLoading(false);
     if (error) {
       console.error(error);
