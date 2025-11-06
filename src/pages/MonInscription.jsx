@@ -1,430 +1,374 @@
 // src/pages/MonInscription.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 
-/* ------------------------------ UI helpers ------------------------------ */
-function Section({ title, desc, children, right }) {
-  return (
-    <section className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 overflow-hidden">
-      <div className="p-5 border-b border-neutral-200 flex items-center justify-between gap-3">
-        <div>
-          <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
-          {desc ? <p className="text-sm text-neutral-600 mt-0.5">{desc}</p> : null}
-        </div>
-        {right ? <div className="shrink-0">{right}</div> : null}
-      </div>
-      <div className="p-5">{children}</div>
-    </section>
-  );
+function eur(cents) {
+  if (!Number.isFinite(cents)) cents = 0;
+  return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
-function Row({ label, children }) {
-  return (
-    <div className="grid grid-cols-1 sm:grid-cols-3 py-2 border-b last:border-b-0">
-      <div className="text-sm font-semibold text-neutral-600">{label}</div>
-      <div className="sm:col-span-2 text-sm text-neutral-900">{children ?? "—"}</div>
-    </div>
-  );
-}
-function Badge({ tone = "neutral", children }) {
-  const styles = {
-    neutral: "bg-neutral-100 text-neutral-800 ring-neutral-200",
-    green: "bg-emerald-100 text-emerald-800 ring-emerald-200",
-    amber: "bg-amber-100 text-amber-800 ring-amber-200",
-    red: "bg-rose-100 text-rose-800 ring-rose-200",
-    blue: "bg-blue-100 text-blue-800 ring-blue-200",
-  }[tone];
-  return (
-    <span className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full ring-1 ${styles}`}>
-      {children}
-    </span>
-  );
-}
-const eur = (n) => (Number(n || 0)).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 
-/* --------------------------------- Page --------------------------------- */
 export default function MonInscription() {
-  const { id } = useParams(); // id d'inscription (UUID)
-  const navigate = useNavigate();
-
+  const { id } = useParams(); // /mon-inscription/:id
   const [loading, setLoading] = useState(true);
-  const [inscription, setInscription] = useState(null);
+  const [insc, setInsc] = useState(null);
   const [course, setCourse] = useState(null);
   const [format, setFormat] = useState(null);
-  const [options, setOptions] = useState([]); // lignes pour CETTE inscription
-  const [teamMates, setTeamMates] = useState([]); // autres membres (même member_of_group_id)
-  const [working, setWorking] = useState(false);
-
-  const isTeamMode = useMemo(() => {
-    const t = (format?.type_format || "individuel").toLowerCase();
-    return t === "groupe" || t === "relais";
-  }, [format]);
+  const [opts, setOpts] = useState([]); // inscriptions_options pour cette inscription
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    let mounted = true;
-    (async () => {
+    let aborted = false;
+    async function load() {
       setLoading(true);
+      setError("");
 
-      // 1) Charger l'inscription avec jointures course/format
-      const { data: insc, error } = await supabase
+      // 1) Lire l’inscription
+      const { data: ins, error: e1 } = await supabase
         .from("inscriptions")
-        .select(`
-          *,
-          courses:course_id ( id, nom, lieu, departement ),
-          formats:format_id ( id, nom, date, heure_depart, distance_km, denivele_dplus, type_format, prix, prix_equipe )
-        `)
+        .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
-      if (!mounted) return;
+      if (aborted) return;
 
-      if (error || !insc) {
-        console.error("inscription not found", error);
+      if (e1) {
+        setError(e1.message || "Impossible de charger l’inscription.");
         setLoading(false);
         return;
       }
+      if (!ins) {
+        setError("Inscription introuvable.");
+        setLoading(false);
+        return;
+      }
+      setInsc(ins);
 
-      setInscription(insc);
-      setCourse(insc.courses || null);
-      setFormat(insc.formats || null);
+      // 2) Lire la course
+      let c = null;
+      if (ins.course_id) {
+        const { data: cRow } = await supabase
+          .from("courses")
+          .select("id, nom, lieu, departement, image_url")
+          .eq("id", ins.course_id)
+          .maybeSingle();
+        if (!aborted) c = cRow || null;
+      }
+      setCourse(c);
 
-      // 2) Options liées à l’inscription
-      const { data: opts } = await supabase
+      // 3) Lire le format
+      let f = null;
+      if (ins.format_id) {
+        const { data: fRow } = await supabase
+          .from("formats")
+          .select("id, nom, date, heure_depart, distance_km, denivele_dplus, type_format, prix, prix_equipe")
+          .eq("id", ins.format_id)
+          .maybeSingle();
+        if (!aborted) f = fRow || null;
+      }
+      setFormat(f);
+
+      // 4) Lire les options payantes (confirmées & en attente)
+      const { data: io, error: e4 } = await supabase
         .from("inscriptions_options")
-        .select(`
-          id, option_id, quantity, prix_unitaire_cents, status,
-          option:option_id ( label, price_cents )
-        `)
-        .eq("inscription_id", id);
+        .select("option_id, quantity, prix_unitaire_cents, status")
+        .eq("inscription_id", id)
+        .in("status", ["pending", "confirmed"]);
 
-      setOptions(opts || []);
-
-      // 3) Équipe (si applicable) : tous ceux qui partagent le même member_of_group_id
-      if (insc.member_of_group_id) {
-        const { data: mates } = await supabase
-          .from("inscriptions")
-          .select("*")
-          .eq("member_of_group_id", insc.member_of_group_id)
-          .order("created_at", { ascending: true });
-        // Inclut potentiellement la ligne courante : on filtrera à l’affichage
-        setTeamMates(mates || []);
-      } else {
-        setTeamMates([]);
+      if (!aborted) {
+        if (!e4 && io?.length) {
+          // Charger le libellé et le prix catalogue pour info
+          const optionIds = Array.from(new Set(io.map((r) => r.option_id)));
+          let meta = {};
+          if (optionIds.length) {
+            const { data: cat } = await supabase
+              .from("options_catalogue")
+              .select("id, label, price_cents")
+              .in("id", optionIds);
+            if (cat?.length) {
+              meta = cat.reduce((acc, o) => {
+                acc[o.id] = o;
+                return acc;
+              }, {});
+            }
+          }
+          const withLabels = io.map((r) => ({
+            ...r,
+            label: meta[r.option_id]?.label || "Option",
+            catalogue_price_cents: Number(meta[r.option_id]?.price_cents || 0),
+          }));
+          setOpts(withLabels);
+        } else {
+          setOpts([]);
+        }
       }
 
-      setLoading(false);
-    })();
-
+      if (!aborted) setLoading(false);
+    }
+    load();
     return () => {
-      mounted = false;
+      aborted = true;
     };
   }, [id]);
 
-  async function refresh() {
-    // simple reload state
-    navigate(0);
-  }
-
-  async function cancelInscription() {
-    if (!inscription) return;
-    const ok = window.confirm(
-      "Confirmer l’annulation de cette inscription ?\nUn calcul de crédit d’annulation sera effectué."
-    );
-    if (!ok) return;
-
-    try {
-      setWorking(true);
-      // RPC calculer_credit_annulation(uuid)
-      const { error } = await supabase.rpc("calculer_credit_annulation", { id: inscription.id });
-      if (error) throw error;
-      alert("Annulation effectuée. Le crédit a été calculé et enregistré.");
-      await refresh();
-    } catch (e) {
-      console.error(e);
-      alert("Erreur lors de l’annulation : " + (e?.message || "inconnue"));
-    } finally {
-      setWorking(false);
-    }
-  }
-
-  // UI statuts
-  function statutBadge(statut) {
-    const s = (statut || "").toLowerCase();
-    if (s === "validé" || s === "valide" || s === "payé" || s === "paye")
-      return <Badge tone="green">✅ {inscription.statut}</Badge>;
-    if (s === "en attente" || s === "pending")
-      return <Badge tone="amber">⏳ {inscription.statut}</Badge>;
-    if (s === "annulé" || s === "annule")
-      return <Badge tone="red">🛑 {inscription.statut}</Badge>;
-    return <Badge>{inscription.statut || "—"}</Badge>;
-  }
+  const totalOptionsCents = useMemo(() => {
+    return (opts || []).reduce((s, o) => s + Number(o.prix_unitaire_cents || 0) * Number(o.quantity || 0), 0);
+  }, [opts]);
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-50 text-neutral-900">
-        <div className="max-w-5xl mx-auto px-4 py-10">
-          <div className="h-8 w-60 bg-neutral-200 rounded animate-pulse mb-4" />
-          <div className="space-y-4">
+      <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="h-7 w-64 bg-neutral-200 rounded animate-pulse mb-6" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
             <div className="h-40 bg-neutral-100 rounded-2xl animate-pulse" />
-            <div className="h-40 bg-neutral-100 rounded-2xl animate-pulse" />
+            <div className="h-28 bg-neutral-100 rounded-2xl animate-pulse" />
           </div>
+          <div className="h-64 bg-neutral-100 rounded-2xl animate-pulse" />
         </div>
       </div>
     );
   }
 
-  if (!inscription) {
+  if (error) {
     return (
-      <div className="min-h-screen bg-neutral-50 text-neutral-900">
-        <div className="max-w-3xl mx-auto px-4 py-12">
-          <p className="text-neutral-700">Inscription introuvable.</p>
-          <Link to="/mesinscriptions" className="text-sm text-neutral-600 underline">
-            ← Retour à mes inscriptions
-          </Link>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <p className="text-red-700 bg-red-50 border border-red-200 rounded-xl p-4">{error}</p>
+        <div className="mt-4">
+          <Link to="/" className="text-sm text-neutral-600 hover:text-neutral-900">← Retour à l’accueil</Link>
         </div>
       </div>
     );
   }
 
-  const prixOptionsEur = (options || []).reduce(
-    (sum, o) => sum + ((Number(o.prix_unitaire_cents ?? o.option?.price_cents ?? 0) * Number(o.quantity || 0)) / 100),
-    0
-  );
+  if (!insc) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <p className="text-neutral-600">Inscription introuvable.</p>
+      </div>
+    );
+  }
+
+  const statutBadge = (() => {
+    const s = (insc.statut || "").toLowerCase();
+    if (s.includes("valid")) return { text: "Validée", cls: "bg-emerald-50 text-emerald-700 ring-emerald-200" };
+    if (s.includes("attente")) return { text: "En attente", cls: "bg-amber-50 text-amber-700 ring-amber-200" };
+    if (s.includes("annul")) return { text: "Annulée", cls: "bg-neutral-50 text-neutral-700 ring-neutral-200" };
+    return { text: insc.statut || "—", cls: "bg-neutral-50 text-neutral-700 ring-neutral-200" };
+  })();
+
+  const isTeamMode = (format?.type_format === "groupe" || format?.type_format === "relais");
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
-      {/* Header */}
+      {/* Hero */}
       <section className="bg-white border-b border-neutral-200">
-        <div className="mx-auto max-w-5xl px-4 py-8">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <Link to="/mesinscriptions" className="text-sm text-neutral-500 hover:text-neutral-800">
-                ← Retour à mes inscriptions
-              </Link>
-              <h1 className="text-2xl sm:text-3xl font-bold mt-1">
-                Mon inscription — <span className="text-orange-600">Tick</span>Race
-              </h1>
-              <p className="text-neutral-600 mt-1 text-sm">
-                ID : <span className="font-mono">{inscription.id}</span>
+        <div className="mx-auto max-w-6xl px-4 py-8 flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <div className="text-sm">
+              <Link to="/" className="text-neutral-500 hover:text-neutral-900">Accueil</Link>
+              {" / "}
+              {course ? (
+                <Link to={`/courses/${course.id}`} className="text-neutral-500 hover:text-neutral-900">
+                  {course.nom}
+                </Link>
+              ) : (
+                <span className="text-neutral-500">Épreuve</span>
+              )}
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold mt-1">
+              Mon inscription {course ? `— ${course.nom}` : ""}
+            </h1>
+            {format && (
+              <p className="text-neutral-600 mt-1">
+                Format : <b>{format.nom}</b>
+                {format.date ? ` — ${format.date}` : ""}{" "}
+                {format.heure_depart ? `à ${format.heure_depart}` : ""}
               </p>
-            </div>
-            <div className="flex items-center gap-2">
-              {statutBadge(inscription.statut)}
-              {inscription.dossard ? <Badge tone="blue">Dossard #{inscription.dossard}</Badge> : null}
-            </div>
+            )}
           </div>
+
+          <span className={["shrink-0 text-xs px-2.5 py-1 rounded-full ring-1", statutBadge.cls].join(" ")}>
+            {statutBadge.text}
+          </span>
         </div>
       </section>
 
       {/* Content */}
-      <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
-        {/* Bloc Course / Format */}
-        <Section
-          title={course?.nom || "Épreuve"}
-          desc={course ? `${course.lieu || ""}${course.departement ? " • " + course.departement : ""}` : ""}
-          right={
-            <Link
-              to={course ? `/courses/${course.id}` : "#"}
-              className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-sm font-medium hover:bg-neutral-50"
-            >
-              Voir la page épreuve
-            </Link>
-          }
-        >
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
-              <div className="font-semibold text-neutral-800 mb-2">Format</div>
-              <Row label="Nom">{format?.nom || "—"}</Row>
-              <Row label="Type d’inscription">
-                {format?.type_format ? format.type_format : "—"}
-                {isTeamMode ? (
-                  <span className="ml-2 text-xs text-neutral-600">
-                    ({format?.type_format === "groupe" ? "Paiement groupé" : "Relais"})
-                  </span>
-                ) : null}
-              </Row>
-              <Row label="Date">{format?.date || "—"}</Row>
-              <Row label="Heure de départ">{format?.heure_depart || "—"}</Row>
-              <Row label="Parcours">
-                {(format?.distance_km ? `${format.distance_km} km` : "—") +
-                  (format?.denivele_dplus ? ` • ${format.denivele_dplus} m D+` : "")}
-              </Row>
-            </div>
-
-            <div className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
-              <div className="font-semibold text-neutral-800 mb-2">Récapitulatif</div>
-              <Row label="Inscription au nom de">
-                {inscription.prenom} {inscription.nom}
-              </Row>
-              <Row label="Email">{inscription.email || "—"}</Row>
-              <Row label="Téléphone">{inscription.telephone || "—"}</Row>
-              <Row label="Club">{inscription.club || "—"}</Row>
-              <Row label="Statut">{statutBadge(inscription.statut)}</Row>
-              <Row label="Dossard">{inscription.dossard ? `#${inscription.dossard}` : "Non attribué"}</Row>
-            </div>
-          </div>
-        </Section>
-
-        {/* Bloc Options payantes */}
-        <Section
-          title="Options liées à l’inscription"
-          desc="Repas, goodies, etc."
-          right={options?.length ? <div className="text-sm text-neutral-600">Total : <b>{eur(prixOptionsEur)}</b></div> : null}
-        >
-          {options?.length ? (
-            <div className="overflow-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="text-left text-neutral-600 border-b">
-                    <th className="py-2 pr-3">Option</th>
-                    <th className="py-2 pr-3">Qté</th>
-                    <th className="py-2 pr-3">PU</th>
-                    <th className="py-2 pr-3">Statut</th>
-                    <th className="py-2 pr-3">Total</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {options.map((o) => {
-                    const pu = Number(o.prix_unitaire_cents ?? o.option?.price_cents ?? 0) / 100;
-                    const total = pu * Number(o.quantity || 0);
-                    const s = (o.status || "").toLowerCase();
-                    const tone = s === "confirmed" ? "green" : s === "canceled" ? "red" : "amber";
-                    return (
-                      <tr key={o.id} className="border-b last:border-b-0">
-                        <td className="py-2 pr-3">{o.option?.label || "Option"}</td>
-                        <td className="py-2 pr-3">{o.quantity}</td>
-                        <td className="py-2 pr-3">{eur(pu)}</td>
-                        <td className="py-2 pr-3"><Badge tone={tone}>{o.status || "—"}</Badge></td>
-                        <td className="py-2 pr-3 font-medium">{eur(total)}</td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            </div>
-          ) : (
-            <p className="text-sm text-neutral-600">Aucune option n’est liée à cette inscription.</p>
-          )}
-        </Section>
-
-        {/* Bloc Détails personnels */}
-        <Section title="Détails personnels" desc="Ces informations ont été fournies lors de l’inscription.">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
-              <Row label="Nom / Prénom">
-                {inscription.nom?.toUpperCase()} {inscription.prenom}
-              </Row>
-              <Row label="Genre">{inscription.genre || "—"}</Row>
-              <Row label="Date de naissance">{inscription.date_naissance || "—"}</Row>
-              <Row label="Nationalité">{inscription.nationalite || "—"}</Row>
-              <Row label="Affichage résultats">
-                {inscription.apparaitre_resultats === false ? "Non" : "Oui"}
-              </Row>
-              <Row label="N° licence / PPS">{inscription.numero_licence || inscription.pps_identifier || "—"}</Row>
-              <Row label="Justificatif">{inscription.justificatif_type || "—"}</Row>
-              <Row label="Contact d’urgence">
-                {inscription.contact_urgence_nom || "—"} {inscription.contact_urgence_telephone ? `(${inscription.contact_urgence_telephone})` : ""}
-              </Row>
-            </div>
-
-            <div className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
-              <Row label="Adresse">{inscription.adresse || "—"}</Row>
-              <Row label="Complément">{inscription.adresse_complement || "—"}</Row>
-              <Row label="Code postal">{inscription.code_postal || "—"}</Row>
-              <Row label="Ville / Pays">
-                {(inscription.ville || "—") + (inscription.pays ? `, ${inscription.pays}` : "")}
-              </Row>
-              <Row label="Email">{inscription.email || "—"}</Row>
-              <Row label="Téléphone">{inscription.telephone || "—"}</Row>
-            </div>
-          </div>
-        </Section>
-
-        {/* Bloc Équipe (si groupe/relais) */}
-        {isTeamMode && (
-          <Section
-            title={format?.type_format === "groupe" ? "Inscription groupée" : "Équipe relais"}
-            desc={inscription.team_name ? `Nom d’équipe : ${inscription.team_name}` : undefined}
-          >
-            {teamMates?.length ? (
-              <div className="overflow-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-left text-neutral-600 border-b">
-                      <th className="py-2 pr-3">#</th>
-                      <th className="py-2 pr-3">Nom</th>
-                      <th className="py-2 pr-3">Prénom</th>
-                      <th className="py-2 pr-3">Genre</th>
-                      <th className="py-2 pr-3">Naissance</th>
-                      <th className="py-2 pr-3">Licence / PPS</th>
-                      <th className="py-2 pr-3">Email</th>
-                      <th className="py-2 pr-3">Statut</th>
-                      <th className="py-2 pr-3">Dossard</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {teamMates
-                      .sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))
-                      .map((m, i) => (
-                        <tr key={m.id} className={`border-b last:border-b-0 ${m.id === inscription.id ? "bg-amber-50/40" : ""}`}>
-                          <td className="py-2 pr-3">{i + 1}</td>
-                          <td className="py-2 pr-3">{m.nom}</td>
-                          <td className="py-2 pr-3">{m.prenom}</td>
-                          <td className="py-2 pr-3">{m.genre || "—"}</td>
-                          <td className="py-2 pr-3">{m.date_naissance || "—"}</td>
-                          <td className="py-2 pr-3">{m.numero_licence || m.pps_identifier || "—"}</td>
-                          <td className="py-2 pr-3">{m.email || "—"}</td>
-                          <td className="py-2 pr-3">{m.statut}</td>
-                          <td className="py-2 pr-3">{m.dossard ? `#${m.dossard}` : "—"}</td>
-                        </tr>
-                      ))}
-                  </tbody>
-                </table>
+      <div className="mx-auto max-w-6xl px-4 py-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Col gauche */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* Carte — Détails coureur / équipe */}
+          <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
+            <div className="p-5 border-b border-neutral-200 flex items-center justify-between">
+              <div>
+                <h2 className="text-lg sm:text-xl font-bold">Détails de l’inscription</h2>
+                <p className="text-sm text-neutral-600">
+                  ID : <span className="font-mono text-xs">{insc.id}</span>
+                </p>
               </div>
-            ) : (
-              <p className="text-sm text-neutral-600">Aucun membre d’équipe supplémentaire trouvé.</p>
-            )}
-          </Section>
-        )}
+              {Number.isFinite(insc.dossard) && insc.dossard > 0 && (
+                <div className="text-sm px-3 py-1 rounded-full bg-black text-white">Dossard #{insc.dossard}</div>
+              )}
+            </div>
 
-        {/* Bloc Actions */}
-        <Section title="Actions">
-          <div className="flex flex-wrap items-center gap-3">
-            <button
-              type="button"
-              onClick={refresh}
-              className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50"
-            >
-              ↻ Rafraîchir
-            </button>
-
-            {String(inscription.statut || "").toLowerCase() !== "annulé" && (
-              <button
-                type="button"
-                onClick={cancelInscription}
-                disabled={working}
-                className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
-                  working ? "bg-neutral-400 cursor-not-allowed" : "bg-rose-600 hover:bg-rose-700"
-                }`}
-              >
-                {working ? "Annulation…" : "Annuler l’inscription"}
-              </button>
-            )}
-
-            <Link
-              to={`/courses/${inscription.course_id}`}
-              className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
-            >
-              Voir la course
-            </Link>
+            <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+              {!isTeamMode ? (
+                <>
+                  <Field label="Nom">{insc.nom || "—"}</Field>
+                  <Field label="Prénom">{insc.prenom || "—"}</Field>
+                  <Field label="Sexe">{insc.genre || "—"}</Field>
+                  <Field label="Date de naissance">{insc.date_naissance || "—"}</Field>
+                  <Field label="Nationalité">{insc.nationalite || "—"}</Field>
+                  <Field label="Email">{insc.email || "—"}</Field>
+                  <Field label="Téléphone">{insc.telephone || "—"}</Field>
+                  <Field label="Club">{insc.club || "—"}</Field>
+                  <Field label="Adresse" className="md:col-span-2">
+                    {[
+                      insc.adresse,
+                      insc.adresse_complement,
+                      [insc.code_postal, insc.ville].filter(Boolean).join(" "),
+                      insc.pays,
+                    ]
+                      .filter(Boolean)
+                      .join(" · ") || "—"}
+                  </Field>
+                  <Field label="Justificatif">{insc.justificatif_type || "—"}</Field>
+                  <Field label="N° licence / PPS">{insc.numero_licence || insc.pps_identifier || "—"}</Field>
+                  <Field label="Apparaître aux résultats">{insc.apparaitre_resultats ? "Oui" : "Non"}</Field>
+                </>
+              ) : (
+                <>
+                  <Field label="Inscription d’équipe">{format?.type_format === "relais" ? "Relais" : "Groupe"}</Field>
+                  <Field label="Nom d’équipe">{insc.team_name || "—"}</Field>
+                  <Field label="Identifiant groupe">{insc.member_of_group_id || "—"}</Field>
+                  <Field label="Email payeur">{insc.email || "—"}</Field>
+                  <div className="md:col-span-2 text-neutral-600">
+                    <p className="text-sm">
+                      Cette page affiche votre enregistrement principal. Les membres d’équipe sont
+                      visibles dans la page organisateur « Liste des inscriptions » et sur l’email de confirmation.
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
-          <p className="text-xs text-neutral-500 mt-3">
-            L’annulation déclenche la fonction <code>calculer_credit_annulation(uuid)</code> qui calcule le crédit selon les règles en base, enregistre la
-            ligne dans <code>credits_annulation</code> et met le statut de l’inscription à <code>annulé</code>.
-          </p>
-        </Section>
+          {/* Carte — Options payantes */}
+          <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
+            <div className="p-5 border-b border-neutral-200">
+              <h2 className="text-lg sm:text-xl font-bold">Options payantes</h2>
+              <p className="text-sm text-neutral-600">Repas, goodies, etc.</p>
+            </div>
+            <div className="p-5">
+              {opts.length === 0 ? (
+                <div className="text-sm text-neutral-600">Aucune option.</div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-neutral-600">
+                        <th className="py-2 pr-3">Libellé</th>
+                        <th className="py-2 pr-3">Quantité</th>
+                        <th className="py-2 pr-3">Prix unitaire</th>
+                        <th className="py-2 pr-3">Statut</th>
+                        <th className="py-2 pr-3 text-right">Total</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {opts.map((o, i) => {
+                        const q = Number(o.quantity || 0);
+                        const pu = Number(o.prix_unitaire_cents || 0);
+                        return (
+                          <tr key={i} className="border-t">
+                            <td className="py-2 pr-3">{o.label}</td>
+                            <td className="py-2 pr-3">{q}</td>
+                            <td className="py-2 pr-3">{eur(pu)}</td>
+                            <td className="py-2 pr-3">{o.status}</td>
+                            <td className="py-2 pr-3 text-right font-semibold">{eur(q * pu)}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                    <tfoot>
+                      <tr className="border-t font-semibold">
+                        <td className="py-2 pr-3" colSpan={4}>Total options</td>
+                        <td className="py-2 pr-3 text-right">{eur(totalOptionsCents)}</td>
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Col droite — Récap */}
+        <aside>
+          <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 sticky top-6">
+            <div className="p-5 border-b border-neutral-200">
+              <h3 className="text-lg font-semibold">Résumé</h3>
+              <p className="text-sm text-neutral-500">Vérifie tes informations.</p>
+            </div>
+            <div className="p-5 space-y-3 text-sm">
+              <Row k="Épreuve" v={course ? `${course.nom} — ${course.lieu} (${course.departement || "—"})` : "—"} />
+              <Row k="Format" v={format ? format.nom : "—"} />
+              {format && (
+                <Row
+                  k="Date / Heure"
+                  v={[format.date, format.heure_depart].filter(Boolean).join(" · ") || "—"}
+                />
+              )}
+              {!isTeamMode ? (
+                <>
+                  <Row k="Prix inscription" v={`${Number(format?.prix || 0).toFixed(2)} €`} />
+                </>
+              ) : (
+                <>
+                  <Row k="Type équipe" v={format?.type_format === "relais" ? "Relais" : "Groupe"} />
+                  {!!format?.prix_equipe && <Row k="Frais d’équipe" v={`${Number(format.prix_equipe).toFixed(2)} €`} />}
+                </>
+              )}
+              <div className="h-px bg-neutral-200 my-2" />
+              <Row k="Total options" v={eur(totalOptionsCents)} />
+              <div className="h-px bg-neutral-200 my-2" />
+              <div className="flex justify-between text-base">
+                <span className="font-semibold">Statut</span>
+                <span className="font-bold">{statutBadge.text}</span>
+              </div>
+            </div>
+
+            <div className="p-5 border-t border-neutral-200">
+              {course && (
+                <Link
+                  to={`/courses/${course.id}`}
+                  className="w-full inline-flex justify-center rounded-xl bg-neutral-900 px-4 py-3 text-white font-semibold hover:bg-black"
+                >
+                  Voir la page de l’épreuve
+                </Link>
+              )}
+            </div>
+          </div>
+        </aside>
       </div>
+    </div>
+  );
+}
+
+/* --- Petits composants d’affichage --- */
+function Field({ label, children, className = "" }) {
+  return (
+    <div className={className}>
+      <div className="text-xs font-semibold text-neutral-600">{label}</div>
+      <div className="mt-1 text-neutral-900">{children}</div>
+    </div>
+  );
+}
+function Row({ k, v }) {
+  return (
+    <div className="flex justify-between">
+      <span className="text-neutral-600">{k}</span>
+      <span className="font-medium text-right">{v}</span>
     </div>
   );
 }
