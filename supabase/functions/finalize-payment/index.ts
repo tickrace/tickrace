@@ -147,7 +147,7 @@ async function finalizeFromSessionId(sessionId: string, sendEmail = true) {
         <ul>
           ${inscriptions.map(i => `<li>${(i.prenom||"").trim()} ${(i.nom||"").trim()} ${i.team_name ? `— ${i.team_name}` : ""}</li>`).join("")}
         </ul>
-        <p>Consultez vos inscriptions : <a href="${TICKRACE_BASE_URL}/mes-inscriptions">Mes inscriptions</a></p>
+        <p>Consultez vos inscriptions : <a href="${TICKRACE_BASE_URL}/mesinscriptions">Mes inscriptions</a></p>
         <p style="color:#667085;font-size:12px">Session Stripe : ${sessionId}</p>
       </div>
     `;
