@@ -27,7 +27,9 @@ function Card({ title, subtitle, right, children }) {
       {(title || subtitle || right) && (
         <div className="p-5 border-b border-neutral-200 flex items-center justify-between gap-4">
           <div>
-            {title && <h2 className="text-lg sm:text-xl font-bold">{title}</h2>}
+            {title && (
+              <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
+            )}
             {subtitle && (
               <p className="mt-1 text-sm text-neutral-600">{subtitle}</p>
             )}
@@ -105,33 +107,6 @@ export default function MonInscription() {
     return "neutral";
   }, [insc?.statut]);
 
-  // Total des options (A + B) en €
-  const totalOptions = useMemo(() => {
-    if (!insc) return 0;
-    const listA = insc._optionsA || [];
-    const listB = insc._optionsB || [];
-
-    const totalA = listA.reduce((sum, o) => {
-      const q = Number(o?.quantity ?? 0);
-      const unit =
-        o?.unit_price_cents != null
-          ? o.unit_price_cents / 100
-          : (o?.format_option?.prix_cents ?? 0) / 100;
-      const total =
-        o?.total_cents != null ? o.total_cents / 100 : unit * q || 0;
-      return sum + (total || 0);
-    }, 0);
-
-    const totalB = listB.reduce((sum, o) => {
-      const q = Number(o?.quantity ?? 0);
-      const unit =
-        (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) / 100;
-      return sum + unit * q;
-    }, 0);
-
-    return totalA + totalB;
-  }, [insc]);
-
   async function loadAll() {
     setLoading(true);
     setError("");
@@ -143,29 +118,38 @@ export default function MonInscription() {
         .eq("id", id)
         .single();
       if (insErr) throw insErr;
+      if (!ins) throw new Error("Inscription introuvable.");
 
-      // 2) Course & format (requêtes séparées)
-      const [
-        { data: course, error: courseErr },
-        { data: format, error: formatErr },
-        { data: optionsA, error: optAErr },
-        { data: optionsB, error: optBErr },
-        { data: paysDirect },
-        { data: paysGroup },
-        { data: cr },
-      ] = await Promise.all([
-        supabase
+      // 2) Course & format liés
+      let course = null;
+      let format = null;
+
+      if (ins.course_id) {
+        const { data: c, error: cErr } = await supabase
           .from("courses")
           .select("id, nom, lieu, departement, image_url")
           .eq("id", ins.course_id)
-          .maybeSingle(),
-        supabase
+          .maybeSingle();
+        if (cErr) throw cErr;
+        course = c || null;
+      }
+
+      if (ins.format_id) {
+        const { data: f, error: fErr } = await supabase
           .from("formats")
           .select(
             "id, nom, date, heure_depart, distance_km, denivele_dplus, denivele_dmoins, type_epreuve, type_format, prix, prix_repas, prix_equipe, fuseau_horaire"
           )
           .eq("id", ins.format_id)
-          .maybeSingle(),
+          .maybeSingle();
+        if (fErr) throw fErr;
+        format = f || null;
+      }
+
+      // 3) Options – double compat :
+      // (A) inscription_options + format_options
+      // (B) inscriptions_options + options_catalogue
+      const [resA, resB] = await Promise.all([
         supabase
           .from("inscription_options")
           .select(
@@ -184,40 +168,41 @@ export default function MonInscription() {
           `
           )
           .eq("inscription_id", id),
-        supabase
-          .from("paiements")
-          .select("*")
-          .eq("inscription_id", id)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("paiements")
-          .select("*")
-          .contains("inscription_ids", [id])
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("credits_annulation")
-          .select("*")
-          .eq("inscription_id", id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle(),
       ]);
 
-      if (courseErr) console.warn("Course load error", courseErr);
-      if (formatErr) console.warn("Format load error", formatErr);
-      if (optAErr) console.warn("Options A load error", optAErr);
-      if (optBErr) console.warn("Options B load error", optBErr);
+      // 4) Paiements potentiels (individuels + groupés)
+      const { data: paysDirect } = await supabase
+        .from("paiements")
+        .select("*")
+        .eq("inscription_id", id)
+        .order("created_at", { ascending: false });
+
+      const { data: paysGroup } = await supabase
+        .from("paiements")
+        .select("*")
+        .contains("inscription_ids", [id])
+        .order("created_at", { ascending: false });
+
+      // 5) Dernier crédit d'annulation
+      const { data: cr } = await supabase
+        .from("credits_annulation")
+        .select("*")
+        .eq("inscription_id", id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
       setInsc({
         ...ins,
-        course: course || null,
-        format: format || null,
-        _optionsA: optionsA || [],
-        _optionsB: optionsB || [],
+        course,
+        format,
+        _optionsA: resA?.data || [],
+        _optionsB: resB?.data || [],
       });
 
       const paiements = [...(paysDirect || []), ...(paysGroup || [])];
-      const receipt = paiements.find((p) => !!p.receipt_url)?.receipt_url || null;
+      const receipt =
+        paiements.find((p) => !!p.receipt_url)?.receipt_url || null;
       setPayInfos({ paiements, receipt });
 
       setCredit(cr || null);
@@ -234,10 +219,37 @@ export default function MonInscription() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // Total options (A + B), en € — repas inclus ici si tu les passes en options
+  const totalOptions = useMemo(() => {
+    if (!insc) return 0;
+    let sum = 0;
+
+    (insc._optionsA || []).forEach((o) => {
+      const q = o?.quantity ?? 1;
+      const unit =
+        o?.unit_price_cents != null
+          ? o.unit_price_cents / 100
+          : (o?.format_option?.prix_cents ?? 0) / 100;
+      const total =
+        o?.total_cents != null ? o.total_cents / 100 : unit * Number(q || 0);
+      sum += Number(total || 0);
+    });
+
+    (insc._optionsB || []).forEach((o) => {
+      const q = o?.quantity ?? 1;
+      const unit =
+        (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) / 100;
+      const total = unit * Number(q || 0);
+      sum += Number(total || 0);
+    });
+
+    return sum;
+  }, [insc]);
+
   const onAnnuler = async () => {
     if (!insc || annulating) return;
     const ok = window.confirm(
-      "Confirmer l’annulation ?\n\nNous allons calculer automatiquement votre crédit d’annulation selon la politique en vigueur."
+      "Confirmer l’annulation ?\n\nNous allons calculer automatiquement votre crédit d’annulation puis déclencher le remboursement Stripe."
     );
     if (!ok) return;
 
@@ -245,13 +257,14 @@ export default function MonInscription() {
     setError("");
 
     try {
+      // 1) Calcul crédit d'annulation via RPC
       let rpcErr = null;
+      let rpcRes = null;
       const tryArgs = [
         { inscription_id: id },
         { p_inscription_id: id },
         { i_inscription_id: id },
       ];
-      let rpcRes = null;
       for (const args of tryArgs) {
         const { data, error } = await supabase.rpc(
           "calculer_credit_annulation",
@@ -266,12 +279,25 @@ export default function MonInscription() {
       }
       if (rpcErr) throw rpcErr;
 
+      // 2) Déclencher le remboursement Stripe (Edge Function)
+      const { data: refundData, error: refundErr } =
+        await supabase.functions.invoke("refund-inscription", {
+          body: { inscription_id: id },
+        });
+
+      // 3) Recharger les infos (statut + crédit + paiements)
       await loadAll();
 
-      if (rpcRes && typeof rpcRes === "object") {
-        alert("Annulation enregistrée. Un crédit d’annulation a été créé.");
+      if (refundErr) {
+        console.error(refundErr);
+        alert(
+          "Annulation enregistrée, mais le remboursement Stripe a échoué. Merci de contacter le support."
+        );
       } else {
-        alert("Annulation enregistrée.");
+        console.log("Refund:", refundData);
+        alert(
+          "Annulation et remboursement effectués. Un email de confirmation vous a été envoyé."
+        );
       }
     } catch (e) {
       console.error(e);
@@ -285,9 +311,10 @@ export default function MonInscription() {
   const OptionsBloc = () => {
     const hasA = (insc?._optionsA || []).length > 0;
     const hasB = (insc?._optionsB || []).length > 0;
-    if (!hasA && !hasB) {
-      return <div className="text-sm text-neutral-500">Aucune option.</div>;
-    }
+    if (!hasA && !hasB)
+      return (
+        <div className="text-sm text-neutral-500">Aucune option choisie.</div>
+      );
 
     return (
       <div className="grid gap-3">
@@ -315,10 +342,11 @@ export default function MonInscription() {
                       o?.unit_price_cents != null
                         ? o.unit_price_cents / 100
                         : (o?.format_option?.prix_cents ?? 0) / 100;
+                    const q = o?.quantity ?? 1;
                     const total =
                       o?.total_cents != null
                         ? o.total_cents / 100
-                        : unit * (o?.quantity ?? 1);
+                        : unit * Number(q || 0);
                     return (
                       <tr
                         key={`A-${o.id}`}
@@ -326,7 +354,7 @@ export default function MonInscription() {
                       >
                         <td className="px-3 py-2">{label}</td>
                         <td className="px-3 py-2">{type}</td>
-                        <td className="px-3 py-2">{o?.quantity ?? 1}</td>
+                        <td className="px-3 py-2">{q}</td>
                         <td className="px-3 py-2">{euros(unit)}</td>
                         <td className="px-3 py-2">{euros(total)}</td>
                       </tr>
@@ -357,11 +385,10 @@ export default function MonInscription() {
                   {insc._optionsB.map((o) => {
                     const label = o?.option?.label || "Option";
                     const unit =
-                      (o?.prix_unitaire_cents ??
-                        o?.option?.price_cents ??
-                        0) / 100;
+                      (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) /
+                      100;
                     const q = o?.quantity ?? 1;
-                    const total = unit * q;
+                    const total = unit * Number(q || 0);
                     return (
                       <tr
                         key={`B-${o.id}`}
@@ -396,10 +423,9 @@ export default function MonInscription() {
     );
   };
 
-  if (loading) {
+  if (loading)
     return <div className="min-h-screen bg-neutral-50 p-8">Chargement…</div>;
-  }
-  if (error) {
+  if (error)
     return (
       <div className="min-h-screen bg-neutral-50 p-8">
         <Card title="Erreur">
@@ -415,29 +441,21 @@ export default function MonInscription() {
         </Card>
       </div>
     );
-  }
-  if (!insc) {
+  if (!insc)
     return (
       <div className="min-h-screen bg-neutral-50 p-8">
         Inscription introuvable.
       </div>
     );
-  }
 
   const course = insc.course;
   const format = insc.format;
   const tz = format?.fuseau_horaire || "Europe/Paris";
   const isCanceled =
-    !!insc.cancelled_at ||
-    (insc.statut || "").toLowerCase().includes("annul");
-  const canCancel = !isCanceled;
+    !!insc.cancelled_at || (insc.statut || "").toLowerCase().includes("annul");
+  const canCancel = !isCanceled; // tu peux affiner selon date/fermeture
 
-  // Cohérence avec InscriptionCourse :
-  // - prix_total_coureur = inscription + repas
-  // - prix_total_repas = repas seuls
-  const totalRepas = Number(insc.prix_total_repas || 0);
   const totalCoureur = Number(insc.prix_total_coureur || 0);
-  const baseInscription = Math.max(totalCoureur - totalRepas, 0);
   const totalTheo = totalCoureur + totalOptions;
 
   return (
@@ -524,7 +542,9 @@ export default function MonInscription() {
               {insc.dossard != null && (
                 <Row label="Dossard">#{insc.dossard}</Row>
               )}
-              {insc.team_name && <Row label="Équipe">{insc.team_name}</Row>}
+              {insc.team_name && (
+                <Row label="Équipe">{insc.team_name}</Row>
+              )}
             </div>
 
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
@@ -536,7 +556,9 @@ export default function MonInscription() {
               </Row>
               <Row label="Email">{insc.email || "—"}</Row>
               <Row label="Téléphone">{insc.telephone || "—"}</Row>
-              <Row label="Licence">{insc.numero_licence || "—"}</Row>
+              <Row label="Licence">
+                {insc.numero_licence || "—"}
+              </Row>
               {insc.pps_identifier && (
                 <Row label="PPS">
                   {insc.pps_identifier}{" "}
@@ -570,20 +592,9 @@ export default function MonInscription() {
           </div>
         </Card>
 
-        {/* Options & Repas */}
-        <Card title="Options & repas">
-          <div className="grid gap-6">
-            <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-              <div className="text-sm font-semibold text-neutral-700 mb-2">
-                Restauration
-              </div>
-              <Row label="Repas réservés">
-                {insc.nombre_repas ?? 0}
-              </Row>
-              <Row label="Total repas">{euros(totalRepas)}</Row>
-            </div>
-            <OptionsBloc />
-          </div>
+        {/* Options */}
+        <Card title="Options">
+          <OptionsBloc />
         </Card>
 
         {/* Paiement */}
@@ -607,12 +618,15 @@ export default function MonInscription() {
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Récapitulatif
               </div>
-              <Row label="Inscription">{euros(baseInscription)}</Row>
-              <Row label="Restauration">{euros(totalRepas)}</Row>
-              {totalOptions > 0 && (
-                <Row label="Options payantes">{euros(totalOptions)}</Row>
-              )}
-              <Row label="Total">{euros(totalTheo)}</Row>
+              <Row label="Sous-total inscription">
+                {euros(totalCoureur)}
+              </Row>
+              <Row label="Options (repas inclus si sélectionnés)">
+                {euros(totalOptions)}
+              </Row>
+              <Row label="Total">
+                {euros(totalTheo)}
+              </Row>
               <Row label="Statut">{insc.statut || "—"}</Row>
             </div>
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
@@ -649,7 +663,8 @@ export default function MonInscription() {
                             <Pill
                               color={
                                 p.status === "succeeded" ||
-                                p.status === "paid"
+                                p.status === "paid" ||
+                                p.status === "refunded"
                                   ? "green"
                                   : p.status === "pending"
                                   ? "orange"
@@ -702,17 +717,22 @@ export default function MonInscription() {
                 <div className="text-sm font-semibold text-neutral-700 mb-2">
                   Montants
                 </div>
-                <Row label="Remboursement inscription">
-                  {euros(credit.remboursement_inscription)}
-                </Row>
-                <Row label="Remboursement repas">
-                  {euros(credit.remboursement_repas)}
+                <Row label="Remboursement (inscription + options)">
+                  {euros(
+                    credit.montant_rembourse ??
+                      credit.montant_total ??
+                      credit.remboursement_inscription
+                  )}
                 </Row>
                 <Row label="Frais d’annulation">
                   {euros(credit.frais_annulation)}
                 </Row>
                 <Row label="Total remboursé">
-                  {euros(credit.montant_rembourse ?? credit.montant_total)}
+                  {euros(
+                    credit.montant_rembourse ??
+                      credit.montant_total ??
+                      credit.remboursement_inscription
+                  )}
                 </Row>
               </div>
             </div>
