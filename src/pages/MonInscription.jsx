@@ -257,26 +257,11 @@ export default function MonInscription() {
     setError("");
 
     try {
-      // 1) Calcul crédit d'annulation via RPC
-      let rpcErr = null;
-      let rpcRes = null;
-      const tryArgs = [
-        { inscription_id: id },
-        { p_inscription_id: id },
-        { i_inscription_id: id },
-      ];
-      for (const args of tryArgs) {
-        const { data, error } = await supabase.rpc(
-          "calculer_credit_annulation",
-          args
-        );
-        rpcRes = data;
-        if (!error) {
-          rpcErr = null;
-          break;
-        }
-        rpcErr = error;
-      }
+   // 1) Calcul crédit d'annulation via RPC (signature : p_inscription_id uuid)
+      const { data: rpcRes, error: rpcErr } = await supabase.rpc(
+        "calculer_credit_annulation",
+        { p_inscription_id: id }
+      );
       if (rpcErr) throw rpcErr;
 
       // 2) Déclencher le remboursement Stripe (Edge Function)
