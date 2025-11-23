@@ -219,7 +219,7 @@ export default function MonInscription() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
-  // Total options (A + B), en € — repas inclus ici si tu les passes en options
+  // Total options (A + B), en € — repas gérés comme des options éventuelles
   const totalOptions = useMemo(() => {
     if (!insc) return 0;
     let sum = 0;
@@ -257,7 +257,7 @@ export default function MonInscription() {
     setError("");
 
     try {
-   // 1) Calcul crédit d'annulation via RPC (signature : p_inscription_id uuid)
+      // 1) Calcul crédit d'annulation via RPC (signature : p_inscription_id uuid)
       const { data: rpcRes, error: rpcErr } = await supabase.rpc(
         "calculer_credit_annulation",
         { p_inscription_id: id }
@@ -438,7 +438,7 @@ export default function MonInscription() {
   const tz = format?.fuseau_horaire || "Europe/Paris";
   const isCanceled =
     !!insc.cancelled_at || (insc.statut || "").toLowerCase().includes("annul");
-  const canCancel = !isCanceled; // tu peux affiner selon date/fermeture
+  const canCancel = !isCanceled; // tu pourras affiner selon la date/fermeture
 
   const totalCoureur = Number(insc.prix_total_coureur || 0);
   const totalTheo = totalCoureur + totalOptions;
@@ -527,9 +527,7 @@ export default function MonInscription() {
               {insc.dossard != null && (
                 <Row label="Dossard">#{insc.dossard}</Row>
               )}
-              {insc.team_name && (
-                <Row label="Équipe">{insc.team_name}</Row>
-              )}
+              {insc.team_name && <Row label="Équipe">{insc.team_name}</Row>}
             </div>
 
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
@@ -541,9 +539,7 @@ export default function MonInscription() {
               </Row>
               <Row label="Email">{insc.email || "—"}</Row>
               <Row label="Téléphone">{insc.telephone || "—"}</Row>
-              <Row label="Licence">
-                {insc.numero_licence || "—"}
-              </Row>
+              <Row label="Licence">{insc.numero_licence || "—"}</Row>
               {insc.pps_identifier && (
                 <Row label="PPS">
                   {insc.pps_identifier}{" "}
@@ -606,7 +602,7 @@ export default function MonInscription() {
               <Row label="Sous-total inscription">
                 {euros(totalCoureur)}
               </Row>
-              <Row label="Options (repas inclus si sélectionnés)">
+              <Row label="Options payantes">
                 {euros(totalOptions)}
               </Row>
               <Row label="Total">
@@ -702,7 +698,7 @@ export default function MonInscription() {
                 <div className="text-sm font-semibold text-neutral-700 mb-2">
                   Montants
                 </div>
-                <Row label="Remboursement (inscription + options)">
+                <Row label="Montant remboursé">
                   {euros(
                     credit.montant_rembourse ??
                       credit.montant_total ??
