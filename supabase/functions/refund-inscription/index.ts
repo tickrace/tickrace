@@ -1,291 +1,181 @@
 ﻿// supabase/functions/refund-inscription/index.ts
-import { serve } from "https://deno.land/std@0.202.0/http/server.ts";
-import Stripe from "https://esm.sh/stripe@12.18.0?target=deno";
-import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.0";
+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
+import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
+import Stripe from "https://esm.sh/stripe@16.6.0?target=deno";
 
-const stripe = new Stripe(Deno.env.get("STRIPE_SECRET_KEY")!, {
-  apiVersion: "2023-10-16",
-});
-
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY"); // à configurer dans Supabase
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
+
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
+  httpClient: Stripe.createFetchHttpClient(),
+});
+
+function cors(h = new Headers()) {
+  h.set("Access-Control-Allow-Origin", "https://www.tickrace.com");
+  h.set("Access-Control-Allow-Methods", "POST, OPTIONS");
+  h.set("Access-Control-Allow-Headers", "content-type, authorization, apikey");
+  h.set("Content-Type", "application/json; charset=utf-8");
+  return h;
+}
 
 serve(async (req) => {
+  const headers = cors();
+
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers });
+  }
+
+  if (req.method !== "POST") {
+    return new Response(
+      JSON.stringify({ error: "Method not allowed" }),
+      { status: 405, headers },
+    );
+  }
+
   try {
-    const authHeader = req.headers.get("Authorization");
+    const body = await req.json().catch(() => ({}));
+    const inscription_id = body.inscription_id as string | undefined;
 
-    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
-      global: authHeader ? { headers: { Authorization: authHeader } } : {},
-    });
-
-    const { inscription_id } = await req.json();
     if (!inscription_id) {
       return new Response(
-        JSON.stringify({ error: "Missing inscription_id" }),
-        { status: 400 }
+        JSON.stringify({ error: "inscription_id manquant" }),
+        { status: 400, headers },
       );
     }
 
-    /** 1. Récupérer l'utilisateur connecté **/
-    const {
-      data: { user },
-      error: userError,
-    } = await supabase.auth.getUser();
-    if (userError || !user) {
-      return new Response(
-        JSON.stringify({ error: "Utilisateur non authentifié" }),
-        { status: 401 }
-      );
-    }
-
-    /** 2. Récupérer l'inscription et vérifier qu'elle appartient à l'utilisateur **/
-    const { data: inscription, error: errIns } = await supabase
+    // 1) Récupérer l'inscription
+    const { data: inscription, error: insErr } = await supabase
       .from("inscriptions")
       .select("*")
       .eq("id", inscription_id)
-      .single();
+      .maybeSingle();
 
-    if (errIns || !inscription) {
+    if (insErr || !inscription) {
+      console.error("INSCRIPTION_NOT_FOUND", insErr);
       return new Response(
         JSON.stringify({ error: "Inscription introuvable" }),
-        { status: 404 }
+        { status: 404, headers },
       );
     }
 
-    if (inscription.coureur_id && inscription.coureur_id !== user.id) {
-      return new Response(
-        JSON.stringify({ error: "Non autorisé pour cette inscription" }),
-        { status: 403 }
-      );
-    }
+    // 2) Trouver le paiement lié (par inscription_id puis inscription_ids)
+    let paiement: any = null;
 
-    /** 3. Récupérer le crédit d'annulation calculé précédemment **/
-    const { data: credit, error: errCredit } = await supabase
-      .from("credits_annulation")
+    const { data: payById, error: errById } = await supabase
+      .from("paiements")
       .select("*")
       .eq("inscription_id", inscription_id)
       .order("created_at", { ascending: false })
       .limit(1)
-      .single();
+      .maybeSingle();
 
-    if (errCredit || !credit) {
+    if (errById) {
+      console.error("PAYMENT_LOOKUP_BY_ID_ERROR", errById);
+    }
+
+    if (payById) {
+      paiement = payById;
+    } else {
+      const { data: payByArray, error: errByArray } = await supabase
+        .from("paiements")
+        .select("*")
+        .contains("inscription_ids", [inscription_id])
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      if (errByArray) {
+        console.error("PAYMENT_LOOKUP_BY_ARRAY_ERROR", errByArray);
+      }
+
+      paiement = payByArray || null;
+    }
+
+    if (!paiement) {
       return new Response(
         JSON.stringify({
           error:
-            "Crédit d'annulation introuvable. Veuillez d'abord lancer l'annulation.",
+            "Paiement introuvable pour cette inscription. Vérifie que le webhook Stripe a bien créé une entrée dans la table paiements.",
         }),
-        { status: 400 }
+        { status: 404, headers },
       );
     }
 
-    const montantRemboursableCents = Math.round(
-      Number(credit.montant_total || 0) * 100
-    );
-    if (!Number.isFinite(montantRemboursableCents) || montantRemboursableCents <= 0) {
-      return new Response(
-        JSON.stringify({ error: "Aucun montant à rembourser" }),
-        { status: 400 }
-      );
-    }
-
-    /** 4. Trouver le paiement Stripe associé **/
-    const { data: paiement, error: errPay } = await supabase
-      .from("paiements")
-      .select("*")
-      .or(
-        `inscription_id.eq.${inscription_id},inscription_ids.cs.{${inscription_id}}`
-      )
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .single();
-
-    if (errPay || !paiement) {
-      return new Response(
-        JSON.stringify({
-          error: "Paiement introuvable pour cette inscription",
-        }),
-        { status: 404 }
-      );
-    }
-
-    const paymentIntentId =
-      paiement.stripe_payment_intent_id ||
+    // 3) Récupérer l'id du PaymentIntent Stripe
+    const paymentIntentId: string | null =
       paiement.stripe_payment_intent ||
+      paiement.stripe_payment_intent_id ||
       null;
 
     if (!paymentIntentId) {
+      console.error("MISSING_PAYMENT_INTENT", paiement);
       return new Response(
         JSON.stringify({
-          error: "Paiement Stripe non lié à cette inscription",
+          error:
+            "Paiement Stripe non lié à cette inscription (payment_intent manquant).",
         }),
-        { status: 400 }
+        { status: 400, headers },
       );
     }
 
-    /** 5. Remboursement Stripe **/
+    // 4) Créer le remboursement complet sur Stripe
     const refund = await stripe.refunds.create({
       payment_intent: paymentIntentId,
-      amount: montantRemboursableCents,
+      // amount: ... // si tu veux un remboursement partiel plus tard
     });
 
-    /** 6. Mise à jour du paiement **/
-    const { error: errUpd } = await supabase
+    // 5) Mettre à jour la table paiements (statut + montants remboursés)
+    const refundedAmountCents =
+      (refund.amount ?? 0); // Stripe renvoie amount en cents
+
+    const newRefundedTotal =
+      Number(paiement.refunded_total_cents || 0) + refundedAmountCents;
+
+    const { error: upPayErr } = await supabase
       .from("paiements")
       .update({
-        refunded_total_cents:
-          (paiement.refunded_total_cents || 0) + montantRemboursableCents,
-        status: "refunded",
+        status: "rembourse",
+        refunded_total_cents: newRefundedTotal,
         updated_at: new Date().toISOString(),
       })
       .eq("id", paiement.id);
 
-    if (errUpd) {
-      console.error("Erreur mise à jour paiement :", errUpd);
+    if (upPayErr) {
+      console.error("PAYMENT_UPDATE_REFUND_ERROR", upPayErr);
     }
 
-    /** 7. Récupérer info course / format pour le mail (optionnel mais sympa) **/
-    const [courseRes, formatRes] = await Promise.all([
-      supabase
-        .from("courses")
-        .select("id, nom, lieu, departement")
-        .eq("id", inscription.course_id)
-        .maybeSingle(),
-      supabase
-        .from("formats")
-        .select("id, nom, date, distance_km, denivele_dplus")
-        .eq("id", inscription.format_id)
-        .maybeSingle(),
-    ]);
+    // 6) Mettre à jour l’inscription en "annule"
+    const { error: upInsErr } = await supabase
+      .from("inscriptions")
+      .update({
+        statut: "annule",
+        cancelled_at: new Date().toISOString(),
+      })
+      .eq("id", inscription_id);
 
-    const course = courseRes.data || null;
-    const format = formatRes.data || null;
-
-    /** 8. Envoi de l’email de confirmation d’annulation (via Resend) **/
-    if (RESEND_API_KEY && inscription.email) {
-      try {
-        const montantEur = (montantRemboursableCents / 100)
-          .toFixed(2)
-          .replace(".", ",");
-
-        const courseName = course?.nom || "votre épreuve";
-        const formatName = format?.nom || "";
-        const dateTexte = format?.date
-          ? new Date(format.date).toLocaleDateString("fr-FR")
-          : "";
-
-        const subject = `Confirmation d’annulation – ${courseName}`;
-        const to = inscription.email;
-
-        const html = `
-          <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; color:#111827;">
-            <h1 style="font-size:20px; font-weight:700; margin-bottom:8px;">
-              Annulation confirmée – ${courseName}
-            </h1>
-            <p style="font-size:14px; line-height:1.6;">
-              Bonjour ${inscription.prenom || ""} ${inscription.nom || ""},<br/>
-              <br/>
-              Nous confirmons l’annulation de votre inscription sur Tickrace.
-            </p>
-            <div style="margin:16px 0; padding:12px 16px; border-radius:12px; border:1px solid #e5e7eb; background:#f9fafb;">
-              <p style="font-size:14px; margin:0 0 4px 0;">
-                <strong>Épreuve :</strong> ${courseName}
-              </p>
-              ${
-                formatName
-                  ? `<p style="font-size:14px; margin:0 0 4px 0;">
-                       <strong>Format :</strong> ${formatName}
-                     </p>`
-                  : ""
-              }
-              ${
-                dateTexte
-                  ? `<p style="font-size:14px; margin:0 0 4px 0;">
-                       <strong>Date :</strong> ${dateTexte}
-                     </p>`
-                  : ""
-              }
-              <p style="font-size:14px; margin:0;">
-                <strong>Montant remboursé :</strong> ${montantEur} €
-              </p>
-            </div>
-            <p style="font-size:14px; line-height:1.6;">
-              Le remboursement a été initié sur votre moyen de paiement utilisé lors de l’inscription.
-              Selon votre banque, le délai d’apparition sur votre relevé peut varier de quelques jours.
-            </p>
-            <p style="font-size:14px; line-height:1.6; margin-top:16px;">
-              Vous pouvez consulter le détail de votre inscription ici :<br/>
-              <a href="https://www.tickrace.com/mon-inscription/${inscription_id}" 
-                 style="color:#ea580c; text-decoration:none;">
-                Voir mon inscription sur Tickrace
-              </a>
-            </p>
-            <p style="font-size:12px; color:#6b7280; margin-top:24px;">
-              Cet email a été envoyé automatiquement par Tickrace. Si vous pensez qu’il s’agit d’une erreur,
-              merci de contacter l’organisation de l’épreuve ou le support Tickrace.
-            </p>
-          </div>
-        `;
-
-        const text = `
-Annulation confirmée – ${courseName}
-
-Bonjour ${inscription.prenom || ""} ${inscription.nom || ""},
-
-Nous confirmons l’annulation de votre inscription sur Tickrace.
-
-Épreuve : ${courseName}
-${formatName ? `Format : ${formatName}\n` : ""}${
-          dateTexte ? `Date : ${dateTexte}\n` : ""
-        }Montant remboursé : ${montantEur} €
-
-Le remboursement a été initié sur votre moyen de paiement utilisé lors de l’inscription.
-Selon votre banque, le délai peut varier de quelques jours.
-
-Détail de votre inscription :
-https://www.tickrace.com/mon-inscription/${inscription_id}
-
-—
-Tickrace
-        `.trim();
-
-        const res = await fetch("https://api.resend.com/emails", {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${RESEND_API_KEY}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            from: "Tickrace <noreply@tickrace.com>",
-            to: [to],
-            subject,
-            html,
-            text,
-          }),
-        });
-
-        if (!res.ok) {
-          const body = await res.text();
-          console.error("Erreur envoi email annulation :", res.status, body);
-        }
-      } catch (e) {
-        console.error("Erreur interne lors de l’envoi email annulation :", e);
-      }
+    if (upInsErr) {
+      console.error("INSCRIPTION_UPDATE_REFUND_ERROR", upInsErr);
     }
 
     return new Response(
       JSON.stringify({
-        success: true,
-        refunded_cents: montantRemboursableCents,
+        ok: true,
         refund_id: refund.id,
+        amount_cents: refundedAmountCents,
       }),
-      { status: 200 }
+      { status: 200, headers },
     );
   } catch (e) {
-    console.error("Erreur refund-inscription :", e);
+    console.error("REFUND_FATAL", e);
     return new Response(
-      JSON.stringify({ error: "Erreur interne", details: e.message }),
-      { status: 500 }
+      JSON.stringify({
+        error: "refund_failed",
+        details: String((e as any)?.message ?? e),
+      }),
+      { status: 500, headers },
     );
   }
 });
