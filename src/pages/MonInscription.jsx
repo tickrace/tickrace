@@ -20,6 +20,7 @@ function Pill({ children, color = "neutral" }) {
     </span>
   );
 }
+
 function Card({ title, subtitle, right, children }) {
   return (
     <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
@@ -38,12 +39,14 @@ function Card({ title, subtitle, right, children }) {
     </div>
   );
 }
+
 const Row = ({ label, children }) => (
   <div className="grid grid-cols-1 sm:grid-cols-3 py-2">
     <div className="text-sm font-semibold text-neutral-600">{label}</div>
     <div className="sm:col-span-2 text-sm">{children}</div>
   </div>
 );
+
 const euros = (n) => {
   if (n == null || isNaN(Number(n))) return "—";
   try {
@@ -55,6 +58,7 @@ const euros = (n) => {
     return `${Number(n).toFixed(2)} €`;
   }
 };
+
 const formatDate = (iso) => {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -64,6 +68,7 @@ const formatDate = (iso) => {
     day: "numeric",
   });
 };
+
 const formatDateTime = (iso, tz = "Europe/Paris") => {
   if (!iso) return "—";
   const d = new Date(iso);
@@ -76,6 +81,7 @@ const formatDateTime = (iso, tz = "Europe/Paris") => {
     minute: "2-digit",
   });
 };
+
 const km = (x) => (x == null ? "—" : `${Number(x).toFixed(1)} km`);
 const meters = (x) => (x == null ? "—" : `${parseInt(x, 10)} m`);
 
@@ -102,7 +108,6 @@ export default function MonInscription() {
   // Total des options (A + B) en €
   const totalOptions = useMemo(() => {
     if (!insc) return 0;
-
     const listA = insc._optionsA || [];
     const listB = insc._optionsB || [];
 
@@ -131,27 +136,36 @@ export default function MonInscription() {
     setLoading(true);
     setError("");
     try {
-      // 1) Inscription + relations (utilisation explicite des FKs)
+      // 1) Inscription seule
       const { data: ins, error: insErr } = await supabase
         .from("inscriptions")
-        .select(
-          `
-          *,
-          course:courses!inscriptions_course_id_fkey(
-            id, nom, lieu, departement, image_url
-          ),
-          format:formats!inscriptions_format_id_fkey(
-            id, nom, date, heure_depart, distance_km, denivele_dplus, denivele_dmoins,
-            type_epreuve, type_format, prix, prix_repas, prix_equipe, fuseau_horaire
-          )
-        `
-        )
+        .select("*")
         .eq("id", id)
         .single();
       if (insErr) throw insErr;
 
-      // 2) Options – double compat : (A) inscription_options + format_options  (B) inscriptions_options + options_catalogue
-      const [a, b] = await Promise.all([
+      // 2) Course & format (requêtes séparées)
+      const [
+        { data: course, error: courseErr },
+        { data: format, error: formatErr },
+        { data: optionsA, error: optAErr },
+        { data: optionsB, error: optBErr },
+        { data: paysDirect },
+        { data: paysGroup },
+        { data: cr },
+      ] = await Promise.all([
+        supabase
+          .from("courses")
+          .select("id, nom, lieu, departement, image_url")
+          .eq("id", ins.course_id)
+          .maybeSingle(),
+        supabase
+          .from("formats")
+          .select(
+            "id, nom, date, heure_depart, distance_km, denivele_dplus, denivele_dmoins, type_epreuve, type_format, prix, prix_repas, prix_equipe, fuseau_horaire"
+          )
+          .eq("id", ins.format_id)
+          .maybeSingle(),
         supabase
           .from("inscription_options")
           .select(
@@ -170,34 +184,36 @@ export default function MonInscription() {
           `
           )
           .eq("inscription_id", id),
+        supabase
+          .from("paiements")
+          .select("*")
+          .eq("inscription_id", id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("paiements")
+          .select("*")
+          .contains("inscription_ids", [id])
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("credits_annulation")
+          .select("*")
+          .eq("inscription_id", id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle(),
       ]);
 
-      // 3) Paiements potentiels (individuels + groupés)
-      const { data: paysDirect } = await supabase
-        .from("paiements")
-        .select("*")
-        .eq("inscription_id", id)
-        .order("created_at", { ascending: false });
-
-      const { data: paysGroup } = await supabase
-        .from("paiements")
-        .select("*")
-        .contains("inscription_ids", [id])
-        .order("created_at", { ascending: false });
-
-      // 4) Dernier crédit d'annulation
-      const { data: cr } = await supabase
-        .from("credits_annulation")
-        .select("*")
-        .eq("inscription_id", id)
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+      if (courseErr) console.warn("Course load error", courseErr);
+      if (formatErr) console.warn("Format load error", formatErr);
+      if (optAErr) console.warn("Options A load error", optAErr);
+      if (optBErr) console.warn("Options B load error", optBErr);
 
       setInsc({
         ...ins,
-        _optionsA: a?.data || [],
-        _optionsB: b?.data || [],
+        course: course || null,
+        format: format || null,
+        _optionsA: optionsA || [],
+        _optionsB: optionsB || [],
       });
 
       const paiements = [...(paysDirect || []), ...(paysGroup || [])];
@@ -269,10 +285,9 @@ export default function MonInscription() {
   const OptionsBloc = () => {
     const hasA = (insc?._optionsA || []).length > 0;
     const hasB = (insc?._optionsB || []).length > 0;
-    if (!hasA && !hasB)
-      return (
-        <div className="text-sm text-neutral-500">Aucune option.</div>
-      );
+    if (!hasA && !hasB) {
+      return <div className="text-sm text-neutral-500">Aucune option.</div>;
+    }
 
     return (
       <div className="grid gap-3">
@@ -381,9 +396,10 @@ export default function MonInscription() {
     );
   };
 
-  if (loading)
+  if (loading) {
     return <div className="min-h-screen bg-neutral-50 p-8">Chargement…</div>;
-  if (error)
+  }
+  if (error) {
     return (
       <div className="min-h-screen bg-neutral-50 p-8">
         <Card title="Erreur">
@@ -399,12 +415,14 @@ export default function MonInscription() {
         </Card>
       </div>
     );
-  if (!insc)
+  }
+  if (!insc) {
     return (
       <div className="min-h-screen bg-neutral-50 p-8">
         Inscription introuvable.
       </div>
     );
+  }
 
   const course = insc.course;
   const format = insc.format;
@@ -472,9 +490,7 @@ export default function MonInscription() {
                   disabled={annulating}
                   className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-70"
                 >
-                  {annulating
-                    ? "Annulation…"
-                    : "Annuler mon inscription"}
+                  {annulating ? "Annulation…" : "Annuler mon inscription"}
                 </button>
               )}
             </div>
@@ -498,9 +514,7 @@ export default function MonInscription() {
                         : "—"
                     }`
                   : "—"}
-                {format?.fuseau_horaire
-                  ? ` (${format.fuseau_horaire})`
-                  : ""}
+                {format?.fuseau_horaire ? ` (${format.fuseau_horaire})` : ""}
               </Row>
               <Row label="Distance">{km(format?.distance_km)}</Row>
               <Row label="D+ / D-">
@@ -510,9 +524,7 @@ export default function MonInscription() {
               {insc.dossard != null && (
                 <Row label="Dossard">#{insc.dossard}</Row>
               )}
-              {insc.team_name && (
-                <Row label="Équipe">{insc.team_name}</Row>
-              )}
+              {insc.team_name && <Row label="Équipe">{insc.team_name}</Row>}
             </div>
 
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
@@ -595,14 +607,10 @@ export default function MonInscription() {
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Récapitulatif
               </div>
-              <Row label="Inscription">
-                {euros(baseInscription)}
-              </Row>
+              <Row label="Inscription">{euros(baseInscription)}</Row>
               <Row label="Restauration">{euros(totalRepas)}</Row>
               {totalOptions > 0 && (
-                <Row label="Options payantes">
-                  {euros(totalOptions)}
-                </Row>
+                <Row label="Options payantes">{euros(totalOptions)}</Row>
               )}
               <Row label="Total">{euros(totalTheo)}</Row>
               <Row label="Statut">{insc.statut || "—"}</Row>
@@ -681,9 +689,7 @@ export default function MonInscription() {
                 </Row>
                 <Row label="% conservé par l’orga">
                   {credit.pourcentage_conserve != null
-                    ? `${Number(
-                        credit.pourcentage_conserve
-                      )} %`
+                    ? `${Number(credit.pourcentage_conserve)} %`
                     : "—"}
                 </Row>
                 {credit.pourcentage != null && (
@@ -706,17 +712,13 @@ export default function MonInscription() {
                   {euros(credit.frais_annulation)}
                 </Row>
                 <Row label="Total remboursé">
-                  {euros(
-                    credit.montant_rembourse ??
-                      credit.montant_total
-                  )}
+                  {euros(credit.montant_rembourse ?? credit.montant_total)}
                 </Row>
               </div>
             </div>
           ) : (
             <div className="text-sm text-neutral-500">
-              Aucun crédit d’annulation enregistré pour cette
-              inscription.
+              Aucun crédit d’annulation enregistré pour cette inscription.
               {!isCanceled && (
                 <>
                   {" "}
@@ -742,9 +744,7 @@ export default function MonInscription() {
               disabled={annulating}
               className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-70"
             >
-              {annulating
-                ? "Annulation…"
-                : "Annuler mon inscription"}
+              {annulating ? "Annulation…" : "Annuler mon inscription"}
             </button>
           )}
         </div>
