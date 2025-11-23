@@ -131,14 +131,16 @@ export default function MonInscription() {
     setLoading(true);
     setError("");
     try {
-      // 1) Inscription + relations
+      // 1) Inscription + relations (utilisation explicite des FKs)
       const { data: ins, error: insErr } = await supabase
         .from("inscriptions")
         .select(
           `
           *,
-          courses:course_id(id, nom, lieu, departement, image_url),
-          formats:format_id(
+          course:courses!inscriptions_course_id_fkey(
+            id, nom, lieu, departement, image_url
+          ),
+          format:formats!inscriptions_format_id_fkey(
             id, nom, date, heure_depart, distance_km, denivele_dplus, denivele_dmoins,
             type_epreuve, type_format, prix, prix_repas, prix_equipe, fuseau_horaire
           )
@@ -227,7 +229,6 @@ export default function MonInscription() {
     setError("");
 
     try {
-      // Certains environnements nomment différemment l’argument; on essaie plusieurs variantes.
       let rpcErr = null;
       const tryArgs = [
         { inscription_id: id },
@@ -249,7 +250,6 @@ export default function MonInscription() {
       }
       if (rpcErr) throw rpcErr;
 
-      // Rechargement des infos (statut inscription + dernier crédit)
       await loadAll();
 
       if (rpcRes && typeof rpcRes === "object") {
@@ -406,13 +406,13 @@ export default function MonInscription() {
       </div>
     );
 
-  const course = insc.courses;
-  const format = insc.formats;
+  const course = insc.course;
+  const format = insc.format;
   const tz = format?.fuseau_horaire || "Europe/Paris";
   const isCanceled =
     !!insc.cancelled_at ||
     (insc.statut || "").toLowerCase().includes("annul");
-  const canCancel = !isCanceled; // tu peux affiner selon date/fermeture
+  const canCancel = !isCanceled;
 
   // Cohérence avec InscriptionCourse :
   // - prix_total_coureur = inscription + repas
