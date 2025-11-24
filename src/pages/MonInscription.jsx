@@ -639,51 +639,48 @@ export default function MonInscription() {
                     </thead>
                     <tbody>
                       {payInfos.paiements.map((p) => {
-                        const status = (p.status || "").toLowerCase();
-                        let color: "green" | "orange" | "red" | "blue" =
-                          "neutral";
-                        if (
-                          status.includes("paye") ||
-                          status.includes("payé") ||
-                          status === "succeeded" ||
-                          status === "paid"
-                        ) {
-                          color = "green";
-                        } else if (
-                          status.includes("rembours") ||
-                          status.includes("refund")
-                        ) {
-                          color = "blue";
-                        } else if (status.includes("pend") || status === "open") {
-                          color = "orange";
-                        } else if (status) {
-                          color = "red";
-                        }
+  const status = (p.status || "").toLowerCase();
 
-                        const amount =
-                          p.amount_total != null
-                            ? euros(p.amount_total / 100)
-                            : p.total_amount_cents != null
-                            ? euros(p.total_amount_cents / 100)
-                            : p.montant_total != null
-                            ? euros(p.montant_total)
-                            : "—";
+  // ⚠️ Pas de typage TypeScript dans un fichier .jsx
+  let color = "neutral";
+  if (
+    status.includes("paye") ||
+    status.includes("payé") ||
+    status === "succeeded" ||
+    status === "paid"
+  ) {
+    color = "green";
+  } else if (
+    status.includes("rembours") ||
+    status.includes("refund")
+  ) {
+    color = "blue";
+  } else if (status.includes("pend") || status === "open") {
+    color = "orange";
+  } else if (status) {
+    color = "red";
+  }
 
-                        return (
-                          <tr
-                            key={p.id}
-                            className="border-t border-neutral-200"
-                          >
-                            <td className="px-3 py-2">
-                              {formatDateTime(p.created_at)}
-                            </td>
-                            <td className="px-3 py-2">{amount}</td>
-                            <td className="px-3 py-2">
-                              <Pill color={color}>{p.status || "—"}</Pill>
-                            </td>
-                          </tr>
-                        );
-                      })}
+  const amount =
+    p.amount_total != null
+      ? euros(p.amount_total / 100)
+      : p.total_amount_cents != null
+      ? euros(p.total_amount_cents / 100)
+      : p.montant_total != null
+      ? euros(p.montant_total)
+      : "—";
+
+  return (
+    <tr key={p.id} className="border-t border-neutral-200">
+      <td className="px-3 py-2">{formatDateTime(p.created_at)}</td>
+      <td className="px-3 py-2">{amount}</td>
+      <td className="px-3 py-2">
+        <Pill color={color}>{p.status || "—"}</Pill>
+      </td>
+    </tr>
+  );
+})}
+
                     </tbody>
                   </table>
                 </div>
