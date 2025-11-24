@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
+import CalculCreditAnnulation from "../components/CalculCreditAnnulation";
 
 /* ---------- UI helpers ---------- */
 function Pill({ children, color = "neutral" }) {
@@ -94,137 +95,126 @@ export default function MonInscription() {
 
   const [loading, setLoading] = useState(true);
   const [insc, setInsc] = useState(null);
+  const [course, setCourse] = useState(null);
+  const [format, setFormat] = useState(null);
+  const [optionsA, setOptionsA] = useState([]); // inscription_options + format_options
+  const [optionsB, setOptionsB] = useState([]); // inscriptions_options + options_catalogue
   const [payInfos, setPayInfos] = useState({ paiements: [], receipt: null });
-  const [refunds, setRefunds] = useState([]);
+  const [refund, setRefund] = useState(null);
   const [annulating, setAnnulating] = useState(false);
   const [error, setError] = useState("");
 
-  // Simulation de remboursement (avant clic sur "Annuler")
-  const [refundPreview, setRefundPreview] = useState(null);
-  const [refundPreviewLoading, setRefundPreviewLoading] = useState(false);
-  const [refundPreviewError, setRefundPreviewError] = useState("");
-
   const statutColor = useMemo(() => {
     const s = (insc?.statut || "").toLowerCase();
-    if (s.includes("valid") || s.includes("pay")) return "green";
+    if (s.includes("valid") || s.includes("paye") || s.includes("payé"))
+      return "green";
     if (s.includes("attente") || s.includes("wait")) return "orange";
     if (s.includes("annul")) return "red";
     return "neutral";
   }, [insc?.statut]);
 
-  const isCanceled = useMemo(() => {
-    return (
-      !!insc?.cancelled_at ||
-      (insc?.statut || "").toLowerCase().includes("annul")
-    );
-  }, [insc]);
-
-  async function fetchRefundPreview(inscriptionId) {
-    if (!inscriptionId) return;
-    setRefundPreviewLoading(true);
-    setRefundPreviewError("");
-    try {
-      const { data, error } = await supabase.rpc(
-        "calculer_credit_annulation",
-        { inscription_id: inscriptionId }
-      );
-      if (error) throw error;
-      setRefundPreview(data);
-    } catch (e) {
-      console.error("REFUND_PREVIEW_ERROR", e);
-      setRefundPreviewError(
-        e?.message || "Impossible de calculer le remboursement estimé."
-      );
-      setRefundPreview(null);
-    } finally {
-      setRefundPreviewLoading(false);
-    }
-  }
-
   async function loadAll() {
     setLoading(true);
     setError("");
     try {
-      // 1) Inscription + relations
+      // 1) Inscription brute
       const { data: ins, error: insErr } = await supabase
         .from("inscriptions")
-        .select(
-          `
-          *,
-          course:courses!inscriptions_course_id_fkey(
-            id, nom, lieu, departement, image_url
-          ),
-          format:formats!inscriptions_format_id_fkey(
-            id, nom, date, heure_depart, distance_km, denivele_dplus, denivele_dmoins,
-            type_epreuve, type_format, prix, prix_repas, prix_equipe, fuseau_horaire
-          )
-        `
-        )
+        .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
+
       if (insErr) throw insErr;
+      if (!ins) throw new Error("Inscription introuvable.");
 
-      // 2) Options payantes (nouveau modèle : inscriptions_options + options_catalogue)
-      const { data: options, error: optErr } = await supabase
-        .from("inscriptions_options")
-        .select(
+      setInsc(ins);
+
+      // 2) Course & format (requêtes séparées pour éviter les soucis de FK)
+      const [courseRes, formatRes] = await Promise.all([
+        ins.course_id
+          ? supabase
+              .from("courses")
+              .select("id, nom, lieu, departement, image_url")
+              .eq("id", ins.course_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+        ins.format_id
+          ? supabase
+              .from("formats")
+              .select(
+                "id, nom, date, heure_depart, distance_km, denivele_dplus, denivele_dmoins, type_epreuve, type_format, prix, prix_repas, prix_equipe, fuseau_horaire"
+              )
+              .eq("id", ins.format_id)
+              .maybeSingle()
+          : Promise.resolve({ data: null, error: null }),
+      ]);
+
+      if (courseRes.error) console.error("COURSE_LOAD_ERROR", courseRes.error);
+      if (formatRes.error) console.error("FORMAT_LOAD_ERROR", formatRes.error);
+
+      setCourse(courseRes.data || null);
+      setFormat(formatRes.data || null);
+
+      // 3) Options – double compat :
+      // (A) inscription_options + format_options
+      // (B) inscriptions_options + options_catalogue
+      const [a, b] = await Promise.all([
+        supabase
+          .from("inscription_options")
+          .select(
+            `
+            id, quantity, unit_price_cents, total_cents, scope, team_label, created_at,
+            format_option:format_option_id(id, titre, type, prix_cents)
           `
-          id, quantity, prix_unitaire_cents, status, created_at,
-          option:option_id(
-            id, label, price_cents, description, image_url
           )
-        `
-        )
-        .eq("inscription_id", id);
+          .eq("inscription_id", id),
+        supabase
+          .from("inscriptions_options")
+          .select(
+            `
+            id, quantity, prix_unitaire_cents, status, created_at,
+            option:option_id(id, label, price_cents, description, image_url)
+          `
+          )
+          .eq("inscription_id", id),
+      ]);
 
-      if (optErr) {
-        console.error("OPTIONS_LOAD_ERROR", optErr);
-      }
+      if (a.error) console.error("OPTIONS_A_LOAD_ERROR", a.error);
+      if (b.error) console.error("OPTIONS_B_LOAD_ERROR", b.error);
 
-      // 3) Paiements liés à cette inscription
-      const { data: paysDirect } = await supabase
-        .from("paiements")
-        .select("*")
-        .eq("inscription_id", id)
-        .order("created_at", { ascending: false });
+      setOptionsA(a.data || []);
+      setOptionsB(b.data || []);
 
-      const { data: paysGroup } = await supabase
-        .from("paiements")
-        .select("*")
-        .contains("inscription_ids", [id])
-        .order("created_at", { ascending: false });
+      // 4) Paiements potentiels (individuels + groupés)
+      const [{ data: paysDirect }, { data: paysGroup }] = await Promise.all([
+        supabase
+          .from("paiements")
+          .select("*")
+          .eq("inscription_id", id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("paiements")
+          .select("*")
+          .contains("inscription_ids", [id])
+          .order("created_at", { ascending: false }),
+      ]);
 
       const paiements = [...(paysDirect || []), ...(paysGroup || [])];
       const receipt =
         paiements.find((p) => !!p.receipt_url)?.receipt_url || null;
+      setPayInfos({ paiements, receipt });
 
-      // 4) Remboursements déjà effectués / demandés
-      const { data: refundsRows, error: refundsErr } = await supabase
+      // 5) Dernier remboursement (si existant)
+      const { data: remb, error: rembErr } = await supabase
         .from("remboursements")
         .select("*")
         .eq("inscription_id", id)
-        .order("requested_at", { ascending: false });
+        .order("requested_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-      if (refundsErr) {
-        console.error("REFUNDS_LOAD_ERROR", refundsErr);
-      }
-
-      setInsc({
-        ...ins,
-        options: options || [],
-      });
-      setPayInfos({ paiements, receipt });
-      setRefunds(refundsRows || []);
-
-      // 5) Simulation de remboursement (si inscription non annulée)
-      const cancelled =
-        !!ins.cancelled_at ||
-        (ins.statut || "").toLowerCase().includes("annul");
-      if (!cancelled) {
-        await fetchRefundPreview(id);
-      } else {
-        setRefundPreview(null);
-      }
+      if (rembErr) console.error("REMBOURSEMENT_LOAD_ERROR", rembErr);
+      setRefund(remb || null);
     } catch (e) {
       console.error(e);
       setError(e?.message || "Chargement impossible.");
@@ -238,11 +228,12 @@ export default function MonInscription() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  // --- Annulation + remboursement via Edge Function ---
   const onAnnuler = async () => {
     if (!insc || annulating) return;
 
     const ok = window.confirm(
-      "Confirmer l’annulation ?\n\nLe remboursement sera calculé automatiquement selon la politique d’annulation en vigueur et déclenché sur votre moyen de paiement."
+      "Confirmer l’annulation ?\n\nNous allons calculer automatiquement votre crédit d’annulation et, si possible, rembourser le paiement associé."
     );
     if (!ok) return;
 
@@ -250,99 +241,160 @@ export default function MonInscription() {
     setError("");
 
     try {
-      const { data: sessionRes } = await supabase.auth.getSession();
-      const userId = sessionRes?.session?.user?.id ?? null;
-
-      const { data, error: fnError } = await supabase.functions.invoke(
+      const { data, error } = await supabase.functions.invoke(
         "refund-inscription",
         {
           body: {
             inscription_id: id,
-            user_id: userId,
+            reason: "Annulation par le coureur depuis MonInscription",
           },
         }
       );
 
-      if (fnError) {
-        console.error("REFUND_FN_ERROR", fnError);
+      if (error) {
+        console.error("refund-inscription error:", error);
         alert(
-          "Impossible d’annuler l’inscription : " +
-            (fnError.message || "erreur inconnue")
+          "Impossible d’annuler cette inscription : " +
+            (error.message || "erreur inconnue")
         );
+        setError(error.message || "Échec de l’annulation.");
         return;
       }
 
-      if (data?.error) {
-        console.error("REFUND_FN_DATA_ERROR", data);
-        alert(
-          "Impossible d’annuler l’inscription : " +
-            (data.message || data.error || "erreur inconnue")
-        );
-        return;
-      }
-
-      // Rechargement des infos (statut inscription, paiements, remboursements)
       await loadAll();
 
-      alert(
-        "Votre inscription a été annulée et le remboursement a été demandé sur votre carte."
-      );
+      if (data?.refund_cents > 0) {
+        const montant = (data.refund_cents / 100).toFixed(2);
+        alert(
+          `Annulation enregistrée.\nUn remboursement de ${montant} € a été déclenché.`
+        );
+      } else {
+        alert(
+          "Annulation enregistrée.\nAucun remboursement n’était dû selon la politique en vigueur."
+        );
+      }
     } catch (e) {
-      console.error("REFUND_CALL_FATAL", e);
-      alert(
-        "Impossible d’annuler l’inscription : " +
-          (e?.message || "erreur inconnue")
-      );
+      console.error(e);
+      setError(e?.message || "Échec de l’annulation.");
+      alert("Impossible d’annuler : " + (e?.message ?? "erreur inconnue"));
     } finally {
       setAnnulating(false);
     }
   };
 
+  // --- Options bloc ---
   const OptionsBloc = () => {
-    const opts = insc?.options || [];
-    if (!opts.length)
+    const hasA = (optionsA || []).length > 0;
+    const hasB = (optionsB || []).length > 0;
+    if (!hasA && !hasB)
       return (
-        <div className="text-sm text-neutral-500">Aucune option sélectionnée.</div>
+        <div className="text-sm text-neutral-500">
+          Aucune option sélectionnée.
+        </div>
       );
 
     return (
-      <div className="rounded-xl ring-1 ring-neutral-200 overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-neutral-50">
-            <tr className="text-left">
-              <th className="px-3 py-2">Option</th>
-              <th className="px-3 py-2">Quantité</th>
-              <th className="px-3 py-2">Prix unitaire</th>
-              <th className="px-3 py-2">Total</th>
-              <th className="px-3 py-2">Statut</th>
-            </tr>
-          </thead>
-          <tbody>
-            {opts.map((o) => {
-              const label = o?.option?.label || "Option";
-              const unit =
-                (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) / 100;
-              const q = o?.quantity ?? 1;
-              const total = unit * q;
-              const status = (o?.status || "pending").toLowerCase();
-              let color = "orange";
-              if (status === "confirmed" || status === "succeeded") color = "green";
-              if (status === "canceled" || status === "refunded") color = "red";
-
-              return (
-                <tr key={o.id} className="border-t border-neutral-200">
-                  <td className="px-3 py-2">{label}</td>
-                  <td className="px-3 py-2">{q}</td>
-                  <td className="px-3 py-2">{euros(unit)}</td>
-                  <td className="px-3 py-2">{euros(total)}</td>
-                  <td className="px-3 py-2">
-                    <Pill color={color}>{o.status || "pending"}</Pill>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div className="grid gap-3">
+        {hasA && (
+          <div>
+            <div className="text-sm font-semibold text-neutral-700 mb-2">
+              Options (catalogue “format_options”)
+            </div>
+            <div className="rounded-xl ring-1 ring-neutral-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50">
+                  <tr className="text-left">
+                    <th className="px-3 py-2">Option</th>
+                    <th className="px-3 py-2">Type</th>
+                    <th className="px-3 py-2">Quantité</th>
+                    <th className="px-3 py-2">Prix unitaire</th>
+                    <th className="px-3 py-2">Total</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {optionsA.map((o) => {
+                    const label = o?.format_option?.titre || "Option";
+                    const type = o?.format_option?.type || "—";
+                    const unit =
+                      o?.unit_price_cents != null
+                        ? o.unit_price_cents / 100
+                        : (o?.format_option?.prix_cents ?? 0) / 100;
+                    const q = o?.quantity ?? 1;
+                    const total =
+                      o?.total_cents != null
+                        ? o.total_cents / 100
+                        : unit * q;
+                    return (
+                      <tr
+                        key={`A-${o.id}`}
+                        className="border-t border-neutral-200"
+                      >
+                        <td className="px-3 py-2">{label}</td>
+                        <td className="px-3 py-2">{type}</td>
+                        <td className="px-3 py-2">{q}</td>
+                        <td className="px-3 py-2">{euros(unit)}</td>
+                        <td className="px-3 py-2">{euros(total)}</td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+        {hasB && (
+          <div>
+            <div className="text-sm font-semibold text-neutral-700 mb-2">
+              Options (catalogue “options_catalogue”)
+            </div>
+            <div className="rounded-xl ring-1 ring-neutral-200 overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-neutral-50">
+                  <tr className="text-left">
+                    <th className="px-3 py-2">Option</th>
+                    <th className="px-3 py-2">Quantité</th>
+                    <th className="px-3 py-2">Prix unitaire</th>
+                    <th className="px-3 py-2">Total</th>
+                    <th className="px-3 py-2">Statut</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {optionsB.map((o) => {
+                    const label = o?.option?.label || "Option";
+                    const unit =
+                      (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) /
+                      100;
+                    const q = o?.quantity ?? 1;
+                    const total = unit * q;
+                    const status = (o?.status || "pending").toLowerCase();
+                    const pillColor =
+                      status === "confirmed"
+                        ? "green"
+                        : status === "canceled" || status === "cancelled"
+                        ? "red"
+                        : "orange";
+                    return (
+                      <tr
+                        key={`B-${o.id}`}
+                        className="border-t border-neutral-200"
+                      >
+                        <td className="px-3 py-2">{label}</td>
+                        <td className="px-3 py-2">{q}</td>
+                        <td className="px-3 py-2">{euros(unit)}</td>
+                        <td className="px-3 py-2">{euros(total)}</td>
+                        <td className="px-3 py-2">
+                          <Pill color={pillColor}>
+                            {o?.status || "pending"}
+                          </Pill>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     );
   };
@@ -374,19 +426,32 @@ export default function MonInscription() {
       </div>
     );
 
-  const course = insc.course;
-  const format = insc.format;
   const tz = format?.fuseau_horaire || "Europe/Paris";
+  const isCanceled =
+    !!insc.cancelled_at ||
+    (insc.statut || "").toLowerCase().includes("annul");
+  const canCancel = !isCanceled; // tu peux ajouter des règles de délai ici
 
-  // Total théorique payé (inscription + options) en € si disponible
-  const baseInscription = format?.prix != null ? Number(format.prix) : 0;
-  const totalOptionsPaid = (insc.options || []).reduce((acc, o) => {
+  // Totaux côté "logique Tickrace"
+  const totalCoureur = Number(insc.prix_total_coureur || 0);
+  const totalOptionsA = optionsA.reduce((acc, o) => {
+    const unit =
+      o?.unit_price_cents != null
+        ? o.unit_price_cents / 100
+        : (o?.format_option?.prix_cents ?? 0) / 100;
+    const q = o?.quantity ?? 1;
+    const total =
+      o?.total_cents != null ? o.total_cents / 100 : unit * q;
+    return acc + total;
+  }, 0);
+  const totalOptionsB = optionsB.reduce((acc, o) => {
     const unit =
       (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) / 100;
     const q = o?.quantity ?? 1;
     return acc + unit * q;
   }, 0);
-  const totalTheo = baseInscription + totalOptionsPaid;
+  const totalOptions = totalOptionsA + totalOptionsB;
+  const totalTheo = totalCoureur + totalOptions;
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
@@ -400,24 +465,12 @@ export default function MonInscription() {
             </span>
           </h1>
           <div className="flex flex-wrap items-center justify-center gap-2">
-            <Pill color={statutColor}>{insc.statut || "—"}</Pill>
-            {isCanceled && <Pill color="red">Annulée</Pill>}
+            <Pill color={statutColor}>
+              {isCanceled ? "Annulée" : insc.statut || "—"}
+            </Pill>
             {insc.is_waitlist && <Pill color="blue">Liste d’attente</Pill>}
-            {refunds.length > 0 && (
-              <Pill color="blue">
-                {refunds[0].status === "succeeded"
-                  ? "Remboursement effectué"
-                  : "Remboursement en cours"}
-              </Pill>
-            )}
           </div>
-          {course?.image_url && (
-            <img
-              src={course.image_url}
-              alt={course?.nom || "Épreuve"}
-              className="w-full max-w-3xl rounded-2xl ring-1 ring-neutral-200 object-cover"
-            />
-          )}
+          {/* Image de course supprimée à ta demande */}
         </div>
       </section>
 
@@ -428,20 +481,22 @@ export default function MonInscription() {
           title={course?.nom || "Épreuve"}
           subtitle={
             course
-              ? `${course.lieu || "—"} ${
-                  course.departement ? `• ${course.departement}` : ""
+              ? `${course.lieu || "—"}${
+                  course.departement ? ` • ${course.departement}` : ""
                 }`
               : "—"
           }
           right={
-            <div className="flex flex-wrap gap-2">
-              <Link
-                to={`/courses/${insc.course_id}`}
-                className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              >
-                Voir la page épreuve
-              </Link>
-              {!isCanceled && (
+            <div className="flex flex-wrap gap-2 justify-end">
+              {insc.course_id && (
+                <Link
+                  to={`/courses/${insc.course_id}`}
+                  className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+                >
+                  Voir la page épreuve
+                </Link>
+              )}
+              {canCancel && (
                 <button
                   onClick={onAnnuler}
                   disabled={annulating}
@@ -495,7 +550,9 @@ export default function MonInscription() {
               </Row>
               <Row label="Email">{insc.email || "—"}</Row>
               <Row label="Téléphone">{insc.telephone || "—"}</Row>
-              <Row label="Licence">{insc.numero_licence || "—"}</Row>
+              <Row label="Licence">
+                {insc.numero_licence || "—"}
+              </Row>
               {insc.pps_identifier && (
                 <Row label="PPS">
                   {insc.pps_identifier}{" "}
@@ -530,7 +587,7 @@ export default function MonInscription() {
         </Card>
 
         {/* Options */}
-        <Card title="Options payantes">
+        <Card title="Options">
           <OptionsBloc />
         </Card>
 
@@ -545,7 +602,7 @@ export default function MonInscription() {
                 rel="noreferrer"
                 className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
               >
-                Télécharger mon reçu
+                Télécharger mon reçu Stripe
               </a>
             )
           }
@@ -553,22 +610,22 @@ export default function MonInscription() {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
-                Récapitulatif
+                Récapitulatif Tickrace
               </div>
-              <Row label="Sous-total inscription">
-                {euros(baseInscription)}
+              <Row label="Montant inscription (base)">
+                {euros(totalCoureur)}
               </Row>
-              <Row label="Options payantes">
-                {euros(totalOptionsPaid)}
+              <Row label="Total options (estimé)">
+                {euros(totalOptions)}
               </Row>
-              <Row label="Total estimé payé">
+              <Row label="Total théorique">
                 {euros(totalTheo)}
               </Row>
               <Row label="Statut">{insc.statut || "—"}</Row>
             </div>
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
-                Transactions
+                Transactions Stripe
               </div>
               {payInfos.paiements?.length ? (
                 <div className="rounded-xl ring-1 ring-neutral-200 overflow-hidden">
@@ -576,38 +633,54 @@ export default function MonInscription() {
                     <thead className="bg-neutral-50">
                       <tr className="text-left">
                         <th className="px-3 py-2">Date</th>
-                        <th className="px-3 py-2">Total</th>
+                        <th className="px-3 py-2">Montant</th>
                         <th className="px-3 py-2">Statut</th>
                       </tr>
                     </thead>
                     <tbody>
                       {payInfos.paiements.map((p) => {
                         const status = (p.status || "").toLowerCase();
-                        let color = "orange";
-                        if (status === "paye" || status === "succeeded" || status === "paid") {
+
+                        let color = "neutral";
+                        if (
+                          status.includes("paye") ||
+                          status.includes("payé") ||
+                          status === "succeeded" ||
+                          status === "paid"
+                        ) {
                           color = "green";
                         } else if (
-                          status === "failed" ||
-                          status === "canceled" ||
-                          status === "refunded"
+                          status.includes("rembours") ||
+                          status.includes("refund")
                         ) {
+                          color = "blue";
+                        } else if (
+                          status.includes("pend") ||
+                          status === "open"
+                        ) {
+                          color = "orange";
+                        } else if (status) {
                           color = "red";
                         }
+
                         const amount =
                           p.amount_total != null
-                            ? p.amount_total / 100
+                            ? euros(p.amount_total / 100)
                             : p.total_amount_cents != null
-                            ? p.total_amount_cents / 100
+                            ? euros(p.total_amount_cents / 100)
                             : p.montant_total != null
-                            ? Number(p.montant_total)
-                            : null;
+                            ? euros(p.montant_total)
+                            : "—";
 
                         return (
-                          <tr key={p.id} className="border-t border-neutral-200">
+                          <tr
+                            key={p.id}
+                            className="border-t border-neutral-200"
+                          >
                             <td className="px-3 py-2">
                               {formatDateTime(p.created_at)}
                             </td>
-                            <td className="px-3 py-2">{euros(amount)}</td>
+                            <td className="px-3 py-2">{amount}</td>
                             <td className="px-3 py-2">
                               <Pill color={color}>{p.status || "—"}</Pill>
                             </td>
@@ -627,83 +700,66 @@ export default function MonInscription() {
         </Card>
 
         {/* Simulation de remboursement AVANT annulation */}
-        <Card title="Simulation de remboursement (indicatif)">
-          {isCanceled ? (
-            <div className="text-sm text-neutral-600">
-              Cette inscription est déjà annulée. Le remboursement a été calculé
-              lors de l’annulation.
-            </div>
-          ) : refundPreviewLoading ? (
-            <div className="text-sm text-neutral-500">
-              Calcul du remboursement estimé…
-            </div>
-          ) : refundPreviewError ? (
-            <div className="text-sm text-rose-700">
-              {refundPreviewError}
-            </div>
-          ) : !refundPreview ? (
-            <div className="text-sm text-neutral-500">
-              Aucun remboursement n’est prévu pour cette inscription selon la
-              politique actuelle.
-            </div>
-          ) : (() => {
-              const baseCents = Number(
-                refundPreview.base_cents ??
-                  refundPreview.amount_total_cents ??
-                  0
-              );
-              const refundCents = Number(refundPreview.refund_cents ?? 0);
-              const nonRefCents = Number(
-                refundPreview.non_refundable_cents ??
-                  baseCents - refundCents
-              );
-              const percent = Number(refundPreview.percent ?? 0);
-              const policyTier = refundPreview.policy_tier || "—";
-              const joursAvant =
-                refundPreview.jours_avant_course ?? null;
+        <CalculCreditAnnulation
+          inscriptionId={id}
+          isCanceled={isCanceled}
+        />
 
-              return (
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                  <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-                    <div className="text-sm font-semibold text-neutral-700 mb-2">
-                      Politique appliquée
-                    </div>
-                    {joursAvant != null && (
-                      <Row label="Jours avant la course">
-                        {joursAvant}
-                      </Row>
-                    )}
-                    <Row label="Palier">
-                      {policyTier} ({percent}% remboursé)
-                    </Row>
-                    <Row label="Montant payé (base)">
-                      {euros(baseCents / 100)}
-                    </Row>
-                  </div>
-                  <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-                    <div className="text-sm font-semibold text-neutral-700 mb-2">
-                      Détail du remboursement estimé
-                    </div>
-                    <Row label="Part remboursée">
-                      {euros(refundCents / 100)}
-                    </Row>
-                    <Row label="Part non remboursable">
-                      {euros(nonRefCents / 100)}
-                    </Row>
-                    <Row label="Taux appliqué">
-                      {percent} %
-                    </Row>
-                  </div>
-                  <div className="sm:col-span-2 text-xs text-neutral-500">
-                    Ce calcul est indicatif et basé sur la date actuelle et la
-                    politique d’annulation configurée par l’organisation. Le
-                    remboursement sera effectivement déclenché{" "}
-                    <strong>uniquement</strong> si vous cliquez sur
-                    “Annuler mon inscription”.
-                  </div>
+        {/* Remboursement (table remboursements) */}
+        <Card title="Remboursement / annulation">
+          {refund ? (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
+                <div className="text-sm font-semibold text-neutral-700 mb-2">
+                  Détails de la demande
                 </div>
-              );
-            })()}
+                <Row label="Demandé le">
+                  {formatDateTime(refund.requested_at)}
+                </Row>
+                <Row label="Traitée le">
+                  {refund.processed_at
+                    ? formatDateTime(refund.processed_at)
+                    : "—"}
+                </Row>
+                <Row label="Politique appliquée">
+                  {refund.policy_tier || "—"}{" "}
+                  {refund.percent != null ? `(${refund.percent} %)` : ""}
+                </Row>
+                <Row label="Statut">{refund.status || "—"}</Row>
+                {refund.reason && (
+                  <Row label="Raison">{refund.reason}</Row>
+                )}
+              </div>
+              <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
+                <div className="text-sm font-semibold text-neutral-700 mb-2">
+                  Montants
+                </div>
+                <Row label="Montant total (paiement)">
+                  {euros((refund.amount_total_cents || 0) / 100)}
+                </Row>
+                <Row label="Base remboursable">
+                  {euros((refund.base_cents || 0) / 100)}
+                </Row>
+                <Row label="Part non remboursable">
+                  {euros((refund.non_refundable_cents || 0) / 100)}
+                </Row>
+                <Row label="Montant remboursé">
+                  {euros((refund.refund_cents || 0) / 100)}
+                </Row>
+              </div>
+            </div>
+          ) : (
+            <div className="text-sm text-neutral-500">
+              Aucun remboursement enregistré pour cette inscription.
+              {!isCanceled && (
+                <>
+                  {" "}
+                  Vous pouvez utiliser le bouton{" "}
+                  <strong>“Annuler mon inscription”</strong> ci-dessus.
+                </>
+              )}
+            </div>
+          )}
         </Card>
 
         {/* Actions bas de page */}
@@ -714,7 +770,7 @@ export default function MonInscription() {
           >
             ← Retour
           </button>
-          {!isCanceled && (
+          {canCancel && (
             <button
               onClick={onAnnuler}
               disabled={annulating}
