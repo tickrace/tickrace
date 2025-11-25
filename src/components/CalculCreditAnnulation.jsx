@@ -1,222 +1,250 @@
 // src/components/CalculCreditAnnulation.jsx
-import React, { useEffect, useState, useCallback } from "react";
-
-/** Formatage euros à partir de centimes */
-function eurosFromCents(cents) {
-  const n = Number(cents || 0);
-  if (!Number.isFinite(n)) return "0,00 €";
-  try {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-    }).format(n / 100);
-  } catch {
-    return (n / 100).toFixed(2) + " €";
-  }
-}
-
-/** Calcul du nombre de jours avant la course (J-xx) */
-function computeDaysBefore(format) {
-  if (!format?.date) return 0;
-  const today = new Date();
-  const dEvent = new Date(format.date);
-
-  const t0 = Date.UTC(
-    today.getFullYear(),
-    today.getMonth(),
-    today.getDate()
-  );
-  const t1 = Date.UTC(
-    dEvent.getFullYear(),
-    dEvent.getMonth(),
-    dEvent.getDate()
-  );
-  const diffDays = Math.round((t1 - t0) / (1000 * 60 * 60 * 24));
-  return Math.max(0, diffDays);
-}
-
-/** Politique d’annulation (même logique que la fonction SQL calculer_credit_annulation) */
-function computePolicy(daysBefore) {
-  if (daysBefore >= 30) return { tier: "J-30+", percent: 90 };
-  if (daysBefore >= 15) return { tier: "J-15-29", percent: 70 };
-  if (daysBefore >= 7) return { tier: "J-7-14", percent: 50 };
-  if (daysBefore >= 3) return { tier: "J-3-6", percent: 30 };
-  return { tier: "J-0-2", percent: 0 };
-}
-
-/** Sélectionne le paiement principal pour cette inscription */
-function pickMainPayment(paiements = []) {
-  if (!Array.isArray(paiements) || paiements.length === 0) return null;
-
-  const valides = paiements.filter((p) => {
-    const s = (p.status || "").toLowerCase();
-    return (
-      s.includes("paye") ||
-      s.includes("payé") ||
-      s === "paid" ||
-      s === "succeeded"
-    );
-  });
-
-  if (!valides.length) return null;
-
-  // on prend le plus récent
-  return [...valides].sort(
-    (a, b) =>
-      new Date(b.created_at || 0).getTime() -
-      new Date(a.created_at || 0).getTime()
-  )[0];
-}
-
-/** Calcule le montant de base en centimes à partir d’un paiement */
-function computeBaseCentsFromPayment(p) {
-  if (!p) return 0;
-  if (p.total_amount_cents != null) return Number(p.total_amount_cents) || 0;
-  if (p.amount_total != null) return Number(p.amount_total) || 0;
-  if (p.montant_total != null)
-    return Math.round(Number(p.montant_total) * 100) || 0;
-  return 0;
-}
+import React, { useState } from "react";
+import { supabase } from "../supabase";
 
 /**
- * props:
- *  - inscription: ligne d’inscription (optionnel, juste pour contexte si besoin plus tard)
- *  - format: ligne de format (doit contenir au moins .date)
- *  - paiements: tableau des paiements liés à cette inscription (payInfos.paiements)
+ * Composant de calcul / déclenchement du crédit d'annulation
+ *
+ * Props:
+ * - inscriptionId (string, requis) : uuid de l'inscription
+ * - onCancelled?: (creditRow) => void  (optionnel, callback après succès)
  */
-export default function CalculCreditAnnulation({ inscription, format, paiements }) {
+export default function CalculCreditAnnulation({ inscriptionId, onCancelled }) {
   const [loading, setLoading] = useState(false);
-  const [sim, setSim] = useState({
-    daysBefore: 0,
-    policyTier: "J-0-2",
-    percent: 0,
-    baseCents: 0,
-    refundCents: 0,
-    nonRefCents: 0,
-    hasPayment: false,
-  });
+  const [credit, setCredit] = useState(null);   // résultat de la fonction SQL
+  const [error, setError] = useState(null);
 
-  const recalc = useCallback(() => {
+  /**
+   * Appel de la fonction Postgres:
+   *   calculer_credit_annulation(inscription_id uuid)
+   *
+   * La fonction côté BDD:
+   * - calcule le % de remboursement en fonction du nombre de jours avant la course
+   * - calcule le remboursement sur l'inscription + les options payantes
+   * - calcule les frais d'annulation
+   * - calcule le montant total du crédit
+   * - insère une ligne dans credits_annulation
+   * - met à jour l'inscription (statut = 'annulé')
+   */
+  async function handleAnnulation() {
+    if (!inscriptionId) {
+      setError("Identifiant d'inscription manquant.");
+      return;
+    }
+
+    // Double confirmation, car l'action est définitive
+    const ok1 = window.confirm(
+      "Confirmer l'annulation de cette inscription ? Cette action est définitive."
+    );
+    if (!ok1) return;
+
+    const ok2 = window.confirm(
+      "Dernière confirmation : l'inscription sera annulée et un crédit sera généré selon les règles de remboursement. Continuer ?"
+    );
+    if (!ok2) return;
+
     setLoading(true);
+    setError(null);
+
     try {
-      const daysBefore = computeDaysBefore(format);
-      const { tier, percent } = computePolicy(daysBefore);
+      const { data, error: rpcError } = await supabase.rpc(
+        "calculer_credit_annulation",
+        { inscription_id: inscriptionId }
+      );
 
-      const mainPayment = pickMainPayment(paiements);
-      const baseCents = computeBaseCentsFromPayment(mainPayment);
+      if (rpcError) {
+        console.error("❌ calculer_credit_annulation error:", rpcError);
+        setError(
+          rpcError.message ||
+            "Erreur lors du calcul du crédit d'annulation. Réessaie plus tard."
+        );
+        setLoading(false);
+        return;
+      }
 
-      const refundCents = Math.round((baseCents * percent) / 100);
-      const nonRefCents = baseCents - refundCents;
+      // Selon la définition de ta fonction, `data` peut être un objet ou un tableau
+      const row = Array.isArray(data) ? data[0] : data;
+      setCredit(row || null);
 
-      setSim({
-        daysBefore,
-        policyTier: tier,
-        percent,
-        baseCents,
-        refundCents,
-        nonRefCents,
-        hasPayment: !!mainPayment && baseCents > 0,
-      });
+      if (onCancelled && row) onCancelled(row);
+    } catch (e) {
+      console.error(e);
+      setError("Erreur inattendue lors de l'annulation.");
     } finally {
       setLoading(false);
     }
-  }, [format, paiements]);
+  }
 
-  // Recalcul initial + à chaque changement d’inscription/format/paiements
-  useEffect(() => {
-    recalc();
-  }, [recalc]);
+  // Helpers d'affichage (on défend contre les noms de colonnes manquants)
+  const pourcentage =
+    credit?.pourcentage_remboursement ??
+    credit?.pourcentage ??
+    null;
 
-  const jLabel =
-    sim.daysBefore > 0 ? `J-${sim.daysBefore}` : "Jour J ou passé";
+  const remboursementInscription =
+    credit?.remboursement_inscription ??
+    credit?.montant_rembourse_inscription ??
+    null;
+
+  const remboursementOptions =
+    credit?.remboursement_options ??
+    credit?.montant_rembourse_options ??
+    null;
+
+  const fraisAnnulation =
+    credit?.frais_annulation ??
+    credit?.montant_frais_annulation ??
+    null;
+
+  const montantTotal =
+    credit?.montant_total ??
+    credit?.montant_total_credit ??
+    null;
+
+  const joursAvantCourse =
+    credit?.jours_avant_course ??
+    credit?.nb_jours_avant_course ??
+    null;
+
+  const hasSummary =
+    remboursementInscription !== null ||
+    remboursementOptions !== null ||
+    fraisAnnulation !== null ||
+    montantTotal !== null ||
+    pourcentage !== null;
 
   return (
-    <div className="space-y-4">
-      <div className="flex items-start justify-between gap-4">
+    <section className="mt-6 rounded-2xl border border-red-200 bg-red-50/60 shadow-sm">
+      <div className="p-5 border-b border-red-100 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm text-neutral-600">
-            Basée sur la date actuelle et la politique d’annulation. ({jLabel})
+          <h2 className="text-lg font-semibold text-red-800">
+            Annuler mon inscription
+          </h2>
+          <p className="text-sm text-red-700">
+            Cette opération est définitive. Un crédit d&apos;annulation sera
+            calculé automatiquement en fonction de la date de la course et des
+            montants payés (inscription + options payantes).
           </p>
         </div>
-        <button
-          type="button"
-          onClick={recalc}
-          disabled={loading}
-          className={`inline-flex items-center rounded-xl border border-neutral-300 px-3 py-1.5 text-xs font-semibold ${
-            loading
-              ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
-              : "bg-white text-neutral-900 hover:bg-neutral-50"
-          }`}
-        >
-          {loading ? "Calcul…" : "Recalculer"}
-        </button>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
-        <div>
-          <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-            Palier
+      <div className="p-5 space-y-4">
+        {error && (
+          <div className="rounded-xl border border-red-300 bg-red-100 px-3 py-2 text-sm text-red-900">
+            {error}
           </div>
-          <div className="mt-1 text-base font-semibold">
-            {sim.policyTier}
-          </div>
-        </div>
-        <div>
-          <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-            Taux appliqué
-          </div>
-          <div className="mt-1 text-base font-semibold">
-            {sim.percent} %
-          </div>
-        </div>
-        <div>
-          <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
-            Montant payé (base)
-          </div>
-          <div className="mt-1 text-base font-semibold">
-            {eurosFromCents(sim.baseCents)}
-          </div>
-        </div>
-      </div>
-
-      {/* Bandeau remboursable / non remboursable */}
-      <div className="rounded-2xl overflow-hidden ring-1 ring-neutral-200 flex flex-col sm:flex-row text-sm">
-        <div className="flex-1 bg-emerald-50 px-4 py-3 border-b sm:border-b-0 sm:border-r border-emerald-100">
-          <div className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">
-            Part remboursée (estimée)
-          </div>
-          <div className="mt-1 text-lg font-bold text-emerald-900">
-            {eurosFromCents(sim.refundCents)}
-          </div>
-        </div>
-        <div className="flex-1 bg-amber-50 px-4 py-3">
-          <div className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
-            Part non remboursable
-          </div>
-          <div className="mt-1 text-lg font-bold text-amber-900">
-            {eurosFromCents(sim.nonRefCents)}
-          </div>
-        </div>
-      </div>
-
-      {/* Message d’info */}
-      <p className="text-xs text-neutral-500 leading-relaxed">
-        {sim.hasPayment ? (
-          <>
-            Ce calcul est indicatif. Le remboursement réel sera déclenché
-            uniquement si vous cliquez sur{" "}
-            <strong>« Annuler mon inscription »</strong>, et sera effectué
-            via Stripe conformément à la politique d’annulation en vigueur.
-          </>
-        ) : (
-          <>
-            Aucun paiement confirmé n’a été trouvé pour cette inscription.
-            La simulation utilise bien le palier <strong>{sim.policyTier}</strong>, 
-            mais aucun remboursement réel ne sera possible tant qu’aucun
-            paiement Stripe n’est associé.
-          </>
         )}
-      </p>
-    </div>
+
+        {!credit && (
+          <button
+            type="button"
+            onClick={handleAnnulation}
+            disabled={loading || !inscriptionId}
+            className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition
+              ${
+                loading || !inscriptionId
+                  ? "bg-red-300 cursor-not-allowed"
+                  : "bg-red-600 hover:bg-red-700"
+              }`}
+          >
+            {loading
+              ? "Calcul du crédit et annulation…"
+              : "Annuler mon inscription et générer un crédit"}
+          </button>
+        )}
+
+        {credit && (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+              <p className="font-semibold">
+                Inscription annulée et crédit généré.
+              </p>
+              <p>
+                Tu peux retrouver ce crédit dans ton espace Tickrace (solde
+                d&apos;annulation / avoir), selon ce que tu as prévu côté
+                interface.
+              </p>
+            </div>
+
+            {hasSummary && (
+              <div className="rounded-xl border border-neutral-200 bg-white px-4 py-3 text-sm space-y-2">
+                {joursAvantCourse !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">
+                      Jours avant la course
+                    </span>
+                    <span className="font-medium">
+                      {joursAvantCourse} jour
+                      {joursAvantCourse > 1 ? "s" : ""}
+                    </span>
+                  </div>
+                )}
+
+                {pourcentage !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">
+                      Pourcentage remboursé
+                    </span>
+                    <span className="font-medium">{pourcentage} %</span>
+                  </div>
+                )}
+
+                {remboursementInscription !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">
+                      Remboursement inscription
+                    </span>
+                    <span className="font-medium">
+                      {Number(remboursementInscription).toFixed(2)} €
+                    </span>
+                  </div>
+                )}
+
+                {remboursementOptions !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">
+                      Remboursement options payantes
+                    </span>
+                    <span className="font-medium">
+                      {Number(remboursementOptions).toFixed(2)} €
+                    </span>
+                  </div>
+                )}
+
+                {fraisAnnulation !== null && (
+                  <div className="flex justify-between">
+                    <span className="text-neutral-600">Frais d&apos;annulation</span>
+                    <span className="font-medium">
+                      -{Number(fraisAnnulation).toFixed(2)} €
+                    </span>
+                  </div>
+                )}
+
+                <div className="h-px bg-neutral-200 my-1" />
+
+                {montantTotal !== null && (
+                  <div className="flex justify-between text-base">
+                    <span className="font-semibold">Crédit total</span>
+                    <span className="font-bold">
+                      {Number(montantTotal).toFixed(2)} €
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Bloc debug pour t'aider à ajuster les noms de colonnes si besoin */}
+            <details className="text-xs text-neutral-500">
+              <summary className="cursor-pointer select-none">
+                Détails techniques (JSON brut retourné par la fonction)
+              </summary>
+              <pre className="mt-2 max-h-64 overflow-auto rounded-lg bg-neutral-900 p-3 text-[11px] text-neutral-100">
+                {JSON.stringify(credit, null, 2)}
+              </pre>
+            </details>
+          </div>
+        )}
+      </div>
+    </section>
   );
 }
