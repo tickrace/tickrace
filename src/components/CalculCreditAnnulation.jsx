@@ -5,7 +5,8 @@ import { supabase } from "../supabase";
 /**
  * Simulation du crédit d'annulation pour une inscription donnée.
  *
- * La fonction Postgres `calculer_credit_annulation(inscription_id uuid)` renvoie un JSON du type :
+ * Fonction SQL:
+ *   calculer_credit_annulation(inscription_id uuid) RETURNS jsonb :
  * {
  *   policy_tier: 'J-30+' | 'J-15-29' | 'J-7-14' | 'J-3-6' | 'J-0-2',
  *   percent: 90,
@@ -17,20 +18,33 @@ import { supabase } from "../supabase";
  *   paiement_id: '...'
  * }
  *
- * Props:
- * - inscriptionId (uuid string, requis)
- * - onSimulated?: (result) => void (optionnel, callback après simulation)
- *
- * ⚠️ Cette version NE modifie PAS l'inscription : c'est uniquement une SIMULATION des montants.
+ * Props possibles :
+ * - inscriptionId?: string (uuid de l'inscription)
+ * - inscription?: { id: string, ... }  (utilisé si inscriptionId est absent)
+ * - format?: any            // pour affichage éventuel plus tard (pas utilisé ici)
+ * - paiements?: any[]       // idem
+ * - onSimulated?: (data) => void
  */
-export default function CalculCreditAnnulation({ inscriptionId, onSimulated }) {
+export default function CalculCreditAnnulation({
+  inscriptionId,
+  inscription,
+  format,      // non utilisé pour l'instant mais gardé pour compat
+  paiements,   // idem
+  onSimulated,
+}) {
   const [loading, setLoading] = useState(false);
-  const [result, setResult] = useState(null); // JSON retourné par la fonction
+  const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
 
+  // on accepte inscriptionId OU inscription.id
+  const effectiveInscriptionId =
+    inscriptionId || (inscription && inscription.id) || null;
+
   async function handleSimulate() {
-    if (!inscriptionId) {
-      setError("Identifiant d'inscription manquant.");
+    if (!effectiveInscriptionId) {
+      setError(
+        "Identifiant d'inscription manquant. Vérifie que l'objet 'inscription' contient bien un champ 'id'."
+      );
       return;
     }
 
@@ -40,7 +54,7 @@ export default function CalculCreditAnnulation({ inscriptionId, onSimulated }) {
     try {
       const { data, error: rpcError } = await supabase.rpc(
         "calculer_credit_annulation",
-        { inscription_id: inscriptionId }
+        { inscription_id: effectiveInscriptionId }
       );
 
       if (rpcError) {
@@ -64,7 +78,7 @@ export default function CalculCreditAnnulation({ inscriptionId, onSimulated }) {
     }
   }
 
-  // Sécurité si pas encore de résultat
+  // champs renvoyés par ta fonction
   const daysBefore = result?.days_before ?? null;
   const policyTier = result?.policy_tier ?? null;
   const percent = result?.percent ?? null;
@@ -108,14 +122,23 @@ export default function CalculCreditAnnulation({ inscriptionId, onSimulated }) {
             selon la date de la course et les montants payés (inscription + options).
             Cette simulation ne modifie pas ton inscription.
           </p>
+          {!effectiveInscriptionId && (
+            <p className="mt-1 text-xs text-red-700">
+              ⚠ Aucun identifiant d&apos;inscription disponible
+              (<code className="bg-red-100 px-1 py-0.5 rounded ml-1">
+                inscriptionId / inscription.id
+              </code>{" "}
+              est vide).
+            </p>
+          )}
         </div>
         <button
           type="button"
           onClick={handleSimulate}
-          disabled={loading || !inscriptionId}
+          disabled={loading || !effectiveInscriptionId}
           className={`inline-flex items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white transition
             ${
-              loading || !inscriptionId
+              loading || !effectiveInscriptionId
                 ? "bg-amber-300 cursor-not-allowed"
                 : "bg-amber-600 hover:bg-amber-700"
             }`}
