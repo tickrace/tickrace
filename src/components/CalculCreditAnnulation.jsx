@@ -1,231 +1,188 @@
 // src/components/CalculCreditAnnulation.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
 
-const fmt = new Intl.NumberFormat("fr-FR", { style: "currency", currency: "EUR" });
-const toEUR = (n) => fmt.format(Math.max(0, Number.isFinite(n) ? n : 0));
+const euros = (n) => {
+  if (n == null || isNaN(Number(n))) return "—";
+  try {
+    return new Intl.NumberFormat("fr-FR", {
+      style: "currency",
+      currency: "EUR",
+    }).format(Number(n));
+  } catch {
+    return `${Number(n).toFixed(2)} €`;
+  }
+};
 
-function diffDaysUTC(a, b) {
-  // renvoie (dateB - dateA) en jours arrondis à l'entier
-  const ms = Date.UTC(b.getFullYear(), b.getMonth(), b.getDate()) - Date.UTC(a.getFullYear(), a.getMonth(), a.getDate());
-  return Math.round(ms / 86400000);
-}
+export default function CalculCreditAnnulation({
+  inscriptionId,
+  isCanceled = false,
+}) {
+  const [loading, setLoading] = useState(false);
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
 
-export default function CalculCreditAnnulation({ inscriptionId: propId }) {
-  const [inscriptionId, setInscriptionId] = useState(propId || null);
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState(null);
-  const [okMsg, setOkMsg] = useState(null);
-
-  const [insc, setInsc] = useState(null);
-  const [format, setFormat] = useState(null);
-  const [course, setCourse] = useState(null);
-
-  // Permettre un usage direct via query ?inscription_id=...
-  useEffect(() => {
-    if (!propId) {
-      const url = new URL(window.location.href);
-      const q = url.searchParams.get("inscription_id");
-      if (q) setInscriptionId(q);
-    }
-  }, [propId]);
-
-  useEffect(() => {
-    let abort = false;
-    async function load() {
-      if (!inscriptionId) return;
-      setLoading(true);
-      setError(null);
-      setOkMsg(null);
-      try {
-        // 1) Inscription
-        const { data: i, error: e1 } = await supabase
-          .from("inscriptions")
-          .select("id, course_id, format_id, prix_total_coureur, prix_total_repas, statut, nom, prenom, email")
-          .eq("id", inscriptionId)
-          .single();
-        if (e1 || !i) throw new Error(e1?.message || "Inscription introuvable");
-        if (abort) return;
-
-        setInsc(i);
-
-        // 2) Format
-        const { data: f, error: e2 } = await supabase
-          .from("formats")
-          .select("id, nom, date, prix, prix_repas")
-          .eq("id", i.format_id)
-          .single();
-        if (e2 || !f) throw new Error(e2?.message || "Format introuvable");
-        if (abort) return;
-        setFormat(f);
-
-        // 3) Course
-        const { data: c, error: e3 } = await supabase
-          .from("courses")
-          .select("id, nom")
-          .eq("id", i.course_id)
-          .single();
-        if (e3 || !c) throw new Error(e3?.message || "Course introuvable");
-        if (abort) return;
-        setCourse(c);
-      } catch (err) {
-        if (!abort) setError(err.message || String(err));
-      } finally {
-        if (!abort) setLoading(false);
-      }
-    }
-    load();
-    return () => { abort = true; };
-  }, [inscriptionId]);
-
-  // Calculs preview (sans toucher à la base)
-  const calc = useMemo(() => {
-    if (!insc || !format) return null;
-
-    const total = Number(insc.prix_total_coureur || 0);
-    const repas = Number(insc.prix_total_repas || 0);
-    const inscription = total - repas;
-
-    const dCourse = new Date(format.date + "T00:00:00");
-    const today = new Date();
-    const jours_avant = diffDaysUTC(today, dCourse);
-
-    // même formule que ta fonction SQL pour % conservé
-    let pourcentage_conserve;
-    if (jours_avant > 60) {
-      pourcentage_conserve = 0.05;
-    } else if (jours_avant >= 3) {
-      pourcentage_conserve = Math.round((0.05 + (0.95 * (60 - jours_avant) / 57)) * 100) / 100;
-    } else {
-      pourcentage_conserve = 1.0;
-    }
-
-    // Règle Tickrace : on calcule tout sur la part organisateur (95%)
-    const partOrga = 0.95;
-    const commission5 = Math.round(total * 0.05 * 100) / 100; // info
-
-    const remboursement_inscription = Math.round(partOrga * (1 - pourcentage_conserve) * inscription * 100) / 100;
-    const remboursement_repas       = Math.round(partOrga * repas * 100) / 100;
-    const frais_annulation_orga     = Math.round(partOrga * pourcentage_conserve * inscription * 100) / 100;
-    const montant_total             = Math.round((remboursement_inscription + remboursement_repas) * 100) / 100;
-
-    return {
-      total, repas, inscription,
-      jours_avant, pourcentage_conserve,
-      partOrga, commission5,
-      remboursement_inscription, remboursement_repas,
-      frais_annulation_orga, montant_total,
-    };
-  }, [insc, format]);
-
-  const canRefund =
-    !!insc &&
-    !!format &&
-    insc.statut !== "remboursé" &&
-    insc.statut !== "annulé" &&
-    calc &&
-    calc.montant_total > 0;
-
-  async function handleConfirm() {
-    if (!inscriptionId || !calc) return;
-    setSaving(true);
-    setError(null);
-    setOkMsg(null);
+  async function fetchPreview() {
+    if (!inscriptionId || isCanceled) return;
+    setLoading(true);
+    setError("");
     try {
-      // 1) Calcul + insertion crédit (et statut = 'annulé')
-      const { data: creditId, error: rpcErr } = await supabase
-        .rpc("calculer_credit_annulation", { p_inscription_id: inscriptionId });
-      if (rpcErr) throw new Error("Erreur calcul crédit: " + rpcErr.message);
+      const { data, error } = await supabase.rpc(
+        "calculer_credit_annulation",
+        { inscription_id: inscriptionId }
+      );
+      if (error) throw error;
 
-      // 2) Refund réel (Edge Function)
-      const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/refund-inscription`;
-      const r = await fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY,
-        },
-        body: JSON.stringify({ inscription_id: inscriptionId }),
-      });
-      if (!r.ok) {
-        const t = await r.text().catch(() => "");
-        throw new Error(`Refund erreur (${r.status}) ${t}`);
-      }
-      const out = await r.json().catch(() => ({}));
-      setOkMsg("Annulation confirmée et remboursement lancé avec succès.");
-      // rafraîchir statut inscription
-      const { data: i } = await supabase
-        .from("inscriptions")
-        .select("statut")
-        .eq("id", inscriptionId)
-        .single();
-      if (i) setInsc((prev) => ({ ...prev, statut: i.statut }));
-
+      // data est ce que renvoie ta fonction SQL (type "remboursements" dans notre logique)
+      setPreview(data);
     } catch (e) {
-      setError(e.message || String(e));
+      console.error("REFUND_PREVIEW_ERROR", e);
+      setError(
+        e?.message || "Impossible de calculer le remboursement estimé."
+      );
+      setPreview(null);
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
   }
 
-  if (loading) return <div className="p-4">Chargement…</div>;
-  if (error)   return <div className="p-4 text-red-600">Erreur : {error}</div>;
-  if (!insc || !format || !calc) return <div className="p-4">Données indisponibles.</div>;
+  useEffect(() => {
+    if (!inscriptionId || isCanceled) return;
+    fetchPreview();
+  }, [inscriptionId, isCanceled]);
+
+  if (isCanceled) {
+    return (
+      <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm p-4 sm:p-5">
+        <h3 className="text-sm font-semibold text-neutral-800 mb-2">
+          Simulation de remboursement
+        </h3>
+        <p className="text-sm text-neutral-600">
+          L’inscription est déjà annulée. Le calcul de remboursement a été
+          effectué au moment de l’annulation.
+        </p>
+      </section>
+    );
+  }
 
   return (
-    <div className="p-4 space-y-4">
-      <h2 className="text-xl font-semibold">Annulation & remboursement</h2>
-
-      <div className="text-sm text-gray-700">
-        <div><strong>Course :</strong> {course?.nom || "—"} {format?.nom ? `(${format.nom})` : ""}</div>
-        <div><strong>Date de course :</strong> {new Date(format.date + "T00:00:00").toLocaleDateString("fr-FR")}</div>
-        <div><strong>Inscription :</strong> {insc.prenom} {insc.nom} — statut actuel : <span className="font-medium">{insc.statut || "—"}</span></div>
+    <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm p-4 sm:p-5">
+      <div className="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <h3 className="text-sm font-semibold text-neutral-800">
+            Simulation de remboursement (indicatif)
+          </h3>
+          <p className="text-xs text-neutral-500">
+            Basée sur la date actuelle et la politique d’annulation.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={fetchPreview}
+          disabled={loading || !inscriptionId}
+          className="text-xs rounded-lg border border-neutral-300 px-2.5 py-1.5 text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
+        >
+          Recalculer
+        </button>
       </div>
 
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="border rounded-lg p-3">
-          <h3 className="font-medium mb-2">Récapitulatif</h3>
-          <div className="flex justify-between"><span>Total payé</span><span>{toEUR(calc.total)}</span></div>
-          <div className="flex justify-between text-gray-700"><span>— Dont inscription</span><span>{toEUR(calc.inscription)}</span></div>
-          <div className="flex justify-between text-gray-700"><span>— Dont repas</span><span>{toEUR(calc.repas)}</span></div>
-          <div className="flex justify-between"><span>Commission Tickrace (5 %, non remboursée)</span><span>{toEUR(calc.commission5)}</span></div>
-          <div className="flex justify-between"><span>Part organisateur (95 %)</span><span>{toEUR(calc.partOrga * calc.total)}</span></div>
-        </div>
-
-        <div className="border rounded-lg p-3">
-          <h3 className="font-medium mb-2">Politique d’annulation</h3>
-          <div className="flex justify-between"><span>Jours avant course</span><span>{calc.jours_avant}</span></div>
-          <div className="flex justify-between"><span>% conservé par l’organisateur</span><span>{(calc.pourcentage_conserve * 100).toFixed(0)}%</span></div>
-          <div className="flex justify-between"><span>Part conservée (sur 95 %)</span><span>{toEUR(calc.frais_annulation_orga)}</span></div>
-          <div className="flex justify-between"><span>Remboursement inscription (sur 95 %)</span><span>{toEUR(calc.remboursement_inscription)}</span></div>
-          <div className="flex justify-between"><span>Remboursement repas (100 % × 95 %)</span><span>{toEUR(calc.remboursement_repas)}</span></div>
-          <div className="flex justify-between font-semibold border-t mt-2 pt-2"><span>Montant total remboursé</span><span>{toEUR(calc.montant_total)}</span></div>
-        </div>
-      </div>
-
-      {calc.jours_avant < 3 && (
-        <div className="p-3 rounded-md bg-yellow-50 text-yellow-800 text-sm">
-          À moins de 3 jours de la course, le remboursement est nul (hors repas ×95 %). Vérifie bien avant de confirmer.
-        </div>
+      {loading && (
+        <p className="text-sm text-neutral-500">
+          Calcul du remboursement estimé…
+        </p>
       )}
 
-      {okMsg && <div className="p-3 rounded-md bg-green-50 text-green-700">{okMsg}</div>}
-      {error && !loading && <div className="p-3 rounded-md bg-red-50 text-red-700">{error}</div>}
+      {!loading && error && (
+        <p className="text-sm text-rose-700">{error}</p>
+      )}
 
-      <div className="flex items-center gap-3">
-        <button
-          disabled={!canRefund || saving}
-          onClick={handleConfirm}
-          className={`px-4 py-2 rounded-md text-white ${(!canRefund || saving) ? "bg-gray-400" : "bg-purple-600 hover:bg-purple-700"}`}
-          title={!canRefund ? "Rien à rembourser ou inscription déjà annulée/remboursée" : "Confirmer l’annulation et déclencher le remboursement"}
-        >
-          {saving ? "Traitement..." : "Confirmer l’annulation et rembourser"}
-        </button>
-        <span className="text-sm text-gray-600">
-          Cette action appelle la RPC <code>calculer_credit_annulation</code> puis l’Edge Function <code>refund-inscription</code>.
-        </span>
-      </div>
-    </div>
+      {!loading && !error && !preview && (
+        <p className="text-sm text-neutral-500">
+          Aucun remboursement n’est prévu pour cette inscription selon la
+          politique actuelle.
+        </p>
+      )}
+
+      {!loading && !error && preview && (() => {
+        const baseCents = Number(
+          preview.base_cents ??
+          preview.amount_total_cents ??
+          0
+        );
+
+        const refundCents = Number(preview.refund_cents ?? 0);
+
+        const nonRefCents = Number(
+          preview.non_refundable_cents ??
+          Math.max(baseCents - refundCents, 0)
+        );
+
+        const percent = preview.percent ?? null;
+        const policyTier = preview.policy_tier || preview.policy || null;
+        const joursAvant = preview.jours_avant_course ?? null;
+
+        return (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-2 text-sm">
+            <div className="space-y-1">
+              {joursAvant != null && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">
+                    Jours avant la course
+                  </span>
+                  <span className="font-medium">{joursAvant}</span>
+                </div>
+              )}
+              {policyTier && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">Palier</span>
+                  <span className="font-medium">{policyTier}</span>
+                </div>
+              )}
+              {percent != null && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">
+                    Taux appliqué
+                  </span>
+                  <span className="font-medium">{percent} %</span>
+                </div>
+              )}
+              <div className="flex justify-between">
+                <span className="text-neutral-600">
+                  Montant payé (base)
+                </span>
+                <span className="font-medium">
+                  {euros(baseCents / 100)}
+                </span>
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <div className="flex justify-between">
+                <span className="text-neutral-600">
+                  Part remboursée (estimée)
+                </span>
+                <span className="font-medium">
+                  {euros(refundCents / 100)}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-600">
+                  Part non remboursable
+                </span>
+                <span className="font-medium">
+                  {euros(nonRefCents / 100)}
+                </span>
+              </div>
+            </div>
+
+            <div className="sm:col-span-2 text-xs text-neutral-500 mt-1">
+              Ce calcul est indicatif. Le remboursement sera réellement
+              déclenché seulement si vous cliquez sur{" "}
+              <strong>« Annuler mon inscription »</strong>.
+            </div>
+          </div>
+        );
+      })()}
+    </section>
   );
 }
