@@ -1,172 +1,221 @@
 // src/components/CalculCreditAnnulation.jsx
-import React, { useEffect, useState } from "react";
-import { supabase } from "../supabase";
+import React, { useEffect, useState, useCallback } from "react";
 
+/** Formatage euros à partir de centimes */
 function eurosFromCents(cents) {
-  if (cents == null || isNaN(Number(cents))) return "0,00 €";
-  const eur = Number(cents) / 100;
+  const n = Number(cents || 0);
+  if (!Number.isFinite(n)) return "0,00 €";
   try {
     return new Intl.NumberFormat("fr-FR", {
       style: "currency",
       currency: "EUR",
-    }).format(eur);
+    }).format(n / 100);
   } catch {
-    return eur.toFixed(2) + " €";
+    return (n / 100).toFixed(2) + " €";
   }
+}
+
+/** Calcul du nombre de jours avant la course (J-xx) */
+function computeDaysBefore(format) {
+  if (!format?.date) return 0;
+  const today = new Date();
+  const dEvent = new Date(format.date);
+
+  const t0 = Date.UTC(
+    today.getFullYear(),
+    today.getMonth(),
+    today.getDate()
+  );
+  const t1 = Date.UTC(
+    dEvent.getFullYear(),
+    dEvent.getMonth(),
+    dEvent.getDate()
+  );
+  const diffDays = Math.round((t1 - t0) / (1000 * 60 * 60 * 24));
+  return Math.max(0, diffDays);
+}
+
+/** Politique d’annulation (même logique que la fonction SQL calculer_credit_annulation) */
+function computePolicy(daysBefore) {
+  if (daysBefore >= 30) return { tier: "J-30+", percent: 90 };
+  if (daysBefore >= 15) return { tier: "J-15-29", percent: 70 };
+  if (daysBefore >= 7) return { tier: "J-7-14", percent: 50 };
+  if (daysBefore >= 3) return { tier: "J-3-6", percent: 30 };
+  return { tier: "J-0-2", percent: 0 };
+}
+
+/** Sélectionne le paiement principal pour cette inscription */
+function pickMainPayment(paiements = []) {
+  if (!Array.isArray(paiements) || paiements.length === 0) return null;
+
+  const valides = paiements.filter((p) => {
+    const s = (p.status || "").toLowerCase();
+    return (
+      s.includes("paye") ||
+      s.includes("payé") ||
+      s === "paid" ||
+      s === "succeeded"
+    );
+  });
+
+  if (!valides.length) return null;
+
+  // on prend le plus récent
+  return [...valides].sort(
+    (a, b) =>
+      new Date(b.created_at || 0).getTime() -
+      new Date(a.created_at || 0).getTime()
+  )[0];
+}
+
+/** Calcule le montant de base en centimes à partir d’un paiement */
+function computeBaseCentsFromPayment(p) {
+  if (!p) return 0;
+  if (p.total_amount_cents != null) return Number(p.total_amount_cents) || 0;
+  if (p.amount_total != null) return Number(p.amount_total) || 0;
+  if (p.montant_total != null)
+    return Math.round(Number(p.montant_total) * 100) || 0;
+  return 0;
 }
 
 /**
  * props:
- * - inscriptionId: uuid de l'inscription
- * - fallbackBaseEuros?: montant théorique en euros (ex: totalTheo de MonInscription)
+ *  - inscription: ligne d’inscription (optionnel, juste pour contexte si besoin plus tard)
+ *  - format: ligne de format (doit contenir au moins .date)
+ *  - paiements: tableau des paiements liés à cette inscription (payInfos.paiements)
  */
-export default function CalculCreditAnnulation({ inscriptionId, fallbackBaseEuros }) {
+export default function CalculCreditAnnulation({ inscription, format, paiements }) {
   const [loading, setLoading] = useState(false);
-  const [sim, setSim] = useState(null); // JSON renvoyé par la fonction
-  const [error, setError] = useState("");
+  const [sim, setSim] = useState({
+    daysBefore: 0,
+    policyTier: "J-0-2",
+    percent: 0,
+    baseCents: 0,
+    refundCents: 0,
+    nonRefCents: 0,
+    hasPayment: false,
+  });
 
-  const fetchSimulation = async () => {
-    if (!inscriptionId) return;
+  const recalc = useCallback(() => {
     setLoading(true);
-    setError("");
     try {
-      const { data, error: rpcError } = await supabase.rpc(
-        "calculer_credit_annulation",
-        { inscription_id: inscriptionId }
-      );
+      const daysBefore = computeDaysBefore(format);
+      const { tier, percent } = computePolicy(daysBefore);
 
-      if (rpcError) {
-        console.error("RPC calculer_credit_annulation:", rpcError);
-        setError(rpcError.message || "Erreur lors du calcul de l’annulation.");
-        setSim(null);
-      } else {
-        setSim(data || null);
-      }
-    } catch (e) {
-      console.error(e);
-      setError(e.message || "Erreur lors du calcul de l’annulation.");
-      setSim(null);
+      const mainPayment = pickMainPayment(paiements);
+      const baseCents = computeBaseCentsFromPayment(mainPayment);
+
+      const refundCents = Math.round((baseCents * percent) / 100);
+      const nonRefCents = baseCents - refundCents;
+
+      setSim({
+        daysBefore,
+        policyTier: tier,
+        percent,
+        baseCents,
+        refundCents,
+        nonRefCents,
+        hasPayment: !!mainPayment && baseCents > 0,
+      });
     } finally {
       setLoading(false);
     }
-  };
+  }, [format, paiements]);
 
+  // Recalcul initial + à chaque changement d’inscription/format/paiements
   useEffect(() => {
-    fetchSimulation();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inscriptionId]);
+    recalc();
+  }, [recalc]);
 
-  if (!inscriptionId) return null;
-
-  const policyTier = sim?.policy_tier || "—";
-  const percent = typeof sim?.percent === "number" ? sim.percent : null;
-  const daysBefore = typeof sim?.days_before === "number" ? sim.days_before : null;
-
-  // 1) base en cents renvoyée par la fonction
-  let baseCents = sim?.base_cents ?? sim?.amount_total_cents ?? 0;
-
-  // 2) Fallback: si la fonction renvoie 0 mais que tu as un montant théorique côté front
-  if ((!baseCents || baseCents <= 0) && fallbackBaseEuros != null) {
-    baseCents = Math.round(Number(fallbackBaseEuros || 0) * 100);
-  }
-
-  // 3) Montants remboursé / non remboursable
-  let refundCents = sim?.refund_cents;
-  let nonRefundCents = sim?.non_refundable_cents;
-
-  // Si la fonction n'a pas mis ces champs (ou qu'ils sont à null) mais qu'on a une base,
-  // on recalcule à partir du pourcentage.
-  if ((refundCents == null || nonRefundCents == null) && baseCents > 0) {
-    const pct = percent || 0;
-    refundCents = Math.round((baseCents * pct) / 100);
-    nonRefundCents = baseCents - refundCents;
-  }
-
-  const noPayment =
-    sim &&
-    (sim.amount_total_cents === 0 || sim.base_cents === 0) &&
-    !fallbackBaseEuros; // vrai "pas de paiement du tout"
+  const jLabel =
+    sim.daysBefore > 0 ? `J-${sim.daysBefore}` : "Jour J ou passé";
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-2">
-        <div className="text-sm text-neutral-600">
-          Basée sur la date actuelle et la politique d’annulation.
-          {typeof daysBefore === "number" && (
-            <> (J-{daysBefore})</>
-          )}
+    <div className="space-y-4">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-neutral-600">
+            Basée sur la date actuelle et la politique d’annulation. ({jLabel})
+          </p>
         </div>
         <button
           type="button"
-          onClick={fetchSimulation}
+          onClick={recalc}
           disabled={loading}
-          className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-50 disabled:opacity-60"
+          className={`inline-flex items-center rounded-xl border border-neutral-300 px-3 py-1.5 text-xs font-semibold ${
+            loading
+              ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+              : "bg-white text-neutral-900 hover:bg-neutral-50"
+          }`}
         >
           {loading ? "Calcul…" : "Recalculer"}
         </button>
       </div>
 
-      {error && (
-        <div className="rounded-xl bg-rose-50 px-3 py-2 text-xs text-rose-700">
-          {error}
-        </div>
-      )}
-
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 text-sm">
         <div>
-          <div className="text-xs uppercase tracking-wide text-neutral-500">
+          <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
             Palier
           </div>
-          <div className="mt-1 font-semibold">{policyTier}</div>
+          <div className="mt-1 text-base font-semibold">
+            {sim.policyTier}
+          </div>
         </div>
         <div>
-          <div className="text-xs uppercase tracking-wide text-neutral-500">
+          <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
             Taux appliqué
           </div>
-          <div className="mt-1 font-semibold">
-            {percent != null ? `${percent} %` : "—"}
+          <div className="mt-1 text-base font-semibold">
+            {sim.percent} %
           </div>
         </div>
         <div>
-          <div className="text-xs uppercase tracking-wide text-neutral-500">
+          <div className="text-xs font-semibold text-neutral-500 uppercase tracking-wide">
             Montant payé (base)
           </div>
-          <div className="mt-1 font-semibold">
-            {baseCents > 0 ? eurosFromCents(baseCents) : "0,00 €"}
+          <div className="mt-1 text-base font-semibold">
+            {eurosFromCents(sim.baseCents)}
           </div>
         </div>
       </div>
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-        <div className="rounded-xl bg-emerald-50 px-3 py-2">
-          <div className="text-xs uppercase tracking-wide text-emerald-700">
+      {/* Bandeau remboursable / non remboursable */}
+      <div className="rounded-2xl overflow-hidden ring-1 ring-neutral-200 flex flex-col sm:flex-row text-sm">
+        <div className="flex-1 bg-emerald-50 px-4 py-3 border-b sm:border-b-0 sm:border-r border-emerald-100">
+          <div className="text-xs font-semibold text-emerald-800 uppercase tracking-wide">
             Part remboursée (estimée)
           </div>
-          <div className="mt-1 text-base font-semibold text-emerald-800">
-            {refundCents != null ? eurosFromCents(refundCents) : "0,00 €"}
+          <div className="mt-1 text-lg font-bold text-emerald-900">
+            {eurosFromCents(sim.refundCents)}
           </div>
         </div>
-        <div className="rounded-xl bg-amber-50 px-3 py-2">
-          <div className="text-xs uppercase tracking-wide text-amber-700">
+        <div className="flex-1 bg-amber-50 px-4 py-3">
+          <div className="text-xs font-semibold text-amber-800 uppercase tracking-wide">
             Part non remboursable
           </div>
-          <div className="mt-1 text-base font-semibold text-amber-800">
-            {nonRefundCents != null ? eurosFromCents(nonRefundCents) : "0,00 €"}
+          <div className="mt-1 text-lg font-bold text-amber-900">
+            {eurosFromCents(sim.nonRefCents)}
           </div>
         </div>
       </div>
 
-      {noPayment && (
-        <p className="text-xs text-neutral-500">
-          Aucun paiement confirmé n’a été trouvé pour cette inscription. La simulation
-          reste basée sur le palier ({policyTier}), mais aucun remboursement réel ne sera
-          possible tant qu’aucun paiement Stripe n’est associé.
-        </p>
-      )}
-
-      <p className="text-xs text-neutral-500">
-        Ce calcul est indicatif. Le remboursement réel n’est déclenché que lorsque
-        vous cliquez sur « Annuler mon inscription ».
+      {/* Message d’info */}
+      <p className="text-xs text-neutral-500 leading-relaxed">
+        {sim.hasPayment ? (
+          <>
+            Ce calcul est indicatif. Le remboursement réel sera déclenché
+            uniquement si vous cliquez sur{" "}
+            <strong>« Annuler mon inscription »</strong>, et sera effectué
+            via Stripe conformément à la politique d’annulation en vigueur.
+          </>
+        ) : (
+          <>
+            Aucun paiement confirmé n’a été trouvé pour cette inscription.
+            La simulation utilise bien le palier <strong>{sim.policyTier}</strong>, 
+            mais aucun remboursement réel ne sera possible tant qu’aucun
+            paiement Stripe n’est associé.
+          </>
+        )}
       </p>
     </div>
   );

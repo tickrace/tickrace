@@ -700,10 +700,13 @@ export default function MonInscription() {
         </Card>
 
         {/* Simulation de remboursement AVANT annulation */}
-        <CalculCreditAnnulation
-          inscriptionId={id}
-          isCanceled={isCanceled}
-        />
+        <Card title="Simulation de remboursement (indicatif)">
+  <CalculCreditAnnulation
+    inscription={insc}
+    format={format}
+    paiements={payInfos.paiements}
+  />
+</Card>
 
         {/* Remboursement (table remboursements) */}
         <Card title="Remboursement / annulation">
