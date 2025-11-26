@@ -22,8 +22,8 @@ export default function MesInscriptions() {
 
   useEffect(() => {
     (async () => {
-      // Exiger la connexion (les policies RLS bloquent anon)
-      const sess = session ?? (await supabase.auth.getSession()).data?.session;
+      const sess =
+        session ?? (await supabase.auth.getSession()).data?.session;
       if (!sess?.user) {
         navigate(`/login?next=${encodeURIComponent("/mesinscriptions")}`);
         return;
@@ -109,7 +109,7 @@ export default function MesInscriptions() {
         .from("inscriptions")
         .select(
           `
-          *,
+          * ,
           format:format_id (
             id,
             nom,
@@ -136,7 +136,6 @@ export default function MesInscriptions() {
         );
         setInscriptions([]);
       } else {
-        // Triage final (par date création desc)
         setInscriptions(rich || []);
       }
     } catch (err) {
@@ -201,14 +200,19 @@ export default function MesInscriptions() {
               const { format, statut, id } = inscription;
               const course = format?.course;
 
-              // ✅ Détection fiable des inscriptions d'équipe / relais :
-              // On regarde la présence de groupe_id
-              const isTeam = Boolean(inscription.groupe_id);
+              const groupeId = inscription.groupe_id;
 
-              // ✅ Pour les équipes, on envoie le groupe_id dans l’URL
-              const detailUrl = isTeam
-                ? `/mon-inscription-equipe/${inscription.groupe_id}`
-                : `/mon-inscription/${id}`;
+              // Détection des inscriptions d'équipe
+              const isTeam =
+                !!groupeId ||
+                (format?.type_format &&
+                  format.type_format !== "individuel") ||
+                !!inscription.team_name;
+
+              const detailUrl =
+                isTeam && groupeId
+                  ? `/mon-inscription-equipe/${groupeId}`
+                  : `/mon-inscription/${id}`;
 
               return (
                 <li
@@ -252,7 +256,7 @@ export default function MesInscriptions() {
                           <span>📅 {formatDate(format.date)}</span>
                         )}
                         {isTeam && (
-                          <span>👥 Inscription équipe / relais</span>
+                          <span>👥 Inscription équipe</span>
                         )}
                       </div>
 
