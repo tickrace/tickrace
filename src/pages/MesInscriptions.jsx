@@ -22,8 +22,8 @@ export default function MesInscriptions() {
 
   useEffect(() => {
     (async () => {
-      const sess =
-        session ?? (await supabase.auth.getSession()).data?.session;
+      // Exiger la connexion (les policies RLS bloquent anon)
+      const sess = session ?? (await supabase.auth.getSession()).data?.session;
       if (!sess?.user) {
         navigate(`/login?next=${encodeURIComponent("/mesinscriptions")}`);
         return;
@@ -109,7 +109,7 @@ export default function MesInscriptions() {
         .from("inscriptions")
         .select(
           `
-          * ,
+          *,
           format:format_id (
             id,
             nom,
@@ -200,18 +200,22 @@ export default function MesInscriptions() {
               const { format, statut, id } = inscription;
               const course = format?.course;
 
-              const groupeId = inscription.groupe_id;
+              // 🔗 ID de groupe pour les équipes / relais
+              const groupId = inscription.groupe_id || inscription.member_of_group_id || null;
 
-              // Détection des inscriptions d'équipe
+              // Détection des inscriptions d'équipe (groupe / relais)
               const isTeam =
-                !!groupeId ||
+                !!groupId ||
                 (format?.type_format &&
                   format.type_format !== "individuel") ||
                 !!inscription.team_name;
 
+              // 👉 URL de détail :
+              // - équipe : /mon-inscription-equipe/<groupe_id>
+              // - individuel : /mon-inscription/<id>
               const detailUrl =
-                isTeam && groupeId
-                  ? `/mon-inscription-equipe/${groupeId}`
+                isTeam && groupId
+                  ? `/mon-inscription-equipe/${groupId}`
                   : `/mon-inscription/${id}`;
 
               return (
@@ -255,9 +259,7 @@ export default function MesInscriptions() {
                         {format?.date && (
                           <span>📅 {formatDate(format.date)}</span>
                         )}
-                        {isTeam && (
-                          <span>👥 Inscription équipe</span>
-                        )}
+                        {isTeam && <span>👥 Inscription équipe</span>}
                       </div>
 
                       <div className="mt-2 text-sm">
@@ -279,9 +281,7 @@ export default function MesInscriptions() {
                           to={detailUrl}
                           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                         >
-                          {isTeam
-                            ? "Voir l’inscription équipe"
-                            : "Voir / Modifier"}
+                          {isTeam ? "Voir l’inscription équipe" : "Voir / Modifier"}
                         </Link>
                       </div>
                     </div>
