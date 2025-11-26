@@ -107,7 +107,8 @@ export default function MesInscriptions() {
       // Requête “riche” pour l’affichage (format + course)
       const { data: rich, error: eRich } = await supabase
         .from("inscriptions")
-        .select(`
+        .select(
+          `
           *,
           format:format_id (
             id,
@@ -115,6 +116,7 @@ export default function MesInscriptions() {
             distance_km,
             denivele_dplus,
             date,
+            type_format,
             course:course_id (
               id,
               nom,
@@ -122,12 +124,16 @@ export default function MesInscriptions() {
               image_url
             )
           )
-        `)
+        `
+        )
         .in("id", finalIds)
         .order("created_at", { ascending: false });
 
       if (eRich) {
-        console.error("Erreur chargement inscriptions enrichies:", eRich.message);
+        console.error(
+          "Erreur chargement inscriptions enrichies:",
+          eRich.message
+        );
         setInscriptions([]);
       } else {
         // Triage final (par date création desc)
@@ -153,7 +159,10 @@ export default function MesInscriptions() {
         <div className="mx-auto max-w-4xl px-4 py-8">
           <div className="grid gap-5">
             {Array.from({ length: 3 }).map((_, i) => (
-              <div key={i} className="animate-pulse rounded-2xl ring-1 ring-neutral-200 bg-white p-5">
+              <div
+                key={i}
+                className="animate-pulse rounded-2xl ring-1 ring-neutral-200 bg-white p-5"
+              >
                 <div className="h-5 w-1/3 bg-neutral-100 rounded mb-2" />
                 <div className="h-4 w-2/3 bg-neutral-100 rounded mb-1" />
                 <div className="h-4 w-1/2 bg-neutral-100 rounded" />
@@ -176,7 +185,9 @@ export default function MesInscriptions() {
               <span className="text-orange-600">Tick</span>Race
             </span>
           </h1>
-          <p className="mt-2 text-neutral-600 text-base">Inscrivez-vous. Courez. Partagez.</p>
+          <p className="mt-2 text-neutral-600 text-base">
+            Inscrivez-vous. Courez. Partagez.
+          </p>
         </div>
       </section>
 
@@ -189,6 +200,16 @@ export default function MesInscriptions() {
             {inscriptions.map((inscription) => {
               const { format, statut, id } = inscription;
               const course = format?.course;
+
+              // Détection des inscriptions d'équipe (groupe / relais)
+              const isTeam =
+                (format?.type_format &&
+                  format.type_format !== "individuel") ||
+                !!inscription.team_name;
+
+              const detailUrl = isTeam
+                ? `/mon-inscription-equipe/${id}`
+                : `/mon-inscription/${id}`;
 
               return (
                 <li
@@ -222,13 +243,25 @@ export default function MesInscriptions() {
                       </p>
 
                       <div className="mt-1 text-sm text-neutral-700 flex flex-wrap gap-x-4 gap-y-1">
-                        {format?.distance_km != null && <span>🏁 {format.distance_km} km</span>}
-                        {format?.denivele_dplus != null && <span>⛰️ {format.denivele_dplus} m D+</span>}
-                        {format?.date && <span>📅 {formatDate(format.date)}</span>}
+                        {format?.distance_km != null && (
+                          <span>🏁 {format.distance_km} km</span>
+                        )}
+                        {format?.denivele_dplus != null && (
+                          <span>⛰️ {format.denivele_dplus} m D+</span>
+                        )}
+                        {format?.date && (
+                          <span>📅 {formatDate(format.date)}</span>
+                        )}
+                        {isTeam && (
+                          <span>👥 Inscription équipe</span>
+                        )}
                       </div>
 
                       <div className="mt-2 text-sm">
-                        Statut : <span className="font-medium">{statut || "—"}</span>
+                        Statut :{" "}
+                        <span className="font-medium">
+                          {statut || "—"}
+                        </span>
                       </div>
 
                       <div className="mt-4 flex items-center justify-between">
@@ -240,10 +273,10 @@ export default function MesInscriptions() {
                         </Link>
 
                         <Link
-                          to={`/mon-inscription/${id}`}
+                          to={detailUrl}
                           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                         >
-                          Voir / Modifier
+                          {isTeam ? "Voir l’inscription équipe" : "Voir / Modifier"}
                         </Link>
                       </div>
                     </div>
@@ -262,7 +295,9 @@ export default function MesInscriptions() {
 function EmptyState() {
   return (
     <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-10 text-center">
-      <h3 className="text-lg font-semibold">Aucune inscription pour le moment</h3>
+      <h3 className="text-lg font-semibold">
+        Aucune inscription pour le moment
+      </h3>
       <p className="mt-1 text-neutral-600">
         Parcourez les épreuves et trouvez votre prochaine course.
       </p>
