@@ -201,24 +201,14 @@ export default function MesInscriptions() {
               const { format, statut, id } = inscription;
               const course = format?.course;
 
-              // Détection robuste des inscriptions d'équipe (groupe / relais)
-              const isTeam =
-                format?.type_format === "groupe" ||
-                format?.type_format === "relais" ||
-                !!inscription.team_name ||
-                !!inscription.groupe_id ||
-                !!inscription.member_of_group_id;
+              // ✅ Détection fiable des inscriptions d'équipe / relais :
+              // On regarde la présence de groupe_id
+              const isTeam = Boolean(inscription.groupe_id);
 
-              // On cherche un identifiant de groupe exploitable
-              const groupIdForUrl =
-                inscription.groupe_id ||
-                inscription.member_of_group_id ||
-                null;
-
-              const detailUrl =
-                isTeam && groupIdForUrl
-                  ? `/mon-inscription-equipe/${groupIdForUrl}`
-                  : `/mon-inscription/${id}`;
+              // ✅ Pour les équipes, on envoie le groupe_id dans l’URL
+              const detailUrl = isTeam
+                ? `/mon-inscription-equipe/${inscription.groupe_id}`
+                : `/mon-inscription/${id}`;
 
               return (
                 <li
@@ -261,7 +251,9 @@ export default function MesInscriptions() {
                         {format?.date && (
                           <span>📅 {formatDate(format.date)}</span>
                         )}
-                        {isTeam && <span>👥 Inscription équipe</span>}
+                        {isTeam && (
+                          <span>👥 Inscription équipe / relais</span>
+                        )}
                       </div>
 
                       <div className="mt-2 text-sm">
@@ -283,7 +275,7 @@ export default function MesInscriptions() {
                           to={detailUrl}
                           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                         >
-                          {isTeam && groupIdForUrl
+                          {isTeam
                             ? "Voir l’inscription équipe"
                             : "Voir / Modifier"}
                         </Link>
