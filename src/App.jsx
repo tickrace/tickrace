@@ -48,7 +48,7 @@ import Payouts from "./pages/admin/Payouts";
 import AdminHome from "./pages/admin";
 
 import MemberDetails from "./pages/MemberDetails";
-
+import MonInscriptionEquipe from "./pages/MonInscriptionEquipe";
 function AppContent() {
   const { currentRole } = useUser();
   const location = useLocation();
@@ -128,6 +128,14 @@ function AppContent() {
             element={
               <ProtectedRoute>
                 <MonInscription />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/mon-inscription-equipe/:id"
+            element={
+              <ProtectedRoute>
+                <MonInscriptionEquipe />
               </ProtectedRoute>
             }
           />
