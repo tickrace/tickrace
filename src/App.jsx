@@ -131,14 +131,15 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/mon-inscription-equipe/:id"
-            element={
-              <ProtectedRoute>
-                <MonInscriptionEquipe />
-              </ProtectedRoute>
-            }
-          />
+        <Route
+  path="/mon-inscription-equipe/:groupeId"
+  element={
+    <ProtectedRoute>
+      <MonInscriptionEquipe />
+    </ProtectedRoute>
+  }
+/>
+
           <Route
             path="/mesinscriptions"
             element={
