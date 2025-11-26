@@ -705,6 +705,7 @@ export default function MonInscription() {
     inscription={insc}
     format={format}
     paiements={payInfos.paiements}
+    totalTheo={totalTheo} 
   />
 </Card>
 
