@@ -201,30 +201,23 @@ export default function MesInscriptions() {
               const { format, statut, id } = inscription;
               const course = format?.course;
 
-              // ID de groupe : priorise groupe_id, sinon member_of_group_id
-              const groupeId =
-                inscription.groupe_id || inscription.member_of_group_id || null;
+              // Détection robuste des inscriptions d'équipe (groupe / relais)
+              const isTeam =
+                format?.type_format === "groupe" ||
+                format?.type_format === "relais" ||
+                !!inscription.team_name ||
+                !!inscription.groupe_id ||
+                !!inscription.member_of_group_id;
 
-              // Type de format (course) : individuel / groupe / relais
-              const isTeamFormat =
-                format?.type_format &&
-                format.type_format !== "individuel";
+              // On cherche un identifiant de groupe exploitable
+              const groupIdForUrl =
+                inscription.groupe_id ||
+                inscription.member_of_group_id ||
+                null;
 
-              // Inscription effectivement rattachée à un groupe
-              const isTeamInscription =
-                !!groupeId || !!inscription.team_name;
-
-              // Pour l’UI : on affiche le badge "Inscription équipe" si
-              //   - format d’équipe, ou
-              //   - inscription rattachée à un groupe
-              const showTeamBadge = isTeamFormat || isTeamInscription;
-
-              // URL de détail :
-              //   - si on a un groupeId -> page équipe
-              //   - sinon -> page individuelle
               const detailUrl =
-                groupeId && (isTeamFormat || isTeamInscription)
-                  ? `/mon-inscription-equipe/${groupeId}`
+                isTeam && groupIdForUrl
+                  ? `/mon-inscription-equipe/${groupIdForUrl}`
                   : `/mon-inscription/${id}`;
 
               return (
@@ -268,7 +261,7 @@ export default function MesInscriptions() {
                         {format?.date && (
                           <span>📅 {formatDate(format.date)}</span>
                         )}
-                        {showTeamBadge && <span>👥 Inscription équipe</span>}
+                        {isTeam && <span>👥 Inscription équipe</span>}
                       </div>
 
                       <div className="mt-2 text-sm">
@@ -290,7 +283,9 @@ export default function MesInscriptions() {
                           to={detailUrl}
                           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                         >
-                          {groupeId ? "Voir l’inscription équipe" : "Voir / Modifier"}
+                          {isTeam && groupIdForUrl
+                            ? "Voir l’inscription équipe"
+                            : "Voir / Modifier"}
                         </Link>
                       </div>
                     </div>
