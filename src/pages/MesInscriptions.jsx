@@ -174,47 +174,6 @@ export default function MesInscriptions() {
     );
   }
 
-  // Construction de la liste à afficher avec déduplication des équipes
-  const itemsToRender = (() => {
-    const res = [];
-    const seenGroups = new Set(); // pour ne pas dupliquer les équipes
-
-    for (const inscription of inscriptions) {
-      const { format, statut, id, groupe_id, member_of_group_id } = inscription;
-      const course = format?.course;
-
-      const isTeam =
-        (format?.type_format && format.type_format !== "individuel") ||
-        !!inscription.team_name;
-
-      let detailUrl;
-      let key = id;
-
-      if (isTeam) {
-        const groupId = groupe_id || member_of_group_id || null;
-
-        if (groupId) {
-          // si on a déjà rendu une carte pour ce groupe, on saute
-          if (seenGroups.has(groupId)) continue;
-          seenGroups.add(groupId);
-
-          detailUrl = `/mon-inscription-equipe/${groupId}`;
-          key = `grp-${groupId}`;
-        } else {
-          // fallback bizarre mais au cas où, on renvoie vers la vue individuelle
-          detailUrl = `/mon-inscription/${id}`;
-          key = id;
-        }
-      } else {
-        detailUrl = `/mon-inscription/${id}`;
-      }
-
-      res.push({ inscription, format, course, statut, isTeam, detailUrl, key });
-    }
-
-    return res;
-  })();
-
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
@@ -234,14 +193,43 @@ export default function MesInscriptions() {
 
       {/* Content */}
       <div className="mx-auto max-w-4xl px-4 py-8">
-        {itemsToRender.length === 0 ? (
+        {inscriptions.length === 0 ? (
           <EmptyState />
         ) : (
           <ul className="grid gap-5">
-            {itemsToRender.map(
-              ({ inscription, format, course, statut, isTeam, detailUrl, key }) => (
+            {inscriptions.map((inscription) => {
+              const { format, statut, id } = inscription;
+              const course = format?.course;
+
+              // ID de groupe : priorise groupe_id, sinon member_of_group_id
+              const groupeId =
+                inscription.groupe_id || inscription.member_of_group_id || null;
+
+              // Type de format (course) : individuel / groupe / relais
+              const isTeamFormat =
+                format?.type_format &&
+                format.type_format !== "individuel";
+
+              // Inscription effectivement rattachée à un groupe
+              const isTeamInscription =
+                !!groupeId || !!inscription.team_name;
+
+              // Pour l’UI : on affiche le badge "Inscription équipe" si
+              //   - format d’équipe, ou
+              //   - inscription rattachée à un groupe
+              const showTeamBadge = isTeamFormat || isTeamInscription;
+
+              // URL de détail :
+              //   - si on a un groupeId -> page équipe
+              //   - sinon -> page individuelle
+              const detailUrl =
+                groupeId && (isTeamFormat || isTeamInscription)
+                  ? `/mon-inscription-equipe/${groupeId}`
+                  : `/mon-inscription/${id}`;
+
+              return (
                 <li
-                  key={key}
+                  key={id}
                   className="overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow"
                 >
                   <div className="flex flex-col md:flex-row">
@@ -280,7 +268,7 @@ export default function MesInscriptions() {
                         {format?.date && (
                           <span>📅 {formatDate(format.date)}</span>
                         )}
-                        {isTeam && <span>👥 Inscription équipe</span>}
+                        {showTeamBadge && <span>👥 Inscription équipe</span>}
                       </div>
 
                       <div className="mt-2 text-sm">
@@ -302,16 +290,14 @@ export default function MesInscriptions() {
                           to={detailUrl}
                           className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                         >
-                          {isTeam
-                            ? "Voir l’inscription équipe"
-                            : "Voir / Modifier"}
+                          {groupeId ? "Voir l’inscription équipe" : "Voir / Modifier"}
                         </Link>
                       </div>
                     </div>
                   </div>
                 </li>
-              )
-            )}
+              );
+            })}
           </ul>
         )}
       </div>
