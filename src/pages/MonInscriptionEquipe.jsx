@@ -1,87 +1,82 @@
 // src/pages/MonInscriptionEquipe.jsx
 import React, { useEffect, useState, useMemo } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
+import { useUser } from "../contexts/UserContext";
 
-/* ---------- UI helpers ---------- */
-function Pill({ children, color = "neutral" }) {
-  const map = {
-    neutral: "bg-neutral-100 text-neutral-800 ring-neutral-200",
-    green: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-    orange: "bg-orange-50 text-orange-700 ring-orange-200",
-    red: "bg-rose-50 text-rose-700 ring-rose-200",
-    blue: "bg-blue-50 text-blue-700 ring-blue-200",
-  };
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ${map[color]}`}
-    >
-      {children}
-    </span>
-  );
+/* ------------------------------ Helpers UI ------------------------------ */
+
+function cls(...xs) {
+  return xs.filter(Boolean).join(" ");
 }
 
-const formatDate = (d) =>
-  d
-    ? new Intl.DateTimeFormat("fr-FR", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(typeof d === "string" ? new Date(d) : d)
-    : "";
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("fr-FR", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
-const formatDateTime = (d) =>
-  d
-    ? new Intl.DateTimeFormat("fr-FR", {
-        day: "2-digit",
-        month: "2-digit",
-        year: "numeric",
-        hour: "2-digit",
-        minute: "2-digit",
-      }).format(typeof d === "string" ? new Date(d) : d)
-    : "";
+function formatDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr-FR", {
+    year: "numeric",
+    month: "short",
+    day: "2-digit",
+  });
+}
+
+/* ------------------------------ Composant ------------------------------ */
 
 export default function MonInscriptionEquipe() {
-  // Accepte les deux noms de param route : /mon-inscription-equipe/:groupeId ou :id
-  const { groupeId, id } = useParams();
-  const paramId = groupeId || id; // valeur réellement passée dans l'URL
+  const { groupeId: paramGroupeId, id: paramId } = useParams();
+  const groupeId = paramGroupeId || paramId; // tolérant aux deux routes
+  const { session } = useUser();
+  const navigate = useNavigate();
 
   const [loading, setLoading] = useState(true);
-  const [errorMsg, setErrorMsg] = useState("");
-  const [inscriptions, setInscriptions] = useState([]);
-  const [referenceInscription, setReferenceInscription] = useState(null);
+  const [groupe, setGroupe] = useState(null);
+  const [membres, setMembres] = useState([]);
+  const [error, setError] = useState("");
 
-  const course = referenceInscription?.format?.course || null;
-  const format = referenceInscription?.format || null;
-
-  const isTeamMode = useMemo(() => {
-    const t = format?.type_format;
-    return t === "groupe" || t === "relais";
-  }, [format]);
-
+  // Vérifier connexion + charger les données
   useEffect(() => {
-    let cancelled = false;
+    (async () => {
+      // Auth
+      const sess =
+        session ?? (await supabase.auth.getSession()).data?.session;
+      if (!sess?.user) {
+        navigate(
+          `/login?next=${encodeURIComponent(
+            `/mon-inscription-equipe/${groupeId}`
+          )}`
+        );
+        return;
+      }
 
-    async function load() {
-      if (!paramId) {
-        setErrorMsg("Paramètre d'URL manquant.");
+      if (!groupeId) {
+        setError("Identifiant de groupe manquant.");
         setLoading(false);
         return;
       }
 
       setLoading(true);
-      setErrorMsg("");
-      setInscriptions([]);
-      setReferenceInscription(null);
+      setError("");
 
       try {
-        // 1) On ESSAIE d'abord d'interpréter paramId comme un *inscription.id*
-        const { data: insRef, error: eRef } = await supabase
-          .from("inscriptions")
+        // 1) Charger la ligne de groupe avec format + course
+        const { data: grp, error: eGrp } = await supabase
+          .from("inscriptions_groupes")
           .select(
             `
             *,
-            format:format_id(
+            format:format_id (
               id,
               nom,
               date,
@@ -90,7 +85,7 @@ export default function MonInscriptionEquipe() {
               prix,
               prix_equipe,
               type_format,
-              course:course_id(
+              course:course_id (
                 id,
                 nom,
                 lieu,
@@ -99,400 +94,329 @@ export default function MonInscriptionEquipe() {
             )
           `
           )
-          .eq("id", paramId)
+          .eq("id", groupeId)
           .maybeSingle();
 
-        if (eRef) {
-          console.warn("Erreur chargement inscription de référence:", eRef.message);
+        if (eGrp) {
+          console.error("Erreur chargement groupe:", eGrp);
+          setError("Impossible de charger ce groupe.");
+          setLoading(false);
+          return;
         }
-
-        // Cas A : on a trouvé une inscription par son ID
-        if (insRef) {
-          const gid = insRef.groupe_id;
-
-          // Si pas de groupe_id, on affiche au moins cette inscription
-          if (!gid) {
-            if (!cancelled) {
-              setReferenceInscription(insRef);
-              setInscriptions([insRef]);
-              setLoading(false);
-              setErrorMsg(
-                "Cette inscription ne semble pas rattachée à un groupe (groupe_id absent)."
-              );
-            }
-            return;
-          }
-
-          // Si groupe_id présent, on charge toutes les inscriptions du groupe
-          const { data: teamInsc, error: eTeam } = await supabase
-            .from("inscriptions")
-            .select(
-              `
-              *,
-              format:format_id(
-                id,
-                nom,
-                date,
-                distance_km,
-                denivele_dplus,
-                prix,
-                prix_equipe,
-                type_format,
-                course:course_id(
-                  id,
-                  nom,
-                  lieu,
-                  image_url
-                )
-              )
-            `
-            )
-            .eq("groupe_id", gid)
-            .order("created_at", { ascending: true });
-
-          if (eTeam) {
-            console.error("Erreur chargement inscriptions de groupe:", eTeam.message);
-            if (!cancelled) {
-              setErrorMsg("Erreur lors du chargement des inscriptions de l'équipe.");
-              setLoading(false);
-            }
-            return;
-          }
-
-          if (!teamInsc || teamInsc.length === 0) {
-            // Fallback : on a bien une inscription, mais personne d'autre n'est rattaché
-            if (!cancelled) {
-              setReferenceInscription(insRef);
-              setInscriptions([insRef]);
-              setErrorMsg(
-                "Aucune autre inscription trouvée pour ce groupe. Il est possible que vous soyez le seul membre saisi."
-              );
-              setLoading(false);
-            }
-            return;
-          }
-
-          if (!cancelled) {
-            setReferenceInscription(insRef);
-            setInscriptions(teamInsc);
-            setLoading(false);
-          }
+        if (!grp) {
+          setError("Aucune inscription trouvée pour ce groupe.");
+          setLoading(false);
           return;
         }
 
-        // Cas B : aucune inscription avec cet ID -> on essaie de l'interpréter comme *groupe_id*
-        const { data: byGroup, error: eGroup } = await supabase
+        setGroupe(grp);
+
+        // 2) Charger TOUTES les inscriptions liées à ce groupe
+        //   ⚠️ NE PAS filtrer sur coureur_id or email ici, on laisse RLS décider
+        const { data: ins, error: eIns } = await supabase
           .from("inscriptions")
           .select(
             `
-            *,
-            format:format_id(
-              id,
-              nom,
-              date,
-              distance_km,
-              denivele_dplus,
-              prix,
-              prix_equipe,
-              type_format,
-              course:course_id(
-                id,
-                nom,
-                lieu,
-                image_url
-              )
-            )
+            id,
+            nom,
+            prenom,
+            genre,
+            date_naissance,
+            numero_licence,
+            email,
+            statut,
+            created_at
           `
           )
-          .eq("groupe_id", paramId)
+          .eq("groupe_id", groupeId)
           .order("created_at", { ascending: true });
 
-        if (eGroup) {
-          console.error("Erreur chargement par groupe_id:", eGroup.message);
-          if (!cancelled) {
-            setErrorMsg("Erreur lors du chargement des inscriptions pour ce groupe.");
-            setLoading(false);
-          }
-          return;
-        }
-
-        if (!byGroup || byGroup.length === 0) {
-          if (!cancelled) {
-            setErrorMsg(
-              "Aucune inscription trouvée pour ce groupe.\n\nIl est possible que :\n- Vous ne soyez pas connecté avec le bon compte.\n- Les règles de sécurité (RLS) empêchent l’accès à ce groupe.\n- L’URL ne corresponde pas à un groupe valide."
-            );
-            setLoading(false);
-          }
-          return;
-        }
-
-        if (!cancelled) {
-          setReferenceInscription(byGroup[0]);
-          setInscriptions(byGroup);
-          setLoading(false);
+        if (eIns) {
+          console.error("Erreur chargement membres groupe:", eIns);
+          setMembres([]);
+        } else {
+          setMembres(ins || []);
         }
       } catch (err) {
-        console.error("MonInscriptionEquipe fatal error:", err);
-        if (!cancelled) {
-          setErrorMsg("Une erreur inattendue est survenue lors du chargement de l'équipe.");
-          setLoading(false);
-        }
+        console.error("Erreur fatale MonInscriptionEquipe:", err);
+        setError("Une erreur est survenue lors du chargement.");
+      } finally {
+        setLoading(false);
       }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [groupeId, session]);
+
+  const participantsCount = membres.length;
+
+  const course = groupe?.format?.course;
+  const format = groupe?.format;
+
+  const statutGlobalPill = useMemo(() => {
+    const statut = (groupe?.statut_global || groupe?.statut || "").toLowerCase();
+    let color =
+      "bg-neutral-100 text-neutral-800 ring-neutral-200";
+    let label = groupe?.statut_global || groupe?.statut || "—";
+
+    if (statut.includes("pay")) {
+      color = "bg-emerald-50 text-emerald-700 ring-emerald-200";
+      label = "payé";
+    } else if (statut.includes("attent")) {
+      color = "bg-amber-50 text-amber-700 ring-amber-200";
+      label = "en attente";
+    } else if (statut.includes("annul")) {
+      color = "bg-rose-50 text-rose-700 ring-rose-200";
+      label = "annulé";
     }
 
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [paramId]);
-
-  /* ---------- Dérivés ---------- */
-  const teamName = useMemo(() => {
-    if (!inscriptions.length) return "";
-    // On essaie d'abord un éventuel champ team_name,
-    // sinon on fabrique un libellé générique.
     return (
-      inscriptions[0]?.team_name ||
-      referenceInscription?.team_name ||
-      "Équipe"
+      <span
+        className={cls(
+          "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold ring-1",
+          color
+        )}
+      >
+        Statut global : {label}
+      </span>
     );
-  }, [inscriptions, referenceInscription]);
+  }, [groupe]);
 
-  const totalParticipants = inscriptions.length;
-
-  /* ---------- UI loading ---------- */
   if (loading) {
     return (
       <div className="min-h-screen bg-neutral-50 text-neutral-900">
         <section className="bg-white border-b border-neutral-200">
-          <div className="mx-auto max-w-7xl px-4 py-10">
-            <div className="h-6 w-56 bg-neutral-100 rounded mb-2" />
-            <div className="h-4 w-80 bg-neutral-100 rounded" />
+          <div className="mx-auto max-w-5xl px-4 py-8">
+            <div className="h-6 w-64 bg-neutral-100 rounded mb-2 animate-pulse" />
+            <div className="h-4 w-80 bg-neutral-100 rounded animate-pulse" />
           </div>
         </section>
-        <div className="mx-auto max-w-4xl px-4 py-8">
-          <div className="grid gap-5">
-            {Array.from({ length: 3 }).map((_, i) => (
-              <div
-                key={i}
-                className="animate-pulse rounded-2xl ring-1 ring-neutral-200 bg-white p-5"
-              >
-                <div className="h-5 w-1/3 bg-neutral-100 rounded mb-2" />
-                <div className="h-4 w-2/3 bg-neutral-100 rounded mb-1" />
-                <div className="h-4 w-1/2 bg-neutral-100 rounded" />
-              </div>
-            ))}
-          </div>
-        </div>
+        <main className="mx-auto max-w-5xl px-4 py-8">
+          <div className="h-40 rounded-2xl bg-white ring-1 ring-neutral-200 animate-pulse" />
+        </main>
       </div>
     );
   }
 
-  /* ---------- Pas d'inscriptions / erreur ---------- */
-  if (!inscriptions.length) {
+  if (error || !groupe) {
     return (
       <div className="min-h-screen bg-neutral-50 text-neutral-900">
         <section className="bg-white border-b border-neutral-200">
-          <div className="mx-auto max-w-7xl px-4 py-10">
-            <h1 className="text-3xl sm:text-4xl font-black tracking-tight">
+          <div className="mx-auto max-w-5xl px-4 py-8">
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
               Mon inscription équipe
             </h1>
-            <p className="mt-2 text-neutral-600 text-base">
-              {errorMsg || "Aucune inscription trouvée pour ce groupe."}
+            <p className="mt-1 text-sm text-neutral-600">
+              Gestion de votre inscription en équipe / relais.
             </p>
           </div>
         </section>
-        <div className="mx-auto max-w-3xl px-4 py-8">
-          <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-6">
-            <p className="text-sm whitespace-pre-line text-neutral-700">
-              {errorMsg ||
-                "Aucune inscription trouvée pour ce groupe.\n\nIl est possible que :\n- Vous ne soyez pas connecté avec le bon compte.\n- Les règles de sécurité (RLS) empêchent l’accès à ce groupe.\n- L’URL a été modifiée ou ne correspond pas à un groupe valide."}
+        <main className="mx-auto max-w-3xl px-4 py-8">
+          <div className="rounded-2xl bg-white ring-1 ring-rose-200 p-6">
+            <h2 className="text-lg font-semibold text-rose-900 mb-2">
+              Aucune inscription trouvée pour ce groupe.
+            </h2>
+            <p className="text-sm text-neutral-700 mb-2">
+              Il est possible que :
             </p>
-            <div className="mt-4">
-              <Link
-                to="/mesinscriptions"
-                className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
-              >
-                ← Retour à mes inscriptions
-              </Link>
-            </div>
+            <ul className="list-disc list-inside text-sm text-neutral-700 space-y-1 mb-4">
+              <li>Vous ne soyez pas connecté avec le bon compte.</li>
+              <li>
+                Les règles de sécurité (RLS) empêchent l’accès à ce groupe pour
+                ce compte.
+              </li>
+              <li>
+                L’URL a été modifiée ou ne correspond pas à un groupe valide.
+              </li>
+            </ul>
+            <Link
+              to="/mesinscriptions"
+              className="inline-flex items-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
+            >
+              ← Retour à mes inscriptions
+            </Link>
           </div>
-        </div>
+        </main>
       </div>
     );
   }
 
-  /* ---------- Affichage normal ---------- */
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
       <section className="bg-white border-b border-neutral-200">
-        <div className="mx-auto max-w-7xl px-4 py-10 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-          <div>
-            <Link
-              to="/mesinscriptions"
-              className="text-sm text-neutral-500 hover:text-neutral-800"
-            >
-              ← Retour à mes inscriptions
-            </Link>
-            <h1 className="mt-2 text-3xl sm:text-4xl font-black tracking-tight">
-              Mon inscription équipe
-            </h1>
-            {course && (
-              <p className="mt-1 text-sm text-neutral-600">
-                {course.nom} — {course.lieu}
-              </p>
-            )}
-            {format && (
-              <p className="mt-1 text-sm text-neutral-600">
-                Format :{" "}
-                <span className="font-medium">
-                  {format.nom} · {format.distance_km} km / {format.denivele_dplus} m D+
-                </span>{" "}
-                {format.date && <>· {formatDate(format.date)}</>}
-              </p>
-            )}
-          </div>
-          <div className="flex flex-col items-start sm:items-end gap-2">
-            <Pill color="blue">
-              {isTeamMode ? "Inscription équipe / relais" : "Inscription multiple"}
-            </Pill>
-            {teamName && (
-              <div className="text-sm text-neutral-700">
-                Équipe : <span className="font-semibold">{teamName}</span>
-              </div>
-            )}
-            <div className="text-xs text-neutral-500">
-              ID (URL) : <code className="font-mono">{paramId}</code>
-            </div>
+        <div className="mx-auto max-w-5xl px-4 py-8 space-y-2">
+          <Link
+            to="/mesinscriptions"
+            className="inline-flex items-center text-sm text-neutral-500 hover:text-neutral-800"
+          >
+            ← Retour à mes inscriptions
+          </Link>
+          <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+            Mon inscription équipe
+          </h1>
+          {course && (
+            <p className="text-sm text-neutral-700">
+              {course.nom} — {course.lieu}
+            </p>
+          )}
+          {format && (
+            <p className="text-sm text-neutral-700">
+              Format : {format.nom} · {format.distance_km} km /{" "}
+              {format.denivele_dplus} m D+ ·{" "}
+              {format.date ? formatDate(format.date) : "date à venir"}
+            </p>
+          )}
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <span className="inline-flex items-center rounded-full bg-neutral-100 px-2.5 py-1 text-xs font-semibold text-neutral-800 ring-1 ring-neutral-200">
+              Inscription équipe / relais
+            </span>
+            {statutGlobalPill}
           </div>
         </div>
       </section>
 
       {/* Contenu */}
-      <div className="mx-auto max-w-5xl px-4 py-8 space-y-6">
-        {/* Bloc résumé */}
-        <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-5 flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-          <div className="space-y-1 text-sm">
-            <div className="flex items-center gap-2">
-              <span className="text-neutral-600">Nom d'équipe :</span>
-              <span className="font-semibold">
-                {teamName || "Non renseigné"}
-              </span>
-            </div>
-            <div className="flex items-center gap-2">
-              <span className="text-neutral-600">Participants :</span>
-              <span className="font-semibold">{totalParticipants}</span>
-            </div>
-            {referenceInscription?.created_at && (
-              <div className="flex items-center gap-2 text-neutral-600">
-                <span>Inscription créée le</span>
-                <span className="font-medium">
-                  {formatDateTime(referenceInscription.created_at)}
-                </span>
-              </div>
-            )}
-            {referenceInscription?.statut && (
-              <div className="flex items-center gap-2">
-                <span className="text-neutral-600">Statut global inscrit :</span>
-                <span className="font-semibold">{referenceInscription.statut}</span>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Tableau des membres */}
-        <div className="rounded-2xl bg-white ring-1 ring-neutral-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+      <main className="mx-auto max-w-5xl px-4 py-8 space-y-6">
+        {/* Carte récap équipe */}
+        <section className="rounded-2xl bg-white ring-1 ring-neutral-200 shadow-sm p-6">
+          <h2 className="text-lg font-semibold mb-4">Résumé de l’équipe</h2>
+          <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
             <div>
-              <h2 className="text-lg font-semibold">Détail des membres</h2>
-              <p className="text-sm text-neutral-500">
-                Retrouvez la liste des coureurs rattachés à cette équipe.
-              </p>
+              <dt className="text-neutral-500">Équipe</dt>
+              <dd className="font-medium">
+                {groupe.team_name || groupe.nom_equipe || "—"}
+              </dd>
             </div>
+            <div>
+              <dt className="text-neutral-500">ID (URL)</dt>
+              <dd className="font-mono text-xs break-all">
+                {groupe.id || groupeId}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Nom d'équipe</dt>
+              <dd className="font-medium">
+                {groupe.team_name || groupe.nom_equipe || "—"}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Participants</dt>
+              <dd className="font-medium">
+                {participantsCount}
+                {groupe.team_size
+                  ? ` / ${groupe.team_size} prévu(s)`
+                  : ""}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Inscription créée le</dt>
+              <dd className="font-medium">
+                {formatDateTime(groupe.created_at)}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-neutral-500">Statut global inscrit</dt>
+              <dd className="font-medium">
+                {groupe.statut_global || groupe.statut || "—"}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
+        {/* Liste des membres */}
+        <section className="rounded-2xl bg-white ring-1 ring-neutral-200 shadow-sm p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">Détail des membres</h2>
+            <p className="text-xs text-neutral-500">
+              Retrouvez la liste des coureurs rattachés à cette équipe.
+            </p>
           </div>
 
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-neutral-50 text-neutral-600">
-                <tr>
-                  <th className="py-2 px-3 text-left">#</th>
-                  <th className="py-2 px-3 text-left">Nom</th>
-                  <th className="py-2 px-3 text-left">Prénom</th>
-                  <th className="py-2 px-3 text-left">Sexe</th>
-                  <th className="py-2 px-3 text-left">Date de naissance</th>
-                  <th className="py-2 px-3 text-left">N° licence / PPS</th>
-                  <th className="py-2 px-3 text-left">Email</th>
-                  <th className="py-2 px-3 text-left">Statut</th>
-                </tr>
-              </thead>
-              <tbody>
-                {inscriptions.map((ins, idx) => (
-                  <tr
-                    key={ins.id}
-                    className={idx % 2 === 0 ? "bg-white" : "bg-neutral-50/60"}
-                  >
-                    <td className="py-2 px-3 align-top">{idx + 1}</td>
-                    <td className="py-2 px-3 align-top font-medium">
-                      {ins.nom || "—"}
-                    </td>
-                    <td className="py-2 px-3 align-top">
-                      {ins.prenom || "—"}
-                    </td>
-                    <td className="py-2 px-3 align-top">
-                      {ins.genre || "—"}
-                    </td>
-                    <td className="py-2 px-3 align-top">
-                      {ins.date_naissance ? formatDate(ins.date_naissance) : "—"}
-                    </td>
-                    <td className="py-2 px-3 align-top font-mono text-xs">
-                      {ins.numero_licence || "—"}
-                    </td>
-                    <td className="py-2 px-3 align-top">
-                      {ins.email || "—"}
-                    </td>
-                    <td className="py-2 px-3 align-top">
-                      {ins.statut ? (
-                        <Pill
-                          color={
-                            ins.statut === "validé"
-                              ? "green"
-                              : ins.statut === "annulé"
-                              ? "red"
-                              : "orange"
-                          }
-                        >
-                          {ins.statut}
-                        </Pill>
-                      ) : (
-                        "—"
-                      )}
-                    </td>
+          {membres.length === 0 ? (
+            <p className="text-sm text-neutral-600">
+              Aucun coureur n’est encore rattaché à ce groupe.
+            </p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-neutral-600">
+                    <th className="py-2 pr-3 w-10">#</th>
+                    <th className="py-2 pr-3">Nom</th>
+                    <th className="py-2 pr-3">Prénom</th>
+                    <th className="py-2 pr-3">Sexe</th>
+                    <th className="py-2 pr-3">Date de naissance</th>
+                    <th className="py-2 pr-3">N° licence / PPS</th>
+                    <th className="py-2 pr-3">Email</th>
+                    <th className="py-2 pr-3">Statut</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                </thead>
+                <tbody>
+                  {membres.map((m, idx) => (
+                    <tr key={m.id} className="border-b last:border-0">
+                      <td className="py-2 pr-3">{idx + 1}</td>
+                      <td className="py-2 pr-3">{m.nom || "—"}</td>
+                      <td className="py-2 pr-3">{m.prenom || "—"}</td>
+                      <td className="py-2 pr-3">{m.genre || "—"}</td>
+                      <td className="py-2 pr-3">
+                        {m.date_naissance
+                          ? formatDate(m.date_naissance)
+                          : "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {m.numero_licence || "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                          {m.email || "—"}
+                      </td>
+                      <td className="py-2 pr-3">
+                        <span
+                          className={cls(
+                            "inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1",
+                            (() => {
+                              const s = (m.statut || "").toLowerCase();
+                              if (s.includes("pay")) {
+                                return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+                              }
+                              if (s.includes("attent")) {
+                                return "bg-amber-50 text-amber-700 ring-amber-200";
+                              }
+                              if (s.includes("annul")) {
+                                return "bg-rose-50 text-rose-700 ring-rose-200";
+                              }
+                              return "bg-neutral-100 text-neutral-800 ring-neutral-200";
+                            })()
+                          )}
+                        >
+                          {m.statut || "—"}
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </section>
 
-        {/* Lien retour course (si dispo) */}
-        {course && (
-          <div className="flex justify-between items-center flex-wrap gap-3">
+        {/* Lien retour course */}
+        <div className="flex items-center justify-between">
+          {course && (
             <Link
               to={`/courses/${course.id}`}
-              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+              className="inline-flex items-center rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
             >
               ← Voir la page de la course
             </Link>
-            <Link
-              to="/mesinscriptions"
-              className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
-            >
-              Retour à mes inscriptions
-            </Link>
-          </div>
-        )}
-      </div>
+          )}
+          <Link
+            to="/mesinscriptions"
+            className="inline-flex items-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
+          >
+            Retour à mes inscriptions
+          </Link>
+        </div>
+      </main>
     </div>
   );
 }
