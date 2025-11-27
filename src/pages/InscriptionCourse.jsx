@@ -268,7 +268,8 @@ export default function InscriptionCourse() {
             nb_max_coureurs, stock_repas, prix_repas, type_format,
             team_size, nb_coureurs_min, nb_coureurs_max,
             inscription_ouverture, inscription_fermeture,
-            fuseau_horaire, waitlist_enabled
+            fuseau_horaire, waitlist_enabled,
+            age_minimum          
           )
         `)
         .eq("id", courseId)
@@ -479,6 +480,19 @@ export default function InscriptionCourse() {
         !!(m.numero_licence && m.numero_licence.trim())
     );
   }
+function calculerAge(dateNaissanceStr) {
+  if (!dateNaissanceStr) return null;
+  const dob = new Date(dateNaissanceStr);
+  if (Number.isNaN(dob.getTime())) return null;
+
+  const today = new Date();
+  let age = today.getFullYear() - dob.getFullYear();
+  const m = today.getMonth() - dob.getMonth();
+  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+    age--;
+  }
+  return age;
+}
 
   // ----- Paiement -----
   async function handlePay() {
@@ -504,6 +518,25 @@ export default function InscriptionCourse() {
         setSubmitting(false);
         return;
       }
+      const ageMin = selectedFormat?.age_minimum
+  ? Number(selectedFormat.age_minimum)
+  : null;
+
+// ----- Contrôle âge minimum : individuel -----
+if (mode === "individuel" && ageMin) {
+  if (!inscription.date_naissance) {
+    alert(`Veuillez renseigner votre date de naissance pour vérifier l'âge minimum (${ageMin} ans).`);
+    setSubmitting(false);
+    return;
+  }
+  const age = calculerAge(inscription.date_naissance);
+  if (age === null || age < ageMin) {
+    alert(`L'âge minimum pour ce format est de ${ageMin} ans. (Âge calculé : ${age ?? "inconnu"})`);
+    setSubmitting(false);
+    return;
+  }
+}
+
 
       const full =
         selectedFormat &&
@@ -608,6 +641,22 @@ export default function InscriptionCourse() {
           setSubmitting(false);
           return;
         }
+          // Contrôle âge minimum pour chaque membre
+  if (ageMin) {
+    const jeune = team.members.find((m) => {
+      const age = calculerAge(m.date_naissance);
+      return age !== null && age < ageMin;
+    });
+
+    if (jeune) {
+      alert(
+        `Équipe #${idx + 1} : un membre ne respecte pas l'âge minimum de ${ageMin} ans.`
+      );
+      setSubmitting(false);
+      return;
+    }
+  }
+
       }
 
       const payerEmail =
