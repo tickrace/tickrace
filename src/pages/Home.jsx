@@ -216,10 +216,11 @@ export default function Home() {
             >
               <div className="aspect-[4/3] overflow-hidden rounded-3xl ring-1 ring-neutral-200 shadow-xl">
                 <img
-                  src="https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?q=80&w=1600&auto=format&fit=crop"
-                  alt="Coureurs en montagne"
-                  className="h-full w-full object-cover"
-                />
+  src="/home.png"
+  alt="Coureurs sur TickRace"
+  className="h-full w-full object-cover"
+/>
+
               </div>
             </motion.div>
           </div>
