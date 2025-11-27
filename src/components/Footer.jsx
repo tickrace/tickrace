@@ -1,13 +1,8 @@
 // src/components/Footer.jsx
 import React from "react";
 import { Link } from "react-router-dom";
-import {
-  Instagram,
-  Twitter,
-  Youtube,
-  Mail,
-  ArrowRight,
-} from "lucide-react";
+import { Instagram, Twitter, Youtube, Mail, ArrowRight } from "lucide-react";
+import logo from "../assets/logo.png";
 
 export default function Footer() {
   const year = new Date().getFullYear();
@@ -21,12 +16,12 @@ export default function Footer() {
           <div className="space-y-4">
             <Link to="/" className="inline-flex items-center gap-3">
               <img
-                src="/logo.png"
-                alt="Tickrace"
+                src={logo}
+                alt="TickRace"
                 className="h-10 w-auto rounded-xl"
                 loading="lazy"
               />
-              <span className="text-xl font-semibold tracking-tight">Tickrace</span>
+              <span className="text-xl font-semibold tracking-tight">TickRace</span>
             </Link>
             <p className="text-sm text-neutral-400 leading-relaxed">
               La plateforme simple et rapide pour publier, découvrir et s’inscrire à des courses trail.
@@ -48,26 +43,24 @@ export default function Footer() {
             </h3>
             <ul className="space-y-3 text-sm">
               <li>
-                <a
-                  href="https://www.tickrace.com/organisateur/mon-espace"
-                  className="hover:text-white"
-                >
+                <Link to="/organisateur/mon-espace" className="hover:text-white">
                   Mon espace
-                </a>
+                </Link>
               </li>
               <li>
-                <Link to="/organisateur/nouvelle-course" className="hover:text-white">
+                <Link to="/organisateur/creer-course" className="hover:text-white">
                   Publier une épreuve
                 </Link>
               </li>
               <li>
-                <Link to="/organisateur/liste-epreuves" className="hover:text-white">
+                <Link to="/organisateur/mon-espace" className="hover:text-white">
                   Gérer mes épreuves
                 </Link>
               </li>
               <li>
-                <Link to="/premium" className="hover:text-white">
-                  Tarifs & avantages
+                {/* En attendant une vraie page /premium, on renvoie vers Fonctionnalités */}
+                <Link to="/fonctionnalites" className="hover:text-white">
+                  Tarifs &amp; avantages
                 </Link>
               </li>
             </ul>
@@ -90,12 +83,13 @@ export default function Footer() {
                 </Link>
               </li>
               <li>
-                <Link to="/monprofil" className="hover:text-white">
+                <Link to="/monprofilcoureur" className="hover:text-white">
                   Mon profil
                 </Link>
               </li>
               <li>
-                <Link to="/premium" className="hover:text-white">
+                {/* Même logique : on évite /premium inexistant */}
+                <Link to="/fonctionnalites" className="hover:text-white">
                   Passer en Premium
                 </Link>
               </li>
@@ -113,7 +107,7 @@ export default function Footer() {
               onSubmit={(e) => {
                 e.preventDefault();
                 // À relier à votre backend / Resend / Supabase Edge Function
-                alert("Merci ! Vous serez tenu informé des nouveautés Tickrace.");
+                alert("Merci ! Vous serez tenu informé des nouveautés TickRace.");
               }}
             >
               <div className="relative flex-1">
@@ -171,16 +165,33 @@ export default function Footer() {
       {/* Bottom band */}
       <div className="max-w-7xl mx-auto px-4 py-6 flex flex-col md:flex-row items-center justify-between gap-4">
         <p className="text-xs text-neutral-400">
-          © {year} Tickrace — Tous droits réservés.
+          © {year} TickRace — Tous droits réservés.
         </p>
         <nav className="flex flex-wrap items-center gap-4 text-xs">
-          <Link to="/conditions" className="hover:text-white">Conditions</Link>
+          <Link to="/legal/cgv-organisateurs" className="hover:text-white">
+            Conditions générales
+          </Link>
           <span className="text-neutral-700">•</span>
-          <Link to="/confidentialite" className="hover:text-white">Confidentialité</Link>
+          <Link to="/legal/remboursements" className="hover:text-white">
+            Remboursements
+          </Link>
           <span className="text-neutral-700">•</span>
-          <Link to="/contact" className="hover:text-white">Contact</Link>
+          <Link to="/legal/charte-organisateur" className="hover:text-white">
+            Charte organisateur
+          </Link>
           <span className="text-neutral-700">•</span>
-          <Link to="/mentions-legales" className="hover:text-white">Mentions légales</Link>
+          <a
+            href="mailto:tickrace.contact@gmail.com"
+            className="hover:text-white"
+          >
+            Contact
+          </a>
+          {/* Quand tu auras une page Mentions légales, tu pourras ajouter :
+          <span className="text-neutral-700">•</span>
+          <Link to="/mentions-legales" className="hover:text-white">
+            Mentions légales
+          </Link>
+          */}
         </nav>
       </div>
     </footer>
