@@ -10,7 +10,6 @@ import {
   ArrowRight,
   MessageCircle,
   Settings,
-  User2,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -18,7 +17,9 @@ import { useUser } from "../contexts/UserContext";
 
 // --- Mini helpers
 const Container = ({ children, className = "" }) => (
-  <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>
+  <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>
+    {children}
+  </div>
 );
 
 const Pill = ({ children }) => (
@@ -66,7 +67,9 @@ const Ghost = ({ children, to, href }) =>
   );
 
 const Card = ({ children, className = "" }) => (
-  <div className={`rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 ${className}`}>{children}</div>
+  <div className={`rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 ${className}`}>
+    {children}
+  </div>
 );
 
 const Badge = ({ children }) => (
@@ -171,13 +174,15 @@ export default function Home() {
               transition={{ duration: 0.5 }}
               className="space-y-4"
             >
-              <Pill>Nouvelle V1 — Carte interactive & Chat épreuves</Pill>
+              <Pill>Nouvelle V1 — Carte interactive, chat & annulation simplifiée</Pill>
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
-                Inscris-toi, organise, cours. <span className="text-orange-600">Une seule plateforme.</span>
+                Inscris-toi, organise, cours.{" "}
+                <span className="text-orange-600">Une seule plateforme.</span>
               </h1>
               <p className="text-neutral-600 max-w-xl">
-                TickRace centralise la création d’épreuves, l’inscription coureurs, le chat communautaire,
-                et la synchronisation Strava. Une solution moderne pensée pour la performance et la simplicité.
+                TickRace centralise la création d’épreuves, l’inscription coureurs, le chat
+                communautaire, la gestion des bénévoles et les reversements automatiques.
+                Une solution pensée pour simplifier la vie des organisateurs et des coureurs.
               </p>
               <div className="flex flex-wrap gap-3 pt-1">
                 <CTA to="/courses">
@@ -191,13 +196,12 @@ export default function Home() {
                   <Settings className="h-4 w-4" /> Je suis organisateur
                 </button>
               </div>
-              <div className="flex items-center gap-3 pt-2 text-xs text-neutral-500">
+              <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-neutral-500">
                 <Badge>
                   <Star className="h-3.5 w-3.5" /> 5% frais plateforme organisateur
                 </Badge>
-                <Badge>
-                  <User2 className="h-3.5 w-3.5" /> Premium coureur 49€/an
-                </Badge>
+                <Badge>Reversements automatiques à J+1</Badge>
+                <Badge>Annulation en ligne par le coureur</Badge>
                 <Badge>
                   <MessageCircle className="h-3.5 w-3.5" /> Chat épreuves avec IA
                 </Badge>
@@ -233,14 +237,20 @@ export default function Home() {
                   <label className="text-xs font-semibold text-neutral-600">Lieu</label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <MapPin className="h-4 w-4 text-neutral-400" />
-                    <input className="w-full bg-transparent text-sm outline-none" placeholder="Ville, région…" />
+                    <input
+                      className="w-full bg-transparent text-sm outline-none"
+                      placeholder="Ville, région…"
+                    />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-neutral-600">Date</label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <CalendarDays className="h-4 w-4 text-neutral-400" />
-                    <input type="date" className="w-full bg-transparent text-sm outline-none" />
+                    <input
+                      type="date"
+                      className="w-full bg-transparent text-sm outline-none"
+                    />
                   </div>
                 </div>
                 <div>
@@ -287,7 +297,11 @@ export default function Home() {
                 <Card key={r.id} className="overflow-hidden">
                   <div className="relative">
                     {r.image_url ? (
-                      <img src={r.image_url} alt={r.nom} className="h-44 w-full object-cover" />
+                      <img
+                        src={r.image_url}
+                        alt={r.nom}
+                        className="h-44 w-full object-cover"
+                      />
                     ) : (
                       <div className="h-44 w-full grid place-items-center bg-neutral-100 text-neutral-400">
                         <Mountain className="h-6 w-6" />
@@ -304,7 +318,9 @@ export default function Home() {
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-bold leading-snug line-clamp-1">{r.nom}</h3>
+                        <h3 className="text-base font-bold leading-snug line-clamp-1">
+                          {r.nom}
+                        </h3>
                         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
                           <MapPin className="h-3.5 w-3.5" /> {r.lieu} ({r.departement})
                         </div>
@@ -347,15 +363,33 @@ export default function Home() {
       {/* ORGANISER BLOCK */}
       <section id="org" className="py-12 sm:py-16 bg-white">
         <Container className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
-          <motion.div initial={{ opacity: 0, x: -10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}>
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Publiez votre course en quelques minutes</h2>
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.45 }}
+          >
+            <h2 className="text-3xl sm:4xl font-black tracking-tight">
+              Publiez votre course en quelques minutes
+            </h2>
             <p className="mt-3 text-neutral-600 max-w-xl">
-              Créez une page dédiée, gérez les inscriptions, les codes promo, les reversements automatiques et le chat sous l’épreuve. Tout est pensé pour gagner du temps.
+              Créez une page dédiée, gérez les inscriptions, les bénévoles, les reversements
+              automatiques et le chat sous l’épreuve. Tout est pensé pour gagner du temps
+              et limiter les fichiers Excel.
             </p>
             <ul className="mt-5 grid gap-2 text-sm text-neutral-700">
-              <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-orange-500" /> Multi-formats & quotas par format</li>
-              <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-orange-500" /> Paiements Stripe & reversements</li>
-              <li className="flex items-center gap-2"><span className="h-2 w-2 rounded-full bg-orange-500" /> Modération IA du chat</li>
+              <li className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-orange-500" /> Multi-formats
+                (individuel, groupe, relais) & quotas par format
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-orange-500" /> Paiements Stripe &
+                reversements automatiques à J+1
+              </li>
+              <li className="flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-orange-500" /> Annulation en ligne
+                par le coureur, avec crédit / remboursement calculé automatiquement
+              </li>
             </ul>
             <div className="mt-6 flex gap-3">
               {/* Redirection conditionnelle vers espace organisateur */}
@@ -365,10 +399,16 @@ export default function Home() {
               >
                 <Settings className="h-4 w-4" /> Accéder à l'espace organisateur
               </button>
+              <Ghost to="/fonctionnalites">Voir toutes les fonctionnalités</Ghost>
             </div>
           </motion.div>
 
-          <motion.div initial={{ opacity: 0, x: 10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}>
+          <motion.div
+            initial={{ opacity: 0, x: 10 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.45 }}
+          >
             <Card className="p-6">
               <div className="grid grid-cols-2 gap-4">
                 <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
@@ -382,7 +422,6 @@ export default function Home() {
                   <div className="mt-2 h-20 rounded-lg bg-gradient-to-br from-neutral-200 to-neutral-300" />
                 </div>
 
-                {/* Reversements (texte mis à jour) */}
                 <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
                   <div className="text-xs font-semibold text-neutral-500">Reversements</div>
                   <div className="mt-2 flex items-center justify-between">
@@ -406,64 +445,22 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* PREMIUM */}
-      <section id="premium" className="py-12 sm:py-16">
-        <Container>
-          <div className="text-center">
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Passez en Premium</h2>
-            <p className="mt-2 text-neutral-600">Plans d’entraînement IA, estimation de chrono par ITRA/UTMB, export vers montres, sync Strava.</p>
-          </div>
-          <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <Card className="p-6">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-xs font-semibold text-neutral-500">Gratuit</div>
-                  <div className="mt-1 text-2xl font-black">0€</div>
-                </div>
-                <Badge>Pour démarrer</Badge>
-              </div>
-              <ul className="mt-4 grid gap-2 text-sm text-neutral-700">
-                <li>• Recherche & inscription aux courses</li>
-                <li>• Fiches épreuves, GPX & infos</li>
-                <li>• Chat public (lecture)</li>
-              </ul>
-              <div className="mt-6">
-                <Ghost to="/signup">Créer un compte</Ghost>
-              </div>
-            </Card>
-            <Card className="p-6 ring-2 ring-orange-400">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-xs font-semibold text-orange-600">Premium</div>
-                  <div className="mt-1 text-2xl font-black">
-                    49€<span className="text-sm font-semibold text-neutral-500">/an</span>
-                  </div>
-                </div>
-                <Badge>Le meilleur choix</Badge>
-              </div>
-              <ul className="mt-4 grid gap-2 text-sm text-neutral-700">
-                <li>• Plans IA personnalisés</li>
-                <li>• Estimation chrono (ITRA/UTMB)</li>
-                <li>• Export .zwo / Garmin Connect</li>
-                <li>• Sync Strava + Feedback hebdo</li>
-                <li>• Comparateur interactif d’allure</li>
-                <li>• 0% de réduction sur frais ⚑</li>
-              </ul>
-              <div className="mt-6">
-                <CTA to="/premium">Souscrire Premium</CTA>
-              </div>
-            </Card>
-          </div>
-        </Container>
-      </section>
-
       {/* COMMUNITY */}
       <section id="community" className="py-12 sm:py-16 bg-white">
         <Container className="grid items-center gap-10 lg:grid-cols-2">
-          <motion.div initial={{ opacity: 0, x: -10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}>
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Discutez sous chaque épreuve</h2>
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.45 }}
+          >
+            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
+              Discutez sous chaque épreuve
+            </h2>
             <p className="mt-2 text-neutral-600 max-w-xl">
-              Posez vos questions, organisez du covoiturage, et mentionnez l’<span className="font-semibold">@IA</span> pour obtenir des infos instantanées sur le parcours, l’équipement ou le ravito.
+              Posez vos questions, organisez du covoiturage, et mentionnez l{"' "}
+              <span className="font-semibold">@IA</span> pour obtenir des infos
+              instantanées sur le parcours, l’équipement ou le ravito.
             </p>
             <div className="mt-6 flex gap-3">
               <Ghost to="/courses">Voir un exemple</Ghost>
@@ -472,14 +469,21 @@ export default function Home() {
               </CTA>
             </div>
           </motion.div>
-          <motion.div initial={{ opacity: 0, x: 10 }} whileInView={{ opacity: 1, x: 0 }} viewport={{ once: true }} transition={{ duration: 0.45 }}>
+          <motion.div
+            initial={{ opacity: 0, x: 10 }}
+            whileInView={{ opacity: 1, x: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.45 }}
+          >
             <Card className="p-6">
               <div className="space-y-3">
                 <div className="flex items-start gap-3">
                   <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-orange-300 to-amber-300" />
                   <div className="flex-1">
                     <div className="text-sm font-semibold">Léa</div>
-                    <div className="text-sm text-neutral-700">Quel dénivelé cumulé sur le 32K ?</div>
+                    <div className="text-sm text-neutral-700">
+                      Quel dénivelé cumulé sur le 32K ?
+                    </div>
                   </div>
                 </div>
                 <div className="flex items-start gap-3">
@@ -495,7 +499,9 @@ export default function Home() {
                     <div className="text-sm font-semibold">Marco</div>
                     <div className="text-sm text-neutral-700">
                       Des passages techniques ?
-                      <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] ring-1 ring-neutral-200">Skyrace</span>
+                      <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] ring-1 ring-neutral-200">
+                        Skyrace
+                      </span>
                     </div>
                   </div>
                 </div>
