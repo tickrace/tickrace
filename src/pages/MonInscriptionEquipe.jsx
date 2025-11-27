@@ -48,7 +48,7 @@ function Pill({ children, color = "neutral" }) {
 /* --------------------------------- Page ---------------------------------- */
 
 export default function MonInscriptionEquipe() {
-  const { groupeId } = useParams(); // ⚠️ route: /mon-inscription-equipe/:groupeId
+  const { groupeId } = useParams(); // route: /mon-inscription-equipe/:groupeId
   const navigate = useNavigate();
   const { session } = useUser();
 
@@ -63,6 +63,10 @@ export default function MonInscriptionEquipe() {
   const [simLoading, setSimLoading] = useState(false);
   const [simulation, setSimulation] = useState(null);
   const [simError, setSimError] = useState(null);
+
+  const [cancelLoading, setCancelLoading] = useState(false);
+  const [cancelError, setCancelError] = useState(null);
+  const [cancelSuccess, setCancelSuccess] = useState(null);
 
   useEffect(() => {
     (async () => {
@@ -275,6 +279,17 @@ export default function MonInscriptionEquipe() {
     [optionsTotalCents]
   );
 
+  const currentUserId = session?.user?.id || null;
+  const isCaptain =
+    !!currentUserId && group?.capitaine_user_id === currentUserId;
+
+  const canCancel = useMemo(() => {
+    if (!group || !isCaptain) return false;
+    if (!group.statut) return false;
+    const s = String(group.statut).toLowerCase();
+    return ["paye", "payé", "paid", "valide", "validé"].includes(s);
+  }, [group, isCaptain]);
+
   async function handleSimulateRefund() {
     if (!groupeId) {
       setSimError("URL invalide (groupe_id manquant).");
@@ -319,6 +334,95 @@ export default function MonInscriptionEquipe() {
       );
     } finally {
       setSimLoading(false);
+    }
+  }
+
+  async function handleRequestTeamRefund() {
+    if (!groupeId) {
+      setCancelError("URL invalide (groupe_id manquant).");
+      return;
+    }
+    if (!currentUserId) {
+      setCancelError(
+        "Vous devez être connecté pour annuler cette inscription d’équipe."
+      );
+      return;
+    }
+    if (!isCaptain) {
+      setCancelError(
+        "Seul le capitaine de l’équipe peut demander l’annulation."
+      );
+      return;
+    }
+
+    const ok = window.confirm(
+      "Confirmez-vous l’annulation de cette inscription d’équipe ?\nUn remboursement sera demandé selon la politique d’annulation."
+    );
+    if (!ok) return;
+
+    setCancelLoading(true);
+    setCancelError(null);
+    setCancelSuccess(null);
+
+    try {
+      const { data, error } = await supabase.functions.invoke(
+        "request-team-refund",
+        {
+          body: {
+            groupe_id: groupeId,
+            user_id: currentUserId,
+            reason: "Annulation par le capitaine depuis MonInscriptionEquipe",
+          },
+        }
+      );
+
+      if (error) {
+        console.error("REQUEST_TEAM_REFUND_ERROR", error);
+        setCancelError(
+          error.message ||
+            "Erreur lors de la demande d’annulation / remboursement."
+        );
+        return;
+      }
+
+      if (!data || data.error || data.ok === false) {
+        console.error("REQUEST_TEAM_REFUND_DATA_ERROR", data);
+        setCancelError(
+          data?.message ||
+            data?.details ||
+            data?.error ||
+            "La demande de remboursement n’a pas pu être traitée."
+        );
+        return;
+      }
+
+      setCancelSuccess(
+        "Votre demande d’annulation a été prise en compte. Un remboursement est en cours de traitement."
+      );
+
+      // Mise à jour optimiste du statut local
+      setGroup((prev) =>
+        prev ? { ...prev, statut: "annulé" } : prev
+      );
+      setMembers((prev) =>
+        (prev || []).map((m) =>
+          m.statut === "paye" ||
+          m.statut === "payé" ||
+          m.statut === "validé" ||
+          m.statut === "valide"
+            ? { ...m, statut: "annulé" }
+            : m
+        )
+      );
+    } catch (e) {
+      console.error("REQUEST_TEAM_REFUND_FATAL", e);
+      setCancelError(
+        e instanceof Error
+          ? e.message
+          : "Erreur inattendue lors de la demande de remboursement."
+      );
+    } finally {
+      setCancelLoading(false);
     }
   }
 
@@ -464,9 +568,13 @@ export default function MonInscriptionEquipe() {
                 </div>
               </dl>
 
-              {group.capitaine_user_id && (
+              {isCaptain ? (
                 <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2 inline-block mt-1">
                   Vous êtes le capitaine de cette équipe.
+                </p>
+              ) : (
+                <p className="text-xs text-neutral-500 bg-neutral-50 border border-neutral-200 rounded-xl px-3 py-2 inline-block mt-1">
+                  Seul le capitaine de l’équipe peut demander l’annulation.
                 </p>
               )}
             </div>
@@ -573,7 +681,9 @@ export default function MonInscriptionEquipe() {
                         <td className="py-2 pr-3">
                           <Pill
                             color={
-                              m.statut === "paye" || m.statut === "validé"
+                              m.statut === "paye" ||
+                              m.statut === "validé" ||
+                              m.statut === "payé"
                                 ? "green"
                                 : m.statut === "annulé"
                                 ? "red"
@@ -591,7 +701,7 @@ export default function MonInscriptionEquipe() {
             </div>
           </section>
 
-          {/* SIMULATEUR REMBOURSEMENT */}
+          {/* SIMULATEUR REMBOURSEMENT + ANNULATION */}
           <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
             <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
               <div>
@@ -684,6 +794,51 @@ export default function MonInscriptionEquipe() {
                   </p>
                 </>
               )}
+
+              {/* Bloc annulation */}
+              <div className="pt-3 mt-3 border-t border-dashed border-neutral-200 space-y-2">
+                <button
+                  type="button"
+                  onClick={handleRequestTeamRefund}
+                  disabled={!canCancel || cancelLoading}
+                  className={`w-full rounded-xl px-4 py-2 text-sm font-semibold ${
+                    !canCancel || cancelLoading
+                      ? "bg-neutral-200 text-neutral-500 cursor-not-allowed"
+                      : "bg-rose-600 text-white hover:bg-rose-700"
+                  }`}
+                >
+                  {cancelLoading
+                    ? "Annulation en cours…"
+                    : "Annuler cette inscription d’équipe"}
+                </button>
+
+                {!isCaptain && (
+                  <p className="text-[11px] text-neutral-500">
+                    Seul le capitaine de l’équipe connecté peut demander
+                    l’annulation.
+                  </p>
+                )}
+                {group.statut &&
+                  !["paye", "payé", "paid", "valide", "validé"].includes(
+                    String(group.statut).toLowerCase()
+                  ) && (
+                    <p className="text-[11px] text-neutral-500">
+                      L’inscription n’est plus dans un état « payée », la
+                      demande de remboursement peut être refusée.
+                    </p>
+                  )}
+
+                {cancelError && (
+                  <p className="text-xs text-rose-600 whitespace-pre-line">
+                    {cancelError}
+                  </p>
+                )}
+                {cancelSuccess && (
+                  <p className="text-xs text-emerald-700 whitespace-pre-line">
+                    {cancelSuccess}
+                  </p>
+                )}
+              </div>
             </div>
           </section>
         </div>
