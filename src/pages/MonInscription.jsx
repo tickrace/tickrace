@@ -26,7 +26,7 @@ function Card({ title, subtitle, right, children }) {
   return (
     <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
       {(title || subtitle || right) && (
-        <div className="p-5 border-b border-neutral-200 flex items-center justify-between gap-4">
+        <div className="p-5 border-b border-neutral-200 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div>
             {title && (
               <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
@@ -88,6 +88,42 @@ const formatDateTime = (iso, tz = "Europe/Paris") => {
 const km = (x) => (x == null ? "—" : `${Number(x).toFixed(1)} km`);
 const meters = (x) => (x == null ? "—" : `${parseInt(x, 10)} m`);
 
+/* ---------- Raisons d’annulation individuelles ---------- */
+const CANCEL_REASONS = [
+  {
+    value: "blessure_coureur",
+    label: "Blessure ou problème de santé",
+  },
+  {
+    value: "indisponibilite_professionnelle",
+    label: "Indisponibilité professionnelle",
+  },
+  {
+    value: "indisponibilite_familiale",
+    label: "Indisponibilité familiale / personnelle",
+  },
+  {
+    value: "probleme_logistique",
+    label: "Problème logistique (transport, hébergement, covoiturage, etc.)",
+  },
+  {
+    value: "erreur_inscription",
+    label: "Erreur d’inscription (format, doublon, etc.)",
+  },
+  {
+    value: "changement_objectif_sportif",
+    label: "Changement d’objectif sportif",
+  },
+  {
+    value: "meteo_defavorable",
+    label: "Prévision météo défavorable",
+  },
+  {
+    value: "autre_raison_personnelle",
+    label: "Autre raison personnelle (détails ci-dessous)",
+  },
+];
+
 /* ---------- Page ---------- */
 export default function MonInscription() {
   const { id } = useParams(); // id de l'inscription (UUID)
@@ -103,6 +139,11 @@ export default function MonInscription() {
   const [refund, setRefund] = useState(null);
   const [annulating, setAnnulating] = useState(false);
   const [error, setError] = useState("");
+
+  // Nouveau : gestion des raisons d'annulation
+  const [cancelReason, setCancelReason] = useState("");
+  const [cancelReasonText, setCancelReasonText] = useState("");
+  const [cancelError, setCancelError] = useState("");
 
   const statutColor = useMemo(() => {
     const s = (insc?.statut || "").toLowerCase();
@@ -129,7 +170,7 @@ export default function MonInscription() {
 
       setInsc(ins);
 
-      // 2) Course & format (requêtes séparées pour éviter les soucis de FK)
+      // 2) Course & format
       const [courseRes, formatRes] = await Promise.all([
         ins.course_id
           ? supabase
@@ -155,9 +196,7 @@ export default function MonInscription() {
       setCourse(courseRes.data || null);
       setFormat(formatRes.data || null);
 
-      // 3) Options – double compat :
-      // (A) inscription_options + format_options
-      // (B) inscriptions_options + options_catalogue
+      // 3) Options A & B
       const [a, b] = await Promise.all([
         supabase
           .from("inscription_options")
@@ -185,7 +224,7 @@ export default function MonInscription() {
       setOptionsA(a.data || []);
       setOptionsB(b.data || []);
 
-      // 4) Paiements potentiels (individuels + groupés)
+      // 4) Paiements
       const [{ data: paysDirect }, { data: paysGroup }] = await Promise.all([
         supabase
           .from("paiements")
@@ -204,7 +243,7 @@ export default function MonInscription() {
         paiements.find((p) => !!p.receipt_url)?.receipt_url || null;
       setPayInfos({ paiements, receipt });
 
-      // 5) Dernier remboursement (si existant)
+      // 5) Dernier remboursement (s'il existe)
       const { data: remb, error: rembErr } = await supabase
         .from("remboursements")
         .select("*")
@@ -232,8 +271,15 @@ export default function MonInscription() {
   const onAnnuler = async () => {
     if (!insc || annulating) return;
 
+    setCancelError("");
+
+    if (!cancelReason) {
+      setCancelError("Merci de sélectionner un motif d’annulation.");
+      return;
+    }
+
     const ok = window.confirm(
-      "Confirmer l’annulation ?\n\nNous allons calculer automatiquement votre crédit d’annulation et, si possible, rembourser le paiement associé."
+      "Confirmer l’annulation de votre inscription ?\n\nNous allons calculer automatiquement votre crédit d’annulation et, si possible, rembourser le paiement associé."
     );
     if (!ok) return;
 
@@ -246,7 +292,8 @@ export default function MonInscription() {
         {
           body: {
             inscription_id: id,
-            reason: "Annulation par le coureur depuis MonInscription",
+            reason_code: cancelReason,
+            reason_text: cancelReasonText || null,
           },
         }
       );
@@ -262,6 +309,9 @@ export default function MonInscription() {
       }
 
       await loadAll();
+
+      setCancelReason("");
+      setCancelReasonText("");
 
       if (data?.refund_cents > 0) {
         const montant = (data.refund_cents / 100).toFixed(2);
@@ -470,13 +520,12 @@ export default function MonInscription() {
             </Pill>
             {insc.is_waitlist && <Pill color="blue">Liste d’attente</Pill>}
           </div>
-          {/* Image de course supprimée à ta demande */}
         </div>
       </section>
 
       {/* Body */}
       <div className="mx-auto max-w-5xl px-4 py-8 grid gap-8">
-        {/* Épreuve / Format */}
+        {/* Épreuve / Format + Annulation */}
         <Card
           title={course?.nom || "Épreuve"}
           subtitle={
@@ -487,23 +536,77 @@ export default function MonInscription() {
               : "—"
           }
           right={
-            <div className="flex flex-wrap gap-2 justify-end">
+            <div className="w-full sm:w-72 flex flex-col gap-3">
               {insc.course_id && (
                 <Link
                   to={`/courses/${insc.course_id}`}
-                  className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+                  className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 text-center"
                 >
                   Voir la page épreuve
                 </Link>
               )}
+
               {canCancel && (
-                <button
-                  onClick={onAnnuler}
-                  disabled={annulating}
-                  className="rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-70"
-                >
-                  {annulating ? "Annulation…" : "Annuler mon inscription"}
-                </button>
+                <div className="mt-2 space-y-2">
+                  <p className="text-xs text-neutral-600">
+                    Vous pouvez annuler votre inscription. La politique
+                    d’annulation sera appliquée automatiquement.
+                  </p>
+
+                  <label className="text-xs font-medium text-neutral-700">
+                    Motif d’annulation
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    disabled={annulating || isCanceled}
+                  >
+                    <option value="">Sélectionner un motif…</option>
+                    {CANCEL_REASONS.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="text-xs font-medium text-neutral-700">
+                    Détails (optionnel)
+                  </label>
+                  <textarea
+                    className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm resize-y min-h-[70px]"
+                    placeholder="Précisez votre situation (facultatif, visible par l’organisation et l’admin Tickrace)…"
+                    value={cancelReasonText}
+                    onChange={(e) => setCancelReasonText(e.target.value)}
+                    disabled={annulating || isCanceled}
+                  />
+
+                  {cancelError && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {cancelError}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={onAnnuler}
+                    disabled={annulating || isCanceled}
+                    className="w-full rounded-xl bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-70"
+                  >
+                    {annulating
+                      ? "Annulation…"
+                      : isCanceled
+                      ? "Inscription déjà annulée"
+                      : "Annuler mon inscription"}
+                  </button>
+
+                  <p className="text-[11px] text-neutral-500">
+                    Rappel de la politique d’annulation :
+                    <br />
+                    • <b>J-30+</b> : 90% &nbsp;• <b>J-15–29</b> : 70% &nbsp;•
+                    <b> J-7–14</b> : 50% &nbsp;• <b>J-3–6</b> : 30% &nbsp;•
+                    <b> J-0–2</b> : 0%
+                  </p>
+                </div>
               )}
             </div>
           }
@@ -701,13 +804,13 @@ export default function MonInscription() {
 
         {/* Simulation de remboursement AVANT annulation */}
         <Card title="Simulation de remboursement (indicatif)">
-  <CalculCreditAnnulation
-    inscription={insc}
-    format={format}
-    paiements={payInfos.paiements}
-    totalTheo={totalTheo} 
-  />
-</Card>
+          <CalculCreditAnnulation
+            inscription={insc}
+            format={format}
+            paiements={payInfos.paiements}
+            totalTheo={totalTheo}
+          />
+        </Card>
 
         {/* Remboursement (table remboursements) */}
         <Card title="Remboursement / annulation">
@@ -758,8 +861,7 @@ export default function MonInscription() {
               {!isCanceled && (
                 <>
                   {" "}
-                  Vous pouvez utiliser le bouton{" "}
-                  <strong>“Annuler mon inscription”</strong> ci-dessus.
+                  Vous pouvez utiliser le formulaire d’annulation ci-dessus.
                 </>
               )}
             </div>
@@ -774,15 +876,6 @@ export default function MonInscription() {
           >
             ← Retour
           </button>
-          {canCancel && (
-            <button
-              onClick={onAnnuler}
-              disabled={annulating}
-              className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-5 py-3 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-70"
-            >
-              {annulating ? "Annulation…" : "Annuler mon inscription"}
-            </button>
-          )}
         </div>
       </div>
     </div>
