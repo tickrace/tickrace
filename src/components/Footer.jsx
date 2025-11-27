@@ -57,12 +57,7 @@ export default function Footer() {
                   Gérer mes épreuves
                 </Link>
               </li>
-              <li>
-                {/* En attendant une vraie page /premium, on renvoie vers Fonctionnalités */}
-                <Link to="/fonctionnalites" className="hover:text-white">
-                  Tarifs &amp; avantages
-                </Link>
-              </li>
+             
             </ul>
           </div>
 
@@ -87,12 +82,7 @@ export default function Footer() {
                   Mon profil
                 </Link>
               </li>
-              <li>
-                {/* Même logique : on évite /premium inexistant */}
-                <Link to="/fonctionnalites" className="hover:text-white">
-                  Passer en Premium
-                </Link>
-              </li>
+              
             </ul>
           </div>
 
