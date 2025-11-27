@@ -372,6 +372,8 @@ export default function MonInscriptionEquipe() {
             groupe_id: groupeId,
             user_id: currentUserId,
             reason: "Annulation par le capitaine depuis MonInscriptionEquipe",
+                user_id: session?.user?.id, // optionnel, mais cohérent
+
           },
         }
       );
