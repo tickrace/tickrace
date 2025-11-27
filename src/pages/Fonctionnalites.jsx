@@ -212,6 +212,7 @@ function Organisateurs() {
           title="Moins de stress, plus d’autonomie"
           bullets={[
             "Vue en temps réel sur les inscriptions pour chaque format",
+            "Annulation en ligne par le coureur, avec gestion automatique du crédit / remboursement (sans saisie manuelle)",
             "Paramètres d’inscription, tarifs et communications gérés en autonomie",
             "Moins de manipulations manuelles, donc moins de risques d’erreur",
             "Support humain pour vous aider lors de votre première édition sur TickRace",
