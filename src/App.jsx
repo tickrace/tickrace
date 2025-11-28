@@ -46,6 +46,7 @@ import AdminCourses from "./pages/admin/AdminCourses";
 import AdminInscriptions from "./pages/admin/AdminInscriptions";
 import Payouts from "./pages/admin/Payouts";
 import AdminHome from "./pages/admin";
+import AdminCategories from "./pages/admin/AdminCategories";
 
 import MemberDetails from "./pages/MemberDetails";
 import MonInscriptionEquipe from "./pages/MonInscriptionEquipe";
@@ -268,6 +269,17 @@ function AppContent() {
               </AdminRoute>
             }
           />
+                    <Route
+            path="/admin/categories"
+            element={
+              <AdminRoute>
+                <AdminLayout>
+                  <AdminCategories />
+                </AdminLayout>
+              </AdminRoute>
+            }
+          />
+
 
           {/* Fallback */}
           <Route
