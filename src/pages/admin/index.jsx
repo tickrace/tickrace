@@ -23,6 +23,7 @@ export default function AdminHome() {
           <h2 className="text-lg font-semibold">Courses</h2>
           <p className="text-sm text-gray-500">Gestion des courses et formats</p>
         </Link>
+
         <Link
           to="/admin/inscriptions"
           className="p-4 rounded-xl border shadow-sm hover:shadow-md bg-white"
@@ -30,6 +31,7 @@ export default function AdminHome() {
           <h2 className="text-lg font-semibold">Inscriptions</h2>
           <p className="text-sm text-gray-500">Liste et gestion des coureurs</p>
         </Link>
+
         <Link
           to="/admin/payouts"
           className="p-4 rounded-xl border shadow-sm hover:shadow-md bg-white"
@@ -37,12 +39,23 @@ export default function AdminHome() {
           <h2 className="text-lg font-semibold">Reversements</h2>
           <p className="text-sm text-gray-500">Paiements vers les organisateurs</p>
         </Link>
+
         <Link
           to="/admin/dashboard"
           className="p-4 rounded-xl border shadow-sm hover:shadow-md bg-white"
         >
           <h2 className="text-lg font-semibold">Dashboard</h2>
           <p className="text-sm text-gray-500">Vue globale des statistiques</p>
+        </Link>
+
+        <Link
+          to="/admin/categories"
+          className="p-4 rounded-xl border shadow-sm hover:shadow-md bg-white"
+        >
+          <h2 className="text-lg font-semibold">Catégories d&apos;âge</h2>
+          <p className="text-sm text-gray-500">
+            Gestion des catégories par fédération (FFA, cyclisme, etc.)
+          </p>
         </Link>
       </div>
     </div>
