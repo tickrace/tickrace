@@ -1865,10 +1865,16 @@ export default function ListeInscriptions() {
                       })}
 
                     <td className="px-4 py-2 align-top">
-                      <div className="flex flex-wrap gap-2">
-                        {/* actions par ligne (facultatif) */}
-                      </div>
-                    </td>
+  <div className="flex flex-wrap gap-2">
+    <Link
+      to={`/details-coureur/${r.id}`}
+      className="inline-flex items-center rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+    >
+      Fiche
+    </Link>
+  </div>
+</td>
+
                   </tr>
                 ))
               )}
