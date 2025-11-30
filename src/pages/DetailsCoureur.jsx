@@ -75,9 +75,10 @@ export default function DetailsCoureur() {
         }
         setInscription(insc);
 
-        // 2) Paiement lié (si possible)
-        // 2a. d'abord par inscription_id (cas simple)
+        // 2) Paiement lié
         let pay = null;
+
+        // 2a. par inscription_id (mono-inscription)
         const { data: payBySingle, error: pErr1 } = await supabase
           .from("paiements")
           .select("*")
@@ -93,7 +94,7 @@ export default function DetailsCoureur() {
         if (payBySingle) {
           pay = payBySingle;
         } else {
-          // 2b. si rien, on tente sur inscription_ids (tableau)
+          // 2b. par inscription_ids (multi-inscriptions)
           const { data: payByArray, error: pErr2 } = await supabase
             .from("paiements")
             .select("*")
@@ -113,6 +114,29 @@ export default function DetailsCoureur() {
 
         if (pay) {
           setPayment(pay);
+
+          // 3) Si l’inscription n’a pas encore de paiement_trace_id
+          // et que le paiement a un stripe_session_id, on le renseigne.
+          if (!insc.paiement_trace_id && pay.stripe_session_id) {
+            const newTrace = pay.stripe_session_id;
+            const { error: uErr } = await supabase
+              .from("inscriptions")
+              .update({ paiement_trace_id: newTrace })
+              .eq("id", id);
+
+            if (uErr) {
+              console.warn(
+                "Impossible de mettre à jour paiement_trace_id sur inscriptions:",
+                uErr
+              );
+            } else {
+              // Met à jour localement aussi
+              setInscription((prev) => ({
+                ...prev,
+                paiement_trace_id: newTrace,
+              }));
+            }
+          }
         }
       } catch (e) {
         console.error("Erreur fetch DetailsCoureur:", e);
@@ -145,18 +169,18 @@ export default function DetailsCoureur() {
     setSavingField(null);
   };
 
-  // Essaye de déduire le meilleur trace_id possible pour la Edge Function
+  // Choisit le meilleur identifiant de paiement à envoyer à la Edge Function
   const resolveTraceId = () => {
     if (!inscription && !payment) return null;
 
-    // 1) priorité : ce qui est stocké côté inscription
+    // priorité : ce qui est posé sur l’inscription (éventuellement mis à jour ci-dessus)
     if (inscription?.paiement_trace_id) return inscription.paiement_trace_id;
 
-    // 2) sinon, tente des champs classiques côté table paiements
     if (!payment) return null;
 
+    // sinon on essaie les colonnes disponibles sur paiements
     return (
-      payment.paiement_trace_id ||
+      payment.paiement_trace_id || // si jamais tu ajoutes plus tard cette colonne
       payment.trace_id ||
       payment.stripe_session_id ||
       payment.stripe_payment_intent_id ||
@@ -169,7 +193,7 @@ export default function DetailsCoureur() {
 
     if (!traceId) {
       alert(
-        "Aucun identifiant de paiement (trace_id / session Stripe) n’est disponible pour cette inscription."
+        "Aucun identifiant de paiement (session Stripe / trace_id) n’est disponible pour cette inscription."
       );
       return;
     }
@@ -421,6 +445,21 @@ export default function DetailsCoureur() {
 
   const traceIdPreview = resolveTraceId();
 
+  // Affichage montant depuis la table paiements
+  let paiementMontant = null;
+  let paiementDevise = null;
+  if (payment) {
+    const cents =
+      payment.total_amount_cents ??
+      payment.montant_total ??
+      payment.amount_total ??
+      null;
+    if (cents != null) {
+      paiementMontant = cents / 100;
+    }
+    paiementDevise = payment.devise || payment.currency || "EUR";
+  }
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <button
@@ -458,9 +497,9 @@ export default function DetailsCoureur() {
           Reçu Stripe lié au paiement (si disponible).
           {traceIdPreview && (
             <div className="mt-1 text-xs text-neutral-500">
-              Trace détectée :{" "}
+              Identifiant détecté :{" "}
               <span className="font-mono">
-                {String(traceIdPreview).slice(0, 20)}…
+                {String(traceIdPreview).slice(0, 30)}…
               </span>
             </div>
           )}
@@ -542,10 +581,18 @@ export default function DetailsCoureur() {
                   <span className="font-semibold">Paiement trouvé :</span>{" "}
                   {payment.status || payment.stripe_status || "—"}
                 </div>
-                {payment.amount && (
+                {paiementMontant != null && (
                   <div>
-                    Montant : {payment.amount / 100}{" "}
-                    {payment.currency || "EUR"}
+                    Montant : {paiementMontant.toFixed(2)}{" "}
+                    {paiementDevise || "EUR"}
+                  </div>
+                )}
+                {payment.stripe_session_id && (
+                  <div>
+                    Session Stripe :{" "}
+                    <span className="font-mono">
+                      {payment.stripe_session_id.slice(0, 30)}…
+                    </span>
                   </div>
                 )}
               </div>
