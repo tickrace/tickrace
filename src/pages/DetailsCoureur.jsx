@@ -79,36 +79,62 @@ export default function DetailsCoureur() {
         let pay = null;
 
         // 2a. par inscription_id (mono-inscription)
-        const { data: payBySingle, error: pErr1 } = await supabase
-          .from("paiements")
-          .select("*")
-          .eq("inscription_id", id)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
-
-        if (pErr1) {
-          console.warn("Erreur fetch paiements (inscription_id):", pErr1);
-        }
-
-        if (payBySingle) {
-          pay = payBySingle;
-        } else {
-          // 2b. par inscription_ids (multi-inscriptions)
-          const { data: payByArray, error: pErr2 } = await supabase
+        try {
+          const { data: payBySingle, error: pErr1 } = await supabase
             .from("paiements")
             .select("*")
-            .contains("inscription_ids", [id])
+            .eq("inscription_id", id)
             .order("created_at", { ascending: false })
             .limit(1)
             .maybeSingle();
 
-          if (pErr2) {
-            console.warn("Erreur fetch paiements (inscription_ids):", pErr2);
+          if (pErr1) {
+            console.warn("Erreur fetch paiements (inscription_id):", pErr1);
           }
+          if (payBySingle) pay = payBySingle;
+        } catch (e) {
+          console.warn("Exception fetch paiements (inscription_id):", e);
+        }
 
-          if (payByArray) {
-            pay = payByArray;
+        // 2b. par inscription_ids (multi-inscriptions, uuid[])
+        if (!pay) {
+          try {
+            const { data: payByArray, error: pErr2 } = await supabase
+              .from("paiements")
+              .select("*")
+              .contains("inscription_ids", [id])
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (pErr2) {
+              console.warn("Erreur fetch paiements (inscription_ids):", pErr2);
+            }
+            if (payByArray) pay = payByArray;
+          } catch (e) {
+            console.warn("Exception fetch paiements (inscription_ids):", e);
+          }
+        }
+
+        // 2c. fallback pour inscriptions d'équipe :
+        // si l’inscription appartient à un groupe, on tente un champ groupe_id côté paiements
+        if (!pay && insc.member_of_group_id) {
+          try {
+            const { data: payByGroup, error: pErr3 } = await supabase
+              .from("paiements")
+              .select("*")
+              .eq("groupe_id", insc.member_of_group_id)
+              .order("created_at", { ascending: false })
+              .limit(1)
+              .maybeSingle();
+
+            if (pErr3) {
+              console.warn("Erreur fetch paiements (groupe_id):", pErr3);
+            }
+            if (payByGroup) pay = payByGroup;
+          } catch (e) {
+            // Si la colonne groupe_id n’existe pas, PostgREST renverra une erreur : on ignore.
+            console.warn("Exception fetch paiements (groupe_id):", e);
           }
         }
 
@@ -116,7 +142,7 @@ export default function DetailsCoureur() {
           setPayment(pay);
 
           // 3) Si l’inscription n’a pas encore de paiement_trace_id
-          // et que le paiement a un stripe_session_id, on le renseigne.
+          // et que le paiement a un stripe_session_id, on le renseigne pour la suite.
           if (!insc.paiement_trace_id && pay.stripe_session_id) {
             const newTrace = pay.stripe_session_id;
             const { error: uErr } = await supabase
@@ -130,7 +156,6 @@ export default function DetailsCoureur() {
                 uErr
               );
             } else {
-              // Met à jour localement aussi
               setInscription((prev) => ({
                 ...prev,
                 paiement_trace_id: newTrace,
@@ -173,7 +198,7 @@ export default function DetailsCoureur() {
   const resolveTraceId = () => {
     if (!inscription && !payment) return null;
 
-    // priorité : ce qui est posé sur l’inscription (éventuellement mis à jour ci-dessus)
+    // priorité : ce qui est posé sur l’inscription
     if (inscription?.paiement_trace_id) return inscription.paiement_trace_id;
 
     if (!payment) return null;
@@ -193,7 +218,8 @@ export default function DetailsCoureur() {
 
     if (!traceId) {
       alert(
-        "Aucun identifiant de paiement (session Stripe / trace_id) n’est disponible pour cette inscription."
+        "Aucun identifiant de paiement trouvé en base pour cette inscription (pas de session Stripe / trace_id). " +
+          "Il est possible que le paiement n’ait pas été enregistré dans la table 'paiements' ou qu’il s’agisse d’une inscription non payante."
       );
       return;
     }
@@ -213,7 +239,7 @@ export default function DetailsCoureur() {
       } else if (data?.receipt_url) {
         setReceiptUrl(data.receipt_url);
       } else {
-        alert("Aucun reçu trouvé.");
+        alert("Aucun reçu trouvé côté Stripe pour cet identifiant.");
       }
     } catch (err) {
       console.error("Erreur :", err);
@@ -501,6 +527,11 @@ export default function DetailsCoureur() {
               <span className="font-mono">
                 {String(traceIdPreview).slice(0, 30)}…
               </span>
+            </div>
+          )}
+          {!traceIdPreview && (
+            <div className="mt-1 text-xs text-neutral-500">
+              Aucun identifiant détecté pour l’instant.
             </div>
           )}
         </div>
