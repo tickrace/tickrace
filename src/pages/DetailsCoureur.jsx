@@ -46,28 +46,82 @@ function formatDateTime(iso) {
 export default function DetailsCoureur() {
   const { id } = useParams();
   const navigate = useNavigate();
+
   const [inscription, setInscription] = useState(null);
+  const [payment, setPayment] = useState(null);
   const [loading, setLoading] = useState(true);
   const [savingField, setSavingField] = useState(null);
+
   const [receiptUrl, setReceiptUrl] = useState(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
 
   useEffect(() => {
-    const fetchInscription = async () => {
-      setLoading(true);
-      const { data, error } = await supabase
-        .from("inscriptions")
-        .select("*")
-        .eq("id", id)
-        .single();
+    if (!id) return;
 
-      if (!error && data) {
-        setInscription(data);
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        // 1) Inscription
+        const { data: insc, error: iErr } = await supabase
+          .from("inscriptions")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (iErr) {
+          console.error("Erreur fetch inscription:", iErr);
+          setLoading(false);
+          return;
+        }
+        setInscription(insc);
+
+        // 2) Paiement lié (si possible)
+        // 2a. d'abord par inscription_id (cas simple)
+        let pay = null;
+        const { data: payBySingle, error: pErr1 } = await supabase
+          .from("paiements")
+          .select("*")
+          .eq("inscription_id", id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (pErr1) {
+          console.warn("Erreur fetch paiements (inscription_id):", pErr1);
+        }
+
+        if (payBySingle) {
+          pay = payBySingle;
+        } else {
+          // 2b. si rien, on tente sur inscription_ids (tableau)
+          const { data: payByArray, error: pErr2 } = await supabase
+            .from("paiements")
+            .select("*")
+            .contains("inscription_ids", [id])
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          if (pErr2) {
+            console.warn("Erreur fetch paiements (inscription_ids):", pErr2);
+          }
+
+          if (payByArray) {
+            pay = payByArray;
+          }
+        }
+
+        if (pay) {
+          setPayment(pay);
+        }
+      } catch (e) {
+        console.error("Erreur fetch DetailsCoureur:", e);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     };
 
-    if (id) fetchInscription();
+    fetchData();
   }, [id]);
 
   const handleChange = async (field, value) => {
@@ -91,18 +145,42 @@ export default function DetailsCoureur() {
     setSavingField(null);
   };
 
+  // Essaye de déduire le meilleur trace_id possible pour la Edge Function
+  const resolveTraceId = () => {
+    if (!inscription && !payment) return null;
+
+    // 1) priorité : ce qui est stocké côté inscription
+    if (inscription?.paiement_trace_id) return inscription.paiement_trace_id;
+
+    // 2) sinon, tente des champs classiques côté table paiements
+    if (!payment) return null;
+
+    return (
+      payment.paiement_trace_id ||
+      payment.trace_id ||
+      payment.stripe_session_id ||
+      payment.stripe_payment_intent_id ||
+      null
+    );
+  };
+
   const handleGetReceipt = async () => {
-    if (!inscription?.paiement_trace_id) {
-      alert("Aucun paiement_trace_id disponible pour cette inscription.");
+    const traceId = resolveTraceId();
+
+    if (!traceId) {
+      alert(
+        "Aucun identifiant de paiement (trace_id / session Stripe) n’est disponible pour cette inscription."
+      );
       return;
     }
+
     setLoadingReceipt(true);
     setReceiptUrl(null);
     try {
       const { data, error } = await supabase.functions.invoke(
         "get-receipt-url",
         {
-          body: { trace_id: inscription.paiement_trace_id },
+          body: { trace_id: traceId },
         }
       );
       if (error) {
@@ -125,7 +203,6 @@ export default function DetailsCoureur() {
     return <div className="p-6">Chargement...</div>;
   }
 
-  // Champs à afficher (hors meta pure)
   const champsIdentite = [
     "nom",
     "prenom",
@@ -180,12 +257,11 @@ export default function DetailsCoureur() {
   const renderInput = (champ, labelOverride) => {
     const value = inscription[champ];
 
-    // bool
     if (champ === "apparaitre_resultats") {
       return (
         <div key={champ} className="flex items-center justify-between gap-3">
           <span className="text-sm font-medium text-neutral-700">
-            {labelOverride || champ.replace(/_/g, " ")}
+            {labelOverride || "Apparaître dans les résultats"}
           </span>
           <input
             type="checkbox"
@@ -196,7 +272,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // statut (select)
     if (champ === "statut") {
       const v =
         (value || "").toLowerCase() === "en attente"
@@ -223,7 +298,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // dates système en lecture seule
     if (champ === "created_at" || champ === "updated_at") {
       return (
         <div key={champ} className="space-y-1">
@@ -237,7 +311,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // dossard en number
     if (champ === "dossard") {
       return (
         <div key={champ} className="space-y-1">
@@ -253,7 +326,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // prix_total_coureur
     if (champ === "prix_total_coureur") {
       return (
         <div key={champ} className="space-y-1">
@@ -271,7 +343,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // champs fédération
     if (
       champ === "federation_code" ||
       champ === "categorie_age_code" ||
@@ -297,7 +368,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // champs meta en lecture seule (id, course_id, format_id, etc.)
     if (
       champ === "id" ||
       champ === "course_id" ||
@@ -317,7 +387,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // team_name en editable classique
     if (champ === "team_name") {
       return (
         <div key={champ} className="space-y-1">
@@ -334,7 +403,6 @@ export default function DetailsCoureur() {
       );
     }
 
-    // todo / default : input texte / date
     const isDateField = champ.includes("date");
     return (
       <div key={champ} className="space-y-1">
@@ -350,6 +418,8 @@ export default function DetailsCoureur() {
       </div>
     );
   };
+
+  const traceIdPreview = resolveTraceId();
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -382,10 +452,18 @@ export default function DetailsCoureur() {
         </div>
       </div>
 
-      {/* Reçu Stripe */}
+      {/* Bloc Reçu Stripe */}
       <div className="mb-6 rounded-2xl border border-neutral-200 bg-white px-4 py-3 flex flex-wrap items-center gap-4">
         <div className="text-sm text-neutral-700">
           Reçu Stripe lié au paiement (si disponible).
+          {traceIdPreview && (
+            <div className="mt-1 text-xs text-neutral-500">
+              Trace détectée :{" "}
+              <span className="font-mono">
+                {String(traceIdPreview).slice(0, 20)}…
+              </span>
+            </div>
+          )}
         </div>
         <button
           onClick={handleGetReceipt}
@@ -407,7 +485,7 @@ export default function DetailsCoureur() {
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Colonne 1 : Identité */}
+        {/* Colonne 1 : Identité + Fédération */}
         <div className="lg:col-span-1 space-y-4">
           <div className="rounded-2xl border border-neutral-200 bg-white p-4">
             <h2 className="text-sm font-semibold text-neutral-800 mb-3">
@@ -458,6 +536,20 @@ export default function DetailsCoureur() {
             <div className="space-y-3">
               {champsPaiement.map((c) => renderInput(c))}
             </div>
+            {payment && (
+              <div className="mt-4 border-t border-neutral-200 pt-3 text-xs text-neutral-600 space-y-1">
+                <div>
+                  <span className="font-semibold">Paiement trouvé :</span>{" "}
+                  {payment.status || payment.stripe_status || "—"}
+                </div>
+                {payment.amount && (
+                  <div>
+                    Montant : {payment.amount / 100}{" "}
+                    {payment.currency || "EUR"}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           <div className="rounded-2xl border border-neutral-200 bg-white p-4">
