@@ -67,11 +67,7 @@ serve(async (req) => {
       if (event.type === "checkout.session.completed") {
         const s = event.data.object as Stripe.Checkout.Session;
         session = await stripe.checkout.sessions.retrieve(s.id, {
-          expand: [
-            "payment_intent.charges.data.balance_transaction",
-            "customer",
-            "customer_details",
-          ],
+          expand: ["payment_intent.charges", "customer", "customer_details"],
         });
       } else {
         // payment_intent.succeeded → retrouver la session associée
@@ -79,11 +75,7 @@ serve(async (req) => {
         const sessList = await stripe.checkout.sessions.list({ payment_intent: pi.id, limit: 1 });
         if (sessList.data?.[0]) {
           session = await stripe.checkout.sessions.retrieve(sessList.data[0].id, {
-            expand: [
-              "payment_intent.charges.data.balance_transaction",
-              "customer",
-              "customer_details",
-            ],
+            expand: ["payment_intent.charges", "customer", "customer_details"],
           });
         }
       }
@@ -94,25 +86,14 @@ serve(async (req) => {
       }
 
       const sessionId = session.id;
-
-      // Normalisation du PaymentIntent (string ou objet) + re-fetch si besoin
-      const rawPi = session.payment_intent as string | Stripe.PaymentIntent | null;
-      let paymentIntent: Stripe.PaymentIntent | null = null;
-
-      if (typeof rawPi === "string") {
-        paymentIntent = await stripe.paymentIntents.retrieve(rawPi, {
-          expand: ["charges.data.balance_transaction"],
-        });
-      } else if (rawPi && typeof rawPi === "object") {
-        paymentIntent = rawPi as Stripe.PaymentIntent;
-      }
-
-      const charge = paymentIntent?.charges?.data?.[0] as Stripe.Charge | undefined;
+      const paymentIntent = session.payment_intent as Stripe.PaymentIntent | null;
+      const charge =
+        (paymentIntent?.charges?.data?.[0] as Stripe.Charge | undefined) || undefined;
 
       // 1) Retrouver / compléter le paiement côté DB
       let payRes = await supabase
         .from("paiements")
-        .select("id, inscription_ids")
+        .select("id, inscription_ids, inscription_id")
         .eq("stripe_session_id", sessionId)
         .maybeSingle();
 
@@ -121,15 +102,20 @@ serve(async (req) => {
       }
 
       const meta = (session.metadata || {}) as Record<string, string>;
-      let inscriptionIds: string[] = payRes.data?.inscription_ids || [];
+      let inscriptionIds: string[] =
+        (payRes.data?.inscription_ids as string[] | null) || [];
+
       let groupIds: string[] = [];
 
-      // Fallback si pas d'inscription_ids déjà enregistrés
+      // Fallback si inscription_ids pas encore connus
       if (!inscriptionIds?.length) {
         if (meta.inscription_id) {
           inscriptionIds = [meta.inscription_id];
         } else if (meta.groups) {
-          groupIds = meta.groups.split(",").map((x) => x.trim()).filter(Boolean);
+          groupIds = meta.groups
+            .split(",")
+            .map((x) => x.trim())
+            .filter(Boolean);
           if (groupIds.length) {
             const inscs = await supabase
               .from("inscriptions")
@@ -140,114 +126,136 @@ serve(async (req) => {
         }
       }
 
-      // ------------------- Extraction des montants / frais -------------------
+      // 2) Extraire les montants / fees / devise
+      const amountSubtotal =
+        (typeof session.amount_subtotal === "number" ? session.amount_subtotal : null) ??
+        (typeof paymentIntent?.amount === "number" ? paymentIntent.amount : null);
+
+      const amountTotal =
+        (typeof session.amount_total === "number" ? session.amount_total : null) ??
+        (typeof paymentIntent?.amount_received === "number"
+          ? paymentIntent.amount_received
+          : null) ??
+        amountSubtotal;
+
       const currency =
         session.currency ||
         paymentIntent?.currency ||
         charge?.currency ||
         null;
 
-      const amountTotalCents =
-        typeof session.amount_total === "number"
-          ? session.amount_total
-          : (typeof paymentIntent?.amount_received === "number"
-              ? paymentIntent.amount_received
-              : null);
-
-      const amountSubtotalCents =
-        typeof session.amount_subtotal === "number"
-          ? session.amount_subtotal
-          : amountTotalCents;
-
-      // Balance transaction (frais Stripe, net, etc.)
-      const balanceTxRaw = charge?.balance_transaction as
-        | string
-        | Stripe.BalanceTransaction
-        | undefined;
-
-      let feeTotalCents: number | null = null;
+      let feeTotal: number | null = null;
+      let platformFeeAmount: number | null = null;
       let balanceTransactionId: string | null = null;
+      const receiptUrl = charge?.receipt_url || null;
 
-      if (balanceTxRaw && typeof balanceTxRaw === "object") {
-        const bt = balanceTxRaw as Stripe.BalanceTransaction;
-        feeTotalCents = typeof bt.fee === "number" ? bt.fee : null;
-        balanceTransactionId = bt.id;
-      } else if (typeof balanceTxRaw === "string") {
-        balanceTransactionId = balanceTxRaw;
+      if (charge && typeof charge.balance_transaction === "string") {
+        balanceTransactionId = charge.balance_transaction;
         try {
-          const bt = await stripe.balanceTransactions.retrieve(balanceTxRaw);
-          feeTotalCents = typeof bt.fee === "number" ? bt.fee : null;
-        } catch (err) {
-          console.error("BALANCE_TRANSACTION_FETCH_ERROR", err);
+          const bt = await stripe.balanceTransactions.retrieve(
+            charge.balance_transaction as string,
+          );
+          if (bt && typeof bt.fee === "number") {
+            feeTotal = bt.fee;
+          }
+          if (bt && Array.isArray(bt.fee_details)) {
+            const appFee = bt.fee_details.find(
+              (fd) => (fd.type as string) === "application_fee",
+            );
+            if (appFee && typeof appFee.amount === "number") {
+              platformFeeAmount = appFee.amount;
+            }
+          }
+        } catch (e) {
+          console.error("BALANCE_TRANSACTION_RETRIEVE_ERROR", e);
         }
       }
 
-      // Frais / infos plateforme (Stripe Connect éventuel)
-      const piAppFeeAmount = (paymentIntent as any)?.application_fee_amount as number | undefined;
-      const chAppFeeAmount = (charge as any)?.application_fee_amount as number | undefined;
-      const applicationFeeAmount =
-        typeof piAppFeeAmount === "number"
-          ? piAppFeeAmount
-          : (typeof chAppFeeAmount === "number" ? chAppFeeAmount : null);
+      const montantTotal =
+        typeof amountTotal === "number"
+          ? Number((amountTotal / 100).toFixed(2))
+          : null;
 
-      const destinationAccountId =
-        ((paymentIntent as any)?.transfer_data?.destination as string | undefined) ||
-        ((charge as any)?.destination as string | undefined) ||
-        null;
+      // 3) Upsert payment info
+      let paiementId: string | null = payRes.data?.id ?? null;
 
-      const transferId = ((charge as any)?.transfer as string | undefined) || null;
+      if (!paiementId) {
+        // Aucun paiement existant pour cette session → on insère
+        const { data: newPay, error: insErr } = await supabase
+          .from("paiements")
+          .insert({
+            stripe_session_id: sessionId,
+            status: "paye",
+            total_amount_cents: amountTotal ?? null,
+            montant_total: montantTotal,
+            devise: currency,
+            stripe_payment_intent: paymentIntent?.id || null,
+            stripe_payment_intent_id: paymentIntent?.id || null,
+            stripe_charge_id: charge?.id || null,
+            charge_id: charge?.id || null,
+            amount_subtotal: amountSubtotal ?? null,
+            amount_total: amountTotal ?? null,
+            fee_total: feeTotal ?? null,
+            platform_fee_amount: platformFeeAmount ?? null,
+            balance_transaction_id: balanceTransactionId,
+            receipt_url: receiptUrl,
+            inscription_ids: inscriptionIds?.length ? inscriptionIds : null,
+            inscription_id:
+              inscriptionIds?.length === 1 ? inscriptionIds[0] : null,
+            updated_at: new Date().toISOString(),
+          })
+          .select("id, inscription_ids")
+          .single();
 
-      const platformFeeAmount = applicationFeeAmount ?? null;
+        if (insErr) {
+          console.error("PAYMENT_INSERT_ERROR", insErr);
+        } else {
+          paiementId = newPay?.id ?? null;
+          payRes = { data: newPay, error: null } as any;
+        }
+      } else {
+        // Mise à jour du paiement existant
+        const { data: updData, error: updErr } = await supabase
+          .from("paiements")
+          .update({
+            status: "paye",
+            montant_total: montantTotal,
+            devise: currency,
+            stripe_payment_intent: paymentIntent?.id || null,
+            stripe_payment_intent_id: paymentIntent?.id || null,
+            stripe_charge_id: charge?.id || null,
+            charge_id: charge?.id || null,
+            amount_subtotal: amountSubtotal ?? null,
+            amount_total: amountTotal ?? null,
+            fee_total: feeTotal ?? null,
+            platform_fee_amount: platformFeeAmount ?? null,
+            balance_transaction_id: balanceTransactionId,
+            receipt_url: receiptUrl,
+            total_amount_cents:
+              amountTotal ?? payRes.data?.total_amount_cents ?? null,
+            inscription_ids:
+              inscriptionIds?.length && inscriptionIds.join("") !==
+                (payRes.data?.inscription_ids || []).join("")
+                ? inscriptionIds
+                : payRes.data?.inscription_ids ?? null,
+            inscription_id:
+              inscriptionIds?.length === 1
+                ? inscriptionIds[0]
+                : payRes.data?.inscription_id ?? null,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("stripe_session_id", sessionId)
+          .select("id, inscription_ids")
+          .maybeSingle();
 
-      const paymentIntentId = paymentIntent?.id || (typeof rawPi === "string" ? rawPi : null);
-      const receiptUrl = charge?.receipt_url || null;
-
-      // ----------------------- Update de la ligne paiement -------------------
-      const upd = await supabase
-        .from("paiements")
-        .update({
-          status: "paye",
-          stripe_payment_intent: paymentIntentId,
-          stripe_payment_intent_id: paymentIntentId, // compat ancien champ
-          stripe_charge_id: charge?.id || null,
-          inscription_ids: inscriptionIds?.length
-            ? inscriptionIds
-            : payRes.data?.inscription_ids || null,
-          // Montants en cents
-          amount_total: amountTotalCents,
-          amount_subtotal: amountSubtotalCents,
-          fee_total: feeTotalCents,
-          total_amount_cents:
-            amountTotalCents !== null && typeof amountTotalCents === "number"
-              ? amountTotalCents
-              : payRes.data
-                ? payRes.data.inscription_ids
-                : null,
-          // Montants en euros & devise
-          montant_total:
-            amountTotalCents !== null && typeof amountTotalCents === "number"
-              ? amountTotalCents / 100
-              : null,
-          devise: currency,
-          // Connect / plateforme
-          application_fee_amount: applicationFeeAmount,
-          platform_fee_amount: platformFeeAmount,
-          destination_account_id: destinationAccountId,
-          transfer_id: transferId,
-          // Balance / reçu
-          balance_transaction_id: balanceTransactionId,
-          receipt_url: receiptUrl,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("stripe_session_id", sessionId)
-        .select("id")
-        .maybeSingle();
-
-      if (upd.error) {
-        console.error("PAYMENT_UPDATE_ERROR", upd.error);
+        if (updErr) {
+          console.error("PAYMENT_UPDATE_ERROR", updErr);
+        } else if (updData) {
+          payRes = { data: updData, error: null } as any;
+        }
       }
 
-      // 2) Mettre à jour les statuts FR
+      // 4) Mettre à jour les statuts FR des inscriptions + options + groupes
       if (inscriptionIds?.length) {
         const u1 = await supabase
           .from("inscriptions")
@@ -255,18 +263,17 @@ serve(async (req) => {
           .in("id", inscriptionIds);
         if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
 
-        // Confirmer les options rattachées à ces inscriptions
         const u2 = await supabase
           .from("inscriptions_options")
           .update({ status: "confirmed" })
           .in("inscription_id", inscriptionIds);
         if (u2.error) console.error("OPTIONS_CONFIRM_ERROR", u2.error);
 
-        // Remonter les groupes associés
         const grpIdsRes = await supabase
           .from("inscriptions")
           .select("member_of_group_id")
           .in("id", inscriptionIds);
+
         const grpIds = [
           ...new Set(
             (grpIdsRes.data || [])
@@ -284,7 +291,7 @@ serve(async (req) => {
         }
       }
 
-      // 3) Email de confirmation (payeur)
+      // 5) Email de confirmation (payeur)
       const payerEmail =
         session.customer_details?.email ||
         session.customer_email ||
@@ -368,7 +375,9 @@ serve(async (req) => {
         const { data: pay, error: payErr } = await supabase
           .from("paiements")
           .select("*")
-          .or(`stripe_payment_intent.eq.${piId},stripe_payment_intent_id.eq.${piId}`)
+          .or(
+            `stripe_payment_intent.eq.${piId},stripe_payment_intent_id.eq.${piId}`,
+          )
           .order("created_at", { ascending: false })
           .maybeSingle();
         if (payErr) console.error("REFUND_PAYMENT_LOOKUP_ERROR", payErr);
@@ -376,7 +385,6 @@ serve(async (req) => {
       }
 
       if (paiement) {
-        // Mettre à jour le total remboursé
         const newRefundTotal =
           Number(paiement.refunded_total_cents || 0) + Number(amount || 0);
         let newStatus = "rembourse";
@@ -397,7 +405,6 @@ serve(async (req) => {
         if (upPayErr) console.error("REFUND_PAYMENT_UPDATE_ERROR", upPayErr);
       }
 
-      // Mettre à jour remboursements si on a déjà une ligne
       const { data: remb, error: rembErr } = await supabase
         .from("remboursements")
         .select("*")
@@ -415,7 +422,6 @@ serve(async (req) => {
         if (upRembErr) console.error("REFUND_REMBOURSEMENT_UPDATE_ERROR", upRembErr);
       }
 
-      // Si aucun remboursement trouvé mais un paiement existe, on peut (optionnel) créer une ligne "manuelle"
       if (!remb && paiement && paiement.inscription_ids?.length) {
         const inscription_id = paiement.inscription_ids[0];
         const { data: ins, error: insErr } = await supabase
@@ -449,12 +455,12 @@ serve(async (req) => {
     }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
-  } catch (e) {
+  } catch (e: any) {
     console.error("WEBHOOK_FATAL", e);
     return new Response(
       JSON.stringify({
         error: "webhook_failed",
-        details: String((e as any)?.message ?? e),
+        details: String(e?.message ?? e),
       }),
       {
         status: 500,
