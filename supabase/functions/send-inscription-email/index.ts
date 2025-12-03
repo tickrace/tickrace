@@ -21,12 +21,12 @@ serve(async (req: Request): Promise<Response> => {
 
   try {
     const body = (await req.json()) as EmailPayload;
+
     if (!body.inscription_id) {
       return new Response("Missing inscription_id", { status: 400 });
     }
 
     await handleSendEmail(body.inscription_id);
-
     return new Response("OK", { status: 200 });
   } catch (err) {
     console.error("❌ Erreur send-inscription-email:", err);
@@ -35,43 +35,59 @@ serve(async (req: Request): Promise<Response> => {
 });
 
 async function handleSendEmail(inscriptionId: string) {
-  // 1) Récupération de l’inscription + format + course
-  const { data: insc, error } = await supabaseAdmin
+  // 1) Récupération de l’inscription
+  const { data: inscription, error: insError } = await supabaseAdmin
     .from("inscriptions")
-    .select(`
-      id,
-      email,
-      prenom,
-      nom,
-      montant_total,
-      -- adapte ces colonnes si les noms sont différents dans ta BDD
-      formats!inscriptions_format_id_fkey (
-        id,
-        nom,
-        courses!formats_course_id_fkey (
-          id,
-          nom
-        )
-      )
-    `)
+    .select("*")
     .eq("id", inscriptionId)
     .single();
 
-  if (error || !insc) {
-    console.error("❌ Impossible de récupérer l'inscription", inscriptionId, error);
-    throw error ?? new Error("Inscription not found");
+  if (insError || !inscription) {
+    console.error("❌ Impossible de récupérer l'inscription", inscriptionId, insError);
+    throw insError ?? new Error("Inscription not found");
   }
 
-  // On sécurise un peu les accès
-  const email = insc.email as string;
-  const prenom = (insc.prenom as string) ?? "";
-  const nom = (insc.nom as string) ?? "";
-  const montantTotal = Number(insc.montant_total ?? 0); // en euros (montant + options)
-  const format = insc.formats ?? {};
-  const course = (format.courses as any) ?? {};
+  const email = inscription.email as string;
+  const prenom = (inscription.prenom as string) ?? "";
+  const nom = (inscription.nom as string) ?? "";
+  const montantTotal = Number(inscription.montant_total ?? 0); // en euros (inscription + options)
+  const formatId = inscription.format_id as string | null;
 
-  const formatName = (format.nom as string) ?? "Format";
-  const courseName = (course.nom as string) ?? "Course";
+  // 2) Récupération du format
+  let formatName = "Format";
+  let courseId: string | null = null;
+
+  if (formatId) {
+    const { data: format, error: formatError } = await supabaseAdmin
+      .from("formats")
+      .select("id, nom, course_id")
+      .eq("id", formatId)
+      .single();
+
+    if (formatError) {
+      console.error("⚠️ Impossible de récupérer le format", formatId, formatError);
+    } else if (format) {
+      formatName = (format.nom as string) ?? "Format";
+      courseId = (format.course_id as string) ?? null;
+    }
+  }
+
+  // 3) Récupération de la course
+  let courseName = "Course";
+
+  if (courseId) {
+    const { data: course, error: courseError } = await supabaseAdmin
+      .from("courses")
+      .select("id, nom")
+      .eq("id", courseId)
+      .single();
+
+    if (courseError) {
+      console.error("⚠️ Impossible de récupérer la course", courseId, courseError);
+    } else if (course) {
+      courseName = (course.nom as string) ?? "Course";
+    }
+  }
 
   const displayName =
     prenom || nom ? [prenom, nom].filter(Boolean).join(" ") : "coureur/coureuse";
@@ -83,18 +99,33 @@ async function handleSendEmail(inscriptionId: string) {
 
   const subject = `✅ Confirmation d'inscription – ${courseName}`;
 
+  // Lien vers les inscriptions + lien direct vers cette inscription
+  const baseUrl = "https://www.tickrace.com";
+  const mesInscriptionsUrl = `${baseUrl}/mes-inscriptions`;
+  const monInscriptionUrl = `${baseUrl}/mon-inscription/${inscriptionId}`;
+
   const html = `
     <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; color: #111827;">
       <p>Bonjour ${displayName},</p>
 
-      <p>Ta (ou votre) inscription à <strong>${courseName}</strong> est bien confirmée ✅</p>
+      <p>Ton paiement a été confirmé 🎉</p>
 
       <p>
+        <strong>Course :</strong> ${courseName}<br/>
         <strong>Format :</strong> ${formatName}<br/>
-        <strong>Montant total payé :</strong> ${montantStr} <span style="color:#6B7280;">(options incluses le cas échéant)</span>
+        <strong>Montant total payé :</strong> ${montantStr}
+        <span style="color:#6B7280;">(inscription + options le cas échéant)</span>
       </p>
 
-      <p>Tu recevras de nouvelles informations pratiques (horaires, accès, retrait des dossards) de la part de l'organisation si nécessaire.</p>
+      <p>
+        Tu peux consulter le détail de cette inscription ici :<br/>
+        <a href="${monInscriptionUrl}" style="color:#2563EB;">Voir le détail de mon inscription</a>
+      </p>
+
+      <p>
+        Et retrouver toutes tes inscriptions depuis ton espace :<br/>
+        <a href="${mesInscriptionsUrl}" style="color:#2563EB;">Mes inscriptions</a>
+      </p>
 
       <p style="margin-top: 24px;">
         Sportivement,<br/>
@@ -112,12 +143,17 @@ async function handleSendEmail(inscriptionId: string) {
   const text = `
 Bonjour ${displayName},
 
-Ta (ou votre) inscription à ${courseName} est bien confirmée.
+Ton paiement a été confirmé.
 
+Course : ${courseName}
 Format : ${formatName}
-Montant total payé : ${montantStr} (options incluses le cas échéant)
+Montant total payé : ${montantStr} (inscription + options le cas échéant)
 
-Tu recevras de nouvelles informations pratiques (horaires, accès, retrait des dossards) de la part de l'organisation si nécessaire.
+Détail de cette inscription :
+${monInscriptionUrl}
+
+Toutes tes inscriptions :
+${mesInscriptionsUrl}
 
 Sportivement,
 L'équipe Tickrace
