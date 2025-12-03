@@ -94,8 +94,6 @@ async function handleSendEmail(inscriptionId: string) {
   }
 
   // 4) Récupération du paiement lié à cette inscription
-  //    On cherche d'abord un paiement avec inscription_id = inscriptionId,
-  //    puis un paiement dont inscription_ids contient cette inscription.
   let paiement: any = null;
 
   // a) paiement direct (colonne inscription_id)
@@ -116,7 +114,7 @@ async function handleSendEmail(inscriptionId: string) {
     }
   }
 
-  // b) si rien en direct, on cherche dans inscription_ids (array)
+  // b) via inscription_ids (array)
   if (!paiement) {
     const { data, error } = await supabaseAdmin
       .from("paiements")
@@ -134,12 +132,11 @@ async function handleSendEmail(inscriptionId: string) {
     }
   }
 
-  // 5) Calcul du montant total payé (en euros)
+  // 5) Montant total payé
   let montantTotal = 0;
   let devise = "EUR";
 
   if (paiement) {
-    // montant_total est un numeric → Supabase le renvoie souvent en string
     const rawMontant = paiement.montant_total;
     if (rawMontant !== null && rawMontant !== undefined) {
       if (typeof rawMontant === "number") {
@@ -156,7 +153,7 @@ async function handleSendEmail(inscriptionId: string) {
       devise = String(paiement.devise).toUpperCase();
     }
   } else {
-    // Fallback : si jamais aucun paiement trouvé, on utilise le champ inscriptions.montant_total
+    // Fallback inscriptions.montant_total
     const rawInsMontant = inscription.montant_total;
     if (rawInsMontant !== null && rawInsMontant !== undefined) {
       if (typeof rawInsMontant === "number") {
@@ -176,38 +173,48 @@ async function handleSendEmail(inscriptionId: string) {
     currency: devise,
   }).format(montantTotal || 0);
 
-  const subject = `✅ Confirmation d'inscription – ${courseName}`;
+  const subject = `✅ Tickrace – Confirmation d’inscription à ${courseName}`;
 
   const baseUrl = "https://www.tickrace.com";
-  const mesInscriptionsUrl = `${baseUrl}/mes-inscriptions`;
-  const monInscriptionUrl = `${baseUrl}/mon-inscription/${inscriptionId}`;
+  const mesInscriptionsUrl = `${baseUrl}/mesinscriptions`;
 
   const html = `
-    <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; color: #111827;">
+    <div style="font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; font-size: 16px; color: #111827; line-height: 1.5;">
       <p>Bonjour ${displayName},</p>
 
-      <p>Ton paiement a été confirmé 🎉</p>
-
       <p>
-        <strong>Course :</strong> ${courseName}<br/>
-        <strong>Format :</strong> ${formatName}<br/>
-        <strong>Montant total payé :</strong> ${montantStr}
-        <span style="color:#6B7280;">(inscription + options le cas échéant)</span>
+        Ton inscription à <strong>${courseName}</strong> – <strong>${formatName}</strong> est bien confirmée ✅
       </p>
 
       <p>
-        Tu peux consulter le détail de cette inscription ici :<br/>
-        <a href="${monInscriptionUrl}" style="color:#2563EB;">Voir le détail de mon inscription</a>
+        <strong>Montant total payé :</strong> ${montantStr}<br/>
+        <span style="color:#6B7280; font-size: 14px;">
+          (inscription + options le cas échéant)
+        </span>
       </p>
 
       <p>
-        Et retrouver toutes tes inscriptions depuis ton espace :<br/>
-        <a href="${mesInscriptionsUrl}" style="color:#2563EB;">Mes inscriptions</a>
+        Tu peux retrouver le récapitulatif complet de cette inscription, ainsi que toutes tes autres courses, depuis ton espace Tickrace :
+      </p>
+
+      <p style="margin: 16px 0;">
+        <a href="${mesInscriptionsUrl}" style="display:inline-block; padding:10px 18px; border-radius:999px; background:#111827; color:#F9FAFB; text-decoration:none; font-weight:600;">
+          Gérer mes inscriptions
+        </a>
+      </p>
+
+      <p style="font-size: 14px; color:#6B7280;">
+        Pense à te connecter avec l’adresse email utilisée lors de l’inscription pour y accéder.
+      </p>
+
+      <p style="margin-top: 24px;">
+        Tu recevras un nouvel email si l’organisateur publie des informations importantes
+        (horaires, accès, retrait des dossards, etc.).
       </p>
 
       <p style="margin-top: 24px;">
         Sportivement,<br/>
-        <strong>L'équipe Tickrace</strong>
+        <strong>L’équipe Tickrace</strong>
       </p>
 
       <hr style="margin-top: 24px; border:none; border-top:1px solid #e5e7eb"/>
@@ -221,20 +228,21 @@ async function handleSendEmail(inscriptionId: string) {
   const text = `
 Bonjour ${displayName},
 
-Ton paiement a été confirmé.
+Ton inscription à "${courseName}" – "${formatName}" est bien confirmée ✅
 
-Course : ${courseName}
-Format : ${formatName}
-Montant total payé : ${montantStr} (inscription + options le cas échéant)
+Montant total payé : ${montantStr}
+(inscription + options le cas échéant)
 
-Détail de cette inscription :
-${monInscriptionUrl}
+Tu peux retrouver le récapitulatif complet de cette inscription, ainsi que toutes tes autres courses, depuis ton espace Tickrace :
 
-Toutes tes inscriptions :
-${mesInscriptionsUrl}
+Gérer mes inscriptions : ${mesInscriptionsUrl}
+
+Pense à te connecter avec l’adresse email utilisée lors de l’inscription pour y accéder.
+
+Tu recevras un nouvel email si l’organisateur publie des informations importantes (horaires, accès, retrait des dossards, etc.).
 
 Sportivement,
-L'équipe Tickrace
+L’équipe Tickrace
   `.trim();
 
   await sendWithResend({
