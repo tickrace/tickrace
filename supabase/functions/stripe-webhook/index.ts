@@ -8,14 +8,10 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 
-// Anciennes variables email (utilisées avant, on les garde éventuellement pour d'autres usages)
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
-const RESEND_FROM =
-  Deno.env.get("RESEND_FROM") || "Tickrace <no-reply@tickrace.com>";
 const TICKRACE_BASE_URL =
   Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
 
-// ➜ Nouvelle variable : URL de la fonction send-inscription-email
+// URL de la fonction send-inscription-email
 // Exemple : https://xxx.supabase.co/functions/v1/send-inscription-email
 const SEND_INSCRIPTION_EMAIL_URL =
   Deno.env.get("SEND_INSCRIPTION_EMAIL_URL") || "";
@@ -33,28 +29,7 @@ function cors(h = new Headers()) {
   return h;
 }
 
-// Ancienne fonction d'envoi direct via Resend (plus utilisée dans ce webhook,
-// mais on la laisse au cas où tu en aurais besoin ailleurs, sinon tu peux la supprimer)
-async function sendResendEmail(to: string, subject: string, html: string) {
-  if (!RESEND_API_KEY || !to)
-    return { ok: false, reason: "no_api_key_or_recipient" };
-  const resp = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${RESEND_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ from: RESEND_FROM, to, subject, html }),
-  });
-  const j = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    console.error("RESEND_ERROR", resp.status, j);
-    return { ok: false, reason: j?.message || "resend_failed" };
-  }
-  return { ok: true };
-}
-
-// ➜ NOUVELLE FONCTION : appel de l'Edge Function send-inscription-email
+// ➜ Appel de l'Edge Function send-inscription-email
 async function callSendInscriptionEmail(inscriptionId: string) {
   if (!SEND_INSCRIPTION_EMAIL_URL) {
     console.warn(
@@ -68,7 +43,6 @@ async function callSendInscriptionEmail(inscriptionId: string) {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      // On sécurise avec le service role comme pour les autres fonctions internes
       Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
     },
     body: JSON.stringify({ inscription_id: inscriptionId }),
@@ -91,9 +65,10 @@ serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
+  console.log("STRIPE-WEBHOOK v4"); // <-- pour être sûr que c’est la bonne version
+
   let event: Stripe.Event;
   try {
-    // ⚠️ On ne vérifie plus la signature ici (simplification Edge)
     const body = await req.json();
     event = body as Stripe.Event;
   } catch (err) {
@@ -126,10 +101,8 @@ serve(async (req) => {
       let groupIds: string[] = [];
 
       if (meta.inscription_id) {
-        // Cas simple : inscription individuelle (ou ID principal)
         inscriptionIds = [meta.inscription_id];
       } else if (meta.groups) {
-        // Cas historique : groupes
         groupIds = meta.groups
           .split(",")
           .map((x) => x.trim())
@@ -150,7 +123,7 @@ serve(async (req) => {
       const montant_total_cents = session.amount_total ?? null;
       const devise = session.currency || null;
 
-      // On regarde si une ligne paiements existe déjà pour cette session
+      // Récup ligne paiements existante
       const payRes = await supabase
         .from("paiements")
         .select("id, inscription_ids")
@@ -166,7 +139,7 @@ serve(async (req) => {
       const finalInscriptionIds =
         inscriptionIds.length > 0 ? inscriptionIds : existingInsIds;
 
-      // Mise à jour de la ligne paiement
+      // MAJ paiement
       const upd = await supabase
         .from("paiements")
         .update({
@@ -191,7 +164,7 @@ serve(async (req) => {
         console.log("PAYMENT_UPDATE_OK_CHECKOUT", upd.data?.id);
       }
 
-      // Statut inscriptions + options + groupes
+      // MAJ inscriptions + options + groupes
       if (finalInscriptionIds.length) {
         const u1 = await supabase
           .from("inscriptions")
@@ -226,7 +199,7 @@ serve(async (req) => {
           if (u3.error) console.error("GROUPS_UPDATE_ERROR", u3.error);
         }
 
-        // ➜ NOUVEAU : appel de send-inscription-email POUR CHAQUE INSCRIPTION
+        // ➜ ENVOI D'EMAIL via send-inscription-email (un par inscription)
         for (const insId of finalInscriptionIds) {
           try {
             await callSendInscriptionEmail(insId);
@@ -240,9 +213,8 @@ serve(async (req) => {
         }
       }
 
-      // ⛔️ L'ancien bloc d'email direct via Resend est supprimé ici.
-      // Le contenu de l'email est maintenant géré ENTIEREMENT
-      // par la fonction send-inscription-email.
+      // ⛔️ IMPORTANT : aucun sendResendEmail ici.
+      // Tout l'email passe par send-inscription-email.
     }
 
     /* ====================================================================== */
@@ -284,7 +256,6 @@ serve(async (req) => {
         }
       }
 
-      // Rattacher au paiement via stripe_session_id (depuis le PaymentIntent)
       const sessList = await stripe.checkout.sessions.list({
         payment_intent: paymentIntentId,
         limit: 1,
@@ -319,7 +290,7 @@ serve(async (req) => {
     }
 
     /* ====================================================================== */
-    /* 3) Refunds (charge.refunded / refund.created / refund.updated)         */
+    /* 3) Refunds                                                             */
     /* ====================================================================== */
     if (
       event.type === "charge.refunded" ||
