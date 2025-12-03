@@ -8,11 +8,8 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 
-const TICKRACE_BASE_URL =
-  Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
-
 // URL de la fonction send-inscription-email
-// Exemple : https://xxx.supabase.co/functions/v1/send-inscription-email
+// Exemple : https://pecotcxpcqfkwvyylvjv.supabase.co/functions/v1/send-inscription-email
 const SEND_INSCRIPTION_EMAIL_URL =
   Deno.env.get("SEND_INSCRIPTION_EMAIL_URL") || "";
 
@@ -29,7 +26,7 @@ function cors(h = new Headers()) {
   return h;
 }
 
-// ➜ Appel de l'Edge Function send-inscription-email
+// Appel de l'Edge Function send-inscription-email
 async function callSendInscriptionEmail(inscriptionId: string) {
   if (!SEND_INSCRIPTION_EMAIL_URL) {
     console.warn(
@@ -65,7 +62,7 @@ serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v4"); // <-- pour être sûr que c’est la bonne version
+  console.log("STRIPE-WEBHOOK v5");
 
   let event: Stripe.Event;
   try {
@@ -101,8 +98,10 @@ serve(async (req) => {
       let groupIds: string[] = [];
 
       if (meta.inscription_id) {
+        // cas simple : inscription individuelle
         inscriptionIds = [meta.inscription_id];
       } else if (meta.groups) {
+        // cas groupes (historique)
         groupIds = meta.groups
           .split(",")
           .map((x) => x.trim())
@@ -123,7 +122,7 @@ serve(async (req) => {
       const montant_total_cents = session.amount_total ?? null;
       const devise = session.currency || null;
 
-      // Récup ligne paiements existante
+      // Récup ligne paiements existante pour cette session
       const payRes = await supabase
         .from("paiements")
         .select("id, inscription_ids")
@@ -212,9 +211,6 @@ serve(async (req) => {
           }
         }
       }
-
-      // ⛔️ IMPORTANT : aucun sendResendEmail ici.
-      // Tout l'email passe par send-inscription-email.
     }
 
     /* ====================================================================== */
