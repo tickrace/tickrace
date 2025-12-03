@@ -9,43 +9,43 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const STRIPE_WEBHOOK_SECRET = Deno.env.get("STRIPE_WEBHOOK_SECRET") || "";
-const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
-const RESEND_FROM = Deno.env.get("RESEND_FROM") || "Tickrace <no-reply@tickrace.com>";
-const TICKRACE_BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
+const TICKRACE_BASE_URL =
+  Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
 
 /* ------------ Clients ------------ */
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
+const stripe = new Stripe(STRIPE_SECRET_KEY, {
+  httpClient: Stripe.createFetchHttpClient(),
+});
 
 /* ------------ CORS ------------ */
 function corsHeaders() {
   const h = new Headers();
   h.set("Access-Control-Allow-Origin", "*");
   h.set("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-  h.set("Access-Control-Allow-Headers", "authorization, content-type, x-client-info, apikey, stripe-signature");
+  h.set(
+    "Access-Control-Allow-Headers",
+    "authorization, content-type, x-client-info, apikey, stripe-signature",
+  );
   h.set("Access-Control-Max-Age", "86400");
   h.set("content-type", "application/json; charset=utf-8");
   return h;
 }
-const json = (b: unknown, s = 200) => new Response(JSON.stringify(b), { status: s, headers: corsHeaders() });
-
-/* ------------ Email ------------ */
-async function sendResendEmail(to: string | null, subject: string, html: string) {
-  if (!to || !RESEND_API_KEY) return { ok: false, reason: "no_recipient_or_api_key" };
-  const resp = await fetch("https://api.resend.com/emails", {
-    method: "POST",
-    headers: { Authorization: `Bearer ${RESEND_API_KEY}`, "Content-Type": "application/json" },
-    body: JSON.stringify({ from: RESEND_FROM, to, subject, html }),
-  });
-  const j = await resp.json().catch(() => ({}));
-  if (!resp.ok) {
-    console.error("RESEND_ERROR", resp.status, j);
-    return { ok: false, reason: j?.message || "resend_failed" };
-  }
-  return { ok: true };
-}
+const json = (b: unknown, s = 200) =>
+  new Response(JSON.stringify(b), { status: s, headers: corsHeaders() });
 
 /* ------------ Core finalize ------------ */
+/**
+ * finalizeFromSessionId :
+ * - vérifie que le paiement est bien "paid"
+ * - met à jour la ligne paiements
+ * - met à jour les inscriptions, options et groupes
+ * - retourne un résumé pour la page "merci"
+ *
+ * ⚠️ L'envoi d'email de confirmation est maintenant géré par
+ *    stripe-webhook + send-inscription-email. Cette fonction
+ *    NE RENVOIE PLUS AUCUN EMAIL, même si sendEmail = true.
+ */
 async function finalizeFromSessionId(sessionId: string, sendEmail = true) {
   // Récupérer la session Stripe (avec details)
   const session = await stripe.checkout.sessions.retrieve(sessionId, {
@@ -80,10 +80,18 @@ async function finalizeFromSessionId(sessionId: string, sendEmail = true) {
     if (meta.inscription_id) {
       inscriptionIds = [meta.inscription_id];
     } else if (meta.groups) {
-      const groupIds = meta.groups.split(",").map((x) => x.trim()).filter(Boolean);
+      const groupIds = meta.groups
+        .split(",")
+        .map((x) => x.trim())
+        .filter(Boolean);
       if (groupIds.length) {
-        const inscs = await supabase.from("inscriptions").select("id").in("member_of_group_id", groupIds);
-        if (!inscs.error) inscriptionIds = (inscs.data || []).map((r: any) => r.id);
+        const inscs = await supabase
+          .from("inscriptions")
+          .select("id")
+          .in("member_of_group_id", groupIds);
+        if (!inscs.error) {
+          inscriptionIds = (inscs.data || []).map((r: any) => r.id);
+        }
       }
     }
   }
@@ -94,7 +102,9 @@ async function finalizeFromSessionId(sessionId: string, sendEmail = true) {
       .from("paiements")
       .update({
         status: "paye",
-        inscription_ids: inscriptionIds?.length ? inscriptionIds : pay.data.inscription_ids || null,
+        inscription_ids: inscriptionIds?.length
+          ? inscriptionIds
+          : pay.data.inscription_ids || null,
         updated_at: new Date().toISOString(),
       })
       .eq("id", pay.data.id)
@@ -116,80 +126,93 @@ async function finalizeFromSessionId(sessionId: string, sendEmail = true) {
 
   // Mettre à jour inscriptions / options / groupes
   if (inscriptionIds?.length) {
-    const u1 = await supabase.from("inscriptions").update({ statut: "paye" }).in("id", inscriptionIds);
+    const u1 = await supabase
+      .from("inscriptions")
+      .update({ statut: "paye" })
+      .in("id", inscriptionIds);
     if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
 
-    const u2 = await supabase.from("inscriptions_options").update({ status: "confirmed" }).in("inscription_id", inscriptionIds);
+    const u2 = await supabase
+      .from("inscriptions_options")
+      .update({ status: "confirmed" })
+      .in("inscription_id", inscriptionIds);
     if (u2.error) console.error("OPTIONS_CONFIRM_ERROR", u2.error);
 
-    const grpIdsRes = await supabase.from("inscriptions").select("member_of_group_id").in("id", inscriptionIds);
-    const grpIds = [...new Set((grpIdsRes.data || []).map((r: any) => r.member_of_group_id).filter(Boolean))];
+    const grpIdsRes = await supabase
+      .from("inscriptions")
+      .select("member_of_group_id")
+      .in("id", inscriptionIds);
+    const grpIds = [
+      ...new Set(
+        (grpIdsRes.data || [])
+          .map((r: any) => r.member_of_group_id)
+          .filter(Boolean),
+      ),
+    ];
     if (grpIds.length) {
-      const u3 = await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", grpIds);
+      const u3 = await supabase
+        .from("inscriptions_groupes")
+        .update({ statut: "paye" })
+        .in("id", grpIds);
       if (u3.error) console.error("GROUPS_UPDATE_ERROR", u3.error);
     }
   }
 
-  // Email de confirmation
-  let emailSent = false;
+  // ⚠️ PLUS D’EMAIL ICI
   if (sendEmail) {
-    const payerEmail = session.customer_details?.email || session.customer_email || null;
-
-    let inscriptions: Array<{ id: string; nom: string | null; prenom: string | null; team_name: string | null }> = [];
-    if (inscriptionIds?.length) {
-      const inscs = await supabase.from("inscriptions").select("id, nom, prenom, team_name").in("id", inscriptionIds);
-      if (!inscs.error) inscriptions = inscs.data || [];
-    }
-    const html = `
-      <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif">
-        <h2>Confirmation d’inscription</h2>
-        <p>Votre paiement a été confirmé. Voici le récapitulatif :</p>
-        <ul>
-          ${inscriptions.map(i => `<li>${(i.prenom||"").trim()} ${(i.nom||"").trim()} ${i.team_name ? `— ${i.team_name}` : ""}</li>`).join("")}
-        </ul>
-        <p>Consultez vos inscriptions : <a href="${TICKRACE_BASE_URL}/mesinscriptions">Mes inscriptions</a></p>
-        <p style="color:#667085;font-size:12px">Session Stripe : ${sessionId}</p>
-      </div>
-    `;
-    let r = await sendResendEmail(payerEmail, "Tickrace – Confirmation d’inscription", html);
-    if (!r.ok && !payerEmail && inscriptionIds?.length) {
-      const firstEmail = await supabase.from("inscriptions").select("email").in("id", inscriptionIds).limit(1).maybeSingle();
-      const to = firstEmail.data?.email || null;
-      r = await sendResendEmail(to, "Tickrace – Confirmation d’inscription", html);
-    }
-    emailSent = !!r.ok;
+    console.log(
+      "finalize-payment: email non envoyé (délégué à stripe-webhook/send-inscription-email)",
+    );
   }
 
   // Récap pour la page Merci
   let paymentRow = await supabase
     .from("paiements")
-    .select("stripe_session_id, total_amount_cents, status, created_at, inscription_ids")
+    .select(
+      "stripe_session_id, total_amount_cents, status, created_at, inscription_ids",
+    )
     .eq("stripe_session_id", sessionId)
     .maybeSingle();
 
-  const payment = paymentRow.data || { stripe_session_id: sessionId, total_amount_cents: null, status: "paye", created_at: new Date().toISOString() };
+  const payment =
+    paymentRow.data || {
+      stripe_session_id: sessionId,
+      total_amount_cents: null,
+      status: "paye",
+      created_at: new Date().toISOString(),
+    };
 
   let inscriptionsR: any[] = [];
   if (inscriptionIds?.length) {
     const insRes = await supabase
       .from("inscriptions")
-      .select("id, nom, prenom, email, team_name, statut, member_of_group_id")
+      .select(
+        "id, nom, prenom, email, team_name, statut, member_of_group_id",
+      )
       .in("id", inscriptionIds);
     if (!insRes.error) inscriptionsR = insRes.data || [];
   }
-  const groupIds = [...new Set(inscriptionsR.map((i) => i.member_of_group_id).filter(Boolean))] as string[];
+  const groupIds = [
+    ...new Set(
+      inscriptionsR
+        .map((i) => i.member_of_group_id)
+        .filter(Boolean),
+    ),
+  ] as string[];
   let groupes: any[] = [];
   if (groupIds.length) {
     const gr = await supabase
       .from("inscriptions_groupes")
-      .select("id, nom_groupe, team_name, team_name_public, statut, team_category, members_count")
+      .select(
+        "id, nom_groupe, team_name, team_name_public, statut, team_category, members_count",
+      )
       .in("id", groupIds);
     if (!gr.error) groupes = gr.data || [];
   }
 
   return {
     paid: true,
-    emailSent,
+    emailSent: false,
     summary: {
       payment: {
         session_id: payment.stripe_session_id,
@@ -205,7 +228,9 @@ async function finalizeFromSessionId(sessionId: string, sendEmail = true) {
 
 /* ------------ Handler (webhook + client) ------------ */
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: corsHeaders() });
+  }
 
   try {
     const sig = req.headers.get("stripe-signature");
@@ -215,25 +240,32 @@ serve(async (req) => {
       const raw = await req.arrayBuffer();
       let event: Stripe.Event;
       try {
-        event = stripe.webhooks.constructEvent(raw, sig, STRIPE_WEBHOOK_SECRET);
+        event = stripe.webhooks.constructEvent(
+          raw,
+          sig,
+          STRIPE_WEBHOOK_SECRET,
+        );
       } catch (err) {
         console.error("WEBHOOK_SIGNATURE_ERROR", err);
         return json({ error: "invalid_signature" }, 400);
       }
 
-      // On gère les deux events courants
+      // On gère deux events courants
       let sessionId = "";
       if (event.type === "checkout.session.completed") {
         sessionId = (event.data.object as Stripe.Checkout.Session).id;
       } else if (event.type === "payment_intent.succeeded") {
         const pi = event.data.object as Stripe.PaymentIntent;
-        const sessList = await stripe.checkout.sessions.list({ payment_intent: pi.id, limit: 1 });
+        const sessList = await stripe.checkout.sessions.list({
+          payment_intent: pi.id,
+          limit: 1,
+        });
         sessionId = sessList.data?.[0]?.id || "";
       }
 
       if (!sessionId) return json({ ok: true, ignored: true });
 
-      const res = await finalizeFromSessionId(sessionId, true);
+      const res = await finalizeFromSessionId(sessionId, false);
       return json({ ok: true, source: "webhook", ...res });
     }
 
@@ -257,8 +289,11 @@ serve(async (req) => {
 
     const res = await finalizeFromSessionId(sessionId, sendEmail);
     return json({ ok: true, source: "client", ...res });
-  } catch (e) {
+  } catch (e: any) {
     console.error("FINALIZE_PAYMENT_FATAL", e);
-    return json({ error: "finalize_failed", details: String(e?.message ?? e) }, 500);
+    return json(
+      { error: "finalize_failed", details: String(e?.message ?? e) },
+      500,
+    );
   }
 });
