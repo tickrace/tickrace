@@ -90,34 +90,16 @@ const meters = (x) => (x == null ? "—" : `${parseInt(x, 10)} m`);
 
 /* ---------- Raisons d’annulation individuelles ---------- */
 const CANCEL_REASONS = [
-  {
-    value: "blessure_coureur",
-    label: "Blessure ou problème de santé",
-  },
-  {
-    value: "indisponibilite_professionnelle",
-    label: "Indisponibilité professionnelle",
-  },
-  {
-    value: "indisponibilite_familiale",
-    label: "Indisponibilité familiale / personnelle",
-  },
+  { value: "blessure_coureur", label: "Blessure ou problème de santé" },
+  { value: "indisponibilite_professionnelle", label: "Indisponibilité professionnelle" },
+  { value: "indisponibilite_familiale", label: "Indisponibilité familiale / personnelle" },
   {
     value: "probleme_logistique",
     label: "Problème logistique (transport, hébergement, covoiturage, etc.)",
   },
-  {
-    value: "erreur_inscription",
-    label: "Erreur d’inscription (format, doublon, etc.)",
-  },
-  {
-    value: "changement_objectif_sportif",
-    label: "Changement d’objectif sportif",
-  },
-  {
-    value: "meteo_defavorable",
-    label: "Prévision météo défavorable",
-  },
+  { value: "erreur_inscription", label: "Erreur d’inscription (format, doublon, etc.)" },
+  { value: "changement_objectif_sportif", label: "Changement d’objectif sportif" },
+  { value: "meteo_defavorable", label: "Prévision météo défavorable" },
   {
     value: "autre_raison_personnelle",
     label: "Autre raison personnelle (détails ci-dessous)",
@@ -164,7 +146,7 @@ export default function MonInscription() {
     setLoading(true);
     setError("");
     try {
-      // 1) Inscription brute
+      // 1) Inscription
       const { data: ins, error: insErr } = await supabase
         .from("inscriptions")
         .select("*")
@@ -176,7 +158,7 @@ export default function MonInscription() {
 
       setInsc(ins);
 
-      // Préparer le brouillon de profil pour édition
+      // Préparer le brouillon de profil
       setProfileDraft({
         nom: ins.nom || "",
         prenom: ins.prenom || "",
@@ -228,9 +210,8 @@ export default function MonInscription() {
       setCourse(courseRes.data || null);
       setFormat(formatRes.data || null);
 
-      // 3) Options A & B
+      // 3) Options
       const [a, b] = await Promise.all([
-        // Options liées à format_options
         supabase
           .from("inscription_options")
           .select(
@@ -240,7 +221,6 @@ export default function MonInscription() {
           `
           )
           .eq("inscription_id", id),
-        // Options génériques (inscriptions_options + options_catalogue)
         supabase
           .from("inscriptions_options")
           .select(
@@ -259,22 +239,33 @@ export default function MonInscription() {
       setOptionsB(b.data || []);
 
       // 4) Paiements : inscription_id direct + inscription_ids (uuid[])
-      const { data: paiements, error: payErr } = await supabase
-        .from("paiements")
-        .select("*")
-        .or(`inscription_id.eq.${id},inscription_ids.cs.{${id}}`)
-        .order("created_at", { ascending: false });
+      const [paysDirect, paysGroup] = await Promise.all([
+        supabase
+          .from("paiements")
+          .select("*")
+          .eq("inscription_id", id)
+          .order("created_at", { ascending: false }),
+        supabase
+          .from("paiements")
+          .select("*")
+          .contains("inscription_ids", [id])
+          .order("created_at", { ascending: false }),
+      ]);
 
-      if (payErr) {
-        console.error("PAIEMENTS_LOAD_ERROR", payErr);
-      }
+      if (paysDirect.error) console.error("PAIEMENTS_DIRECT_ERROR", paysDirect.error);
+      if (paysGroup.error) console.error("PAIEMENTS_GROUP_ERROR", paysGroup.error);
+
+      const paiements = [
+        ...(paysDirect.data || []),
+        ...(paysGroup.data || []),
+      ];
 
       const receipt =
         (paiements || []).find((p) => !!p.receipt_url)?.receipt_url || null;
 
-      setPayInfos({ paiements: paiements || [], receipt });
+      setPayInfos({ paiements, receipt });
 
-      // 5) Dernier remboursement (s'il existe)
+      // 5) Dernier remboursement
       const { data: remb, error: rembErr } = await supabase
         .from("remboursements")
         .select("*")
@@ -363,7 +354,7 @@ export default function MonInscription() {
     }
   };
 
-  // --- Gestion édition profil (pour cette inscription) ---
+  // --- Édition profil ---
   const handleProfileChange = (field, value) => {
     setProfileDraft((prev) => ({
       ...prev,
@@ -569,11 +560,10 @@ export default function MonInscription() {
   const isCanceled =
     !!insc.cancelled_at ||
     (insc.statut || "").toLowerCase().includes("annul");
-  const canCancel = !isCanceled; // règles de délai possibles ici
+  const canCancel = !isCanceled;
 
-  // Totaux côté "logique Tickrace"
+  // Totaux
   const totalCoureur = Number(insc.prix_total_coureur || 0);
-
   const totalOptionsA = optionsA.reduce((acc, o) => {
     const unit =
       o?.unit_price_cents != null
@@ -584,14 +574,12 @@ export default function MonInscription() {
       o?.total_cents != null ? o.total_cents / 100 : unit * q;
     return acc + total;
   }, 0);
-
   const totalOptionsB = optionsB.reduce((acc, o) => {
     const unit =
       (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) / 100;
     const q = o?.quantity ?? 1;
     return acc + unit * q;
   }, 0);
-
   const totalOptions = totalOptionsA + totalOptionsB;
   const totalTheo = totalCoureur + totalOptions;
 
@@ -771,6 +759,7 @@ export default function MonInscription() {
                   </>
                 ) : (
                   <>
+                    {/* champs éditables (identiques à plus haut) */}
                     <Row label="Nom">
                       <input
                         type="text"
@@ -1011,7 +1000,6 @@ export default function MonInscription() {
                     <button
                       type="button"
                       onClick={() => {
-                        // reset depuis l'inscription actuelle
                         setProfileDraft({
                           nom: insc.nom || "",
                           prenom: insc.prenom || "",
@@ -1087,6 +1075,7 @@ export default function MonInscription() {
           }
         >
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Récap Tickrace */}
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Récapitulatif Tickrace
@@ -1097,13 +1086,14 @@ export default function MonInscription() {
               <Row label="Total options (estimé)">
                 {euros(totalOptions)}
               </Row>
-              <Row label="Total théorique">
-                {euros(totalTheo)}
-              </Row>
+              <Row label="Total théorique">{euros(totalTheo)}</Row>
               <Row label="Statut">{insc.statut || "—"}</Row>
+              <Row label="Référence Tickrace">
+                {insc.paiement_trace_id || "—"}
+              </Row>
             </div>
 
-            {/* Bloc simplifié Transactions Stripe */}
+            {/* Stripe simplifié */}
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Transactions Stripe
@@ -1143,17 +1133,17 @@ export default function MonInscription() {
                 </>
               ) : (
                 <div className="text-sm text-neutral-500">
-                  Aucune transaction Stripe disponible pour cette inscription.
+                  Aucune transaction Stripe accessible pour cette inscription.
                 </div>
               )}
             </div>
           </div>
         </Card>
 
-        {/* Remboursement & annulation : simulation d'abord, annulation ensuite */}
+        {/* Remboursement & annulation */}
         <Card title="Remboursement & annulation">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Simulation AVANT l'annulation */}
+            {/* Simulation */}
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Simulation de remboursement (indicatif)
@@ -1166,7 +1156,7 @@ export default function MonInscription() {
               />
             </div>
 
-            {/* Bloc annulation */}
+            {/* Annulation */}
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Annuler mon inscription
