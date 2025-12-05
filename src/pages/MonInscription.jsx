@@ -276,14 +276,7 @@ export default function MonInscription() {
       if (payErr1) console.error("PAIEMENTS_DIRECT_ERROR", payErr1);
       if (payErr2) console.error("PAIEMENTS_GROUP_ERROR", payErr2);
 
-      // Fusion + dédoublonnage simple
-      const mapPaiements = new Map();
-      (paysDirect || []).forEach((p) => mapPaiements.set(p.id, p));
-      (paysGroup || []).forEach((p) => mapPaiements.set(p.id, p));
-      const paiements = Array.from(mapPaiements.values()).sort(
-        (a, b) => new Date(b.created_at) - new Date(a.created_at)
-      );
-
+      const paiements = [...(paysDirect || []), ...(paysGroup || [])];
       const receipt =
         paiements.find((p) => !!p.receipt_url)?.receipt_url || null;
 
@@ -939,7 +932,9 @@ export default function MonInscription() {
                             )
                           }
                         />
-                        <span>Oui, je souhaite apparaître dans les résultats</span>
+                        <span>
+                          Oui, je souhaite apparaître dans les résultats
+                        </span>
                       </label>
                     </Row>
                     <Row label="Contact urgence">
@@ -1174,7 +1169,7 @@ export default function MonInscription() {
               />
             </div>
 
-            {/* Bloc annulation – même logique que précédemment, mais placé après la simulation */}
+            {/* Bloc annulation */}
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Annuler mon inscription
@@ -1249,7 +1244,7 @@ export default function MonInscription() {
             </div>
           </div>
 
-          {/* Historique remboursement sous les deux colonnes */}
+          {/* Historique remboursement */}
           <div className="mt-6 rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
             <div className="text-sm font-semibold text-neutral-700 mb-2">
               Historique de remboursement
