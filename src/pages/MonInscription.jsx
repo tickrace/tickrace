@@ -198,6 +198,7 @@ export default function MonInscription() {
 
       // 3) Options A & B
       const [a, b] = await Promise.all([
+        // Options liées à format_options (si la table existe encore)
         supabase
           .from("inscription_options")
           .select(
@@ -207,6 +208,7 @@ export default function MonInscription() {
           `
           )
           .eq("inscription_id", id),
+        // Options génériques (inscriptions_options + options_catalogue)
         supabase
           .from("inscriptions_options")
           .select(
@@ -224,24 +226,32 @@ export default function MonInscription() {
       setOptionsA(a.data || []);
       setOptionsB(b.data || []);
 
-      // 4) Paiements
-      const [{ data: paysDirect }, { data: paysGroup }] = await Promise.all([
-        supabase
-          .from("paiements")
-          .select("*")
-          .eq("inscription_id", id)
-          .order("created_at", { ascending: false }),
-        supabase
-          .from("paiements")
-          .select("*")
-          .contains("inscription_ids", [id])
-          .order("created_at", { ascending: false }),
-      ]);
+      // 4) Paiements : on couvre inscription_id, inscription_ids, trace_id et stripe_session_id
+      const orConditions = [
+        `inscription_id.eq.${id}`,
+        // inscription_ids est un uuid[] rempli comme '{"0979..."}'
+        `inscription_ids.cs.{${id}}`,
+      ];
 
-      const paiements = [...(paysDirect || []), ...(paysGroup || [])];
+      if (ins.paiement_trace_id) {
+        orConditions.push(`trace_id.eq.${ins.paiement_trace_id}`);
+        orConditions.push(`stripe_session_id.eq.${ins.paiement_trace_id}`);
+      }
+
+      const { data: paiements, error: payErr } = await supabase
+        .from("paiements")
+        .select("*")
+        .or(orConditions.join(","))
+        .order("created_at", { ascending: false });
+
+      if (payErr) {
+        console.error("PAIEMENTS_LOAD_ERROR", payErr);
+      }
+
       const receipt =
-        paiements.find((p) => !!p.receipt_url)?.receipt_url || null;
-      setPayInfos({ paiements, receipt });
+        (paiements || []).find((p) => !!p.receipt_url)?.receipt_url || null;
+
+      setPayInfos({ paiements: paiements || [], receipt });
 
       // 5) Dernier remboursement (s'il existe)
       const { data: remb, error: rembErr } = await supabase
@@ -412,8 +422,9 @@ export default function MonInscription() {
                   {optionsB.map((o) => {
                     const label = o?.option?.label || "Option";
                     const unit =
-                      (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) /
-                      100;
+                      (o?.prix_unitaire_cents ??
+                        o?.option?.price_cents ??
+                        0) / 100;
                     const q = o?.quantity ?? 1;
                     const total = unit * q;
                     const status = (o?.status || "pending").toLowerCase();
@@ -484,6 +495,7 @@ export default function MonInscription() {
 
   // Totaux côté "logique Tickrace"
   const totalCoureur = Number(insc.prix_total_coureur || 0);
+
   const totalOptionsA = optionsA.reduce((acc, o) => {
     const unit =
       o?.unit_price_cents != null
@@ -494,12 +506,14 @@ export default function MonInscription() {
       o?.total_cents != null ? o.total_cents / 100 : unit * q;
     return acc + total;
   }, 0);
+
   const totalOptionsB = optionsB.reduce((acc, o) => {
     const unit =
       (o?.prix_unitaire_cents ?? o?.option?.price_cents ?? 0) / 100;
     const q = o?.quantity ?? 1;
     return acc + unit * q;
   }, 0);
+
   const totalOptions = totalOptionsA + totalOptionsB;
   const totalTheo = totalCoureur + totalOptions;
 
@@ -653,9 +667,7 @@ export default function MonInscription() {
               </Row>
               <Row label="Email">{insc.email || "—"}</Row>
               <Row label="Téléphone">{insc.telephone || "—"}</Row>
-              <Row label="Licence">
-                {insc.numero_licence || "—"}
-              </Row>
+              <Row label="Licence">{insc.numero_licence || "—"}</Row>
               {insc.pps_identifier && (
                 <Row label="PPS">
                   {insc.pps_identifier}{" "}
