@@ -239,7 +239,7 @@ export default function MonInscription() {
       setOptionsB(b.data || []);
 
       // 4) Paiements : inscription_id direct + inscription_ids (uuid[])
-      const [paysDirect, paysGroup] = await Promise.all([
+      const [directRes, groupRes] = await Promise.all([
         supabase
           .from("paiements")
           .select("*")
@@ -252,12 +252,14 @@ export default function MonInscription() {
           .order("created_at", { ascending: false }),
       ]);
 
-      if (paysDirect.error) console.error("PAIEMENTS_DIRECT_ERROR", paysDirect.error);
-      if (paysGroup.error) console.error("PAIEMENTS_GROUP_ERROR", paysGroup.error);
+      if (directRes.error)
+        console.error("PAIEMENTS_DIRECT_ERROR", directRes.error);
+      if (groupRes.error)
+        console.error("PAIEMENTS_GROUP_ERROR", groupRes.error);
 
       const paiements = [
-        ...(paysDirect.data || []),
-        ...(paysGroup.data || []),
+        ...(directRes.data || []),
+        ...(groupRes.data || []),
       ];
 
       const receipt =
@@ -583,8 +585,11 @@ export default function MonInscription() {
   const totalOptions = totalOptionsA + totalOptionsB;
   const totalTheo = totalCoureur + totalOptions;
 
-  // Premier paiement (s'il existe)
-  const mainPayment = payInfos.paiements?.[0] || null;
+  // Paiement principal Stripe
+  const mainPayment = payInfos?.paiements?.length
+    ? payInfos.paiements[0]
+    : null;
+
   let stripeAmountDisplay = "—";
   if (mainPayment) {
     if (mainPayment.amount_total != null) {
@@ -759,7 +764,6 @@ export default function MonInscription() {
                   </>
                 ) : (
                   <>
-                    {/* champs éditables (identiques à plus haut) */}
                     <Row label="Nom">
                       <input
                         type="text"
