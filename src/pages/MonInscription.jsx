@@ -595,6 +595,39 @@ export default function MonInscription() {
   const totalOptions = totalOptionsA + totalOptionsB;
   const totalTheo = totalCoureur + totalOptions;
 
+  // Premier paiement (s'il existe)
+  const mainPayment = payInfos.paiements?.[0] || null;
+  let stripeAmountDisplay = "—";
+  if (mainPayment) {
+    if (mainPayment.amount_total != null) {
+      stripeAmountDisplay = euros(mainPayment.amount_total / 100);
+    } else if (mainPayment.total_amount_cents != null) {
+      stripeAmountDisplay = euros(mainPayment.total_amount_cents / 100);
+    } else if (mainPayment.montant_total != null) {
+      stripeAmountDisplay = euros(mainPayment.montant_total);
+    }
+  }
+
+  let stripeStatusColor = "neutral";
+  const rawStatus = (mainPayment?.status || "").toLowerCase();
+  if (
+    rawStatus.includes("paye") ||
+    rawStatus.includes("payé") ||
+    rawStatus === "succeeded" ||
+    rawStatus === "paid"
+  ) {
+    stripeStatusColor = "green";
+  } else if (
+    rawStatus.includes("rembours") ||
+    rawStatus.includes("refund")
+  ) {
+    stripeStatusColor = "blue";
+  } else if (rawStatus.includes("pend") || rawStatus === "open") {
+    stripeStatusColor = "orange";
+  } else if (rawStatus) {
+    stripeStatusColor = "red";
+  }
+
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
@@ -1069,76 +1102,48 @@ export default function MonInscription() {
               </Row>
               <Row label="Statut">{insc.statut || "—"}</Row>
             </div>
+
+            {/* Bloc simplifié Transactions Stripe */}
             <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
               <div className="text-sm font-semibold text-neutral-700 mb-2">
                 Transactions Stripe
               </div>
-              {payInfos.paiements?.length ? (
-                <div className="rounded-xl ring-1 ring-neutral-200 overflow-hidden">
-                  <table className="w-full text-sm">
-                    <thead className="bg-neutral-50">
-                      <tr className="text-left">
-                        <th className="px-3 py-2">Date</th>
-                        <th className="px-3 py-2">Montant</th>
-                        <th className="px-3 py-2">Statut</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {payInfos.paiements.map((p) => {
-                        const status = (p.status || "").toLowerCase();
-
-                        let color = "neutral";
-                        if (
-                          status.includes("paye") ||
-                          status.includes("payé") ||
-                          status === "succeeded" ||
-                          status === "paid"
-                        ) {
-                          color = "green";
-                        } else if (
-                          status.includes("rembours") ||
-                          status.includes("refund")
-                        ) {
-                          color = "blue";
-                        } else if (
-                          status.includes("pend") ||
-                          status === "open"
-                        ) {
-                          color = "orange";
-                        } else if (status) {
-                          color = "red";
-                        }
-
-                        const amount =
-                          p.amount_total != null
-                            ? euros(p.amount_total / 100)
-                            : p.total_amount_cents != null
-                            ? euros(p.total_amount_cents / 100)
-                            : p.montant_total != null
-                            ? euros(p.montant_total)
-                            : "—";
-
-                        return (
-                          <tr
-                            key={p.id}
-                            className="border-t border-neutral-200"
-                          >
-                            <td className="px-3 py-2">
-                              {formatDateTime(p.created_at)}
-                            </td>
-                            <td className="px-3 py-2">{amount}</td>
-                            <td className="px-3 py-2">
-                              <Pill color={color}>{p.status || "—"}</Pill>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
-                </div>
+              {mainPayment ? (
+                <>
+                  <Row label="Payment Intent ID">
+                    {mainPayment.stripe_payment_intent_id || "—"}
+                  </Row>
+                  <Row label="Session Stripe">
+                    {mainPayment.stripe_session_id ||
+                      mainPayment.trace_id ||
+                      "—"}
+                  </Row>
+                  <Row label="Montant (Stripe)">
+                    {stripeAmountDisplay}
+                  </Row>
+                  <Row label="Statut Stripe">
+                    <Pill color={stripeStatusColor}>
+                      {mainPayment.status || "—"}
+                    </Pill>
+                  </Row>
+                  <Row label="Reçu Stripe">
+                    {mainPayment.receipt_url ? (
+                      <a
+                        href={mainPayment.receipt_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-sm font-semibold text-orange-600 hover:underline"
+                      >
+                        Ouvrir le reçu
+                      </a>
+                    ) : (
+                      "—"
+                    )}
+                  </Row>
+                </>
               ) : (
                 <div className="text-sm text-neutral-500">
-                  Aucune transaction affichée.
+                  Aucune transaction Stripe disponible pour cette inscription.
                 </div>
               )}
             </div>
