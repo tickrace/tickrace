@@ -1,0 +1,22 @@
+federation_code,code,label,sex,birthyear_min,birthyear_max,season_start_month,is_master,master_level,sort_order,is_active
+FFA,BB,"Baby Athlé U7","ALL",2020,,9,false,,1,true
+FFA,EA,"Éveil Athlétique U10","ALL",2017,2019,9,false,,2,true
+FFA,PO,"Poussins U12","ALL",2015,2016,9,false,,3,true
+FFA,BE,"Benjamins U14","ALL",2013,2014,9,false,,4,true
+FFA,MI,"Minimes U16","ALL",2011,2012,9,false,,5,true
+FFA,CA,"Cadets U18","ALL",2009,2010,9,false,,6,true
+FFA,JU,"Juniors U20","ALL",2007,2008,9,false,,7,true
+FFA,ES,"Espoirs U23","ALL",2004,2006,9,false,,8,true
+FFA,SE,"Seniors","ALL",1992,2003,9,false,,9,true
+FFA,M0,"Masters M0","ALL",1987,1991,9,true,M0,20,true
+FFA,M1,"Masters M1","ALL",1982,1986,9,true,M1,21,true
+FFA,M2,"Masters M2","ALL",1977,1981,9,true,M2,22,true
+FFA,M3,"Masters M3","ALL",1972,1976,9,true,M3,23,true
+FFA,M4,"Masters M4","ALL",1967,1971,9,true,M4,24,true
+FFA,M5,"Masters M5","ALL",1962,1966,9,true,M5,25,true
+FFA,M6,"Masters M6","ALL",1957,1961,9,true,M6,26,true
+FFA,M7,"Masters M7","ALL",1952,1956,9,true,M7,27,true
+FFA,M8,"Masters M8","ALL",1947,1951,9,true,M8,28,true
+FFA,M9,"Masters M9","ALL",1942,1946,9,true,M9,29,true
+FFA,M10,"Masters M10","ALL",,1941,9,true,M10,30,true
+FFA,VE,"Masters (global)","ALL",,1991,9,true,ALL,40,true

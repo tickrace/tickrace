@@ -637,6 +637,7 @@ export default function DetailsCoureur() {
             <div className="space-y-3">
               {champsMeta.map((c) => renderInput(c))}
             </div>
+            
           </div>
         </div>
       </div>
