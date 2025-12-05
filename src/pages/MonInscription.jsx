@@ -259,28 +259,20 @@ export default function MonInscription() {
       setOptionsB(b.data || []);
 
       // 4) Paiements : inscription_id direct + inscription_ids (uuid[])
-      const [{ data: paysDirect, error: payErr1 }, { data: paysGroup, error: payErr2 }] =
-        await Promise.all([
-          supabase
-            .from("paiements")
-            .select("*")
-            .eq("inscription_id", id)
-            .order("created_at", { ascending: false }),
-          supabase
-            .from("paiements")
-            .select("*")
-            .contains("inscription_ids", [id])
-            .order("created_at", { ascending: false }),
-        ]);
+      const { data: paiements, error: payErr } = await supabase
+        .from("paiements")
+        .select("*")
+        .or(`inscription_id.eq.${id},inscription_ids.cs.{${id}}`)
+        .order("created_at", { ascending: false });
 
-      if (payErr1) console.error("PAIEMENTS_DIRECT_ERROR", payErr1);
-      if (payErr2) console.error("PAIEMENTS_GROUP_ERROR", payErr2);
+      if (payErr) {
+        console.error("PAIEMENTS_LOAD_ERROR", payErr);
+      }
 
-      const paiements = [...(paysDirect || []), ...(paysGroup || [])];
       const receipt =
-        paiements.find((p) => !!p.receipt_url)?.receipt_url || null;
+        (paiements || []).find((p) => !!p.receipt_url)?.receipt_url || null;
 
-      setPayInfos({ paiements, receipt });
+      setPayInfos({ paiements: paiements || [], receipt });
 
       // 5) Dernier remboursement (s'il existe)
       const { data: remb, error: rembErr } = await supabase
