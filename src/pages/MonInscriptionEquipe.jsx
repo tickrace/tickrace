@@ -90,7 +90,8 @@ export default function MonInscriptionEquipe() {
   const { session } = useUser();
 
   const [loading, setLoading] = useState(true);
-  const [group, setGroup] = useState(null);
+  const [group, setGroup] = useState(null);           // groupe "principal" (celui de l’URL)
+  const [groupsList, setGroupsList] = useState([]);   // toutes les équipes liées au même paiement
   const [format, setFormat] = useState(null);
   const [course, setCourse] = useState(null);
   const [members, setMembers] = useState([]);
@@ -107,13 +108,6 @@ export default function MonInscriptionEquipe() {
   const [cancelLoading, setCancelLoading] = useState(false);
   const [cancelError, setCancelError] = useState(null);
   const [cancelSuccess, setCancelSuccess] = useState(null);
-
-  // Mon inscription dans l’équipe
-  const [myMember, setMyMember] = useState(null);
-  const [editingProfile, setEditingProfile] = useState(false);
-  const [profileDraft, setProfileDraft] = useState(null);
-  const [savingProfile, setSavingProfile] = useState(false);
-  const [profileMessage, setProfileMessage] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -137,7 +131,7 @@ export default function MonInscriptionEquipe() {
 
       setLoading(true);
       try {
-        // 1) Charger le groupe + format + course
+        // 1) Charger le groupe demandé (avec format + course)
         const { data: grp, error: gErr } = await supabase
           .from("inscriptions_groupes")
           .select(
@@ -170,78 +164,76 @@ export default function MonInscriptionEquipe() {
 
         if (!grp) {
           setGroup(null);
+          setGroupsList([]);
           setFormat(null);
           setCourse(null);
           setMembers([]);
           setPaiement(null);
           setOptions([]);
-          setMyMember(null);
-          setProfileDraft(null);
           setLoading(false);
           return;
         }
 
-        setGroup(grp);
+        // 2) Charger toutes les équipes rattachées au même paiement (si paiement_id présent)
+        let allGroups = [grp];
+        if (grp.paiement_id) {
+          const { data: siblings, error: sErr } = await supabase
+            .from("inscriptions_groupes")
+            .select("*")
+            .eq("paiement_id", grp.paiement_id)
+            .order("created_at", { ascending: true });
+
+          if (sErr) {
+            console.error("GROUP_SIBLINGS_FETCH_ERROR", sErr);
+          } else if (siblings && siblings.length > 0) {
+            allGroups = siblings;
+          }
+        }
+
+        setGroupsList(allGroups);
+
+        // groupe "principal" = celui de l’URL si présent, sinon le premier
+        const mainGroup =
+          allGroups.find((g) => g.id === groupeId) || allGroups[0];
+
+        setGroup(mainGroup);
         setFormat(grp.format || null);
         setCourse(grp.format?.course || null);
 
-        // 2) Charger les membres (toutes les colonnes pour pouvoir éditer comme sur MonInscription)
-        const { data: membs, error: mErr } = await supabase
-          .from("inscriptions")
-          .select("*")
-          .or(`groupe_id.eq.${groupeId},member_of_group_id.eq.${groupeId}`);
+        // 3) Charger les membres pour TOUTES les équipes de ce paiement
+        const groupIdsForMembers = allGroups.map((g) => g.id);
 
-        if (mErr) {
-          console.error("MEMBERS_FETCH_ERROR", mErr);
-        }
+        let membs = [];
+        if (groupIdsForMembers.length > 0) {
+          const { data: membData, error: mErr } = await supabase
+            .from("inscriptions")
+            .select(
+              `
+              id,
+              nom,
+              prenom,
+              genre,
+              date_naissance,
+              numero_licence,
+              email,
+              statut,
+              groupe_id,
+              member_of_group_id,
+              team_name
+            `
+            )
+            .in("member_of_group_id", groupIdsForMembers);
 
-        const list = membs || [];
-        setMembers(list);
-
-        // Déterminer "mon" inscription dans cette équipe
-        const my = list.find((m) => {
-          if (m.coureur_id && user.id && m.coureur_id === user.id) return true;
-          if (user.email && m.email) {
-            return (
-              String(m.email).toLowerCase() ===
-              String(user.email).toLowerCase()
-            );
+          if (mErr) {
+            console.error("MEMBERS_FETCH_ERROR", mErr);
+          } else {
+            membs = membData || [];
           }
-          return false;
-        });
-
-        setMyMember(my || null);
-
-        if (my) {
-          setProfileDraft({
-            nom: my.nom || "",
-            prenom: my.prenom || "",
-            genre: my.genre || "",
-            date_naissance: my.date_naissance || "",
-            nationalite: my.nationalite || "",
-            email: my.email || "",
-            telephone: my.telephone || "",
-            adresse: my.adresse || "",
-            adresse_complement: my.adresse_complement || "",
-            code_postal: my.code_postal || "",
-            ville: my.ville || "",
-            pays: my.pays || "",
-            club: my.club || "",
-            justificatif_type: my.justificatif_type || "",
-            numero_licence: my.numero_licence || "",
-            contact_urgence_nom: my.contact_urgence_nom || "",
-            contact_urgence_telephone: my.contact_urgence_telephone || "",
-            apparaitre_resultats:
-              my.apparaitre_resultats === null ||
-              my.apparaitre_resultats === undefined
-                ? true
-                : !!my.apparaitre_resultats,
-          });
-        } else {
-          setProfileDraft(null);
         }
 
-        // 3) Paiement
+        setMembers(membs);
+
+        // 4) Paiement (commun à toutes les équipes)
         if (grp.paiement_id) {
           const { data: pay, error: pErr } = await supabase
             .from("paiements")
@@ -258,9 +250,9 @@ export default function MonInscriptionEquipe() {
           setPaiement(null);
         }
 
-        // 4) Options
-        if (list && list.length > 0) {
-          const mIds = list.map((m) => m.id);
+        // 5) Options pour tous les membres (toutes équipes confondues)
+        if (membs && membs.length > 0) {
+          const mIds = membs.map((m) => m.id);
           const { data: opts, error: oErr } = await supabase
             .from("inscriptions_options")
             .select(
@@ -286,13 +278,12 @@ export default function MonInscriptionEquipe() {
       } catch (e) {
         console.error("MON_INSCRIPTION_EQUIPE_FATAL", e);
         setGroup(null);
+        setGroupsList([]);
         setFormat(null);
         setCourse(null);
         setMembers([]);
         setPaiement(null);
         setOptions([]);
-        setMyMember(null);
-        setProfileDraft(null);
       } finally {
         setLoading(false);
       }
@@ -304,6 +295,15 @@ export default function MonInscriptionEquipe() {
     () => (members || []).length,
     [members]
   );
+
+  // Somme des tailles d’équipes
+  const totalTeamSize = useMemo(() => {
+    if (!groupsList || groupsList.length === 0) return null;
+    return groupsList.reduce(
+      (acc, g) => acc + (Number(g.team_size || 0) || 0),
+      0
+    );
+  }, [groupsList]);
 
   const teamCategoryLabel = useMemo(() => {
     const cat =
@@ -467,7 +467,6 @@ export default function MonInscriptionEquipe() {
       setMembers((prev) =>
         (prev || []).map((m) => ({ ...m, statut: "annulé" }))
       );
-      setMyMember((prev) => (prev ? { ...prev, statut: "annulé" } : prev));
     } catch (e) {
       console.error("REQUEST_TEAM_REFUND_FATAL", e);
       setCancelError(
@@ -479,68 +478,6 @@ export default function MonInscriptionEquipe() {
       setCancelLoading(false);
     }
   }
-
-  // --- Édition de "mes" infos dans l'équipe ---
-  const handleProfileChange = (field, value) => {
-    setProfileDraft((prev) => ({
-      ...prev,
-      [field]: value,
-    }));
-  };
-
-  const onSaveProfile = async () => {
-    if (!myMember || !profileDraft) return;
-    setSavingProfile(true);
-    setProfileMessage("");
-
-    try {
-      const payload = {
-        nom: profileDraft.nom?.trim() || null,
-        prenom: profileDraft.prenom?.trim() || null,
-        genre: profileDraft.genre || null,
-        date_naissance: profileDraft.date_naissance || null,
-        nationalite: profileDraft.nationalite || null,
-        email: profileDraft.email?.trim() || null,
-        telephone: profileDraft.telephone || null,
-        adresse: profileDraft.adresse || null,
-        adresse_complement: profileDraft.adresse_complement || null,
-        code_postal: profileDraft.code_postal || null,
-        ville: profileDraft.ville || null,
-        pays: profileDraft.pays || null,
-        club: profileDraft.club || null,
-        justificatif_type: profileDraft.justificatif_type || null,
-        numero_licence: profileDraft.numero_licence || null,
-        contact_urgence_nom: profileDraft.contact_urgence_nom || null,
-        contact_urgence_telephone:
-          profileDraft.contact_urgence_telephone || null,
-        apparaitre_resultats: !!profileDraft.apparaitre_resultats,
-      };
-
-      const { data, error } = await supabase
-        .from("inscriptions")
-        .update(payload)
-        .eq("id", myMember.id)
-        .select("*")
-        .maybeSingle();
-
-      if (error) throw error;
-
-      // Mettre à jour la liste des membres et myMember
-      setMembers((prev) =>
-        (prev || []).map((m) => (m.id === myMember.id ? data : m))
-      );
-      setMyMember(data);
-      setEditingProfile(false);
-      setProfileMessage("Vos informations ont été mises à jour pour cette équipe.");
-    } catch (e) {
-      console.error("TEAM_PROFILE_UPDATE_ERROR", e);
-      setProfileMessage(
-        e?.message || "Impossible de mettre à jour vos informations."
-      );
-    } finally {
-      setSavingProfile(false);
-    }
-  };
 
   /* ----------------------------- Rendu UI ------------------------------- */
 
@@ -632,11 +569,19 @@ export default function MonInscriptionEquipe() {
             {group.is_waitlist && <Pill color="blue">Liste d’attente</Pill>}
 
             <Pill color="orange">
-              Participants {participantsCount} / {group.team_size}
+              Participants {participantsCount}
+              {totalTeamSize ? ` / ${totalTeamSize}` : ""}
             </Pill>
 
             {teamCategoryLabel && (
               <Pill color="green">{teamCategoryLabel}</Pill>
+            )}
+
+            {groupsList.length > 1 && (
+              <Pill color="neutral">
+                {groupsList.length} équipe
+                {groupsList.length > 1 ? "s" : ""} dans ce paiement
+              </Pill>
             )}
           </div>
         </div>
@@ -663,8 +608,16 @@ export default function MonInscriptionEquipe() {
                   {course.nom} — {course.lieu}
                 </h2>
                 <p className="text-sm text-neutral-600 mt-1">
-                  {format.nom} · {format.distance_km} km / {format.denivele_dplus} m D+
+                  {format.nom} · {format.distance_km} km /{" "}
+                  {format.denivele_dplus} m D+
                 </p>
+                {groupsList.length > 1 && (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Cette réservation contient{" "}
+                    <b>{groupsList.length} équipes</b> (affichage des membres
+                    de toutes les équipes ci-dessous).
+                  </p>
+                )}
               </div>
 
               <div className="p-5 space-y-4">
@@ -673,13 +626,15 @@ export default function MonInscriptionEquipe() {
                     Inscription équipe / relais • {formatDate(format.date)}
                   </Pill>
                   <Pill color="neutral">
-                    Équipe <b className="ml-1">{group.team_name}</b>
+                    Équipe principale{" "}
+                    <b className="ml-1">{group.team_name}</b>
                   </Pill>
                   {teamCategoryLabel && (
                     <Pill color="green">{teamCategoryLabel}</Pill>
                   )}
                   <Pill color="orange">
-                    Participants {participantsCount} / {group.team_size}
+                    Participants {participantsCount}
+                    {totalTeamSize ? ` / ${totalTeamSize}` : ""}
                   </Pill>
                   {isAlreadyCancelled && (
                     <Pill color="red">Équipe annulée</Pill>
@@ -694,8 +649,14 @@ export default function MonInscriptionEquipe() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-neutral-500">Nom d’équipe</dt>
+                    <dt className="text-neutral-500">Nom d’équipe principale</dt>
                     <dd className="font-medium">{group.team_name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">
+                      Nombre d’équipes dans ce paiement
+                    </dt>
+                    <dd className="font-medium">{groupsList.length}</dd>
                   </div>
                   <div>
                     <dt className="text-neutral-500">Statut global inscrit</dt>
@@ -727,7 +688,8 @@ export default function MonInscriptionEquipe() {
                     Récapitulatif financier de l’équipe
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    Montant total payé et options associées au groupe.
+                    Montant total payé et options associées au groupe (toutes
+                    les équipes de ce paiement).
                   </p>
                 </div>
               </div>
@@ -740,7 +702,7 @@ export default function MonInscriptionEquipe() {
 
                 <div className="flex justify-between">
                   <span className="text-neutral-600">
-                    Nombre de participants
+                    Nombre de participants (toutes équipes)
                   </span>
                   <span className="font-medium">{participantsCount}</span>
                 </div>
@@ -766,18 +728,21 @@ export default function MonInscriptionEquipe() {
                 {options.length > 0 && (
                   <p className="text-xs text-neutral-500 mt-1">
                     Les options affichées correspondent à toutes les options
-                    achetées par l’équipe (par exemple : repas, T-shirt, etc.).
+                    achetées par l’ensemble des équipes de ce paiement (repas,
+                    T-shirt, etc.).
                   </p>
                 )}
               </div>
             </section>
 
-            {/* Tableau des membres */}
+            {/* Tableau des membres (toutes équipes) */}
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100">
                 <h2 className="text-lg font-semibold">Détail des membres</h2>
                 <p className="text-sm text-neutral-500">
-                  Retrouvez la liste des coureurs rattachés à cette équipe.
+                  Liste des coureurs rattachés à toutes les équipes de cette
+                  inscription. La colonne "Équipe" indique l’équipe de chaque
+                  coureur.
                 </p>
               </div>
 
@@ -792,6 +757,7 @@ export default function MonInscriptionEquipe() {
                     <thead>
                       <tr className="text-left text-neutral-600 border-b">
                         <th className="py-2 pr-3">#</th>
+                        <th className="py-2 pr-3">Équipe</th>
                         <th className="py-2 pr-3">Nom</th>
                         <th className="py-2 pr-3">Prénom</th>
                         <th className="py-2 pr-3">Sexe</th>
@@ -805,6 +771,9 @@ export default function MonInscriptionEquipe() {
                       {members.map((m, idx) => (
                         <tr key={m.id} className="border-b last:border-0">
                           <td className="py-2 pr-3">{idx + 1}</td>
+                          <td className="py-2 pr-3">
+                            {m.team_name || "—"}
+                          </td>
                           <td className="py-2 pr-3">{m.nom}</td>
                           <td className="py-2 pr-3">{m.prenom}</td>
                           <td className="py-2 pr-3">{m.genre}</td>
@@ -836,423 +805,6 @@ export default function MonInscriptionEquipe() {
                   </table>
                 )}
               </div>
-
-              {/* Mes infos dans cette équipe */}
-              {myMember && (
-                <div className="border-t border-neutral-200 bg-neutral-50 px-5 py-4">
-                  <h3 className="text-sm font-semibold text-neutral-800 mb-2">
-                    Mes infos dans cette équipe
-                  </h3>
-
-                  {!profileDraft ? (
-                    <p className="text-sm text-neutral-500">
-                      Chargement de vos informations…
-                    </p>
-                  ) : (
-                    <>
-                      {!editingProfile ? (
-                        <div className="space-y-1 text-sm">
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Nom / Prénom :
-                            </span>{" "}
-                            {myMember.nom || "—"} {myMember.prenom || ""}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Genre :
-                            </span>{" "}
-                            {myMember.genre || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Date de naissance :
-                            </span>{" "}
-                            {myMember.date_naissance
-                              ? formatDate(myMember.date_naissance)
-                              : "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Nationalité :
-                            </span>{" "}
-                            {myMember.nationalite || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Email :
-                            </span>{" "}
-                            {myMember.email || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Téléphone :
-                            </span>{" "}
-                            {myMember.telephone || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Adresse :
-                            </span>{" "}
-                            {myMember.adresse || "—"}
-                            {myMember.adresse_complement
-                              ? `, ${myMember.adresse_complement}`
-                              : ""}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Code postal / Ville :
-                            </span>{" "}
-                            {(myMember.code_postal || "—") +
-                              " " +
-                              (myMember.ville || "")}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Pays :
-                            </span>{" "}
-                            {myMember.pays || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Club :
-                            </span>{" "}
-                            {myMember.club || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Type justificatif :
-                            </span>{" "}
-                            {myMember.justificatif_type || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Licence / PPS :
-                            </span>{" "}
-                            {myMember.numero_licence || "—"}
-                          </div>
-                          <div>
-                            <span className="font-semibold text-neutral-600">
-                              Apparaître dans les résultats :
-                            </span>{" "}
-                            {myMember.apparaitre_resultats ? "Oui" : "Non"}
-                          </div>
-                          {myMember.contact_urgence_nom && (
-                            <div>
-                              <span className="font-semibold text-neutral-600">
-                                Contact urgence :
-                              </span>{" "}
-                              {myMember.contact_urgence_nom} •{" "}
-                              {myMember.contact_urgence_telephone || "—"}
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div className="space-y-3 text-sm">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Nom"
-                              value={profileDraft.nom}
-                              onChange={(e) =>
-                                handleProfileChange("nom", e.target.value)
-                              }
-                            />
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Prénom"
-                              value={profileDraft.prenom}
-                              onChange={(e) =>
-                                handleProfileChange("prenom", e.target.value)
-                              }
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Genre"
-                              value={profileDraft.genre}
-                              onChange={(e) =>
-                                handleProfileChange("genre", e.target.value)
-                              }
-                            />
-                            <input
-                              type="date"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              value={
-                                profileDraft.date_naissance
-                                  ? profileDraft.date_naissance.slice(0, 10)
-                                  : ""
-                              }
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "date_naissance",
-                                  e.target.value || null
-                                )
-                              }
-                            />
-                          </div>
-
-                          <input
-                            type="text"
-                            className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                            placeholder="Nationalité"
-                            value={profileDraft.nationalite}
-                            onChange={(e) =>
-                              handleProfileChange(
-                                "nationalite",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <input
-                              type="email"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Email"
-                              value={profileDraft.email}
-                              onChange={(e) =>
-                                handleProfileChange("email", e.target.value)
-                              }
-                            />
-                            <input
-                              type="tel"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Téléphone"
-                              value={profileDraft.telephone}
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "telephone",
-                                  e.target.value
-                                )
-                              }
-                            />
-                          </div>
-
-                          <input
-                            type="text"
-                            className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                            placeholder="Adresse"
-                            value={profileDraft.adresse}
-                            onChange={(e) =>
-                              handleProfileChange("adresse", e.target.value)
-                            }
-                          />
-                          <input
-                            type="text"
-                            className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                            placeholder="Complément d’adresse"
-                            value={profileDraft.adresse_complement}
-                            onChange={(e) =>
-                              handleProfileChange(
-                                "adresse_complement",
-                                e.target.value
-                              )
-                            }
-                          />
-
-                          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Code postal"
-                              value={profileDraft.code_postal}
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "code_postal",
-                                  e.target.value
-                                )
-                              }
-                            />
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Ville"
-                              value={profileDraft.ville}
-                              onChange={(e) =>
-                                handleProfileChange("ville", e.target.value)
-                              }
-                            />
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Pays"
-                              value={profileDraft.pays}
-                              onChange={(e) =>
-                                handleProfileChange("pays", e.target.value)
-                              }
-                            />
-                          </div>
-
-                          <input
-                            type="text"
-                            className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                            placeholder="Club"
-                            value={profileDraft.club}
-                            onChange={(e) =>
-                              handleProfileChange("club", e.target.value)
-                            }
-                          />
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Type de justificatif"
-                              value={profileDraft.justificatif_type}
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "justificatif_type",
-                                  e.target.value
-                                )
-                              }
-                            />
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Numéro de licence / PPS"
-                              value={profileDraft.numero_licence}
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "numero_licence",
-                                  e.target.value
-                                )
-                              }
-                            />
-                          </div>
-
-                          <label className="inline-flex items-center gap-2 text-xs">
-                            <input
-                              type="checkbox"
-                              className="rounded border-neutral-300"
-                              checked={!!profileDraft.apparaitre_resultats}
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "apparaitre_resultats",
-                                  e.target.checked
-                                )
-                              }
-                            />
-                            <span>
-                              Oui, je souhaite apparaître dans les résultats
-                            </span>
-                          </label>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Contact urgence - Nom"
-                              value={profileDraft.contact_urgence_nom}
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "contact_urgence_nom",
-                                  e.target.value
-                                )
-                              }
-                            />
-                            <input
-                              type="tel"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              placeholder="Contact urgence - Téléphone"
-                              value={profileDraft.contact_urgence_telephone}
-                              onChange={(e) =>
-                                handleProfileChange(
-                                  "contact_urgence_telephone",
-                                  e.target.value
-                                )
-                              }
-                            />
-                          </div>
-                        </div>
-                      )}
-
-                      <div className="mt-3 flex flex-wrap gap-2 items-center">
-                        {!editingProfile ? (
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingProfile(true);
-                              setProfileMessage("");
-                            }}
-                            className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-xs sm:text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                          >
-                            Modifier mes infos pour cette équipe
-                          </button>
-                        ) : (
-                          <>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                // reset depuis myMember
-                                if (myMember) {
-                                  setProfileDraft({
-                                    nom: myMember.nom || "",
-                                    prenom: myMember.prenom || "",
-                                    genre: myMember.genre || "",
-                                    date_naissance:
-                                      myMember.date_naissance || "",
-                                    nationalite: myMember.nationalite || "",
-                                    email: myMember.email || "",
-                                    telephone: myMember.telephone || "",
-                                    adresse: myMember.adresse || "",
-                                    adresse_complement:
-                                      myMember.adresse_complement || "",
-                                    code_postal: myMember.code_postal || "",
-                                    ville: myMember.ville || "",
-                                    pays: myMember.pays || "",
-                                    club: myMember.club || "",
-                                    justificatif_type:
-                                      myMember.justificatif_type || "",
-                                    numero_licence:
-                                      myMember.numero_licence || "",
-                                    contact_urgence_nom:
-                                      myMember.contact_urgence_nom || "",
-                                    contact_urgence_telephone:
-                                      myMember.contact_urgence_telephone || "",
-                                    apparaitre_resultats:
-                                      myMember.apparaitre_resultats === null ||
-                                      myMember.apparaitre_resultats ===
-                                        undefined
-                                        ? true
-                                        : !!myMember.apparaitre_resultats,
-                                  });
-                                }
-                                setEditingProfile(false);
-                                setProfileMessage("");
-                              }}
-                              className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-xs sm:text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                            >
-                              Annuler
-                            </button>
-                            <button
-                              type="button"
-                              onClick={onSaveProfile}
-                              disabled={savingProfile}
-                              className="rounded-xl bg-neutral-900 px-4 py-2 text-xs sm:text-sm font-semibold text-white hover:brightness-110 disabled:opacity-60"
-                            >
-                              {savingProfile
-                                ? "Enregistrement…"
-                                : "Enregistrer"}
-                            </button>
-                          </>
-                        )}
-
-                        {profileMessage && (
-                          <span className="text-[11px] text-neutral-600">
-                            {profileMessage}
-                          </span>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
-              )}
             </section>
 
             {/* SIMULATEUR REMBOURSEMENT */}
@@ -1320,7 +872,10 @@ export default function MonInscriptionEquipe() {
                           Montant remboursable estimé
                         </span>
                         <span className="font-semibold">
-                          {(simulation.amounts.refund_cents / 100).toFixed(2)} €
+                          {(
+                            simulation.amounts.refund_cents / 100
+                          ).toFixed(2)}{" "}
+                          €
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -1340,11 +895,10 @@ export default function MonInscriptionEquipe() {
                       Politique appliquée :{" "}
                       <b>
                         {simulation.policy.policy_tier} (
-                        {simulation.policy.percent}
-                        %)
+                        {simulation.policy.percent}%)
                       </b>
-                      . Il s’agit d’une <b>simulation</b> : le remboursement réel
-                      pourra être ajusté par l’organisateur.
+                      . Il s’agit d’une <b>simulation</b> : le remboursement
+                      réel pourra être ajusté par l’organisateur.
                     </p>
                   </>
                 )}
@@ -1358,7 +912,8 @@ export default function MonInscriptionEquipe() {
               <div className="p-5 border-b border-neutral-100">
                 <h3 className="text-lg font-semibold">Actions</h3>
                 <p className="text-sm text-neutral-500">
-                  Accédez rapidement à la page de la course ou annulez l’équipe.
+                  Accédez rapidement à la page de la course ou annulez
+                  l’équipe.
                 </p>
               </div>
               <div className="p-5 space-y-3">
@@ -1456,9 +1011,9 @@ export default function MonInscriptionEquipe() {
                   <p className="text-[11px] text-neutral-500">
                     Rappel de la politique d’annulation :
                     <br />
-                    • <b>J-30+</b> : 90% &nbsp;• <b>J-15–29</b> : 70% &nbsp;•{" "}
-                    <b>J-7–14</b> : 50% &nbsp;• <b>J-3–6</b> : 30% &nbsp;•{" "}
-                    <b>J-0–2</b> : 0%
+                    • <b>J-30+</b> : 90% &nbsp;• <b>J-15–29</b> : 70% &nbsp;•
+                    <b> J-7–14</b> : 50% &nbsp;• <b>J-3–6</b> : 30% &nbsp;•
+                    <b> J-0–2</b> : 0%
                   </p>
                 </div>
               </div>
