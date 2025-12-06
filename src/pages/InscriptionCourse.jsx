@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
+import JustificatifFfaPps from "../components/JustificatifFfaPps";
 
 /* ---------------- Options payantes ---------------- */
 function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, registerGetSelected }) {
@@ -55,13 +56,17 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
       setOptions(rows);
 
       const init = {};
-      rows.forEach((o) => { init[o.id] = 0; });
+      rows.forEach((o) => {
+        init[o.id] = 0;
+      });
       setQuantites(init);
       recomputeAndEmit(init, rows);
       setLoading(false);
     }
     load();
-    return () => { abort = true; };
+    return () => {
+      abort = true;
+    };
   }, [formatId]);
 
   // Persistance dans inscriptions_options (pending) après création d’inscription
@@ -94,7 +99,9 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
     }
   }
 
-  useEffect(() => { registerPersist?.(persist); }, [registerPersist, options, quantites, supported]);
+  useEffect(() => {
+    registerPersist?.(persist);
+  }, [registerPersist, options, quantites, supported]);
 
   // Getter des options sélectionnées (pour groupe/relais)
   function getSelected() {
@@ -171,7 +178,10 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
           const max = Number(o.max_qty_per_inscription ?? 10);
           const prixCents = Number(o.price_cents || 0);
           return (
-            <div key={o.id} className="flex items-start justify-between gap-3 rounded-xl border border-neutral-200 p-3">
+            <div
+              key={o.id}
+              className="flex items-start justify-between gap-3 rounded-xl border border-neutral-200 p-3"
+            >
               <div className="text-sm">
                 <div className="font-medium">
                   {o.label} · {(prixCents / 100).toFixed(2)} €
@@ -180,7 +190,13 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
                 <div className="text-xs text-neutral-500">Quantité autorisée : 0–{max}</div>
               </div>
               <div className="flex items-center gap-2">
-                <button type="button" className="rounded-lg border px-2 py-1 text-sm" onClick={() => dec(o)}>−</button>
+                <button
+                  type="button"
+                  className="rounded-lg border px-2 py-1 text-sm"
+                  onClick={() => dec(o)}
+                >
+                  −
+                </button>
                 <input
                   type="number"
                   min={0}
@@ -189,7 +205,13 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
                   onChange={(e) => setQty(o, e.target.value)}
                   className="w-16 rounded-lg border px-2 py-1 text-sm text-center"
                 />
-                <button type="button" className="rounded-lg border px-2 py-1 text-sm" onClick={() => inc(o)}>+</button>
+                <button
+                  type="button"
+                  className="rounded-lg border px-2 py-1 text-sm"
+                  onClick={() => inc(o)}
+                >
+                  +
+                </button>
               </div>
             </div>
           );
@@ -221,10 +243,10 @@ export default function InscriptionCourse() {
   const emptyMember = () => ({
     nom: "",
     prenom: "",
-    genre: "",            // "Homme" | "Femme"
-    date_naissance: "",   // YYYY-MM-DD
-    numero_licence: "",   // <- requis (N° licence / PPS)
-    email: "",            // optionnel
+    genre: "", // "Homme" | "Femme"
+    date_naissance: "", // YYYY-MM-DD
+    numero_licence: "", // <- requis (N° licence / PPS)
+    email: "", // optionnel
   });
 
   const defaultTeam = (name = "", size = 0) => ({
@@ -246,11 +268,15 @@ export default function InscriptionCourse() {
   // Total options payantes (cents) & callbacks
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null);
-  function registerPersist(fn) { persistOptionsFnRef.current = fn; }
+  function registerPersist(fn) {
+    persistOptionsFnRef.current = fn;
+  }
 
   // Getter options sélectionnées (groupe/relais)
   const getSelectedOptionsRef = useRef(null);
-  function registerGetSelected(fn) { getSelectedOptionsRef.current = fn; }
+  function registerGetSelected(fn) {
+    getSelectedOptionsRef.current = fn;
+  }
 
   useEffect(() => {
     let mounted = true;
@@ -261,7 +287,8 @@ export default function InscriptionCourse() {
       // Course + formats
       const { data, error } = await supabase
         .from("courses")
-        .select(`
+        .select(
+          `
           *,
           formats (
             id, nom, prix, prix_equipe, date, distance_km, denivele_dplus,
@@ -271,7 +298,8 @@ export default function InscriptionCourse() {
             fuseau_horaire, waitlist_enabled,
             age_minimum          
           )
-        `)
+        `
+        )
         .eq("id", courseId)
         .single();
 
@@ -318,7 +346,9 @@ export default function InscriptionCourse() {
             ville: profil.ville ?? "",
             pays: profil.pays ?? "",
             apparaitre_resultats:
-              typeof profil.apparaitre_resultats === "boolean" ? profil.apparaitre_resultats : true,
+              typeof profil.apparaitre_resultats === "boolean"
+                ? profil.apparaitre_resultats
+                : true,
             club: profil.club ?? "",
             justificatif_type: profil.justificatif_type ?? "",
             numero_licence: profil.numero_licence ?? "",
@@ -334,7 +364,9 @@ export default function InscriptionCourse() {
     }
 
     fetchAll();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, [courseId]);
 
   // Helpers
@@ -376,10 +408,22 @@ export default function InscriptionCourse() {
   const registrationWindow = useMemo(() => {
     if (!selectedFormat) return { isOpen: true, reason: "" };
     const now = new Date();
-    const openAt = selectedFormat.inscription_ouverture ? new Date(selectedFormat.inscription_ouverture) : null;
-    const closeAt = selectedFormat.inscription_fermeture ? new Date(selectedFormat.inscription_fermeture) : null;
-    if (openAt && now < openAt) return { isOpen: false, reason: `Ouvre le ${openAt.toLocaleString()}` };
-    if (closeAt && now > closeAt) return { isOpen: false, reason: `Fermé depuis le ${closeAt.toLocaleString()}` };
+    const openAt = selectedFormat.inscription_ouverture
+      ? new Date(selectedFormat.inscription_ouverture)
+      : null;
+    const closeAt = selectedFormat.inscription_fermeture
+      ? new Date(selectedFormat.inscription_fermeture)
+      : null;
+    if (openAt && now < openAt)
+      return {
+        isOpen: false,
+        reason: `Ouvre le ${openAt.toLocaleString()}`,
+      };
+    if (closeAt && now > closeAt)
+      return {
+        isOpen: false,
+        reason: `Fermé depuis le ${closeAt.toLocaleString()}`,
+      };
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
@@ -393,7 +437,11 @@ export default function InscriptionCourse() {
     const prixInscription = Number(selectedFormat.prix || 0);
     const totalRepas = prixRepas * Number(inscription.nombre_repas || 0);
     const total = prixInscription + totalRepas;
-    setInscription((prev) => ({ ...prev, prix_total_repas: totalRepas, prix_total_coureur: total }));
+    setInscription((prev) => ({
+      ...prev,
+      prix_total_repas: totalRepas,
+      prix_total_coureur: total,
+    }));
   }, [selectedFormat, inscription.nombre_repas, mode]);
 
   // Estimation équipes (multi)
@@ -401,7 +449,10 @@ export default function InscriptionCourse() {
     if (!selectedFormat || mode === "individuel") return 0;
     const fee = Number(selectedFormat.prix_equipe || 0) || 0;
     const prixUnitaire = Number(selectedFormat.prix || 0) || 0;
-    const sum = teams.reduce((acc, t) => acc + (t.team_size || 0) * prixUnitaire + fee, 0);
+    const sum = teams.reduce(
+      (acc, t) => acc + (t.team_size || 0) * prixUnitaire + fee,
+      0
+    );
     return sum;
   }, [selectedFormat, mode, teams]);
 
@@ -420,7 +471,11 @@ export default function InscriptionCourse() {
       const t = { ...copy[index] };
       t.team_size = size;
       const cur = t.members.length;
-      if (size > cur) t.members = [...t.members, ...Array.from({ length: size - cur }, () => emptyMember())];
+      if (size > cur)
+        t.members = [
+          ...t.members,
+          ...Array.from({ length: size - cur }, () => emptyMember()),
+        ];
       if (size < cur) t.members = t.members.slice(0, size);
       copy[index] = t;
       return copy;
@@ -449,7 +504,10 @@ export default function InscriptionCourse() {
 
   function addTeam() {
     const n = teams.length + 1;
-    setTeams((prev) => [...prev, defaultTeam(`Équipe ${n}`, selectedFormat?.team_size || minTeam)]);
+    setTeams((prev) => [
+      ...prev,
+      defaultTeam("Équipe " + n, selectedFormat?.team_size || minTeam),
+    ]);
   }
 
   function removeTeam(idx) {
@@ -480,19 +538,20 @@ export default function InscriptionCourse() {
         !!(m.numero_licence && m.numero_licence.trim())
     );
   }
-function calculerAge(dateNaissanceStr) {
-  if (!dateNaissanceStr) return null;
-  const dob = new Date(dateNaissanceStr);
-  if (Number.isNaN(dob.getTime())) return null;
 
-  const today = new Date();
-  let age = today.getFullYear() - dob.getFullYear();
-  const m = today.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
-    age--;
+  function calculerAge(dateNaissanceStr) {
+    if (!dateNaissanceStr) return null;
+    const dob = new Date(dateNaissanceStr);
+    if (Number.isNaN(dob.getTime())) return null;
+
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
+      age--;
+    }
+    return age;
   }
-  return age;
-}
 
   // ----- Paiement -----
   async function handlePay() {
@@ -519,28 +578,34 @@ function calculerAge(dateNaissanceStr) {
         return;
       }
       const ageMin = selectedFormat?.age_minimum
-  ? Number(selectedFormat.age_minimum)
-  : null;
+        ? Number(selectedFormat.age_minimum)
+        : null;
 
-// ----- Contrôle âge minimum : individuel -----
-if (mode === "individuel" && ageMin) {
-  if (!inscription.date_naissance) {
-    alert(`Veuillez renseigner votre date de naissance pour vérifier l'âge minimum (${ageMin} ans).`);
-    setSubmitting(false);
-    return;
-  }
-  const age = calculerAge(inscription.date_naissance);
-  if (age === null || age < ageMin) {
-    alert(`L'âge minimum pour ce format est de ${ageMin} ans. (Âge calculé : ${age ?? "inconnu"})`);
-    setSubmitting(false);
-    return;
-  }
-}
-
+      // ----- Contrôle âge minimum : individuel -----
+      if (mode === "individuel" && ageMin) {
+        if (!inscription.date_naissance) {
+          alert(
+            `Veuillez renseigner votre date de naissance pour vérifier l'âge minimum (${ageMin} ans).`
+          );
+          setSubmitting(false);
+          return;
+        }
+        const age = calculerAge(inscription.date_naissance);
+        if (age === null || age < ageMin) {
+          alert(
+            `L'âge minimum pour ce format est de ${ageMin} ans. (Âge calculé : ${
+              age ?? "inconnu"
+            })`
+          );
+          setSubmitting(false);
+          return;
+        }
+      }
 
       const full =
         selectedFormat &&
-        Number(selectedFormat.inscrits || 0) >= Number(selectedFormat.nb_max_coureurs || 0);
+        Number(selectedFormat.inscrits || 0) >=
+          Number(selectedFormat.nb_max_coureurs || 0);
 
       // ===== INDIVIDUEL =====
       if (mode === "individuel") {
@@ -579,7 +644,8 @@ if (mode === "individuel" && ageMin) {
           await persistOptionsFnRef.current(inserted.id);
         }
 
-        const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
+        const payerEmail =
+          inscription.email || user.email || user.user_metadata?.email || "";
         if (!payerEmail) {
           alert("Veuillez renseigner un email.");
           setSubmitting(false);
@@ -622,7 +688,9 @@ if (mode === "individuel" && ageMin) {
           return;
         }
         if (team.members.length !== team.team_size) {
-          alert(`Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`);
+          alert(
+            `Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`
+          );
           setSubmitting(false);
           return;
         }
@@ -641,29 +709,25 @@ if (mode === "individuel" && ageMin) {
           setSubmitting(false);
           return;
         }
-          // Contrôle âge minimum pour chaque membre
-  if (ageMin) {
-    const jeune = team.members.find((m) => {
-      const age = calculerAge(m.date_naissance);
-      return age !== null && age < ageMin;
-    });
+        // Contrôle âge minimum pour chaque membre
+        if (ageMin) {
+          const jeune = team.members.find((m) => {
+            const age = calculerAge(m.date_naissance);
+            return age !== null && age < ageMin;
+          });
 
-    if (jeune) {
-      alert(
-        `Équipe #${idx + 1} : un membre ne respecte pas l'âge minimum de ${ageMin} ans.`
-      );
-      setSubmitting(false);
-      return;
-    }
-  }
-
+          if (jeune) {
+            alert(
+              `Équipe #${idx + 1} : un membre ne respecte pas l'âge minimum de ${ageMin} ans.`
+            );
+            setSubmitting(false);
+            return;
+          }
+        }
       }
 
       const payerEmail =
-        inscription.email ||
-        user.email ||
-        user.user_metadata?.email ||
-        "";
+        inscription.email || user.email || user.user_metadata?.email || "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
         setSubmitting(false);
@@ -678,8 +742,9 @@ if (mode === "individuel" && ageMin) {
       }));
 
       // Options sélectionnées pour création côté backend (pending par inscription)
-      const selected_options =
-        getSelectedOptionsRef.current ? getSelectedOptionsRef.current() : [];
+      const selected_options = getSelectedOptionsRef.current
+        ? getSelectedOptionsRef.current()
+        : [];
 
       let body = {
         mode, // 'groupe' | 'relais'
@@ -747,35 +812,53 @@ if (mode === "individuel" && ageMin) {
     );
   }
 
-  const placesRestantes =
-    selectedFormat
-      ? Math.max(
-          0,
-          Number(selectedFormat.nb_max_coureurs || 0) -
-            Number(selectedFormat.inscrits || 0)
-        )
-      : null;
+  const placesRestantes = selectedFormat
+    ? Math.max(
+        0,
+        Number(selectedFormat.nb_max_coureurs || 0) -
+          Number(selectedFormat.inscrits || 0)
+      )
+    : null;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <Link to={`/courses/${courseId}`} className="text-sm text-neutral-500 hover:text-neutral-800">
+          <Link
+            to={`/courses/${courseId}`}
+            className="text-sm text-neutral-500 hover:text-neutral-800"
+          >
             ← Retour à la course
           </Link>
           <h1 className="text-2xl sm:text-3xl font-bold mt-1">{course.nom}</h1>
           <p className="text-neutral-600 mt-1">
-            {mode === "individuel" ? "Inscription individuelle" : (mode === "groupe" ? "Inscription en groupe" : "Inscription relais")}
-            {selectedFormat?.inscription_ouverture || selectedFormat?.inscription_fermeture ? (
+            {mode === "individuel"
+              ? "Inscription individuelle"
+              : mode === "groupe"
+              ? "Inscription en groupe"
+              : "Inscription relais"}
+            {selectedFormat?.inscription_ouverture ||
+            selectedFormat?.inscription_fermeture ? (
               <>
                 {" • "}
                 <span className="text-neutral-700">
                   {selectedFormat.inscription_ouverture && (
-                    <>Ouverture : {new Date(selectedFormat.inscription_ouverture).toLocaleString()} </>
+                    <>
+                      Ouverture :{" "}
+                      {new Date(
+                        selectedFormat.inscription_ouverture
+                      ).toLocaleString()}{" "}
+                    </>
                   )}
                   {selectedFormat.inscription_fermeture && (
-                    <> / Fermeture : {new Date(selectedFormat.inscription_fermeture).toLocaleString()} </>
+                    <>
+                      {" "}
+                      / Fermeture :{" "}
+                      {new Date(
+                        selectedFormat.inscription_fermeture
+                      ).toLocaleString()}{" "}
+                    </>
                   )}
                 </span>
               </>
@@ -792,7 +875,8 @@ if (mode === "individuel" && ageMin) {
             <div className="p-5 border-b border-neutral-100">
               <h2 className="text-lg font-semibold">Choix du format</h2>
               <p className="text-sm text-neutral-500">
-                Sélectionne le format. La capacité affichée tient compte des inscriptions existantes.
+                Sélectionne le format. La capacité affichée tient compte des inscriptions
+                existantes.
               </p>
             </div>
             <div className="p-5 space-y-4">
@@ -810,7 +894,7 @@ if (mode === "individuel" && ageMin) {
                   if (newMode === "individuel") {
                     setTeams([defaultTeam("Équipe 1", 0)]);
                   } else {
-                    const def = f?.team_size || (f?.nb_coureurs_min || 1);
+                    const def = f?.team_size || f?.nb_coureurs_min || 1;
                     setTeams([defaultTeam("Équipe 1", def)]);
                   }
 
@@ -822,11 +906,21 @@ if (mode === "individuel" && ageMin) {
               >
                 <option value="">-- Sélectionnez un format --</option>
                 {formats.map((f) => {
-                  const full = Number(f.inscrits) >= Number(f.nb_max_coureurs || 0);
+                  const full =
+                    Number(f.inscrits) >= Number(f.nb_max_coureurs || 0);
                   return (
-                    <option key={f.id} value={f.id} disabled={full && !f.waitlist_enabled}>
-                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+{" "}
-                      {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
+                    <option
+                      key={f.id}
+                      value={f.id}
+                      disabled={full && !f.waitlist_enabled}
+                    >
+                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m
+                      D+{" "}
+                      {full
+                        ? f.waitlist_enabled
+                          ? " (liste d’attente)"
+                          : " (complet)"
+                        : ""}
                     </option>
                   );
                 })}
@@ -834,15 +928,22 @@ if (mode === "individuel" && ageMin) {
 
               {selectedFormat && (
                 <div className="text-sm text-neutral-600">
-                  Capacité : {selectedFormat.inscrits}/{selectedFormat.nb_max_coureurs} —{" "}
+                  Capacité : {selectedFormat.inscrits}/
+                  {selectedFormat.nb_max_coureurs} —{" "}
                   <span className="font-medium">
-                    {placesRestantes} place{placesRestantes > 1 ? "s" : ""} restante{placesRestantes > 1 ? "s" : ""}
+                    {placesRestantes} place
+                    {placesRestantes > 1 ? "s" : ""} restante
+                    {placesRestantes > 1 ? "s" : ""}
                   </span>
                   {selectedFormat.waitlist_enabled && placesRestantes === 0 && (
-                    <span className="ml-2 text-amber-700">(Liste d’attente possible)</span>
+                    <span className="ml-2 text-amber-700">
+                      (Liste d’attente possible)
+                    </span>
                   )}
                   {!registrationWindow.isOpen && (
-                    <span className="ml-2 text-red-600">— {registrationWindow.reason}</span>
+                    <span className="ml-2 text-red-600">
+                      — {registrationWindow.reason}
+                    </span>
                   )}
                 </div>
               )}
@@ -850,12 +951,18 @@ if (mode === "individuel" && ageMin) {
               {/* Sélecteur de mode (si format le permet) */}
               {selectedFormat && selectedFormat.type_format !== "individuel" && (
                 <div className="mt-3">
-                  <div className="text-sm font-medium mb-1">Type d’inscription</div>
+                  <div className="text-sm font-medium mb-1">
+                    Type d’inscription
+                  </div>
                   <div className="flex gap-2">
                     <button
                       type="button"
                       onClick={() => setMode("individuel")}
-                      className={`px-3 py-1.5 rounded-xl border text-sm ${mode==="individuel" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
+                      className={`px-3 py-1.5 rounded-xl border text-sm ${
+                        mode === "individuel"
+                          ? "bg-black text-white border-black"
+                          : "bg-white hover:bg-neutral-50"
+                      }`}
                     >
                       Individuel
                     </button>
@@ -863,7 +970,11 @@ if (mode === "individuel" && ageMin) {
                       <button
                         type="button"
                         onClick={() => setMode("groupe")}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${mode==="groupe" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${
+                          mode === "groupe"
+                            ? "bg-black text-white border-black"
+                            : "bg-white hover:bg-neutral-50"
+                        }`}
                       >
                         Groupe
                       </button>
@@ -872,7 +983,11 @@ if (mode === "individuel" && ageMin) {
                       <button
                         type="button"
                         onClick={() => setMode("relais")}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${mode==="relais" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${
+                          mode === "relais"
+                            ? "bg-black text-white border-black"
+                            : "bg-white hover:bg-neutral-50"
+                        }`}
                       >
                         Relais
                       </button>
@@ -892,7 +1007,8 @@ if (mode === "individuel" && ageMin) {
                     {mode === "groupe" ? "Équipe" : "Équipes relais"}
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    Renseigne le nom de l’équipe, la taille et les membres (champs requis marqués d’un astérisque).
+                    Renseigne le nom de l’équipe, la taille et les membres
+                    (champs requis marqués d’un astérisque).
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -914,12 +1030,16 @@ if (mode === "individuel" && ageMin) {
                   className="rounded-xl border border-neutral-300 px-3 py-2"
                   placeholder="Rechercher une équipe…"
                   value={teamFilter.q}
-                  onChange={(e) => setTeamFilter((p) => ({ ...p, q: e.target.value }))}
+                  onChange={(e) =>
+                    setTeamFilter((p) => ({ ...p, q: e.target.value }))
+                  }
                 />
                 <select
                   className="rounded-xl border border-neutral-300 px-3 py-2"
                   value={teamFilter.category}
-                  onChange={(e) => setTeamFilter((p) => ({ ...p, category: e.target.value }))}
+                  onChange={(e) =>
+                    setTeamFilter((p) => ({ ...p, category: e.target.value }))
+                  }
                 >
                   <option value="all">Toutes catégories</option>
                   <option value="masculine">Équipe masculine</option>
@@ -930,7 +1050,12 @@ if (mode === "individuel" && ageMin) {
                   <input
                     type="checkbox"
                     checked={teamFilter.completeOnly}
-                    onChange={(e) => setTeamFilter((p) => ({ ...p, completeOnly: e.target.checked }))}
+                    onChange={(e) =>
+                      setTeamFilter((p) => ({
+                        ...p,
+                        completeOnly: e.target.checked,
+                      }))
+                    }
                   />
                   Afficher uniquement les équipes complètes
                 </label>
@@ -939,151 +1064,233 @@ if (mode === "individuel" && ageMin) {
               <div className="p-5 space-y-6">
                 {teams
                   .map((t) => ({ ...t, category: computeTeamCategory(t) }))
-                  .filter((t) => (teamFilter.q ? (t.team_name || "").toLowerCase().includes(teamFilter.q.toLowerCase()) : true))
-                  .filter((t) => (teamFilter.category === "all" ? true : t.category === teamFilter.category))
-                  .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)))
+                  .filter((t) =>
+                    teamFilter.q
+                      ? (t.team_name || "")
+                          .toLowerCase()
+                          .includes(teamFilter.q.toLowerCase())
+                      : true
+                  )
+                  .filter((t) =>
+                    teamFilter.category === "all"
+                      ? true
+                      : t.category === teamFilter.category
+                  )
+                  .filter((t) =>
+                    !teamFilter.completeOnly ? true : isTeamComplete(t)
+                  )
                   .map((team, tIdx) => (
-                  <div key={tIdx} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <div className="font-medium flex items-center gap-2">
-                        {team.team_name || `Équipe ${tIdx + 1}`}
-                        {computeTeamCategory(team) && (
-                          <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900">
-                            {computeTeamCategory(team) === "masculine"
-                              ? "Équipe masculine"
-                              : computeTeamCategory(team) === "feminine"
-                              ? "Équipe féminine"
-                              : "Équipe mixte"}
-                          </span>
-                        )}
-                        {isTeamComplete(team) ? (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">complète</span>
-                        ) : (
-                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">incomplète</span>
-                        )}
-                      </div>
-                      {teams.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeTeam(tIdx)}
-                          className="text-sm text-neutral-600 hover:text-red-600"
-                        >
-                          Supprimer
-                        </button>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
-                      <div>
-                        <label className="text-sm font-medium">Nom d’équipe</label>
-                        <input
-                          className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                          value={team.team_name}
-                          onChange={(e) => setTeamNameAt(tIdx, e.target.value)}
-                          placeholder={`Équipe ${tIdx + 1}`}
-                        />
-                      </div>
-                      <div>
-                        <label className="text-sm font-medium">
-                          Taille de l’équipe {selectedFormat?.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}
-                        </label>
-                        <input
-                          type="number"
-                          className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                          value={team.team_size || selectedFormat?.team_size || 0}
-                          min={minTeam}
-                          max={maxTeam}
-                          onChange={(e) => setTeamSizeAt(tIdx, e.target.value)}
-                        />
-                        <p className="text-xs text-neutral-500 mt-1">
-                          Min {minTeam} — Max {maxTeam}
-                        </p>
-                      </div>
-                    </div>
-
-                    {/* Membres */}
-                    <div className="overflow-x-auto">
-                      <table className="w-full text-sm">
-                        <thead>
-                          <tr className="text-left text-neutral-600">
-                            <th className="py-2 pr-3">#</th>
-                            <th className="py-2 pr-3">Nom *</th>
-                            <th className="py-2 pr-3">Prénom *</th>
-                            <th className="py-2 pr-3">Sexe *</th>
-                            <th className="py-2 pr-3">Date de naissance *</th>
-                            <th className="py-2 pr-3">N° licence / PPS *</th>
-                            <th className="py-2 pr-3">Email (optionnel)</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {team.members.map((m, mIdx) => (
-                            <tr key={mIdx} className="border-t">
-                              <td className="py-2 pr-3 w-10">{mIdx + 1}</td>
-                              <td className="py-2 pr-3">
-                                <input
-                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                                  value={m.nom}
-                                  onChange={(e) => setMemberAt(tIdx, mIdx, "nom", e.target.value)}
-                                  placeholder="Nom"
-                                />
-                              </td>
-                              <td className="py-2 pr-3">
-                                <input
-                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                                  value={m.prenom}
-                                  onChange={(e) => setMemberAt(tIdx, mIdx, "prenom", e.target.value)}
-                                  placeholder="Prénom"
-                                />
-                              </td>
-                              <td className="py-2 pr-3">
-                                <select
-                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                                  value={m.genre || ""}
-                                  onChange={(e) => setMemberAt(tIdx, mIdx, "genre", e.target.value)}
-                                >
-                                  <option value="">Sélectionner</option>
-                                  <option value="Homme">Homme</option>
-                                  <option value="Femme">Femme</option>
-                                </select>
-                              </td>
-                              <td className="py-2 pr-3">
-                                <input
-                                  type="date"
-                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                                  value={m.date_naissance || ""}
-                                  onChange={(e) => setMemberAt(tIdx, mIdx, "date_naissance", e.target.value)}
-                                />
-                              </td>
-                              <td className="py-2 pr-3">
-                                <input
-                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                                  value={m.numero_licence || ""}
-                                  onChange={(e) => setMemberAt(tIdx, mIdx, "numero_licence", e.target.value)}
-                                  placeholder="Numéro de licence ou PPS"
-                                />
-                              </td>
-                              <td className="py-2 pr-3">
-                                <input
-                                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                                  value={m.email || ""}
-                                  onChange={(e) => setMemberAt(tIdx, mIdx, "email", e.target.value)}
-                                  placeholder="email@exemple.com"
-                                />
-                              </td>
-                            </tr>
-                          ))}
-                          {team.team_size === 0 && (
-                            <tr>
-                              <td colSpan={7} className="py-2 text-neutral-500">
-                                Indique une taille d’équipe pour générer les lignes.
-                              </td>
-                            </tr>
+                    <div
+                      key={tIdx}
+                      className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4"
+                    >
+                      <div className="flex items-center justify-between mb-3">
+                        <div className="font-medium flex items-center gap-2">
+                          {team.team_name || `Équipe ${tIdx + 1}`}
+                          {computeTeamCategory(team) && (
+                            <span className="text-xs px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-900">
+                              {computeTeamCategory(team) === "masculine"
+                                ? "Équipe masculine"
+                                : computeTeamCategory(team) === "feminine"
+                                ? "Équipe féminine"
+                                : "Équipe mixte"}
+                            </span>
                           )}
-                        </tbody>
-                      </table>
+                          {isTeamComplete(team) ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                              complète
+                            </span>
+                          ) : (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                              incomplète
+                            </span>
+                          )}
+                        </div>
+                        {teams.length > 1 && (
+                          <button
+                            type="button"
+                            onClick={() => removeTeam(tIdx)}
+                            className="text-sm text-neutral-600 hover:text-red-600"
+                          >
+                            Supprimer
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+                        <div>
+                          <label className="text-sm font-medium">
+                            Nom d’équipe
+                          </label>
+                          <input
+                            className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
+                            value={team.team_name}
+                            onChange={(e) =>
+                              setTeamNameAt(tIdx, e.target.value)
+                            }
+                            placeholder={`Équipe ${tIdx + 1}`}
+                          />
+                        </div>
+                        <div>
+                          <label className="text-sm font-medium">
+                            Taille de l’équipe{" "}
+                            {selectedFormat?.team_size
+                              ? `(par défaut ${selectedFormat.team_size})`
+                              : ""}
+                          </label>
+                          <input
+                            type="number"
+                            className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
+                            value={
+                              team.team_size || selectedFormat?.team_size || 0
+                            }
+                            min={minTeam}
+                            max={maxTeam}
+                            onChange={(e) =>
+                              setTeamSizeAt(tIdx, e.target.value)
+                            }
+                          />
+                          <p className="text-xs text-neutral-500 mt-1">
+                            Min {minTeam} — Max {maxTeam}
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Membres */}
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                          <thead>
+                            <tr className="text-left text-neutral-600">
+                              <th className="py-2 pr-3">#</th>
+                              <th className="py-2 pr-3">Nom *</th>
+                              <th className="py-2 pr-3">Prénom *</th>
+                              <th className="py-2 pr-3">Sexe *</th>
+                              <th className="py-2 pr-3">
+                                Date de naissance *
+                              </th>
+                              <th className="py-2 pr-3">
+                                N° licence / PPS *
+                              </th>
+                              <th className="py-2 pr-3">
+                                Email (optionnel)
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {team.members.map((m, mIdx) => (
+                              <tr key={mIdx} className="border-t">
+                                <td className="py-2 pr-3 w-10">{mIdx + 1}</td>
+                                <td className="py-2 pr-3">
+                                  <input
+                                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                    value={m.nom}
+                                    onChange={(e) =>
+                                      setMemberAt(
+                                        tIdx,
+                                        mIdx,
+                                        "nom",
+                                        e.target.value
+                                      )
+                                    }
+                                    placeholder="Nom"
+                                  />
+                                </td>
+                                <td className="py-2 pr-3">
+                                  <input
+                                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                    value={m.prenom}
+                                    onChange={(e) =>
+                                      setMemberAt(
+                                        tIdx,
+                                        mIdx,
+                                        "prenom",
+                                        e.target.value
+                                      )
+                                    }
+                                    placeholder="Prénom"
+                                  />
+                                </td>
+                                <td className="py-2 pr-3">
+                                  <select
+                                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                    value={m.genre || ""}
+                                    onChange={(e) =>
+                                      setMemberAt(
+                                        tIdx,
+                                        mIdx,
+                                        "genre",
+                                        e.target.value
+                                      )
+                                    }
+                                  >
+                                    <option value="">Sélectionner</option>
+                                    <option value="Homme">Homme</option>
+                                    <option value="Femme">Femme</option>
+                                  </select>
+                                </td>
+                                <td className="py-2 pr-3">
+                                  <input
+                                    type="date"
+                                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                    value={m.date_naissance || ""}
+                                    onChange={(e) =>
+                                      setMemberAt(
+                                        tIdx,
+                                        mIdx,
+                                        "date_naissance",
+                                        e.target.value
+                                      )
+                                    }
+                                  />
+                                </td>
+                                <td className="py-2 pr-3">
+                                  <input
+                                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                    value={m.numero_licence || ""}
+                                    onChange={(e) =>
+                                      setMemberAt(
+                                        tIdx,
+                                        mIdx,
+                                        "numero_licence",
+                                        e.target.value
+                                      )
+                                    }
+                                    placeholder="Numéro de licence ou PPS"
+                                  />
+                                </td>
+                                <td className="py-2 pr-3">
+                                  <input
+                                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
+                                    value={m.email || ""}
+                                    onChange={(e) =>
+                                      setMemberAt(
+                                        tIdx,
+                                        mIdx,
+                                        "email",
+                                        e.target.value
+                                      )
+                                    }
+                                    placeholder="email@exemple.com"
+                                  />
+                                </td>
+                              </tr>
+                            ))}
+                            {team.team_size === 0 && (
+                              <tr>
+                                <td
+                                  colSpan={7}
+                                  className="py-2 text-neutral-500"
+                                >
+                                  Indique une taille d’équipe pour générer les
+                                  lignes.
+                                </td>
+                              </tr>
+                            )}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
               </div>
             </section>
           )}
@@ -1096,68 +1303,161 @@ if (mode === "individuel" && ageMin) {
               </div>
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nom" placeholder="Nom"
-                    value={inscription.nom} onChange={(e) => setField("nom", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="prenom" placeholder="Prénom"
-                    value={inscription.prenom} onChange={(e) => setField("prenom", e.target.value)} />
-                  <select className="rounded-xl border border-neutral-300 px-3 py-2" name="genre"
-                    value={inscription.genre} onChange={(e) => setField("genre", e.target.value)}>
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="nom"
+                    placeholder="Nom"
+                    value={inscription.nom}
+                    onChange={(e) => setField("nom", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="prenom"
+                    placeholder="Prénom"
+                    value={inscription.prenom}
+                    onChange={(e) => setField("prenom", e.target.value)}
+                  />
+                  <select
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="genre"
+                    value={inscription.genre}
+                    onChange={(e) => setField("genre", e.target.value)}
+                  >
                     <option value="">Genre</option>
                     <option value="Homme">Homme</option>
                     <option value="Femme">Femme</option>
                   </select>
-                  <input type="date" className="rounded-xl border border-neutral-300 px-3 py-2" name="date_naissance"
-                    value={inscription.date_naissance} onChange={(e) => setField("date_naissance", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nationalite" placeholder="Nationalité"
-                    value={inscription.nationalite} onChange={(e) => setField("nationalite", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="email" placeholder="Email"
-                    value={inscription.email} onChange={(e) => setField("email", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="telephone" placeholder="Téléphone"
-                    value={inscription.telephone} onChange={(e) => setField("telephone", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2" name="adresse" placeholder="Adresse"
-                    value={inscription.adresse} onChange={(e) => setField("adresse", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="adresse_complement" placeholder="Complément adresse"
-                    value={inscription.adresse_complement} onChange={(e) => setField("adresse_complement", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="code_postal" placeholder="Code postal"
-                    value={inscription.code_postal} onChange={(e) => setField("code_postal", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="ville" placeholder="Ville"
-                    value={inscription.ville} onChange={(e) => setField("ville", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="pays" placeholder="Pays"
-                    value={inscription.pays} onChange={(e) => setField("pays", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="club" placeholder="Club"
-                    value={inscription.club} onChange={(e) => setField("club", e.target.value)} />
+                  <input
+                    type="date"
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="date_naissance"
+                    value={inscription.date_naissance}
+                    onChange={(e) => setField("date_naissance", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="nationalite"
+                    placeholder="Nationalité"
+                    value={inscription.nationalite}
+                    onChange={(e) => setField("nationalite", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="email"
+                    placeholder="Email"
+                    value={inscription.email}
+                    onChange={(e) => setField("email", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="telephone"
+                    placeholder="Téléphone"
+                    value={inscription.telephone}
+                    onChange={(e) => setField("telephone", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2"
+                    name="adresse"
+                    placeholder="Adresse"
+                    value={inscription.adresse}
+                    onChange={(e) => setField("adresse", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="adresse_complement"
+                    placeholder="Complément adresse"
+                    value={inscription.adresse_complement}
+                    onChange={(e) =>
+                      setField("adresse_complement", e.target.value)
+                    }
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="code_postal"
+                    placeholder="Code postal"
+                    value={inscription.code_postal}
+                    onChange={(e) => setField("code_postal", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="ville"
+                    placeholder="Ville"
+                    value={inscription.ville}
+                    onChange={(e) => setField("ville", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="pays"
+                    placeholder="Pays"
+                    value={inscription.pays}
+                    onChange={(e) => setField("pays", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="club"
+                    placeholder="Club"
+                    value={inscription.club}
+                    onChange={(e) => setField("club", e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">Affichage des résultats</p>
+                  <p className="text-sm font-medium">
+                    Affichage des résultats
+                  </p>
                   <div className="flex gap-4 text-sm text-neutral-700">
                     <label className="inline-flex items-center gap-2">
-                      <input type="radio" name="apparaitre_resultats"
+                      <input
+                        type="radio"
+                        name="apparaitre_resultats"
                         checked={inscription.apparaitre_resultats === true}
-                        onChange={() => setField("apparaitre_resultats", true)} />
+                        onChange={() =>
+                          setField("apparaitre_resultats", true)
+                        }
+                      />
                       Oui
                     </label>
                     <label className="inline-flex items-center gap-2">
-                      <input type="radio" name="apparaitre_resultats"
+                      <input
+                        type="radio"
+                        name="apparaitre_resultats"
                         checked={inscription.apparaitre_resultats === false}
-                        onChange={() => setField("apparaitre_resultats", false)} />
+                        onChange={() =>
+                          setField("apparaitre_resultats", false)
+                        }
+                      />
                       Non
                     </label>
                   </div>
+                </div>
+
+                {/* Justificatif FFA / PPS - contrôle de format uniquement */}
+                <div className="pt-4 border-t border-neutral-200">
+                  <JustificatifFfaPps
+                    key={inscription.coureur_id || "no-user"}
+                    licenceFfa={inscription.numero_licence || ""}
+                    ppsCode={inscription.pps_identifier || ""}
+                    onChange={({ licenceFfa, ppsCode }) => {
+                      // On met à jour simplement les champs existants de l'inscription
+                      setField("numero_licence", licenceFfa);
+                      setField("pps_identifier", ppsCode);
+                    }}
+                  />
                 </div>
               </div>
             </section>
           )}
 
           {/* Options payantes */}
-          {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
-            <OptionsPayantesPicker
-              formatId={selectedFormat.id}
-              onTotalCentsChange={(c) => setTotalOptionsCents(c)}
-              registerPersist={registerPersist}
-              registerGetSelected={registerGetSelected}
-            />
-          )}
+          {selectedFormat &&
+            (mode === "individuel" || mode === "groupe" || mode === "relais") && (
+              <OptionsPayantesPicker
+                formatId={selectedFormat.id}
+                onTotalCentsChange={(c) => setTotalOptionsCents(c)}
+                registerPersist={registerPersist}
+                registerGetSelected={registerGetSelected}
+              />
+            )}
         </div>
 
         {/* Résumé / paiement */}
@@ -1165,7 +1465,9 @@ if (mode === "individuel" && ageMin) {
           <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm sticky top-6">
             <div className="p-5 border-b border-neutral-100">
               <h3 className="text-lg font-semibold">Résumé</h3>
-              <p className="text-sm text-neutral-500">Vérifie les informations puis procède au paiement.</p>
+              <p className="text-sm text-neutral-500">
+                Vérifie les informations puis procède au paiement.
+              </p>
             </div>
 
             <div className="p-5 space-y-3 text-sm">
@@ -1181,23 +1483,55 @@ if (mode === "individuel" && ageMin) {
                 <>
                   <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3">
                     {(() => {
-                      const teamsWithCat = teams.map((t) => ({ ...t, category: computeTeamCategory(t) }));
+                      const teamsWithCat = teams.map((t) => ({
+                        ...t,
+                        category: computeTeamCategory(t),
+                      }));
                       const totals = {
                         count: teams.length,
-                        participants: teams.reduce((acc, t) => acc + (t.team_size || 0), 0),
-                        masculine: teamsWithCat.filter((t) => t.category === "masculine").length,
-                        feminine: teamsWithCat.filter((t) => t.category === "feminine").length,
-                        mixte: teamsWithCat.filter((t) => t.category === "mixte").length,
-                        completes: teamsWithCat.filter((t) => isTeamComplete(t)).length,
+                        participants: teams.reduce(
+                          (acc, t) => acc + (t.team_size || 0),
+                          0
+                        ),
+                        masculine: teamsWithCat.filter(
+                          (t) => t.category === "masculine"
+                        ).length,
+                        feminine: teamsWithCat.filter(
+                          (t) => t.category === "feminine"
+                        ).length,
+                        mixte: teamsWithCat.filter(
+                          (t) => t.category === "mixte"
+                        ).length,
+                        completes: teamsWithCat.filter((t) =>
+                          isTeamComplete(t)
+                        ).length,
                       };
                       return (
                         <div className="space-y-1">
-                          <div className="flex justify-between"><span>Équipes</span><b>{totals.count}</b></div>
-                          <div className="flex justify-between"><span>Participants</span><b>{totals.participants}</b></div>
-                          <div className="flex justify-between"><span>Masculines</span><b>{totals.masculine}</b></div>
-                          <div className="flex justify-between"><span>Féminines</span><b>{totals.feminine}</b></div>
-                          <div className="flex justify-between"><span>Mixtes</span><b>{totals.mixte}</b></div>
-                          <div className="flex justify-between"><span>Équipes complètes</span><b>{totals.completes}</b></div>
+                          <div className="flex justify-between">
+                            <span>Équipes</span>
+                            <b>{totals.count}</b>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Participants</span>
+                            <b>{totals.participants}</b>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Masculines</span>
+                            <b>{totals.masculine}</b>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Féminines</span>
+                            <b>{totals.feminine}</b>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Mixtes</span>
+                            <b>{totals.mixte}</b>
+                          </div>
+                          <div className="flex justify-between">
+                            <span>Équipes complètes</span>
+                            <b>{totals.completes}</b>
+                          </div>
                         </div>
                       );
                     })()}
@@ -1210,14 +1544,19 @@ if (mode === "individuel" && ageMin) {
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Inscription</span>
                     <span className="font-medium">
-                      {selectedFormat ? Number(selectedFormat.prix || 0).toFixed(2) : "0.00"} €
+                      {selectedFormat
+                        ? Number(selectedFormat.prix || 0).toFixed(2)
+                        : "0.00"}{" "}
+                      €
                     </span>
                   </div>
                   {/* Ligne options payantes */}
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
                       <span className="text-neutral-600">Options payantes</span>
-                      <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
+                      <span className="font-medium">
+                        {(totalOptionsCents / 100).toFixed(2)} €
+                      </span>
                     </div>
                   )}
                 </>
@@ -1229,7 +1568,13 @@ if (mode === "individuel" && ageMin) {
                         {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
                       </span>
                       <span className="font-medium">
-                        ~{((Number(selectedFormat?.prix || 0) * (t.team_size || 0)) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
+                        ~
+                        {(
+                          Number(selectedFormat?.prix || 0) *
+                            (t.team_size || 0) +
+                          (Number(selectedFormat?.prix_equipe || 0) || 0)
+                        ).toFixed(2)}{" "}
+                        €
                       </span>
                     </div>
                   ))}
@@ -1237,14 +1582,21 @@ if (mode === "individuel" && ageMin) {
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
                       <span className="text-neutral-600">Options payantes</span>
-                      <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
+                      <span className="font-medium">
+                        {(totalOptionsCents / 100).toFixed(2)} €
+                      </span>
                     </div>
                   )}
                   <div className="h-px bg-neutral-200 my-2" />
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Sous-total estimé</span>
                     <span className="font-medium">
-                      ~{(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)} €
+                      ~
+                      {(
+                        Number(estimationEquipe || 0) +
+                        totalOptionsCents / 100
+                      ).toFixed(2)}{" "}
+                      €
                     </span>
                   </div>
                 </>
@@ -1256,9 +1608,15 @@ if (mode === "individuel" && ageMin) {
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
                   {mode === "individuel"
-                    ? (Number(inscription.prix_total_coureur || 0) + (totalOptionsCents / 100)).toFixed(2)
-                    : `~${(Number(estimationEquipe || 0) + (totalOptionsCents / 100)).toFixed(2)}`
-                  } €
+                    ? (
+                        Number(inscription.prix_total_coureur || 0) +
+                        totalOptionsCents / 100
+                      ).toFixed(2)
+                    : `~${(
+                        Number(estimationEquipe || 0) +
+                        totalOptionsCents / 100
+                      ).toFixed(2)}`}{" "}
+                  €
                 </span>
               </div>
             </div>
@@ -1274,7 +1632,8 @@ if (mode === "individuel" && ageMin) {
                   (mode === "individuel" &&
                     selectedFormat &&
                     !selectedFormat.waitlist_enabled &&
-                    Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0))
+                    Number(selectedFormat.inscrits) >=
+                      Number(selectedFormat.nb_max_coureurs || 0))
                 }
                 className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition
                   ${
@@ -1283,25 +1642,32 @@ if (mode === "individuel" && ageMin) {
                       : "bg-neutral-900 hover:bg-black"
                   }`}
               >
-                {submitting ? "Redirection vers Stripe…" : (mode === "individuel" ? "Confirmer et payer" : "Payer les équipes")}
+                {submitting
+                  ? "Redirection vers Stripe…"
+                  : mode === "individuel"
+                  ? "Confirmer et payer"
+                  : "Payer les équipes"}
               </button>
 
               {selectedFormat &&
-                Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0) && (
-                <p className="text-xs text-amber-700 mt-2">
-                  {selectedFormat.waitlist_enabled
-                    ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
-                    : "Ce format est complet."
-                  }
+                Number(selectedFormat.inscrits) >=
+                  Number(selectedFormat.nb_max_coureurs || 0) && (
+                  <p className="text-xs text-amber-700 mt-2">
+                    {selectedFormat.waitlist_enabled
+                      ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
+                      : "Ce format est complet."}
+                  </p>
+                )}
+
+              {!registrationWindow.isOpen && (
+                <p className="text-xs text-red-600 mt-2">
+                  {registrationWindow.reason}
                 </p>
               )}
 
-              {!registrationWindow.isOpen && (
-                <p className="text-xs text-red-600 mt-2">{registrationWindow.reason}</p>
-              )}
-
               <p className="text-xs text-neutral-500 mt-3">
-                En confirmant, vous acceptez les conditions de l’épreuve et de Tickrace.
+                En confirmant, vous acceptez les conditions de l’épreuve et de
+                Tickrace.
               </p>
             </div>
           </div>
