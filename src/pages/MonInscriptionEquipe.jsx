@@ -4,7 +4,29 @@ import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 
-/* --------------------------------- UI helpers --------------------------------- */
+/* --------------------------------- Utils --------------------------------- */
+
+function formatDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("fr-FR", {
+    year: "numeric",
+    month: "long",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatDate(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleDateString("fr-FR", {
+    year: "numeric",
+    month: "long",
+    day: "2-digit",
+  });
+}
 
 function Pill({ children, color = "neutral" }) {
   const map = {
@@ -22,69 +44,6 @@ function Pill({ children, color = "neutral" }) {
     </span>
   );
 }
-
-function Card({ title, subtitle, right, children }) {
-  return (
-    <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
-      {(title || subtitle || right) && (
-        <div className="p-5 border-b border-neutral-200 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div>
-            {title && (
-              <h2 className="text-lg sm:text-xl font-bold">{title}</h2>
-            )}
-            {subtitle && (
-              <p className="mt-1 text-sm text-neutral-600">{subtitle}</p>
-            )}
-          </div>
-          {right}
-        </div>
-      )}
-      <div className="p-5">{children}</div>
-    </div>
-  );
-}
-
-const Row = ({ label, children }) => (
-  <div className="grid grid-cols-1 sm:grid-cols-3 py-2">
-    <div className="text-sm font-semibold text-neutral-600">{label}</div>
-    <div className="sm:col-span-2 text-sm">{children}</div>
-  </div>
-);
-
-const euros = (n) => {
-  if (n == null || isNaN(Number(n))) return "—";
-  try {
-    return new Intl.NumberFormat("fr-FR", {
-      style: "currency",
-      currency: "EUR",
-    }).format(Number(n));
-  } catch {
-    return `${Number(n).toFixed(2)} €`;
-  }
-};
-
-const formatDate = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleDateString("fr-FR", {
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-  });
-};
-
-const formatDateTime = (iso, tz = "Europe/Paris") => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return d.toLocaleString("fr-FR", {
-    timeZone: tz,
-    year: "numeric",
-    month: "long",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-};
 
 /* ---------------------------- Raisons d’annulation ---------------------------- */
 
@@ -126,12 +85,13 @@ const TEAM_CANCEL_REASONS = [
 /* --------------------------------- Page ---------------------------------- */
 
 export default function MonInscriptionEquipe() {
-  const { groupeId } = useParams(); // route: /mon-inscription-equipe/:groupeId
+  const { groupeId } = useParams(); // ⚠️ route: /mon-inscription-equipe/:groupeId
   const navigate = useNavigate();
   const { session } = useUser();
 
   const [loading, setLoading] = useState(true);
-  const [group, setGroup] = useState(null);
+  const [group, setGroup] = useState(null);           // groupe "principal" (celui de l’URL)
+  const [groupsList, setGroupsList] = useState([]);   // toutes les équipes liées au même paiement
   const [format, setFormat] = useState(null);
   const [course, setCourse] = useState(null);
   const [members, setMembers] = useState([]);
@@ -171,7 +131,7 @@ export default function MonInscriptionEquipe() {
 
       setLoading(true);
       try {
-        // 1) Groupe + format + course
+        // 1) Charger le groupe demandé (avec format + course)
         const { data: grp, error: gErr } = await supabase
           .from("inscriptions_groupes")
           .select(
@@ -190,8 +150,7 @@ export default function MonInscriptionEquipe() {
                 id,
                 nom,
                 lieu,
-                image_url,
-                departement
+                image_url
               )
             )
           `
@@ -205,6 +164,7 @@ export default function MonInscriptionEquipe() {
 
         if (!grp) {
           setGroup(null);
+          setGroupsList([]);
           setFormat(null);
           setCourse(null);
           setMembers([]);
@@ -214,37 +174,66 @@ export default function MonInscriptionEquipe() {
           return;
         }
 
-        setGroup(grp);
+        // 2) Charger toutes les équipes rattachées au même paiement (si paiement_id présent)
+        let allGroups = [grp];
+        if (grp.paiement_id) {
+          const { data: siblings, error: sErr } = await supabase
+            .from("inscriptions_groupes")
+            .select("*")
+            .eq("paiement_id", grp.paiement_id)
+            .order("created_at", { ascending: true });
+
+          if (sErr) {
+            console.error("GROUP_SIBLINGS_FETCH_ERROR", sErr);
+          } else if (siblings && siblings.length > 0) {
+            allGroups = siblings;
+          }
+        }
+
+        setGroupsList(allGroups);
+
+        // groupe "principal" = celui de l’URL si présent, sinon le premier
+        const mainGroup =
+          allGroups.find((g) => g.id === groupeId) || allGroups[0];
+
+        setGroup(mainGroup);
         setFormat(grp.format || null);
         setCourse(grp.format?.course || null);
 
-        // 2) Membres
-        const { data: membs, error: mErr } = await supabase
-          .from("inscriptions")
-          .select(
-            `
-            id,
-            nom,
-            prenom,
-            genre,
-            date_naissance,
-            numero_licence,
-            email,
-            statut,
-            groupe_id,
-            member_of_group_id,
-            team_name
-          `
-          )
-          .or(`groupe_id.eq.${groupeId},member_of_group_id.eq.${groupeId}`);
+        // 3) Charger les membres pour TOUTES les équipes de ce paiement
+        const groupIdsForMembers = allGroups.map((g) => g.id);
 
-        if (mErr) {
-          console.error("MEMBERS_FETCH_ERROR", mErr);
+        let membs = [];
+        if (groupIdsForMembers.length > 0) {
+          const { data: membData, error: mErr } = await supabase
+            .from("inscriptions")
+            .select(
+              `
+              id,
+              nom,
+              prenom,
+              genre,
+              date_naissance,
+              numero_licence,
+              email,
+              statut,
+              groupe_id,
+              member_of_group_id,
+              team_name
+            `
+            )
+            .in("member_of_group_id", groupIdsForMembers);
+
+          if (mErr) {
+            console.error("MEMBERS_FETCH_ERROR", mErr);
+          } else {
+            membs = membData || [];
+          }
         }
 
-        setMembers(membs || []);
+        setMembers(membs);
 
-        // 3) Paiement
+        // 4) Paiement (commun à toutes les équipes)
         if (grp.paiement_id) {
           const { data: pay, error: pErr } = await supabase
             .from("paiements")
@@ -261,7 +250,7 @@ export default function MonInscriptionEquipe() {
           setPaiement(null);
         }
 
-        // 4) Options (toutes les options de tous les membres de ce groupe)
+        // 5) Options pour tous les membres (toutes équipes confondues)
         if (membs && membs.length > 0) {
           const mIds = membs.map((m) => m.id);
           const { data: opts, error: oErr } = await supabase
@@ -289,6 +278,7 @@ export default function MonInscriptionEquipe() {
       } catch (e) {
         console.error("MON_INSCRIPTION_EQUIPE_FATAL", e);
         setGroup(null);
+        setGroupsList([]);
         setFormat(null);
         setCourse(null);
         setMembers([]);
@@ -305,6 +295,15 @@ export default function MonInscriptionEquipe() {
     () => (members || []).length,
     [members]
   );
+
+  // Somme des tailles d’équipes
+  const totalTeamSize = useMemo(() => {
+    if (!groupsList || groupsList.length === 0) return null;
+    return groupsList.reduce(
+      (acc, g) => acc + (Number(g.team_size || 0) || 0),
+      0
+    );
+  }, [groupsList]);
 
   const teamCategoryLabel = useMemo(() => {
     const cat =
@@ -335,7 +334,7 @@ export default function MonInscriptionEquipe() {
 
   const totalPaidEur = useMemo(() => {
     if (totalPaidCents == null) return "—";
-    return euros(totalPaidCents / 100);
+    return (totalPaidCents / 100).toFixed(2) + " €";
   }, [totalPaidCents]);
 
   // Total options
@@ -349,11 +348,11 @@ export default function MonInscriptionEquipe() {
   }, [options]);
 
   const optionsTotalEur = useMemo(
-    () => euros(optionsTotalCents / 100),
+    () => (optionsTotalCents / 100).toFixed(2) + " €",
     [optionsTotalCents]
   );
 
-  // Couleur du statut global de l'équipe (header)
+  // Couleur du statut global de l'équipe (pour le header)
   const teamStatusColor = useMemo(() => {
     const s = (group?.statut || "").toLowerCase();
     if (s.includes("valid") || s.includes("paye") || s.includes("payé"))
@@ -362,31 +361,6 @@ export default function MonInscriptionEquipe() {
     if (s.includes("annul")) return "red";
     return "neutral";
   }, [group?.statut]);
-
-  // Interprétation statut paiement Stripe
-  let stripeStatusColor = "neutral";
-  const rawStripeStatus = (paiement?.status || "").toLowerCase();
-  if (
-    rawStripeStatus.includes("paye") ||
-    rawStripeStatus.includes("payé") ||
-    rawStripeStatus === "succeeded" ||
-    rawStripeStatus === "paid"
-  ) {
-    stripeStatusColor = "green";
-  } else if (
-    rawStripeStatus.includes("rembours") ||
-    rawStripeStatus.includes("refund")
-  ) {
-    stripeStatusColor = "blue";
-  } else if (rawStripeStatus.includes("pend") || rawStripeStatus === "open") {
-    stripeStatusColor = "orange";
-  } else if (rawStripeStatus) {
-    stripeStatusColor = "red";
-  }
-
-  const isAlreadyCancelled = group?.statut === "annule";
-
-  /* --------------------------- Simulation remboursement --------------------------- */
 
   async function handleSimulateRefund() {
     if (!groupeId) {
@@ -434,8 +408,6 @@ export default function MonInscriptionEquipe() {
       setSimLoading(false);
     }
   }
-
-  /* --------------------------- Demande de remboursement --------------------------- */
 
   async function handleRequestTeamRefund() {
     if (!groupeId) return;
@@ -521,43 +493,58 @@ export default function MonInscriptionEquipe() {
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-neutral-50 p-8">
-        Chargement de votre inscription d’équipe…
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <div className="mb-4">
+          <div className="h-5 w-48 bg-neutral-200 rounded animate-pulse mb-2" />
+          <div className="h-4 w-64 bg-neutral-200 rounded animate-pulse" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <div className="h-48 bg-neutral-100 rounded-2xl animate-pulse" />
+            <div className="h-64 bg-neutral-100 rounded-2xl animate-pulse" />
+          </div>
+          <div className="h-72 bg-neutral-100 rounded-2xl animate-pulse" />
+        </div>
       </div>
     );
   }
 
   if (!group || !format || !course) {
     return (
-      <div className="min-h-screen bg-neutral-50 p-8">
-        <Card title="Mon inscription d’équipe">
-          <p className="text-sm text-neutral-700 mb-3">
-            Aucune inscription d’équipe trouvée pour cet identifiant.
-          </p>
-          <ul className="list-disc pl-5 text-sm text-neutral-600 space-y-1">
-            <li>Vous n’êtes peut-être pas connecté avec le bon compte.</li>
-            <li>
-              Les règles de sécurité (RLS) empêchent l’accès à ce groupe pour ce
-              compte.
-            </li>
-            <li>
-              L’URL a été modifiée ou ne correspond pas à un groupe valide.
-            </li>
-          </ul>
-          <div className="mt-5 flex gap-2">
-            <Link
-              to="/mesinscriptions"
-              className="inline-flex items-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
-            >
-              ← Retour à mes inscriptions
-            </Link>
-          </div>
-        </Card>
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+        <Link
+          to="/mesinscriptions"
+          className="inline-flex items-center text-sm text-neutral-600 hover:text-neutral-900 mb-4"
+        >
+          ← Retour à mes inscriptions
+        </Link>
+        <h1 className="text-2xl font-bold mb-3">Mon inscription équipe</h1>
+        <p className="text-neutral-700 mb-3">
+          Aucune inscription trouvée pour ce groupe.
+        </p>
+        <ul className="list-disc pl-5 text-sm text-neutral-600 space-y-1">
+          <li>Vous ne soyez pas connecté avec le bon compte.</li>
+          <li>
+            Les règles de sécurité (RLS) empêchent l’accès à ce groupe pour ce
+            compte.
+          </li>
+          <li>
+            L’URL a été modifiée ou ne correspond pas à un groupe valide.
+          </li>
+        </ul>
+        <div className="mt-5">
+          <Link
+            to="/mesinscriptions"
+            className="inline-flex items-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
+          >
+            ← Retour à mes inscriptions
+          </Link>
+        </div>
       </div>
     );
   }
 
-  const stripeReceiptUrl = paiement?.receipt_url || null;
+  const isAlreadyCancelled = group.statut === "annule";
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
@@ -582,248 +569,271 @@ export default function MonInscriptionEquipe() {
             {group.is_waitlist && <Pill color="blue">Liste d’attente</Pill>}
 
             <Pill color="orange">
-              Participants {participantsCount} / {group.team_size}
+              Participants {participantsCount}
+              {totalTeamSize ? ` / ${totalTeamSize}` : ""}
             </Pill>
 
             {teamCategoryLabel && (
               <Pill color="green">{teamCategoryLabel}</Pill>
+            )}
+
+            {groupsList.length > 1 && (
+              <Pill color="neutral">
+                {groupsList.length} équipe
+                {groupsList.length > 1 ? "s" : ""} dans ce paiement
+              </Pill>
             )}
           </div>
         </div>
       </section>
 
       {/* Body */}
-      <div className="mx-auto max-w-5xl px-4 py-8 grid gap-8">
-        {/* Épreuve / équipe */}
-        <Card
-          title={course?.nom || "Épreuve"}
-          subtitle={
-            course
-              ? `${course.lieu || "—"}${
-                  course.departement ? ` • ${course.departement}` : ""
-                }`
-              : "—"
-          }
-          right={
-            course?.id && (
-              <Link
-                to={`/courses/${course.id}`}
-                className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 text-center"
-              >
-                Voir la page épreuve
-              </Link>
-            )
-          }
-        >
-          <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-            <div className="text-sm font-semibold text-neutral-700 mb-2">
-              Détails du format & de l’équipe
-            </div>
-            <Row label="Format">
-              {format?.nom || "—"} • {format?.distance_km ?? "—"} km /{" "}
-              {format?.denivele_dplus ?? "—"} m D+
-            </Row>
-            <Row label="Type">
-              {format?.type_format || "—"}{" "}
-              {group?.team_size
-                ? `• ${group.team_size} participant(s) prévu(s)`
-                : ""}
-            </Row>
-            <Row label="Date de l’épreuve">
-              {format?.date ? formatDate(format.date) : "—"}
-            </Row>
-            <Row label="Nom d’équipe">
-              {group.team_name || group.nom_groupe || "—"}
-            </Row>
-            <Row label="Catégorie">
-              {teamCategoryLabel || "—"}
-            </Row>
-            <Row label="Participants">
-              {participantsCount} / {group.team_size}
-            </Row>
-            <Row label="Statut global">
-              <Pill color={teamStatusColor}>
-                {isAlreadyCancelled ? "Équipe annulée" : group.statut || "—"}
-              </Pill>
-            </Row>
-            <Row label="Créée le">
-              {group.created_at ? formatDateTime(group.created_at) : "—"}
-            </Row>
-            <Row label="Dernière mise à jour">
-              {group.updated_at ? formatDateTime(group.updated_at) : "—"}
-            </Row>
-            <Row label="Identifiant d’équipe (URL)">
-              <span className="font-mono text-[13px] break-all">
-                {group.id}
-              </span>
-            </Row>
-          </div>
-        </Card>
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="mb-4 flex items-center justify-between">
+          <Link
+            to="/mesinscriptions"
+            className="inline-flex items-center text-sm text-neutral-600 hover:text-neutral-900"
+          >
+            ← Retour à mes inscriptions
+          </Link>
+        </div>
 
-        {/* Membres */}
-        <Card title="Membres de l’équipe" subtitle="Liste des coureurs rattachés à cette équipe.">
-          {members.length === 0 ? (
-            <div className="text-sm text-neutral-600">
-              Aucun membre visible pour ce groupe. Les règles RLS peuvent
-              limiter l’accès à certains coureurs.
-            </div>
-          ) : (
-            <div className="overflow-x-auto rounded-xl ring-1 ring-neutral-200">
-              <table className="min-w-full text-sm bg-white">
-                <thead className="bg-neutral-50">
-                  <tr className="text-left text-neutral-600 border-b">
-                    <th className="py-2 px-3">#</th>
-                    <th className="py-2 px-3">Nom</th>
-                    <th className="py-2 px-3">Prénom</th>
-                    <th className="py-2 px-3">Sexe</th>
-                    <th className="py-2 px-3">Date de naissance</th>
-                    <th className="py-2 px-3">N° licence / PPS</th>
-                    <th className="py-2 px-3">Email</th>
-                    <th className="py-2 px-3">Statut</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {members.map((m, idx) => (
-                    <tr key={m.id} className="border-b last:border-0">
-                      <td className="py-2 px-3">{idx + 1}</td>
-                      <td className="py-2 px-3">{m.nom || "—"}</td>
-                      <td className="py-2 px-3">{m.prenom || "—"}</td>
-                      <td className="py-2 px-3">{m.genre || "—"}</td>
-                      <td className="py-2 px-3">
-                        {m.date_naissance
-                          ? formatDate(m.date_naissance)
-                          : "—"}
-                      </td>
-                      <td className="py-2 px-3">
-                        {m.numero_licence || "—"}
-                      </td>
-                      <td className="py-2 px-3">{m.email || "—"}</td>
-                      <td className="py-2 px-3">
-                        <Pill
-                          color={
-                            m.statut === "paye" || m.statut === "validé"
-                              ? "green"
-                              : m.statut === "annulé"
-                              ? "red"
-                              : "neutral"
-                          }
-                        >
-                          {m.statut || "—"}
-                        </Pill>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-
-        {/* Financier & paiement */}
-        <Card
-          title="Récapitulatif financier & paiement"
-          right={
-            stripeReceiptUrl && (
-              <a
-                href={stripeReceiptUrl}
-                target="_blank"
-                rel="noreferrer"
-                className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
-              >
-                Télécharger le reçu Stripe
-              </a>
-            )
-          }
-        >
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Récap équipe */}
-            <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-              <div className="text-sm font-semibold text-neutral-700 mb-2">
-                Récapitulatif Tickrace
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Colonne principale */}
+          <div className="lg:col-span-2 space-y-6">
+            {/* Carte course / format / équipe */}
+            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100">
+                <h2 className="text-lg font-semibold">
+                  {course.nom} — {course.lieu}
+                </h2>
+                <p className="text-sm text-neutral-600 mt-1">
+                  {format.nom} · {format.distance_km} km /{" "}
+                  {format.denivele_dplus} m D+
+                </p>
+                {groupsList.length > 1 && (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Cette réservation contient{" "}
+                    <b>{groupsList.length} équipes</b> (affichage des membres
+                    de toutes les équipes ci-dessous).
+                  </p>
+                )}
               </div>
-              <Row label="Prix total payé">{totalPaidEur}</Row>
-              <Row label="Total options (équipe)">{optionsTotalEur}</Row>
-              <Row label="Nombre de participants">
-                {participantsCount}
-              </Row>
-              {participantsCount > 0 && totalPaidCents != null && (
-                <Row label="Prix moyen par participant (approx.)">
-                  {euros((totalPaidCents / participantsCount) / 100)}
-                </Row>
-              )}
-            </div>
 
-            {/* Stripe */}
-            <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-              <div className="text-sm font-semibold text-neutral-700 mb-2">
-                Transaction Stripe de l’équipe
-              </div>
-              {paiement ? (
-                <>
-                  <Row label="Payment Intent ID">
-                    {paiement.stripe_payment_intent_id || "—"}
-                  </Row>
-                  <Row label="Session Stripe">
-                    {paiement.stripe_session_id || paiement.trace_id || "—"}
-                  </Row>
-                  <Row label="Montant (Stripe)">
-                    {totalPaidCents != null
-                      ? euros(totalPaidCents / 100)
-                      : "—"}
-                  </Row>
-                  <Row label="Statut Stripe">
-                    <Pill color={stripeStatusColor}>
-                      {paiement.status || "—"}
-                    </Pill>
-                  </Row>
-                  <Row label="Reçu Stripe">
-                    {stripeReceiptUrl ? (
-                      <a
-                        href={stripeReceiptUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="text-sm font-semibold text-orange-600 hover:underline"
-                      >
-                        Ouvrir le reçu
-                      </a>
-                    ) : (
-                      "—"
-                    )}
-                  </Row>
-                </>
-              ) : (
-                <div className="text-sm text-neutral-500">
-                  Aucun paiement Stripe rattaché à ce groupe.
+              <div className="p-5 space-y-4">
+                <div className="flex flex-wrap items-center gap-2 text-sm">
+                  <Pill color="blue">
+                    Inscription équipe / relais • {formatDate(format.date)}
+                  </Pill>
+                  <Pill color="neutral">
+                    Équipe principale{" "}
+                    <b className="ml-1">{group.team_name}</b>
+                  </Pill>
+                  {teamCategoryLabel && (
+                    <Pill color="green">{teamCategoryLabel}</Pill>
+                  )}
+                  <Pill color="orange">
+                    Participants {participantsCount}
+                    {totalTeamSize ? ` / ${totalTeamSize}` : ""}
+                  </Pill>
+                  {isAlreadyCancelled && (
+                    <Pill color="red">Équipe annulée</Pill>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
-        </Card>
 
-        {/* Remboursement & annulation équipe */}
-        <Card title="Remboursement & annulation de l’équipe">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Simulation */}
-            <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-              <div className="flex items-center justify-between mb-3">
-                <div className="text-sm font-semibold text-neutral-700">
-                  Simulation de remboursement (indicatif)
+                <dl className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <dt className="text-neutral-500">ID (URL)</dt>
+                    <dd className="font-mono text-[13px] break-all">
+                      {group.id}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">Nom d’équipe principale</dt>
+                    <dd className="font-medium">{group.team_name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">
+                      Nombre d’équipes dans ce paiement
+                    </dt>
+                    <dd className="font-medium">{groupsList.length}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">Statut global inscrit</dt>
+                    <dd className="font-medium">{group.statut}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">Créée le</dt>
+                    <dd>{formatDateTime(group.created_at)}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">Dernière mise à jour</dt>
+                    <dd>{formatDateTime(group.updated_at)}</dd>
+                  </div>
+                </dl>
+
+                {group.capitaine_user_id && (
+                  <p className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2 inline-block mt-1">
+                    Vous êtes le capitaine de cette équipe.
+                  </p>
+                )}
+              </div>
+            </section>
+
+            {/* Cadre OPTIONS & PRIX TOTAL PAYÉ */}
+            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    Récapitulatif financier de l’équipe
+                  </h2>
+                  <p className="text-sm text-neutral-500">
+                    Montant total payé et options associées au groupe (toutes
+                    les équipes de ce paiement).
+                  </p>
+                </div>
+              </div>
+
+              <div className="p-5 space-y-3 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">Prix total payé</span>
+                  <span className="font-semibold">{totalPaidEur}</span>
+                </div>
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">
+                    Nombre de participants (toutes équipes)
+                  </span>
+                  <span className="font-medium">{participantsCount}</span>
+                </div>
+
+                {participantsCount > 0 && totalPaidCents != null && (
+                  <div className="flex justify-between text-xs text-neutral-600">
+                    <span>Prix moyen par participant (approx.)</span>
+                    <span className="font-medium">
+                      {((totalPaidCents / participantsCount) / 100).toFixed(2)} €
+                    </span>
+                  </div>
+                )}
+
+                <div className="h-px bg-neutral-200 my-2" />
+
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">
+                    Total options (tous les membres)
+                  </span>
+                  <span className="font-medium">{optionsTotalEur}</span>
+                </div>
+
+                {options.length > 0 && (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Les options affichées correspondent à toutes les options
+                    achetées par l’ensemble des équipes de ce paiement (repas,
+                    T-shirt, etc.).
+                  </p>
+                )}
+              </div>
+            </section>
+
+            {/* Tableau des membres (toutes équipes) */}
+            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100">
+                <h2 className="text-lg font-semibold">Détail des membres</h2>
+                <p className="text-sm text-neutral-500">
+                  Liste des coureurs rattachés à toutes les équipes de cette
+                  inscription. La colonne "Équipe" indique l’équipe de chaque
+                  coureur.
+                </p>
+              </div>
+
+              <div className="p-5 overflow-x-auto">
+                {members.length === 0 ? (
+                  <p className="text-sm text-neutral-600">
+                    Aucun membre visible pour ce groupe. Les règles RLS peuvent
+                    limiter l’accès à certains coureurs.
+                  </p>
+                ) : (
+                  <table className="min-w-full text-sm">
+                    <thead>
+                      <tr className="text-left text-neutral-600 border-b">
+                        <th className="py-2 pr-3">#</th>
+                        <th className="py-2 pr-3">Équipe</th>
+                        <th className="py-2 pr-3">Nom</th>
+                        <th className="py-2 pr-3">Prénom</th>
+                        <th className="py-2 pr-3">Sexe</th>
+                        <th className="py-2 pr-3">Date de naissance</th>
+                        <th className="py-2 pr-3">N° licence / PPS</th>
+                        <th className="py-2 pr-3">Email</th>
+                        <th className="py-2 pr-3">Statut</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {members.map((m, idx) => (
+                        <tr key={m.id} className="border-b last:border-0">
+                          <td className="py-2 pr-3">{idx + 1}</td>
+                          <td className="py-2 pr-3">
+                            {m.team_name || "—"}
+                          </td>
+                          <td className="py-2 pr-3">{m.nom}</td>
+                          <td className="py-2 pr-3">{m.prenom}</td>
+                          <td className="py-2 pr-3">{m.genre}</td>
+                          <td className="py-2 pr-3">
+                            {m.date_naissance
+                              ? formatDate(m.date_naissance)
+                              : "—"}
+                          </td>
+                          <td className="py-2 pr-3">
+                            {m.numero_licence || "—"}
+                          </td>
+                          <td className="py-2 pr-3">{m.email || "—"}</td>
+                          <td className="py-2 pr-3">
+                            <Pill
+                              color={
+                                m.statut === "paye" || m.statut === "validé"
+                                  ? "green"
+                                  : m.statut === "annulé"
+                                  ? "red"
+                                  : "neutral"
+                              }
+                            >
+                              {m.statut || "—"}
+                            </Pill>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </section>
+
+            {/* SIMULATEUR REMBOURSEMENT */}
+            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
+                <div>
+                  <h2 className="text-lg font-semibold">
+                    Simulateur de remboursement
+                  </h2>
+                  <p className="text-sm text-neutral-500">
+                    Estime le montant remboursable pour l’équipe selon la
+                    politique en vigueur.
+                  </p>
                 </div>
                 <button
                   type="button"
                   onClick={handleSimulateRefund}
                   disabled={simLoading}
-                  className={`rounded-xl px-3 py-1.5 text-xs font-semibold text-white ${
+                  className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
                     simLoading
                       ? "bg-neutral-400 cursor-not-allowed"
                       : "bg-neutral-900 hover:bg-black"
                   }`}
                 >
-                  {simLoading ? "Simulation…" : "Simuler"}
+                  {simLoading ? "Simulation..." : "Simuler un remboursement"}
                 </button>
               </div>
 
-              <div className="text-sm space-y-3">
+              <div className="p-5 text-sm space-y-3">
                 {simError && (
                   <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-rose-700">
                     {simError}
@@ -833,20 +843,20 @@ export default function MonInscriptionEquipe() {
                 {!simulation && !simError && (
                   <p className="text-neutral-600">
                     Aucune simulation encore effectuée. Cliquez sur{" "}
-                    <b>“Simuler”</b> pour voir une estimation basée sur la date
-                    de la course et la politique d’annulation.
+                    <b>“Simuler un remboursement”</b> pour voir une estimation
+                    basée sur la date de la course et la politique d’annulation.
                   </p>
                 )}
 
                 {simulation && (
                   <>
-                    <div className="rounded-xl border border-neutral-200 bg-white px-3 py-3 space-y-2">
+                    <div className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-3 space-y-2">
                       <div className="flex justify-between">
                         <span className="text-neutral-600">
                           Montant total considéré
                         </span>
                         <span className="font-semibold">
-                          {euros(simulation.amounts.base_cents / 100)}
+                          {(simulation.amounts.base_cents / 100).toFixed(2)} €
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -862,9 +872,10 @@ export default function MonInscriptionEquipe() {
                           Montant remboursable estimé
                         </span>
                         <span className="font-semibold">
-                          {euros(
+                          {(
                             simulation.amounts.refund_cents / 100
-                          )}
+                          ).toFixed(2)}{" "}
+                          €
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -872,9 +883,10 @@ export default function MonInscriptionEquipe() {
                           Part non remboursable
                         </span>
                         <span className="font-semibold">
-                          {euros(
+                          {(
                             simulation.amounts.non_refundable_cents / 100
-                          )}
+                          ).toFixed(2)}{" "}
+                          €
                         </span>
                       </div>
                     </div>
@@ -891,108 +903,122 @@ export default function MonInscriptionEquipe() {
                   </>
                 )}
               </div>
-            </div>
-
-            {/* Annulation équipe */}
-            <div className="rounded-xl ring-1 ring-neutral-200 p-4 bg-neutral-50">
-              <div className="text-sm font-semibold text-neutral-700 mb-2">
-                Annuler l’inscription de l’équipe
-              </div>
-              <p className="text-xs text-neutral-600 mb-2">
-                La demande de remboursement sera effectuée sur le moyen de
-                paiement utilisé lors de l’inscription, selon la politique
-                d’annulation en vigueur.
-              </p>
-
-              <label className="text-xs font-medium text-neutral-700">
-                Motif d’annulation
-              </label>
-              <select
-                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
-                value={cancelReason}
-                onChange={(e) => setCancelReason(e.target.value)}
-                disabled={cancelLoading || isAlreadyCancelled}
-              >
-                <option value="">Sélectionner un motif…</option>
-                {TEAM_CANCEL_REASONS.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-
-              <label className="mt-3 text-xs font-medium text-neutral-700">
-                Détails (optionnel)
-              </label>
-              <textarea
-                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm resize-y min-h-[70px]"
-                placeholder="Précisez votre situation (facultatif, visible par l’organisation et l’admin Tickrace)…"
-                value={cancelReasonText}
-                onChange={(e) => setCancelReasonText(e.target.value)}
-                disabled={cancelLoading || isAlreadyCancelled}
-              />
-
-              {cancelError && (
-                <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                  {cancelError}
-                </div>
-              )}
-              {cancelSuccess && (
-                <div className="mt-2 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                  {cancelSuccess}
-                </div>
-              )}
-
-              <button
-                type="button"
-                onClick={handleRequestTeamRefund}
-                disabled={
-                  cancelLoading ||
-                  !cancelReason ||
-                  isAlreadyCancelled ||
-                  !paiement
-                }
-                className={`mt-3 w-full inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold ${
-                  cancelLoading ||
-                  !cancelReason ||
-                  isAlreadyCancelled ||
-                  !paiement
-                    ? "bg-neutral-300 text-neutral-600 cursor-not-allowed"
-                    : "bg-rose-600 text-white hover:bg-rose-700"
-                }`}
-              >
-                {isAlreadyCancelled
-                  ? "Équipe déjà annulée"
-                  : cancelLoading
-                  ? "Annulation en cours…"
-                  : "Demander le remboursement de l’équipe"}
-              </button>
-
-              <p className="mt-3 text-[11px] text-neutral-500">
-                Rappel de la politique d’annulation :
-                <br />
-                • <b>J-30+</b> : 90% &nbsp;• <b>J-15–29</b> : 70% &nbsp;•{" "}
-                <b>J-7–14</b> : 50% &nbsp;• <b>J-3–6</b> : 30% &nbsp;•{" "}
-                <b>J-0–2</b> : 0%
-              </p>
-            </div>
+            </section>
           </div>
-        </Card>
 
-        {/* Actions bas de page */}
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            onClick={() => navigate(-1)}
-            className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-5 py-3 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-          >
-            ← Retour
-          </button>
-          <Link
-            to="/mesinscriptions"
-            className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-5 py-3 text-sm font-semibold text-white hover:brightness-110"
-          >
-            Voir toutes mes inscriptions
-          </Link>
+          {/* Colonne latérale */}
+          <aside className="lg:col-span-1 space-y-4">
+            <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+              <div className="p-5 border-b border-neutral-100">
+                <h3 className="text-lg font-semibold">Actions</h3>
+                <p className="text-sm text-neutral-500">
+                  Accédez rapidement à la page de la course ou annulez
+                  l’équipe.
+                </p>
+              </div>
+              <div className="p-5 space-y-3">
+                <Link
+                  to={`/courses/${course.id}`}
+                  className="w-full inline-flex items-center justify-center rounded-xl bg-white border border-neutral-200 px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+                >
+                  ← Voir la page de la course
+                </Link>
+
+                <Link
+                  to="/mesinscriptions"
+                  className="w-full inline-flex items-center justify-center rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
+                >
+                  Retour à mes inscriptions
+                </Link>
+
+                <div className="h-px bg-neutral-200 my-2" />
+
+                {/* Bloc annulation équipe */}
+                <div className="space-y-2">
+                  <h4 className="text-sm font-semibold">
+                    Annuler l’inscription équipe
+                  </h4>
+                  <p className="text-xs text-neutral-600">
+                    La demande de remboursement sera effectuée sur le moyen de
+                    paiement utilisé lors de l’inscription, selon la politique
+                    d’annulation en vigueur.
+                  </p>
+
+                  <label className="text-xs font-medium text-neutral-700">
+                    Motif d’annulation
+                  </label>
+                  <select
+                    className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    disabled={cancelLoading || isAlreadyCancelled}
+                  >
+                    <option value="">Sélectionner un motif…</option>
+                    {TEAM_CANCEL_REASONS.map((r) => (
+                      <option key={r.value} value={r.value}>
+                        {r.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <label className="text-xs font-medium text-neutral-700">
+                    Détails (optionnel)
+                  </label>
+                  <textarea
+                    className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm resize-y min-h-[70px]"
+                    placeholder="Précisez votre situation (facultatif, visible par l’organisation et l’admin Tickrace)…"
+                    value={cancelReasonText}
+                    onChange={(e) => setCancelReasonText(e.target.value)}
+                    disabled={cancelLoading || isAlreadyCancelled}
+                  />
+
+                  {cancelError && (
+                    <div className="rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
+                      {cancelError}
+                    </div>
+                  )}
+                  {cancelSuccess && (
+                    <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+                      {cancelSuccess}
+                    </div>
+                  )}
+
+                  <button
+                    type="button"
+                    onClick={handleRequestTeamRefund}
+                    disabled={
+                      cancelLoading ||
+                      !cancelReason ||
+                      isAlreadyCancelled ||
+                      !paiement
+                    }
+                    className={`w-full inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold ${
+                      cancelLoading ||
+                      !cancelReason ||
+                      isAlreadyCancelled ||
+                      !paiement
+                        ? "bg-neutral-300 text-neutral-600 cursor-not-allowed"
+                        : "bg-rose-600 text-white hover:bg-rose-700"
+                    }`}
+                  >
+                    {isAlreadyCancelled
+                      ? "Équipe déjà annulée"
+                      : cancelLoading
+                      ? "Annulation en cours…"
+                      : "Demander le remboursement de l’équipe"}
+                  </button>
+
+                  <p className="text-[11px] text-neutral-500">
+                    Rappel de la politique d’annulation :
+                    <br />
+                    • <b>J-30+</b> : 90% &nbsp;• <b>J-15–29</b> : 70% &nbsp;•
+                    <b> J-7–14</b> : 50% &nbsp;• <b>J-3–6</b> : 30% &nbsp;•
+                    <b> J-0–2</b> : 0%
+                  </p>
+                </div>
+              </div>
+            </div>
+          </aside>
         </div>
       </div>
     </div>
