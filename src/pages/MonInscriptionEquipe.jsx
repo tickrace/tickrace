@@ -90,7 +90,8 @@ export default function MonInscriptionEquipe() {
   const { session } = useUser();
 
   const [loading, setLoading] = useState(true);
-  const [group, setGroup] = useState(null);
+  const [group, setGroup] = useState(null); // groupe "principal" (celui de l’URL)
+  const [groupsList, setGroupsList] = useState([]); // toutes les équipes liées au même paiement
   const [format, setFormat] = useState(null);
   const [course, setCourse] = useState(null);
   const [members, setMembers] = useState([]);
@@ -108,18 +109,11 @@ export default function MonInscriptionEquipe() {
   const [cancelError, setCancelError] = useState(null);
   const [cancelSuccess, setCancelSuccess] = useState(null);
 
-  // Edition de "mon" inscription dans l'équipe
+  // Édition d’un membre (ligne du tableau)
   const [editingMemberId, setEditingMemberId] = useState(null);
   const [memberDraft, setMemberDraft] = useState(null);
   const [savingMember, setSavingMember] = useState(false);
   const [memberMessage, setMemberMessage] = useState("");
-  const [memberError, setMemberError] = useState("");
-
-  // Email utilisateur connecté
-  const currentUserEmail =
-    session?.user?.email ||
-    session?.user?.user_metadata?.email ||
-    null;
 
   useEffect(() => {
     (async () => {
@@ -135,15 +129,15 @@ export default function MonInscriptionEquipe() {
       if (!user) {
         navigate(
           `/login?next=${encodeURIComponent(
-            `/mon-inscription-equipe/${groupeId}`,
-          )}`,
+            `/mon-inscription-equipe/${groupeId}`
+          )}`
         );
         return;
       }
 
       setLoading(true);
       try {
-        // 1) Charger le groupe + format + course
+        // 1) Charger le groupe demandé (avec format + course)
         const { data: grp, error: gErr } = await supabase
           .from("inscriptions_groupes")
           .select(
@@ -165,7 +159,7 @@ export default function MonInscriptionEquipe() {
                 image_url
               )
             )
-          `,
+          `
           )
           .eq("id", groupeId)
           .maybeSingle();
@@ -176,6 +170,7 @@ export default function MonInscriptionEquipe() {
 
         if (!grp) {
           setGroup(null);
+          setGroupsList([]);
           setFormat(null);
           setCourse(null);
           setMembers([]);
@@ -185,37 +180,66 @@ export default function MonInscriptionEquipe() {
           return;
         }
 
-        setGroup(grp);
+        // 2) Charger toutes les équipes rattachées au même paiement (si paiement_id présent)
+        let allGroups = [grp];
+        if (grp.paiement_id) {
+          const { data: siblings, error: sErr } = await supabase
+            .from("inscriptions_groupes")
+            .select("*")
+            .eq("paiement_id", grp.paiement_id)
+            .order("created_at", { ascending: true });
+
+          if (sErr) {
+            console.error("GROUP_SIBLINGS_FETCH_ERROR", sErr);
+          } else if (siblings && siblings.length > 0) {
+            allGroups = siblings;
+          }
+        }
+
+        setGroupsList(allGroups);
+
+        // groupe "principal" = celui de l’URL si présent, sinon le premier
+        const mainGroup =
+          allGroups.find((g) => g.id === groupeId) || allGroups[0];
+
+        setGroup(mainGroup);
         setFormat(grp.format || null);
         setCourse(grp.format?.course || null);
 
-        // 2) Charger les membres
-        const { data: membs, error: mErr } = await supabase
-          .from("inscriptions")
-          .select(
-            `
-            id,
-            nom,
-            prenom,
-            genre,
-            date_naissance,
-            numero_licence,
-            email,
-            statut,
-            groupe_id,
-            member_of_group_id,
-            team_name
-          `,
-          )
-          .or(`groupe_id.eq.${groupeId},member_of_group_id.eq.${groupeId}`);
+        // 3) Charger les membres pour TOUTES les équipes de ce paiement
+        const groupIdsForMembers = allGroups.map((g) => g.id);
 
-        if (mErr) {
-          console.error("MEMBERS_FETCH_ERROR", mErr);
+        let membs = [];
+        if (groupIdsForMembers.length > 0) {
+          const { data: membData, error: mErr } = await supabase
+            .from("inscriptions")
+            .select(
+              `
+              id,
+              nom,
+              prenom,
+              genre,
+              date_naissance,
+              numero_licence,
+              email,
+              statut,
+              groupe_id,
+              member_of_group_id,
+              team_name
+            `
+            )
+            .in("member_of_group_id", groupIdsForMembers);
+
+          if (mErr) {
+            console.error("MEMBERS_FETCH_ERROR", mErr);
+          } else {
+            membs = membData || [];
+          }
         }
 
-        setMembers(membs || []);
+        setMembers(membs);
 
-        // 3) Paiement
+        // 4) Paiement (commun à toutes les équipes)
         if (grp.paiement_id) {
           const { data: pay, error: pErr } = await supabase
             .from("paiements")
@@ -232,7 +256,7 @@ export default function MonInscriptionEquipe() {
           setPaiement(null);
         }
 
-        // 4) Options
+        // 5) Options pour tous les membres (toutes équipes confondues)
         if (membs && membs.length > 0) {
           const mIds = membs.map((m) => m.id);
           const { data: opts, error: oErr } = await supabase
@@ -245,7 +269,7 @@ export default function MonInscriptionEquipe() {
               quantity,
               prix_unitaire_cents,
               status
-            `,
+            `
             )
             .in("inscription_id", mIds);
 
@@ -260,6 +284,7 @@ export default function MonInscriptionEquipe() {
       } catch (e) {
         console.error("MON_INSCRIPTION_EQUIPE_FATAL", e);
         setGroup(null);
+        setGroupsList([]);
         setFormat(null);
         setCourse(null);
         setMembers([]);
@@ -274,8 +299,17 @@ export default function MonInscriptionEquipe() {
 
   const participantsCount = useMemo(
     () => (members || []).length,
-    [members],
+    [members]
   );
+
+  // Somme des tailles d’équipes
+  const totalTeamSize = useMemo(() => {
+    if (!groupsList || groupsList.length === 0) return null;
+    return groupsList.reduce(
+      (acc, g) => acc + (Number(g.team_size || 0) || 0),
+      0
+    );
+  }, [groupsList]);
 
   const teamCategoryLabel = useMemo(() => {
     const cat =
@@ -321,7 +355,7 @@ export default function MonInscriptionEquipe() {
 
   const optionsTotalEur = useMemo(
     () => (optionsTotalCents / 100).toFixed(2) + " €",
-    [optionsTotalCents],
+    [optionsTotalCents]
   );
 
   // Couleur du statut global de l'équipe (pour le header)
@@ -334,29 +368,38 @@ export default function MonInscriptionEquipe() {
     return "neutral";
   }, [group?.statut]);
 
-  // Trouver "mon" inscription dans l'équipe (par email)
-  const myMember = useMemo(() => {
-    if (!currentUserEmail || !members || members.length === 0) return null;
-    const lower = currentUserEmail.toLowerCase();
-    return (
-      members.find(
-        (m) => m.email && m.email.toLowerCase() === lower,
-      ) || null
-    );
-  }, [currentUserEmail, members]);
+  /* --------- Édition d’un membre --------- */
 
-  function handleMemberDraftChange(field, value) {
+  function startEditMember(m) {
+    setEditingMemberId(m.id);
+    setMemberDraft({
+      nom: m.nom || "",
+      prenom: m.prenom || "",
+      genre: m.genre || "",
+      date_naissance: m.date_naissance || "",
+      numero_licence: m.numero_licence || "",
+      email: m.email || "",
+    });
+    setMemberMessage("");
+  }
+
+  function cancelEditMember() {
+    setEditingMemberId(null);
+    setMemberDraft(null);
+    setSavingMember(false);
+    setMemberMessage("");
+  }
+
+  function handleMemberFieldChange(field, value) {
     setMemberDraft((prev) => ({
       ...prev,
       [field]: value,
     }));
   }
 
-  async function handleSaveMember() {
+  async function saveMember() {
     if (!editingMemberId || !memberDraft) return;
-
     setSavingMember(true);
-    setMemberError("");
     setMemberMessage("");
 
     try {
@@ -386,30 +429,26 @@ export default function MonInscriptionEquipe() {
           groupe_id,
           member_of_group_id,
           team_name
-        `,
+        `
         )
         .maybeSingle();
 
       if (error) {
         console.error("UPDATE_MEMBER_ERROR", error);
-        throw error;
+        setMemberMessage(error.message || "Impossible de mettre à jour ce membre.");
+      } else if (data) {
+        setMembers((prev) =>
+          (prev || []).map((m) => (m.id === editingMemberId ? { ...m, ...data } : m))
+        );
+        setMemberMessage("Infos mises à jour pour ce membre.");
+        setEditingMemberId(null);
+        setMemberDraft(null);
       }
-
-      if (!data) {
-        throw new Error("Mise à jour impossible (aucune donnée retournée).");
-      }
-
-      // Mettre à jour la liste des membres localement
-      setMembers((prev) =>
-        (prev || []).map((m) => (m.id === editingMemberId ? { ...m, ...data } : m)),
-      );
-
-      setEditingMemberId(null);
-      setMemberDraft(null);
-      setMemberMessage("Vos informations ont été mises à jour pour cette inscription d’équipe.");
     } catch (e) {
       console.error("UPDATE_MEMBER_FATAL", e);
-      setMemberError(e?.message || "Impossible de mettre à jour vos informations.");
+      setMemberMessage(
+        e instanceof Error ? e.message : "Erreur inconnue lors de la mise à jour."
+      );
     } finally {
       setSavingMember(false);
     }
@@ -430,13 +469,13 @@ export default function MonInscriptionEquipe() {
         "simulate-team-refund",
         {
           body: { groupe_id: groupeId },
-        },
+        }
       );
 
       if (error) {
         console.error("SIMULATE_TEAM_REFUND_ERROR", error);
         setSimError(
-          error.message || "Erreur lors de la simulation du remboursement.",
+          error.message || "Erreur lors de la simulation du remboursement."
         );
         return;
       }
@@ -444,7 +483,7 @@ export default function MonInscriptionEquipe() {
         console.error("SIMULATE_TEAM_REFUND_DATA_ERROR", data);
         setSimError(
           data?.message ||
-            "Impossible de simuler le remboursement pour ce groupe.",
+            "Impossible de simuler le remboursement pour ce groupe."
         );
         return;
       }
@@ -455,7 +494,7 @@ export default function MonInscriptionEquipe() {
       setSimError(
         e instanceof Error
           ? e.message
-          : "Erreur inconnue lors de la simulation.",
+          : "Erreur inconnue lors de la simulation."
       );
     } finally {
       setSimLoading(false);
@@ -474,7 +513,7 @@ export default function MonInscriptionEquipe() {
     }
 
     const confirmed = window.confirm(
-      "Confirmer l’annulation de cette inscription d’équipe ? Cette opération est définitive une fois le remboursement effectué.",
+      "Confirmer l’annulation de cette inscription d’équipe ? Cette opération est définitive une fois le remboursement effectué."
     );
     if (!confirmed) return;
 
@@ -488,14 +527,14 @@ export default function MonInscriptionEquipe() {
             reason_code: cancelReason,
             reason_text: cancelReasonText || null,
           },
-        },
+        }
       );
 
       if (error) {
         console.error("REQUEST_TEAM_REFUND_ERROR", error);
         setCancelError(
           error.message ||
-            "Erreur lors de la demande de remboursement de l’équipe.",
+            "Erreur lors de la demande de remboursement de l’équipe."
         );
         return;
       }
@@ -504,28 +543,28 @@ export default function MonInscriptionEquipe() {
         console.error("REQUEST_TEAM_REFUND_DATA_ERROR", data);
         setCancelError(
           data?.message ||
-            "Impossible de créer la demande de remboursement pour ce groupe.",
+            "Impossible de créer la demande de remboursement pour ce groupe."
         );
         return;
       }
 
       setCancelSuccess(
         `Demande de remboursement envoyée. Montant estimé : ${(data.refund_cents / 100).toFixed(
-          2,
-        )} € (politique ${data.policy_tier} – ${data.percent}%).`,
+          2
+        )} € (politique ${data.policy_tier} – ${data.percent}%).`
       );
 
       // Mettre le statut localement en "annule"
       setGroup((g) => (g ? { ...g, statut: "annule" } : g));
       setMembers((prev) =>
-        (prev || []).map((m) => ({ ...m, statut: "annulé" })),
+        (prev || []).map((m) => ({ ...m, statut: "annulé" }))
       );
     } catch (e) {
       console.error("REQUEST_TEAM_REFUND_FATAL", e);
       setCancelError(
         e instanceof Error
           ? e.message
-          : "Erreur inconnue lors de la demande de remboursement.",
+          : "Erreur inconnue lors de la demande de remboursement."
       );
     } finally {
       setCancelLoading(false);
@@ -622,11 +661,19 @@ export default function MonInscriptionEquipe() {
             {group.is_waitlist && <Pill color="blue">Liste d’attente</Pill>}
 
             <Pill color="orange">
-              Participants {participantsCount} / {group.team_size}
+              Participants {participantsCount}
+              {totalTeamSize ? ` / ${totalTeamSize}` : ""}
             </Pill>
 
             {teamCategoryLabel && (
               <Pill color="green">{teamCategoryLabel}</Pill>
+            )}
+
+            {groupsList.length > 1 && (
+              <Pill color="neutral">
+                {groupsList.length} équipe
+                {groupsList.length > 1 ? "s" : ""} dans ce paiement
+              </Pill>
             )}
           </div>
         </div>
@@ -653,8 +700,16 @@ export default function MonInscriptionEquipe() {
                   {course.nom} — {course.lieu}
                 </h2>
                 <p className="text-sm text-neutral-600 mt-1">
-                  {format.nom} · {format.distance_km} km / {format.denivele_dplus} m D+
+                  {format.nom} · {format.distance_km} km /{" "}
+                  {format.denivele_dplus} m D+
                 </p>
+                {groupsList.length > 1 && (
+                  <p className="text-xs text-neutral-500 mt-1">
+                    Cette réservation contient{" "}
+                    <b>{groupsList.length} équipes</b> (affichage des membres
+                    de toutes les équipes ci-dessous).
+                  </p>
+                )}
               </div>
 
               <div className="p-5 space-y-4">
@@ -663,13 +718,15 @@ export default function MonInscriptionEquipe() {
                     Inscription équipe / relais • {formatDate(format.date)}
                   </Pill>
                   <Pill color="neutral">
-                    Équipe <b className="ml-1">{group.team_name}</b>
+                    Équipe principale{" "}
+                    <b className="ml-1">{group.team_name}</b>
                   </Pill>
                   {teamCategoryLabel && (
                     <Pill color="green">{teamCategoryLabel}</Pill>
                   )}
                   <Pill color="orange">
-                    Participants {participantsCount} / {group.team_size}
+                    Participants {participantsCount}
+                    {totalTeamSize ? ` / ${totalTeamSize}` : ""}
                   </Pill>
                   {isAlreadyCancelled && (
                     <Pill color="red">Équipe annulée</Pill>
@@ -684,8 +741,14 @@ export default function MonInscriptionEquipe() {
                     </dd>
                   </div>
                   <div>
-                    <dt className="text-neutral-500">Nom d’équipe</dt>
+                    <dt className="text-neutral-500">Nom d’équipe principale</dt>
                     <dd className="font-medium">{group.team_name}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-neutral-500">
+                      Nombre d’équipes dans ce paiement
+                    </dt>
+                    <dd className="font-medium">{groupsList.length}</dd>
                   </div>
                   <div>
                     <dt className="text-neutral-500">Statut global inscrit</dt>
@@ -717,7 +780,8 @@ export default function MonInscriptionEquipe() {
                     Récapitulatif financier de l’équipe
                   </h2>
                   <p className="text-sm text-neutral-500">
-                    Montant total payé et options associées au groupe.
+                    Montant total payé et options associées au groupe (toutes
+                    les équipes de ce paiement).
                   </p>
                 </div>
               </div>
@@ -730,7 +794,7 @@ export default function MonInscriptionEquipe() {
 
                 <div className="flex justify-between">
                   <span className="text-neutral-600">
-                    Nombre de participants
+                    Nombre de participants (toutes équipes)
                   </span>
                   <span className="font-medium">{participantsCount}</span>
                 </div>
@@ -756,19 +820,28 @@ export default function MonInscriptionEquipe() {
                 {options.length > 0 && (
                   <p className="text-xs text-neutral-500 mt-1">
                     Les options affichées correspondent à toutes les options
-                    achetées par l’équipe (par exemple : repas, T-shirt, etc.).
+                    achetées par l’ensemble des équipes de ce paiement (repas,
+                    T-shirt, etc.).
                   </p>
                 )}
               </div>
             </section>
 
-            {/* Tableau des membres + bloc "Mes infos" */}
+            {/* Tableau des membres (toutes équipes) */}
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100">
                 <h2 className="text-lg font-semibold">Détail des membres</h2>
                 <p className="text-sm text-neutral-500">
-                  Retrouvez la liste des coureurs rattachés à cette équipe.
+                  Liste des coureurs rattachés à toutes les équipes de cette
+                  inscription. La colonne "Équipe" indique l’équipe de chaque
+                  coureur. Vous pouvez modifier certaines informations pour
+                  chaque inscription.
                 </p>
+                {memberMessage && (
+                  <p className="mt-2 text-xs text-neutral-600">
+                    {memberMessage}
+                  </p>
+                )}
               </div>
 
               <div className="p-5 overflow-x-auto">
@@ -782,6 +855,7 @@ export default function MonInscriptionEquipe() {
                     <thead>
                       <tr className="text-left text-neutral-600 border-b">
                         <th className="py-2 pr-3">#</th>
+                        <th className="py-2 pr-3">Équipe</th>
                         <th className="py-2 pr-3">Nom</th>
                         <th className="py-2 pr-3">Prénom</th>
                         <th className="py-2 pr-3">Sexe</th>
@@ -789,221 +863,186 @@ export default function MonInscriptionEquipe() {
                         <th className="py-2 pr-3">N° licence / PPS</th>
                         <th className="py-2 pr-3">Email</th>
                         <th className="py-2 pr-3">Statut</th>
+                        <th className="py-2 pr-3">Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {members.map((m, idx) => (
-                        <tr key={m.id} className="border-b last:border-0">
-                          <td className="py-2 pr-3">{idx + 1}</td>
-                          <td className="py-2 pr-3">{m.nom}</td>
-                          <td className="py-2 pr-3">{m.prenom}</td>
-                          <td className="py-2 pr-3">{m.genre}</td>
-                          <td className="py-2 pr-3">
-                            {m.date_naissance
-                              ? formatDate(m.date_naissance)
-                              : "—"}
-                          </td>
-                          <td className="py-2 pr-3">
-                            {m.numero_licence || "—"}
-                          </td>
-                          <td className="py-2 pr-3">{m.email || "—"}</td>
-                          <td className="py-2 pr-3">
-                            <Pill
-                              color={
-                                m.statut === "paye" || m.statut === "validé"
-                                  ? "green"
-                                  : m.statut === "annulé"
-                                  ? "red"
-                                  : "neutral"
-                              }
-                            >
-                              {m.statut || "—"}
-                            </Pill>
-                          </td>
-                        </tr>
-                      ))}
+                      {members.map((m, idx) => {
+                        const isEditing = editingMemberId === m.id;
+                        return (
+                          <tr key={m.id} className="border-b last:border-0">
+                            <td className="py-2 pr-3">{idx + 1}</td>
+                            <td className="py-2 pr-3">
+                              {m.team_name || "—"}
+                            </td>
+                            {/* Nom */}
+                            <td className="py-2 pr-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                                  value={memberDraft?.nom ?? ""}
+                                  onChange={(e) =>
+                                    handleMemberFieldChange(
+                                      "nom",
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                              ) : (
+                                m.nom
+                              )}
+                            </td>
+                            {/* Prénom */}
+                            <td className="py-2 pr-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                                  value={memberDraft?.prenom ?? ""}
+                                  onChange={(e) =>
+                                    handleMemberFieldChange(
+                                      "prenom",
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                              ) : (
+                                m.prenom
+                              )}
+                            </td>
+                            {/* Genre */}
+                            <td className="py-2 pr-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                                  value={memberDraft?.genre ?? ""}
+                                  onChange={(e) =>
+                                    handleMemberFieldChange(
+                                      "genre",
+                                      e.target.value
+                                    )
+                                  }
+                                  placeholder="Homme, Femme…"
+                                />
+                              ) : (
+                                m.genre
+                              )}
+                            </td>
+                            {/* Date de naissance */}
+                            <td className="py-2 pr-3">
+                              {isEditing ? (
+                                <input
+                                  type="date"
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                                  value={
+                                    memberDraft?.date_naissance
+                                      ? memberDraft.date_naissance.slice(0, 10)
+                                      : ""
+                                  }
+                                  onChange={(e) =>
+                                    handleMemberFieldChange(
+                                      "date_naissance",
+                                      e.target.value || null
+                                    )
+                                  }
+                                />
+                              ) : m.date_naissance ? (
+                                formatDate(m.date_naissance)
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            {/* Licence */}
+                            <td className="py-2 pr-3">
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                                  value={memberDraft?.numero_licence ?? ""}
+                                  onChange={(e) =>
+                                    handleMemberFieldChange(
+                                      "numero_licence",
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                              ) : (
+                                m.numero_licence || "—"
+                              )}
+                            </td>
+                            {/* Email */}
+                            <td className="py-2 pr-3">
+                              {isEditing ? (
+                                <input
+                                  type="email"
+                                  className="w-full rounded-lg border border-neutral-300 px-2 py-1 text-xs"
+                                  value={memberDraft?.email ?? ""}
+                                  onChange={(e) =>
+                                    handleMemberFieldChange(
+                                      "email",
+                                      e.target.value
+                                    )
+                                  }
+                                />
+                              ) : (
+                                m.email || "—"
+                              )}
+                            </td>
+                            {/* Statut */}
+                            <td className="py-2 pr-3">
+                              <Pill
+                                color={
+                                  m.statut === "paye" || m.statut === "validé"
+                                    ? "green"
+                                    : m.statut === "annulé"
+                                    ? "red"
+                                    : "neutral"
+                                }
+                              >
+                                {m.statut || "—"}
+                              </Pill>
+                            </td>
+                            {/* Actions */}
+                            <td className="py-2 pr-3">
+                              {isEditing ? (
+                                <div className="flex flex-col gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={saveMember}
+                                    disabled={savingMember}
+                                    className="rounded-lg bg-neutral-900 text-white px-3 py-1 text-xs font-semibold hover:bg-black disabled:opacity-60"
+                                  >
+                                    {savingMember
+                                      ? "Enregistrement…"
+                                      : "Enregistrer"}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={cancelEditMember}
+                                    className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50"
+                                  >
+                                    Annuler
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => startEditMember(m)}
+                                  className="rounded-lg border border-neutral-300 px-3 py-1 text-xs font-semibold text-neutral-700 bg-white hover:bg-neutral-50"
+                                >
+                                  Modifier
+                                </button>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                     </tbody>
                   </table>
                 )}
               </div>
-
-              {/* Bloc d'édition de MES infos pour cette inscription */}
-              {myMember && (
-                <div className="px-5 pb-5">
-                  <div className="mt-4 rounded-xl bg-neutral-50 border border-neutral-200 p-4">
-                    <p className="text-sm font-semibold text-neutral-800 mb-2">
-                      Mes infos pour cette inscription d’équipe
-                    </p>
-
-                    {!editingMemberId ? (
-                      <>
-                        <p className="text-xs text-neutral-600 mb-3">
-                          Vous êtes identifié comme{" "}
-                          <span className="font-semibold">
-                            {myMember.prenom} {myMember.nom}
-                          </span>{" "}
-                          ({myMember.email || "email non renseigné"}).
-                        </p>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setEditingMemberId(myMember.id);
-                            setMemberDraft({
-                              nom: myMember.nom || "",
-                              prenom: myMember.prenom || "",
-                              genre: myMember.genre || "",
-                              date_naissance: myMember.date_naissance || "",
-                              numero_licence: myMember.numero_licence || "",
-                              email: myMember.email || "",
-                            });
-                            setMemberMessage("");
-                            setMemberError("");
-                          }}
-                          className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                        >
-                          Modifier mes infos pour cette inscription
-                        </button>
-                        {memberMessage && (
-                          <p className="mt-2 text-xs text-emerald-700">
-                            {memberMessage}
-                          </p>
-                        )}
-                      </>
-                    ) : (
-                      <>
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
-                          <div>
-                            <label className="block text-xs font-medium text-neutral-600 mb-1">
-                              Nom
-                            </label>
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              value={memberDraft.nom}
-                              onChange={(e) =>
-                                handleMemberDraftChange("nom", e.target.value)
-                              }
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-neutral-600 mb-1">
-                              Prénom
-                            </label>
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              value={memberDraft.prenom}
-                              onChange={(e) =>
-                                handleMemberDraftChange("prenom", e.target.value)
-                              }
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-neutral-600 mb-1">
-                              Genre
-                            </label>
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              value={memberDraft.genre}
-                              onChange={(e) =>
-                                handleMemberDraftChange("genre", e.target.value)
-                              }
-                              placeholder="Homme, Femme, Non-binaire…"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-neutral-600 mb-1">
-                              Date de naissance
-                            </label>
-                            <input
-                              type="date"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              value={
-                                memberDraft.date_naissance
-                                  ? memberDraft.date_naissance.slice(0, 10)
-                                  : ""
-                              }
-                              onChange={(e) =>
-                                handleMemberDraftChange(
-                                  "date_naissance",
-                                  e.target.value || null,
-                                )
-                              }
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-neutral-600 mb-1">
-                              N° de licence / PPS
-                            </label>
-                            <input
-                              type="text"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              value={memberDraft.numero_licence}
-                              onChange={(e) =>
-                                handleMemberDraftChange(
-                                  "numero_licence",
-                                  e.target.value,
-                                )
-                              }
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-medium text-neutral-600 mb-1">
-                              Email
-                            </label>
-                            <input
-                              type="email"
-                              className="w-full rounded-lg border border-neutral-300 px-3 py-1.5 text-sm"
-                              value={memberDraft.email}
-                              onChange={(e) =>
-                                handleMemberDraftChange("email", e.target.value)
-                              }
-                            />
-                          </div>
-                        </div>
-
-                        {memberError && (
-                          <div className="mt-2 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700">
-                            {memberError}
-                          </div>
-                        )}
-                        {memberMessage && (
-                          <div className="mt-2 text-xs text-emerald-700">
-                            {memberMessage}
-                          </div>
-                        )}
-
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setEditingMemberId(null);
-                              setMemberDraft(null);
-                              setMemberError("");
-                              setMemberMessage("");
-                            }}
-                            className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                            disabled={savingMember}
-                          >
-                            Annuler
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleSaveMember}
-                            disabled={savingMember}
-                            className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-60"
-                          >
-                            {savingMember
-                              ? "Enregistrement…"
-                              : "Enregistrer"}
-                          </button>
-                        </div>
-                      </>
-                    )}
-                  </div>
-                </div>
-              )}
             </section>
 
             {/* SIMULATEUR REMBOURSEMENT */}
@@ -1071,7 +1110,10 @@ export default function MonInscriptionEquipe() {
                           Montant remboursable estimé
                         </span>
                         <span className="font-semibold">
-                          {(simulation.amounts.refund_cents / 100).toFixed(2)} €
+                          {(
+                            simulation.amounts.refund_cents / 100
+                          ).toFixed(2)}{" "}
+                          €
                         </span>
                       </div>
                       <div className="flex justify-between">
@@ -1091,11 +1133,10 @@ export default function MonInscriptionEquipe() {
                       Politique appliquée :{" "}
                       <b>
                         {simulation.policy.policy_tier} (
-                        {simulation.policy.percent}
-                        %)
+                        {simulation.policy.percent}%)
                       </b>
-                      . Il s’agit d’une <b>simulation</b> : le remboursement réel
-                      pourra être ajusté par l’organisateur.
+                      . Il s’agit d’une <b>simulation</b> : le remboursement
+                      réel pourra être ajusté par l’organisateur.
                     </p>
                   </>
                 )}
@@ -1109,7 +1150,8 @@ export default function MonInscriptionEquipe() {
               <div className="p-5 border-b border-neutral-100">
                 <h3 className="text-lg font-semibold">Actions</h3>
                 <p className="text-sm text-neutral-500">
-                  Accédez rapidement à la page de la course ou annulez l’équipe.
+                  Accédez rapidement à la page de la course ou annulez
+                  l’équipe.
                 </p>
               </div>
               <div className="p-5 space-y-3">
