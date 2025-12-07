@@ -13,6 +13,7 @@ import {
   Globe,
   Lock,
   Link2,
+  Timer,
 } from "lucide-react";
 
 function eur(cents) {
@@ -90,10 +91,10 @@ export default function MonEspaceOrganisateur() {
     }
 
     const { data: inscOpts, error: errOpts } = await supabase
-  .from("inscriptions_options")
-  .select("inscription_id, option_id, quantity, prix_unitaire_cents")
-  .in("inscription_id", allInscriptionIds)
-  .eq("status", "confirmed");
+      .from("inscriptions_options")
+      .select("inscription_id, option_id, quantity, prix_unitaire_cents, status")
+      .in("inscription_id", allInscriptionIds)
+      .eq("status", "confirmed");
 
     if (errOpts) {
       console.error(errOpts);
@@ -292,7 +293,9 @@ export default function MonEspaceOrganisateur() {
       <div className="mx-auto max-w-7xl px-4 py-8">
         <div className="mb-4 flex items-center justify-between">
           <div className="text-sm text-neutral-600">
-            {loading ? "Chargement…" : `${courses.length} épreuve${courses.length > 1 ? "s" : ""} au total`}
+            {loading
+              ? "Chargement…"
+              : `${courses.length} épreuve${courses.length > 1 ? "s" : ""} au total`}
           </div>
         </div>
 
@@ -390,7 +393,9 @@ export default function MonEspaceOrganisateur() {
                             {/* Liens rapides */}
                             <div className="mt-3 flex flex-wrap gap-2">
                               <Link
-                                to={`/organisateur/inscriptions/${course.id}?formatId=${encodeURIComponent(f.id)}`}
+                                to={`/organisateur/inscriptions/${course.id}?formatId=${encodeURIComponent(
+                                  f.id
+                                )}`}
                                 className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-1.5 text-white text-xs font-semibold hover:brightness-110"
                               >
                                 👥 Voir les inscrits
@@ -433,6 +438,15 @@ export default function MonEspaceOrganisateur() {
                       >
                         <Eye size={16} />
                         Voir la page
+                      </Link>
+
+                      {/* NOUVEAU : bouton Classement live */}
+                      <Link
+                        to={`/organisateur/classement/${course.id}`}
+                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-white text-sm font-semibold hover:bg-emerald-700"
+                      >
+                        <Timer size={16} />
+                        Classement live
                       </Link>
 
                       <button

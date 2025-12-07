@@ -87,13 +87,6 @@ export default function Navbar() {
 
   const rightOrgaItems = [
     { to: "/organisateur/mon-espace", label: "Mon espace", priv: true },
-    // Accès direct à l’onglet classements live dans l’espace orga
-    {
-      to: "/organisateur/mon-espace?tab=classements",
-      label: "Classements live",
-      priv: true,
-      forceOrg: true,
-    },
     { to: "/organisateur/creer-course", label: "Créer une course", priv: true, forceOrg: true },
     { to: "/monprofilorganisateur", label: "Mon profil", priv: true },
   ];
@@ -113,7 +106,9 @@ export default function Navbar() {
     <header
       className={cn(
         "sticky top-0 z-50 border-b",
+        // 🔽 Mobile : fond plein + ombre pour une lisibilité parfaite
         "bg-white shadow-sm",
+        // 🔽 Desktop : effet glass plus léger
         "md:bg-white/80 md:backdrop-blur md:supports-[backdrop-filter]:bg-white/70"
       )}
     >
@@ -287,7 +282,7 @@ export default function Navbar() {
       >
         <div
           className={cn(
-            "absolute inset-0 bg-black/40 transition-opacity",
+            "absolute inset-0 bg-black/40 transition-opacity", // un peu plus foncé pour la lisibilité
             openMobile ? "opacity-100" : "opacity-0"
           )}
           onClick={() => setOpenMobile(false)}
