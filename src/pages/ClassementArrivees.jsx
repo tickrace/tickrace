@@ -61,7 +61,9 @@ function formatDateFr(date) {
 function isFemaleGenre(genre) {
   if (!genre) return false;
   const g = genre.toString().trim().toUpperCase();
-  return g === "F" || g.startsWith("FEM");
+  if (g === "F") return true;
+  if (g.startsWith("FEM")) return true; // FEMME, FEMININ…
+  return false;
 }
 
 /**
@@ -433,21 +435,21 @@ function ClassementArrivees() {
         }
       });
 
-      // Rang par catégorie + sexe
+      // Rang par catégorie âge + sexe (categorie_age_code)
       const catCounters = {};
       arr.forEach((row) => {
         if (row.seconds == null) {
           row.catRankComputed = null;
           return;
         }
-        const cat = row.inscription.categorie;
-        if (!cat) {
+        const catCode = row.inscription.categorie_age_code;
+        if (!catCode) {
           row.catRankComputed = null;
           return;
         }
         const female = isFemaleGenre(row.inscription.genre);
         const sexKey = female ? "F" : "H";
-        const key = `${cat}_${sexKey}`;
+        const key = `${catCode}_${sexKey}`;
         catCounters[key] = (catCounters[key] || 0) + 1;
         row.catRankComputed = catCounters[key];
       });
@@ -675,9 +677,15 @@ function ClassementArrivees() {
                             row.catRankComputed ?? i.rang_categorie;
 
                           const female = isFemaleGenre(i.genre);
-                          const catCode =
-                            catRank && i.categorie
-                              ? `${catRank}${i.categorie}${
+                          const catCodeRaw = i.categorie_age_code;
+                          const catLabel = i.categorie_age_label;
+
+                          const catDisplay =
+                            catLabel || catCodeRaw || "—";
+
+                          const codeCat =
+                            catRank && catCodeRaw
+                              ? `${catRank}${catCodeRaw}${
                                   female ? "F" : "H"
                                 }`
                               : "—";
@@ -704,10 +712,10 @@ function ClassementArrivees() {
                                 {i.genre || "—"}
                               </td>
                               <td className="py-1 px-2">
-                                {i.categorie || "—"}
+                                {catDisplay}
                               </td>
                               <td className="py-1 px-2 font-semibold">
-                                {catCode}
+                                {codeCat}
                               </td>
                               <td className="py-1 px-2 font-mono">
                                 {i.dossard || "—"}
@@ -722,7 +730,7 @@ function ClassementArrivees() {
                                 {i.club || "—"}
                               </td>
                               <td className="py-1 px-2">
-                                {i.equipe_nom || i.equipe || "—"}
+                                {i.team_name || "—"}
                               </td>
                               <td className="py-1 px-2 font-mono">
                                 {formatChrono(seconds)}
