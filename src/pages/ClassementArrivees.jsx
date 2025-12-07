@@ -129,7 +129,6 @@ function ClassementArrivees() {
   const { courseId } = useParams();
 
   const [now, setNow] = useState(new Date());
-  const [dossard, setDossard] = useState("");
   const [loadingSave, setLoadingSave] = useState(false);
   const [loadingClassement, setLoadingClassement] = useState(false);
   const [error, setError] = useState(null);
@@ -137,6 +136,13 @@ function ClassementArrivees() {
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
   const [inscriptions, setInscriptions] = useState([]);
+
+  // Saisie par format : { formatId: "123" }
+  const [dossardsParFormat, setDossardsParFormat] = useState({});
+
+  // Edition ligne par ligne
+  const [editingId, setEditingId] = useState(null);
+  const [editingValues, setEditingValues] = useState({});
 
   // Heure actuelle
   useEffect(() => {
@@ -201,7 +207,7 @@ function ClassementArrivees() {
     }
   }, [courseId]);
 
-  // Helper pour recharger uniquement les inscriptions (après RPC/reset)
+  // Helper pour recharger uniquement les inscriptions (après RPC/reset/edit)
   async function refreshInscriptions() {
     if (!formats || formats.length === 0) return;
     const formatIds = formats.map((f) => f.id);
@@ -219,35 +225,34 @@ function ClassementArrivees() {
     setInscriptions(inscData || []);
   }
 
-  // Saisie d'une arrivée (dossard -> heure_arrivee = now + temps_officiel_sec calculé)
-  async function handleArrivee(e) {
+  // Saisie d'une arrivée pour un format donné
+  async function handleArrivee(e, formatId) {
     e.preventDefault();
-    if (!dossard || !formats || formats.length === 0) return;
+    const dossard = dossardsParFormat[formatId] || "";
+    if (!dossard) return;
 
     setError(null);
     setLoadingSave(true);
 
     try {
-      const formatIds = formats.map((f) => f.id);
-
-      // Chercher l'inscription par dossard sur cette course (tous formats)
+      // Chercher l'inscription par dossard pour CE format
       const { data: candidates, error: findErr } = await supabase
         .from("inscriptions")
         .select("id, dossard, format_id, heure_arrivee")
         .eq("dossard", dossard)
-        .in("format_id", formatIds);
+        .eq("format_id", formatId);
 
       if (findErr) throw findErr;
 
       if (!candidates || candidates.length === 0) {
-        setError(`Aucune inscription trouvée pour le dossard ${dossard}.`);
+        setError(`Aucune inscription trouvée pour le dossard ${dossard} sur ce format.`);
         setLoadingSave(false);
         return;
       }
 
       if (candidates.length > 1) {
         setError(
-          `Plusieurs inscriptions trouvées pour le dossard ${dossard}. Vérifie le format / paramétrage des dossards.`
+          `Plusieurs inscriptions trouvées pour le dossard ${dossard} sur ce format.`
         );
         setLoadingSave(false);
         return;
@@ -267,7 +272,7 @@ function ClassementArrivees() {
 
       const nowIso = new Date().toISOString();
 
-      // On retrouve le format pour ce dossard
+      // On retrouve le format
       const format = formats.find((f) => f.id === insc.format_id);
 
       // Calcul du temps officiel immédiatement (pratique pour les tests)
@@ -294,7 +299,10 @@ function ClassementArrivees() {
         )
       );
 
-      setDossard("");
+      setDossardsParFormat((prev) => ({
+        ...prev,
+        [formatId]: "",
+      }));
     } catch (err) {
       console.error(err);
       setError("Erreur lors de l'enregistrement de l'arrivée.");
@@ -348,6 +356,90 @@ function ClassementArrivees() {
       setError(
         "Erreur lors de la réinitialisation du classement pour ce format."
       );
+    }
+  }
+
+  // Edition d'une ligne de résultat
+  function startEdit(inscription) {
+    let timePart = "";
+    if (inscription.heure_arrivee) {
+      const d = new Date(inscription.heure_arrivee);
+      const hh = String(d.getHours()).padStart(2, "0");
+      const mm = String(d.getMinutes()).padStart(2, "0");
+      const ss = String(d.getSeconds()).padStart(2, "0");
+      timePart = `${hh}:${mm}:${ss}`;
+    }
+
+    setEditingId(inscription.id);
+    setEditingValues({
+      dossard: inscription.dossard ?? "",
+      team_name: inscription.team_name ?? "",
+      statut_course: inscription.statut_course ?? "ok",
+      categorie_age_code: inscription.categorie_age_code ?? "",
+      categorie_age_label: inscription.categorie_age_label ?? "",
+      heure_arrivee_time: timePart,
+    });
+  }
+
+  function cancelEdit() {
+    setEditingId(null);
+    setEditingValues({});
+  }
+
+  async function saveEdit() {
+    if (!editingId) return;
+    setError(null);
+    setLoadingSave(true);
+
+    try {
+      const original = inscriptions.find((i) => i.id === editingId);
+      if (!original) {
+        setLoadingSave(false);
+        return;
+      }
+
+      const payload = {
+        dossard: editingValues.dossard || null,
+        team_name: editingValues.team_name || null,
+        statut_course: editingValues.statut_course || null,
+        categorie_age_code: editingValues.categorie_age_code || null,
+        categorie_age_label: editingValues.categorie_age_label || null,
+      };
+
+      // Si on a modifié l'heure d'arrivée
+      if (editingValues.heure_arrivee_time) {
+        const datePart =
+          original.heure_arrivee?.slice(0, 10) ||
+          (course?.date_course
+            ? String(course.date_course)
+            : new Date().toISOString().slice(0, 10));
+
+        const timePart = editingValues.heure_arrivee_time;
+        const newIso = `${datePart}T${timePart}`;
+        const format = formats.find((f) => f.id === original.format_id);
+        const seconds = computeTempsOfficielFromData(newIso, format, course);
+
+        payload.heure_arrivee = newIso;
+        if (seconds != null) {
+          payload.temps_officiel_sec = seconds;
+        }
+      }
+
+      const { error: updateErr } = await supabase
+        .from("inscriptions")
+        .update(payload)
+        .eq("id", editingId);
+
+      if (updateErr) throw updateErr;
+
+      await refreshInscriptions();
+      setEditingId(null);
+      setEditingValues({});
+    } catch (err) {
+      console.error(err);
+      setError("Erreur lors de la modification du résultat.");
+    } finally {
+      setLoadingSave(false);
     }
   }
 
@@ -507,81 +599,59 @@ function ClassementArrivees() {
         </div>
       )}
 
-      {/* Bloc saisie + dernières arrivées */}
-      <div className="grid md:grid-cols-2 gap-6">
-        {/* Saisie arrivée */}
-        <div className="rounded-xl border border-neutral-200 bg-white p-4 space-y-4">
-          <h2 className="text-lg font-semibold">Saisie arrivée</h2>
-          <form onSubmit={handleArrivee} className="space-y-3">
-            <div>
-              <label className="block text-sm font-medium mb-1">
-                Numéro de dossard
-              </label>
-              <input
-                type="number"
-                className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
-                value={dossard}
-                onChange={(e) => setDossard(e.target.value)}
-                autoFocus
-              />
-            </div>
-            <button
-              type="submit"
-              disabled={loadingSave || !dossard}
-              className="inline-flex items-center justify-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
-            >
-              {loadingSave ? "Enregistrement..." : "Arrivée maintenant"}
-            </button>
-          </form>
-        </div>
-
-        {/* Dernières arrivées */}
-        <div className="rounded-xl border border-neutral-200 bg-white p-4 space-y-4">
-          <h2 className="text-lg font-semibold">Dernières arrivées</h2>
-          {lastArrivals.length === 0 ? (
-            <p className="text-sm text-neutral-500">
-              Aucune arrivée enregistrée pour le moment.
-            </p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full text-sm">
-                <thead>
-                  <tr className="border-b">
-                    <th className="text-left py-2 pr-4">Dossard</th>
-                    <th className="text-left py-2 pr-4">Heure arrivée</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {lastArrivals.map((row) => (
-                    <tr
-                      key={row.id}
-                      className="border-b last:border-0"
-                    >
+      {/* Dernières arrivées globales */}
+      <div className="rounded-xl border border-neutral-200 bg-white p-4 space-y-4">
+        <h2 className="text-lg font-semibold">Dernières arrivées</h2>
+        {lastArrivals.length === 0 ? (
+          <p className="text-sm text-neutral-500">
+            Aucune arrivée enregistrée pour le moment.
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="min-w-full text-sm">
+              <thead>
+                <tr className="border-b">
+                  <th className="text-left py-2 pr-4">Dossard</th>
+                  <th className="text-left py-2 pr-4">Format</th>
+                  <th className="text-left py-2 pr-4">Heure arrivée</th>
+                </tr>
+              </thead>
+              <tbody>
+                {lastArrivals.map((row) => {
+                  const f = formatsById[row.format_id];
+                  return (
+                    <tr key={row.id} className="border-b last:border-0">
                       <td className="py-1 pr-4 font-medium">
                         {row.dossard}
+                      </td>
+                      <td className="py-1 pr-4">
+                        {f?.nom || "—"}
                       </td>
                       <td className="py-1 pr-4">
                         {formatHeure(row.heure_arrivee)}
                       </td>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
-      {/* Tableaux de classement par format */}
+      {/* Tableaux de classement par format, avec saisie au-dessus */}
       <div className="space-y-8">
         {formats && formats.length > 0 ? (
           formats.map((format) => {
             const rows = tableauxParFormat[format.id] || [];
+            const dossardValue = dossardsParFormat[format.id] || "";
+
             return (
               <div
                 key={format.id}
                 className="rounded-xl border border-neutral-200 bg-white p-4 space-y-4"
               >
+                {/* En-tête format */}
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                   <div>
                     <h2 className="text-lg font-semibold">
@@ -598,7 +668,7 @@ function ClassementArrivees() {
                   </div>
                   <div className="flex items-center gap-3">
                     <p className="text-sm text-neutral-500">
-                      Arrivées enregistrées : {rows.length}
+                      Arrivées (toutes inscriptions) : {rows.length}
                     </p>
                     <button
                       type="button"
@@ -610,61 +680,67 @@ function ClassementArrivees() {
                   </div>
                 </div>
 
+                {/* Saisie arrivée pour CE format */}
+                <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
+                  <h3 className="text-sm font-semibold mb-2">
+                    Saisie d’arrivée – {format.nom}
+                  </h3>
+                  <form
+                    onSubmit={(e) => handleArrivee(e, format.id)}
+                    className="flex flex-col sm:flex-row gap-2 sm:items-end"
+                  >
+                    <div className="flex-1">
+                      <label className="block text-xs font-medium mb-1">
+                        Numéro de dossard
+                      </label>
+                      <input
+                        type="number"
+                        className="w-full rounded-lg border border-neutral-300 px-3 py-2 text-sm"
+                        value={dossardValue}
+                        onChange={(e) =>
+                          setDossardsParFormat((prev) => ({
+                            ...prev,
+                            [format.id]: e.target.value,
+                          }))
+                        }
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      disabled={loadingSave || !dossardValue}
+                      className="inline-flex items-center justify-center rounded-lg bg-neutral-900 px-4 py-2 text-sm font-semibold text-white disabled:opacity-60"
+                    >
+                      {loadingSave ? "Enregistrement..." : "Arrivée maintenant"}
+                    </button>
+                  </form>
+                </div>
+
+                {/* Tableau de classement */}
                 {rows.length === 0 ? (
                   <p className="text-sm text-neutral-500">
-                    Aucun arrivé enregistré sur ce format pour le
-                    moment.
+                    Aucun inscrit ou aucune arrivée enregistrée sur ce format pour le moment.
                   </p>
                 ) : (
                   <div className="overflow-x-auto">
                     <table className="min-w-full text-xs md:text-sm">
                       <thead>
                         <tr className="border-b bg-neutral-50">
-                          <th className="text-left py-2 px-2">
-                            #
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Sexe
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Cat.
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Code cat.
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Dossard
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Nom
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Prénom
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Club
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Équipe
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Chrono
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            km/h
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            min/km
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Rang sexe
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Rang cat.
-                          </th>
-                          <th className="text-left py-2 px-2">
-                            Statut
-                          </th>
+                          <th className="text-left py-2 px-2">#</th>
+                          <th className="text-left py-2 px-2">Sexe</th>
+                          <th className="text-left py-2 px-2">Cat.</th>
+                          <th className="text-left py-2 px-2">Code cat.</th>
+                          <th className="text-left py-2 px-2">Dossard</th>
+                          <th className="text-left py-2 px-2">Nom</th>
+                          <th className="text-left py-2 px-2">Prénom</th>
+                          <th className="text-left py-2 px-2">Club</th>
+                          <th className="text-left py-2 px-2">Équipe</th>
+                          <th className="text-left py-2 px-2">Chrono</th>
+                          <th className="text-left py-2 px-2">km/h</th>
+                          <th className="text-left py-2 px-2">min/km</th>
+                          <th className="text-left py-2 px-2">Rang sexe</th>
+                          <th className="text-left py-2 px-2">Rang cat.</th>
+                          <th className="text-left py-2 px-2">Statut</th>
+                          <th className="text-left py-2 px-2">Actions</th>
                         </tr>
                       </thead>
                       <tbody>
@@ -720,52 +796,189 @@ function ClassementArrivees() {
                             .filter(Boolean)
                             .join(" ");
 
+                          const isEditing = editingId === i.id;
+
                           return (
                             <tr key={i.id} className={rowClasses}>
+                              {/* Rang scratch */}
                               <td className="py-1 px-2 font-semibold">
                                 {scratchRank || "—"}
                               </td>
+
+                              {/* Sexe */}
                               <td className="py-1 px-2">
                                 {i.genre || "—"}
                               </td>
+
+                              {/* Catégorie affichée */}
                               <td className="py-1 px-2">
-                                {catDisplay}
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    className="w-24 rounded border border-neutral-300 px-1 py-0.5 text-xs"
+                                    value={
+                                      editingValues.categorie_age_label ?? ""
+                                    }
+                                    onChange={(e) =>
+                                      setEditingValues((prev) => ({
+                                        ...prev,
+                                        categorie_age_label: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                ) : (
+                                  catDisplay
+                                )}
                               </td>
+
+                              {/* Code cat. */}
                               <td className="py-1 px-2 font-semibold">
                                 {codeCat}
                               </td>
+
+                              {/* Dossard */}
                               <td className="py-1 px-2 font-mono">
-                                {i.dossard || "—"}
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    className="w-16 rounded border border-neutral-300 px-1 py-0.5 text-xs"
+                                    value={editingValues.dossard ?? ""}
+                                    onChange={(e) =>
+                                      setEditingValues((prev) => ({
+                                        ...prev,
+                                        dossard: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                ) : (
+                                  i.dossard || "—"
+                                )}
                               </td>
+
+                              {/* Nom */}
                               <td className="py-1 px-2 uppercase">
                                 {i.nom || "—"}
                               </td>
+
+                              {/* Prénom */}
                               <td className="py-1 px-2 capitalize">
                                 {i.prenom || "—"}
                               </td>
+
+                              {/* Club */}
                               <td className="py-1 px-2">
                                 {i.club || "—"}
                               </td>
+
+                              {/* Équipe */}
                               <td className="py-1 px-2">
-                                {i.team_name || "—"}
+                                {isEditing ? (
+                                  <input
+                                    type="text"
+                                    className="w-32 rounded border border-neutral-300 px-1 py-0.5 text-xs"
+                                    value={editingValues.team_name ?? ""}
+                                    onChange={(e) =>
+                                      setEditingValues((prev) => ({
+                                        ...prev,
+                                        team_name: e.target.value,
+                                      }))
+                                    }
+                                  />
+                                ) : (
+                                  i.team_name || "—"
+                                )}
                               </td>
+
+                              {/* Chrono */}
                               <td className="py-1 px-2 font-mono">
                                 {formatChrono(seconds)}
                               </td>
+
+                              {/* Vitesse */}
                               <td className="py-1 px-2">
                                 {kmh}
                               </td>
                               <td className="py-1 px-2">
                                 {minKm}
                               </td>
+
+                              {/* Rang sexe */}
                               <td className="py-1 px-2">
                                 {sexRank || "—"}
                               </td>
+
+                              {/* Rang cat */}
                               <td className="py-1 px-2">
                                 {catRank || "—"}
                               </td>
+
+                              {/* Statut */}
                               <td className="py-1 px-2">
-                                {i.statut_course || "ok"}
+                                {isEditing ? (
+                                  <select
+                                    className="w-20 rounded border border-neutral-300 px-1 py-0.5 text-xs"
+                                    value={editingValues.statut_course ?? "ok"}
+                                    onChange={(e) =>
+                                      setEditingValues((prev) => ({
+                                        ...prev,
+                                        statut_course: e.target.value,
+                                      }))
+                                    }
+                                  >
+                                    <option value="ok">ok</option>
+                                    <option value="dnf">DNF</option>
+                                    <option value="dns">DNS</option>
+                                    <option value="dsq">DSQ</option>
+                                  </select>
+                                ) : (
+                                  i.statut_course || "ok"
+                                )}
+                              </td>
+
+                              {/* Actions (édition + heure) */}
+                              <td className="py-1 px-2">
+                                {isEditing ? (
+                                  <div className="flex flex-col gap-1">
+                                    <input
+                                      type="time"
+                                      step="1"
+                                      className="w-24 rounded border border-neutral-300 px-1 py-0.5 text-xs"
+                                      value={
+                                        editingValues.heure_arrivee_time ?? ""
+                                      }
+                                      onChange={(e) =>
+                                        setEditingValues((prev) => ({
+                                          ...prev,
+                                          heure_arrivee_time: e.target.value,
+                                        }))
+                                      }
+                                    />
+                                    <div className="flex gap-1 mt-1">
+                                      <button
+                                        type="button"
+                                        onClick={saveEdit}
+                                        className="px-2 py-0.5 rounded bg-emerald-600 text-white text-xs"
+                                      >
+                                        Sauver
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={cancelEdit}
+                                        className="px-2 py-0.5 rounded bg-neutral-200 text-xs"
+                                      >
+                                        Annuler
+                                      </button>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <button
+                                    type="button"
+                                    onClick={() => startEdit(i)}
+                                    className="px-2 py-0.5 rounded border border-neutral-300 text-xs hover:bg-neutral-100"
+                                  >
+                                    Modifier
+                                  </button>
+                                )}
                               </td>
                             </tr>
                           );
