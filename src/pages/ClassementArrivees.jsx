@@ -435,21 +435,30 @@ function ClassementArrivees() {
         }
       });
 
-      // Rang par catégorie âge + sexe (categorie_age_code)
+      // Rang par catégorie (code ou label) + sexe
       const catCounters = {};
       arr.forEach((row) => {
         if (row.seconds == null) {
           row.catRankComputed = null;
           return;
         }
-        const catCode = row.inscription.categorie_age_code;
+
+        const i = row.inscription;
+        const catCode =
+          i.categorie_age_code ||
+          i.categorie ||
+          i.categorie_code ||
+          i.categorie_age_label;
+
         if (!catCode) {
           row.catRankComputed = null;
           return;
         }
-        const female = isFemaleGenre(row.inscription.genre);
+
+        const female = isFemaleGenre(i.genre);
         const sexKey = female ? "F" : "H";
         const key = `${catCode}_${sexKey}`;
+
         catCounters[key] = (catCounters[key] || 0) + 1;
         row.catRankComputed = catCounters[key];
       });
@@ -677,15 +686,23 @@ function ClassementArrivees() {
                             row.catRankComputed ?? i.rang_categorie;
 
                           const female = isFemaleGenre(i.genre);
-                          const catCodeRaw = i.categorie_age_code;
-                          const catLabel = i.categorie_age_label;
 
                           const catDisplay =
-                            catLabel || catCodeRaw || "—";
+                            i.categorie_age_label ||
+                            i.categorie_age_code ||
+                            i.categorie ||
+                            i.categorie_code ||
+                            "—";
+
+                          const catBaseCode =
+                            i.categorie_age_code ||
+                            i.categorie ||
+                            i.categorie_code ||
+                            i.categorie_age_label;
 
                           const codeCat =
-                            catRank && catCodeRaw
-                              ? `${catRank}${catCodeRaw}${
+                            catRank && catBaseCode
+                              ? `${catRank}${catBaseCode}${
                                   female ? "F" : "H"
                                 }`
                               : "—";
