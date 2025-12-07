@@ -14,6 +14,15 @@ function formatHeure(date) {
   });
 }
 
+// Pour les champs time Postgres (ex: "13:30:00")
+function formatHeureDepart(timeStr) {
+  if (!timeStr) return "—";
+  const parts = String(timeStr).split(":");
+  const h = parts[0] ?? "00";
+  const m = parts[1] ?? "00";
+  return `${h}:${m}`;
+}
+
 function formatChrono(seconds) {
   if (seconds == null || Number.isNaN(seconds)) return "—";
   const s = Number(seconds);
@@ -52,6 +61,47 @@ function formatDateFr(date) {
     month: "long",
     day: "2-digit",
   });
+}
+
+/**
+ * Calcule un temps officiel de secours côté front si :
+ * - temps_officiel_sec est null
+ * - mais on a heure_arrivee + date_course + heure_depart
+ */
+function computeTempsOfficielSecFallback(inscription, format, course) {
+  if (inscription?.temps_officiel_sec != null) {
+    return inscription.temps_officiel_sec;
+  }
+  if (
+    !inscription?.heure_arrivee ||
+    !course?.date_course ||
+    !format?.heure_depart
+  ) {
+    return null;
+  }
+
+  try {
+    // format.heure_depart est un time Postgres "HH:MM:SS"
+    const rawTime = String(format.heure_depart);
+    const timePart = rawTime.split(".")[0]; // au cas où il y ait des fractions
+    const departIso = `${course.date_course}T${timePart}`;
+    const depart = new Date(departIso);
+    const arrivee = new Date(inscription.heure_arrivee);
+
+    if (
+      Number.isNaN(depart.getTime()) ||
+      Number.isNaN(arrivee.getTime())
+    ) {
+      return null;
+    }
+
+    const diff = (arrivee - depart) / 1000;
+    if (diff <= 0) return null;
+    return Math.round(diff);
+  } catch (e) {
+    console.error("Erreur calcul chrono fallback", e);
+    return null;
+  }
 }
 
 /* ---------- Page principale ---------- */
@@ -94,7 +144,7 @@ function ClassementArrivees() {
       }
       setCourse(courseData);
 
-      // 2) Formats
+      // 2) Formats (avec heure_depart)
       const { data: formatsData, error: formatsErr } = await supabase
         .from("formats")
         .select("*")
@@ -265,7 +315,7 @@ function ClassementArrivees() {
     return map;
   }, [formats]);
 
-  // Groupement inscriptions par format, triées par temps / rang
+  // Groupement inscriptions par format, avec chrono calculé (RPC ou fallback)
   const tableauxParFormat = useMemo(() => {
     const res = {};
     if (!inscriptions || inscriptions.length === 0) return res;
@@ -273,13 +323,14 @@ function ClassementArrivees() {
     inscriptions.forEach((i) => {
       if (!res[i.format_id]) res[i.format_id] = [];
       const format = formatsById[i.format_id];
-      res[i.format_id].push({ inscription: i, format });
+      const seconds = computeTempsOfficielSecFallback(i, format, course);
+      res[i.format_id].push({ inscription: i, format, seconds });
     });
 
     Object.keys(res).forEach((formatId) => {
       res[formatId].sort((a, b) => {
-        const ta = a.inscription.temps_officiel_sec ?? Number.MAX_SAFE_INTEGER;
-        const tb = b.inscription.temps_officiel_sec ?? Number.MAX_SAFE_INTEGER;
+        const ta = a.seconds ?? Number.MAX_SAFE_INTEGER;
+        const tb = b.seconds ?? Number.MAX_SAFE_INTEGER;
         if (ta !== tb) return ta - tb;
         // fallback sur l'heure d'arrivée
         const ha = a.inscription.heure_arrivee
@@ -293,7 +344,7 @@ function ClassementArrivees() {
     });
 
     return res;
-  }, [inscriptions, formatsById]);
+  }, [inscriptions, formatsById, course]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
@@ -418,11 +469,11 @@ function ClassementArrivees() {
                         ? `${format.distance_km} km`
                         : ""}
                     </h2>
-                    {format.heure_depart && (
-                      <p className="text-sm text-neutral-500">
-                        Départ : {formatHeure(format.heure_depart)}
-                      </p>
-                    )}
+                    <p className="text-sm text-neutral-500">
+                      {format.heure_depart && (
+                        <>Départ : {formatHeureDepart(format.heure_depart)}</>
+                      )}
+                    </p>
                   </div>
                   <p className="text-sm text-neutral-500">
                     Arrivées enregistrées : {rows.length}
@@ -487,10 +538,8 @@ function ClassementArrivees() {
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map(({ inscription: i, format: f }) => {
+                        {rows.map(({ inscription: i, format: f, seconds }) => {
                           const distanceKm = f?.distance_km || null;
-                          const seconds =
-                            i.temps_officiel_sec ?? null;
                           const { kmh, minKm } = computeVitesse(
                             distanceKm,
                             seconds
