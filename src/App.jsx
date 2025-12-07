@@ -50,6 +50,9 @@ import AdminCategories from "./pages/admin/AdminCategories";
 
 import MemberDetails from "./pages/MemberDetails";
 import MonInscriptionEquipe from "./pages/MonInscriptionEquipe";
+// En haut du fichier, avec les autres imports de pages
+import ClassementArrivees from "./pages/ClassementArrivees";
+
 function AppContent() {
   const { currentRole } = useUser();
   const location = useLocation();
@@ -208,6 +211,14 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          <Route
+  path="/organisateur/classement/:courseId"
+  element={
+    <ProtectedRoute>
+      <ClassementArrivees />
+    </ProtectedRoute>
+  }
+/>
           {/* Redirection propre depuis ancienne URL */}
           <Route path="/organisateur/nouvelle-course" element={<Navigate to="/organisateur/creer-course" replace />} />
 
