@@ -48,12 +48,6 @@ function computeVitesse(distanceKm, seconds) {
   };
 }
 
-function buildCodeCategorie(rangCat, categorie, genre) {
-  if (!rangCat || !categorie || !genre) return "—";
-  const suffix = genre === "F" ? "F" : "H";
-  return `${rangCat}${categorie}${suffix}`;
-}
-
 function formatDateFr(date) {
   if (!date) return "—";
   return new Date(date).toLocaleDateString("fr-FR", {
@@ -61,6 +55,13 @@ function formatDateFr(date) {
     month: "long",
     day: "2-digit",
   });
+}
+
+// Détecter si le genre est féminin (gère "F", "Femme", etc.)
+function isFemaleGenre(genre) {
+  if (!genre) return false;
+  const g = genre.toString().trim().toUpperCase();
+  return g === "F" || g.startsWith("FEM");
 }
 
 /**
@@ -367,7 +368,7 @@ function ClassementArrivees() {
     return map;
   }, [formats]);
 
-  // Groupement inscriptions par format, avec chrono calculé (DB ou fallback)
+  // Groupement inscriptions par format + calcul place / rang sexe / rang cat
   const tableauxParFormat = useMemo(() => {
     const res = {};
     if (!inscriptions || inscriptions.length === 0) return res;
@@ -376,15 +377,24 @@ function ClassementArrivees() {
       if (!res[i.format_id]) res[i.format_id] = [];
       const format = formatsById[i.format_id];
       const seconds = computeTempsOfficielSecFallback(i, format, course);
-      res[i.format_id].push({ inscription: i, format, seconds });
+      res[i.format_id].push({
+        inscription: i,
+        format,
+        seconds,
+        scratchRank: null,
+        sexRankComputed: null,
+        catRankComputed: null,
+      });
     });
 
     Object.keys(res).forEach((formatId) => {
-      res[formatId].sort((a, b) => {
+      const arr = res[formatId];
+
+      // Tri principal par chrono
+      arr.sort((a, b) => {
         const ta = a.seconds ?? Number.MAX_SAFE_INTEGER;
         const tb = b.seconds ?? Number.MAX_SAFE_INTEGER;
         if (ta !== tb) return ta - tb;
-        // fallback sur l'heure d'arrivée
         const ha = a.inscription.heure_arrivee
           ? new Date(a.inscription.heure_arrivee).getTime()
           : Number.MAX_SAFE_INTEGER;
@@ -392,6 +402,54 @@ function ClassementArrivees() {
           ? new Date(b.inscription.heure_arrivee).getTime()
           : Number.MAX_SAFE_INTEGER;
         return ha - hb;
+      });
+
+      // Place au scratch
+      let scratch = 0;
+      arr.forEach((row) => {
+        if (row.seconds != null) {
+          scratch += 1;
+          row.scratchRank = scratch;
+        } else {
+          row.scratchRank = null;
+        }
+      });
+
+      // Rang par sexe
+      let maleRank = 0;
+      let femaleRank = 0;
+      arr.forEach((row) => {
+        if (row.seconds == null) {
+          row.sexRankComputed = null;
+          return;
+        }
+        const female = isFemaleGenre(row.inscription.genre);
+        if (female) {
+          femaleRank += 1;
+          row.sexRankComputed = femaleRank;
+        } else {
+          maleRank += 1;
+          row.sexRankComputed = maleRank;
+        }
+      });
+
+      // Rang par catégorie + sexe
+      const catCounters = {};
+      arr.forEach((row) => {
+        if (row.seconds == null) {
+          row.catRankComputed = null;
+          return;
+        }
+        const cat = row.inscription.categorie;
+        if (!cat) {
+          row.catRankComputed = null;
+          return;
+        }
+        const female = isFemaleGenre(row.inscription.genre);
+        const sexKey = female ? "F" : "H";
+        const key = `${cat}_${sexKey}`;
+        catCounters[key] = (catCounters[key] || 0) + 1;
+        row.catRankComputed = catCounters[key];
       });
     });
 
@@ -599,24 +657,36 @@ function ClassementArrivees() {
                         </tr>
                       </thead>
                       <tbody>
-                        {rows.map(({ inscription: i, format: f, seconds }) => {
+                        {rows.map((row) => {
+                          const i = row.inscription;
+                          const f = row.format;
+                          const seconds = row.seconds;
                           const distanceKm = f?.distance_km || null;
                           const { kmh, minKm } = computeVitesse(
                             distanceKm,
                             seconds
                           );
-                          const codeCat = buildCodeCategorie(
-                            i.rang_categorie,
-                            i.categorie,
-                            i.genre
-                          );
 
-                          const isFemale = i.genre === "F";
-                          const isCatWinner =
-                            i.rang_categorie === 1;
+                          const scratchRank =
+                            row.scratchRank ?? i.rang_scratch;
+                          const sexRank =
+                            row.sexRankComputed ?? i.rang_sexe;
+                          const catRank =
+                            row.catRankComputed ?? i.rang_categorie;
+
+                          const female = isFemaleGenre(i.genre);
+                          const catCode =
+                            catRank && i.categorie
+                              ? `${catRank}${i.categorie}${
+                                  female ? "F" : "H"
+                                }`
+                              : "—";
+
+                          const isFemaleRow = female;
+                          const isCatWinner = catRank === 1;
 
                           const rowClasses = [
-                            isFemale ? "bg-pink-50" : "",
+                            isFemaleRow ? "bg-pink-50" : "",
                             isCatWinner
                               ? "border-l-4 border-red-500"
                               : "",
@@ -628,7 +698,7 @@ function ClassementArrivees() {
                           return (
                             <tr key={i.id} className={rowClasses}>
                               <td className="py-1 px-2 font-semibold">
-                                {i.rang_scratch || "—"}
+                                {scratchRank || "—"}
                               </td>
                               <td className="py-1 px-2">
                                 {i.genre || "—"}
@@ -637,7 +707,7 @@ function ClassementArrivees() {
                                 {i.categorie || "—"}
                               </td>
                               <td className="py-1 px-2 font-semibold">
-                                {codeCat}
+                                {catCode}
                               </td>
                               <td className="py-1 px-2 font-mono">
                                 {i.dossard || "—"}
@@ -664,10 +734,10 @@ function ClassementArrivees() {
                                 {minKm}
                               </td>
                               <td className="py-1 px-2">
-                                {i.rang_sexe || "—"}
+                                {sexRank || "—"}
                               </td>
                               <td className="py-1 px-2">
-                                {i.rang_categorie || "—"}
+                                {catRank || "—"}
                               </td>
                               <td className="py-1 px-2">
                                 {i.statut_course || "ok"}
