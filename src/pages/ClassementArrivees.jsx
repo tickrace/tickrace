@@ -64,44 +64,60 @@ function formatDateFr(date) {
 }
 
 /**
- * Calcule un temps officiel de secours côté front si :
- * - temps_officiel_sec est null
- * - mais on a heure_arrivee + date_course + heure_depart
+ * Calcule un temps officiel à partir de :
+ * - heureArriveeIso: timestamp ISO de l'arrivée
+ * - format.heure_depart: time Postgres "HH:MM:SS"
+ * - course.date_course (optionnel)
+ *
+ * Pour les tests hors jour de course :
+ *  - on se base toujours sur la **date de l'arrivée**
+ *    (et si un jour tu veux forcer la date de course, on pourra ajuster).
  */
-function computeTempsOfficielSecFallback(inscription, format, course) {
-  if (inscription?.temps_officiel_sec != null) {
-    return inscription.temps_officiel_sec;
-  }
-  if (
-    !inscription?.heure_arrivee ||
-    !course?.date_course ||
-    !format?.heure_depart
-  ) {
-    return null;
-  }
+function computeTempsOfficielFromData(heureArriveeIso, format, course) {
+  if (!heureArriveeIso || !format?.heure_depart) return null;
 
   try {
-    // format.heure_depart est un time Postgres "HH:MM:SS"
+    const arrivee = new Date(heureArriveeIso);
+    if (Number.isNaN(arrivee.getTime())) return null;
+
+    // Date du jour de l'arrivée (YYYY-MM-DD)
+    const arriveeDateStr = heureArriveeIso.slice(0, 10);
+    let baseDateStr = arriveeDateStr;
+
+    // Option : si tu veux forcer date_course quand c'est le même jour
+    if (course?.date_course) {
+      const courseDateStr = String(course.date_course);
+      if (courseDateStr === arriveeDateStr) {
+        baseDateStr = courseDateStr;
+      }
+      // Si c'est différent (cas de tests), on garde arriveeDateStr
+    }
+
     const rawTime = String(format.heure_depart);
     const timePart = rawTime.split(".")[0]; // au cas où il y ait des fractions
-    const departIso = `${course.date_course}T${timePart}`;
+    const departIso = `${baseDateStr}T${timePart}`;
     const depart = new Date(departIso);
-    const arrivee = new Date(inscription.heure_arrivee);
 
-    if (
-      Number.isNaN(depart.getTime()) ||
-      Number.isNaN(arrivee.getTime())
-    ) {
-      return null;
-    }
+    if (Number.isNaN(depart.getTime())) return null;
 
     const diff = (arrivee - depart) / 1000;
     if (diff <= 0) return null;
     return Math.round(diff);
   } catch (e) {
-    console.error("Erreur calcul chrono fallback", e);
+    console.error("Erreur calcul chrono", e);
     return null;
   }
+}
+
+/**
+ * Fallback pour les inscriptions qui n'ont pas encore temps_officiel_sec
+ */
+function computeTempsOfficielSecFallback(inscription, format, course) {
+  if (inscription?.temps_officiel_sec != null) {
+    return inscription.temps_officiel_sec;
+  }
+  if (!inscription?.heure_arrivee) return null;
+  return computeTempsOfficielFromData(inscription.heure_arrivee, format, course);
 }
 
 /* ---------- Page principale ---------- */
@@ -182,7 +198,7 @@ function ClassementArrivees() {
     }
   }, [courseId]);
 
-  // Helper pour recharger uniquement les inscriptions (après RPC par ex)
+  // Helper pour recharger uniquement les inscriptions (après RPC/reset)
   async function refreshInscriptions() {
     if (!formats || formats.length === 0) return;
     const formatIds = formats.map((f) => f.id);
@@ -200,7 +216,7 @@ function ClassementArrivees() {
     setInscriptions(inscData || []);
   }
 
-  // Saisie d'une arrivée (dossard -> heure_arrivee = now)
+  // Saisie d'une arrivée (dossard -> heure_arrivee = now + temps_officiel_sec calculé)
   async function handleArrivee(e) {
     e.preventDefault();
     if (!dossard || !formats || formats.length === 0) return;
@@ -248,9 +264,22 @@ function ClassementArrivees() {
 
       const nowIso = new Date().toISOString();
 
+      // On retrouve le format pour ce dossard
+      const format = formats.find((f) => f.id === insc.format_id);
+
+      // Calcul du temps officiel immédiatement (pratique pour les tests)
+      const seconds = computeTempsOfficielFromData(nowIso, format, course);
+
+      const updatePayload = {
+        heure_arrivee: nowIso,
+      };
+      if (seconds != null) {
+        updatePayload.temps_officiel_sec = seconds;
+      }
+
       const { error: updateErr } = await supabase
         .from("inscriptions")
-        .update({ heure_arrivee: nowIso })
+        .update(updatePayload)
         .eq("id", insc.id);
 
       if (updateErr) throw updateErr;
@@ -258,7 +287,7 @@ function ClassementArrivees() {
       // Met à jour en local pour le live
       setInscriptions((prev) =>
         prev.map((p) =>
-          p.id === insc.id ? { ...p, heure_arrivee: nowIso } : p
+          p.id === insc.id ? { ...p, ...updatePayload } : p
         )
       );
 
@@ -271,7 +300,7 @@ function ClassementArrivees() {
     }
   }
 
-  // RPC : recalculer les chronos / rangs en base
+  // RPC : recalculer les chronos / rangs en base (officiel)
   async function handleRecalculerClassement() {
     if (!courseId) return;
     setError(null);
@@ -296,6 +325,29 @@ function ClassementArrivees() {
     }
   }
 
+  // Reset du classement pour un format
+  async function handleResetFormat(formatId) {
+    const ok = window.confirm(
+      "Réinitialiser toutes les heures d’arrivée et le classement pour ce format ?"
+    );
+    if (!ok) return;
+
+    setError(null);
+    try {
+      const { error: rpcError } = await supabase.rpc(
+        "reset_classement_format",
+        { p_format_id: formatId }
+      );
+      if (rpcError) throw rpcError;
+      await refreshInscriptions();
+    } catch (err) {
+      console.error(err);
+      setError(
+        "Erreur lors de la réinitialisation du classement pour ce format."
+      );
+    }
+  }
+
   // Dernières arrivées (top 10)
   const lastArrivals = useMemo(() => {
     return [...inscriptions]
@@ -315,7 +367,7 @@ function ClassementArrivees() {
     return map;
   }, [formats]);
 
-  // Groupement inscriptions par format, avec chrono calculé (RPC ou fallback)
+  // Groupement inscriptions par format, avec chrono calculé (DB ou fallback)
   const tableauxParFormat = useMemo(() => {
     const res = {};
     if (!inscriptions || inscriptions.length === 0) return res;
@@ -475,9 +527,18 @@ function ClassementArrivees() {
                       )}
                     </p>
                   </div>
-                  <p className="text-sm text-neutral-500">
-                    Arrivées enregistrées : {rows.length}
-                  </p>
+                  <div className="flex items-center gap-3">
+                    <p className="text-sm text-neutral-500">
+                      Arrivées enregistrées : {rows.length}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => handleResetFormat(format.id)}
+                      className="inline-flex items-center justify-center rounded-lg border border-red-200 text-red-700 px-3 py-1.5 text-xs font-semibold hover:bg-red-50"
+                    >
+                      Réinitialiser le classement
+                    </button>
+                  </div>
                 </div>
 
                 {rows.length === 0 ? (
