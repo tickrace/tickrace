@@ -93,7 +93,6 @@ function computeTempsOfficielFromData(heureArriveeIso, format, course) {
       if (courseDateStr === arriveeDateStr) {
         baseDateStr = courseDateStr;
       }
-      // Si c'est différent (cas de tests), on garde arriveeDateStr
     }
 
     const rawTime = String(format.heure_depart);
@@ -143,6 +142,9 @@ function ClassementArrivees() {
   // Edition ligne par ligne
   const [editingId, setEditingId] = useState(null);
   const [editingValues, setEditingValues] = useState({});
+
+  // Détail équipe ouvert
+  const [expandedTeam, setExpandedTeam] = useState(null); // ex: "teamKey"
 
   // Heure actuelle
   useEffect(() => {
@@ -226,33 +228,40 @@ function ClassementArrivees() {
   }
 
   // Saisie d'une arrivée pour un format donné
-  async function handleArrivee(e, formatId) {
+  // ⚠️ Cherche le dossard sur TOUTE la course (tous formats), pas seulement ce format
+  async function handleArrivee(e, sourceFormatId) {
     e.preventDefault();
-    const dossard = dossardsParFormat[formatId] || "";
+    const dossard = dossardsParFormat[sourceFormatId] || "";
     if (!dossard) return;
 
     setError(null);
     setLoadingSave(true);
 
     try {
-      // Chercher l'inscription par dossard pour CE format
+      if (!formats || formats.length === 0) {
+        throw new Error("Aucun format configuré pour cette course.");
+      }
+
+      const formatIds = formats.map((f) => f.id);
+
+      // Chercher l'inscription par dossard sur **tous** les formats de la course
       const { data: candidates, error: findErr } = await supabase
         .from("inscriptions")
         .select("id, dossard, format_id, heure_arrivee")
         .eq("dossard", dossard)
-        .eq("format_id", formatId);
+        .in("format_id", formatIds);
 
       if (findErr) throw findErr;
 
       if (!candidates || candidates.length === 0) {
-        setError(`Aucune inscription trouvée pour le dossard ${dossard} sur ce format.`);
+        setError(`Aucune inscription trouvée pour le dossard ${dossard} sur cette course.`);
         setLoadingSave(false);
         return;
       }
 
       if (candidates.length > 1) {
         setError(
-          `Plusieurs inscriptions trouvées pour le dossard ${dossard} sur ce format.`
+          `Plusieurs inscriptions trouvées pour le dossard ${dossard} (doublon). Vérifie l’attribution des dossards.`
         );
         setLoadingSave(false);
         return;
@@ -272,7 +281,7 @@ function ClassementArrivees() {
 
       const nowIso = new Date().toISOString();
 
-      // On retrouve le format
+      // On retrouve le format réel de cette inscription
       const format = formats.find((f) => f.id === insc.format_id);
 
       // Calcul du temps officiel immédiatement (pratique pour les tests)
@@ -299,9 +308,10 @@ function ClassementArrivees() {
         )
       );
 
+      // On vide uniquement le champ du bloc où tu as saisi
       setDossardsParFormat((prev) => ({
         ...prev,
-        [formatId]: "",
+        [sourceFormatId]: "",
       }));
     } catch (err) {
       console.error(err);
@@ -559,6 +569,99 @@ function ClassementArrivees() {
     return res;
   }, [inscriptions, formatsById, course]);
 
+  // Classement par équipe (relais) par format
+  const equipesParFormat = useMemo(() => {
+    const res = {};
+    if (!inscriptions || inscriptions.length === 0) return res;
+
+    inscriptions.forEach((i) => {
+      // seulement les inscriptions avec team_name (ou groupe_id) → courses par équipe
+      if (!i.team_name && !i.groupe_id) return;
+
+      const fmtId = i.format_id;
+      if (!res[fmtId]) res[fmtId] = {};
+
+      // clé technique d'équipe
+      const teamKey = i.groupe_id || `${i.team_name}__${fmtId}`;
+
+      if (!res[fmtId][teamKey]) {
+        res[fmtId][teamKey] = {
+          team_key: teamKey,
+          team_name: i.team_name || `Équipe ${teamKey}`,
+          format_id: fmtId,
+          membres: [],
+          nb_total: 0,
+          nb_arrives: 0,
+          temps_total_sec: null, // temps total équipe = arrivée du dernier relais
+          statut_equipe: "en_course", // ok, en_course, DNF, DSQ
+          rang_equipe: null,
+        };
+      }
+
+      const format = formatsById[fmtId];
+      const seconds = computeTempsOfficielSecFallback(i, format, course);
+
+      res[fmtId][teamKey].membres.push({ inscription: i, seconds });
+      res[fmtId][teamKey].nb_total += 1;
+
+      // Coureur arrivé et "ok/en_course"
+      const statut = (i.statut_course || "ok").toLowerCase();
+      const isOk = statut === "ok" || statut === "en_course";
+
+      if (seconds != null && isOk) {
+        res[fmtId][teamKey].nb_arrives += 1;
+        // temps équipe = max des temps cumulés (arrivée du dernier relais)
+        if (
+          res[fmtId][teamKey].temps_total_sec == null ||
+          seconds > res[fmtId][teamKey].temps_total_sec
+        ) {
+          res[fmtId][teamKey].temps_total_sec = seconds;
+        }
+      }
+
+      // Gestion statut équipe : DSQ > DNF > en_course/ok
+      if (statut === "dsq") {
+        res[fmtId][teamKey].statut_equipe = "DSQ";
+      } else if (statut === "dnf" && res[fmtId][teamKey].statut_equipe !== "DSQ") {
+        res[fmtId][teamKey].statut_equipe = "DNF";
+      }
+    });
+
+    const finalByFormat = {};
+    Object.keys(res).forEach((fmtId) => {
+      const teams = Object.values(res[fmtId]);
+
+      // statut "OK" si tous les coureurs sont arrivés et pas DNF/DSQ
+      teams.forEach((t) => {
+        if (t.statut_equipe === "en_course") {
+          if (t.nb_total > 0 && t.nb_arrives === t.nb_total && t.temps_total_sec != null) {
+            t.statut_equipe = "OK";
+          }
+        }
+      });
+
+      // Équipes classées : temps total + statut OK
+      const ranked = teams
+        .filter((t) => t.temps_total_sec != null && t.statut_equipe === "OK")
+        .sort((a, b) => a.temps_total_sec - b.temps_total_sec);
+
+      ranked.forEach((t, idx) => {
+        t.rang_equipe = idx + 1;
+      });
+
+      const others = teams.filter((t) => !ranked.includes(t));
+
+      finalByFormat[fmtId] = {
+        ranked,
+        others,
+        all: teams,
+        leading: ranked[0] || null,
+      };
+    });
+
+    return finalByFormat;
+  }, [inscriptions, formatsById, course]);
+
   return (
     <div className="max-w-7xl mx-auto px-4 py-6 space-y-6">
       {/* Top bar */}
@@ -680,7 +783,7 @@ function ClassementArrivees() {
                   </div>
                 </div>
 
-                {/* Saisie arrivée pour CE format */}
+                {/* Saisie arrivée pour CE format (mais recherche sur toute la course) */}
                 <div className="rounded-lg border border-neutral-200 bg-neutral-50 p-3">
                   <h3 className="text-sm font-semibold mb-2">
                     Saisie d’arrivée – {format.nom}
@@ -691,7 +794,7 @@ function ClassementArrivees() {
                   >
                     <div className="flex-1">
                       <label className="block text-xs font-medium mb-1">
-                        Numéro de dossard
+                        Numéro de dossard (tous formats)
                       </label>
                       <input
                         type="number"
@@ -715,7 +818,7 @@ function ClassementArrivees() {
                   </form>
                 </div>
 
-                {/* Tableau de classement */}
+                {/* Tableau de classement individuel */}
                 {rows.length === 0 ? (
                   <p className="text-sm text-neutral-500">
                     Aucun inscrit ou aucune arrivée enregistrée sur ce format pour le moment.
@@ -987,6 +1090,217 @@ function ClassementArrivees() {
                     </table>
                   </div>
                 )}
+
+                {/* --- Classement équipes (si équipes présentes) --- */}
+                {equipesParFormat[format.id] &&
+                  equipesParFormat[format.id].all.length > 0 && (
+                    <div className="mt-6 space-y-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <h3 className="text-sm font-semibold">
+                          Classement équipes – {format.nom}
+                        </h3>
+                        {equipesParFormat[format.id].leading && (
+                          <div className="text-xs sm:text-sm rounded-full bg-amber-50 text-amber-800 px-3 py-1">
+                            🥇 En tête :{" "}
+                            <span className="font-semibold">
+                              {equipesParFormat[format.id].leading.team_name}
+                            </span>{" "}
+                            –{" "}
+                            {formatChrono(
+                              equipesParFormat[format.id].leading
+                                .temps_total_sec
+                            )}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="overflow-x-auto">
+                        <table className="min-w-full text-xs md:text-sm">
+                          <thead>
+                            <tr className="border-b bg-neutral-50">
+                              <th className="text-left py-2 px-2">Rang</th>
+                              <th className="text-left py-2 px-2">Équipe</th>
+                              <th className="text-left py-2 px-2">Coureurs</th>
+                              <th className="text-left py-2 px-2">
+                                Temps total
+                              </th>
+                              <th className="text-left py-2 px-2">Statut</th>
+                              <th className="text-left py-2 px-2">
+                                Détail relais
+                              </th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {[
+                              ...equipesParFormat[format.id].ranked,
+                              ...equipesParFormat[format.id].others,
+                            ].map((team) => {
+                              const isLeading = team.rang_equipe === 1;
+                              const isExpanded =
+                                expandedTeam === team.team_key;
+
+                              const rowClasses = [
+                                "border-b last:border-0",
+                                isLeading ? "bg-yellow-50" : "",
+                              ]
+                                .filter(Boolean)
+                                .join(" ");
+
+                              // tri des relais par etape_id (si dispo) sinon par temps total
+                              const membresTries = [...team.membres].sort(
+                                (a, b) => {
+                                  const ea = a.inscription.etape_id;
+                                  const eb = b.inscription.etape_id;
+                                  if (ea != null && eb != null) return ea - eb;
+                                  if (ea != null) return -1;
+                                  if (eb != null) return 1;
+                                  const sa =
+                                    a.seconds ?? Number.MAX_SAFE_INTEGER;
+                                  const sb =
+                                    b.seconds ?? Number.MAX_SAFE_INTEGER;
+                                  return sa - sb;
+                                }
+                              );
+
+                              // calcul des temps de relais individuels
+                              let prevSeconds = 0;
+                              const segments = membresTries.map((m, idx) => {
+                                const s = m.seconds ?? null;
+                                let relaisSec = null;
+                                if (s != null) {
+                                  relaisSec = idx === 0 ? s : s - prevSeconds;
+                                  prevSeconds = s;
+                                }
+                                return {
+                                  etape: m.inscription.etape_id ?? idx + 1,
+                                  nom: m.inscription.nom,
+                                  prenom: m.inscription.prenom,
+                                  seconds: s,
+                                  relaisSec,
+                                  dossard: m.inscription.dossard,
+                                };
+                              });
+
+                              return (
+                                <React.Fragment key={team.team_key}>
+                                  <tr className={rowClasses}>
+                                    <td className="py-1 px-2 font-semibold">
+                                      {team.rang_equipe || "—"}
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      {team.team_name}
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      {team.nb_arrives}/{team.nb_total}
+                                    </td>
+                                    <td className="py-1 px-2 font-mono">
+                                      {team.temps_total_sec != null
+                                        ? formatChrono(team.temps_total_sec)
+                                        : "—"}
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      {team.statut_equipe}
+                                    </td>
+                                    <td className="py-1 px-2">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setExpandedTeam((prev) =>
+                                            prev === team.team_key
+                                              ? null
+                                              : team.team_key
+                                          )
+                                        }
+                                        className="px-2 py-0.5 rounded border border-neutral-300 text-xs hover:bg-neutral-100"
+                                      >
+                                        {isExpanded
+                                          ? "Masquer"
+                                          : "Voir détails"}
+                                      </button>
+                                    </td>
+                                  </tr>
+
+                                  {isExpanded && (
+                                    <tr className="border-b last:border-0 bg-neutral-50/60">
+                                      <td
+                                        colSpan={6}
+                                        className="px-2 py-2"
+                                      >
+                                        <div className="text-xs text-neutral-600 mb-1">
+                                          Détail des relais
+                                        </div>
+                                        <div className="overflow-x-auto">
+                                          <table className="min-w-[400px] text-[11px] md:text-xs">
+                                            <thead>
+                                              <tr>
+                                                <th className="text-left py-1 px-2">
+                                                  Relais
+                                                </th>
+                                                <th className="text-left py-1 px-2">
+                                                  Dossard
+                                                </th>
+                                                <th className="text-left py-1 px-2">
+                                                  Nom
+                                                </th>
+                                                <th className="text-left py-1 px-2">
+                                                  Prénom
+                                                </th>
+                                                <th className="text-left py-1 px-2">
+                                                  Temps relais
+                                                </th>
+                                                <th className="text-left py-1 px-2">
+                                                  Temps cumulé
+                                                </th>
+                                              </tr>
+                                            </thead>
+                                            <tbody>
+                                              {segments.map((seg) => (
+                                                <tr
+                                                  key={seg.etape}
+                                                  className="border-b last:border-0"
+                                                >
+                                                  <td className="py-1 px-2 font-semibold">
+                                                    {seg.etape}
+                                                  </td>
+                                                  <td className="py-1 px-2 font-mono">
+                                                    {seg.dossard || "—"}
+                                                  </td>
+                                                  <td className="py-1 px-2 uppercase">
+                                                    {seg.nom || "—"}
+                                                  </td>
+                                                  <td className="py-1 px-2 capitalize">
+                                                    {seg.prenom || "—"}
+                                                  </td>
+                                                  <td className="py-1 px-2 font-mono">
+                                                    {seg.relaisSec != null
+                                                      ? formatChrono(
+                                                          seg.relaisSec
+                                                        )
+                                                      : "—"}
+                                                  </td>
+                                                  <td className="py-1 px-2 font-mono">
+                                                    {seg.seconds != null
+                                                      ? formatChrono(
+                                                          seg.seconds
+                                                        )
+                                                      : "—"}
+                                                  </td>
+                                                </tr>
+                                              ))}
+                                            </tbody>
+                                          </table>
+                                        </div>
+                                      </td>
+                                    </tr>
+                                  )}
+                                </React.Fragment>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  )}
               </div>
             );
           })
