@@ -1,13 +1,13 @@
 // src/pages/CourseDetail.jsx
 //import Chat from "../components/Chat";
 //import { Link } from "react-router-dom";
-
 //import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
 //import { useParams, Link, useSearchParams } from "react-router-dom";
+
 import Chat from "../components/Chat";
 import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
-
+import LiveResultsPublic from "../components/LiveResultsPublic";
 
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
@@ -348,6 +348,7 @@ export default function CourseDetail() {
                   { key: "formats", label: "Formats & tarifs" },
                   { key: "parcours", label: "Parcours", disabled: !hasAnyGPX },
                   { key: "infos", label: "Infos pratiques" },
+                  { key: "resultats", label: "Résultats" },
                 ].map((t) => (
                   <button
                     key={t.key}
@@ -609,6 +610,14 @@ export default function CourseDetail() {
     )}
   </section>
 )}
+{tab === "resultats" && (
+  <section className="mt-6">
+    <LiveResultsPublic courseId={course.id} />
+  </section>
+)}
+
+
+
 
 
             {/* Accroche pour le futur Chat */}
