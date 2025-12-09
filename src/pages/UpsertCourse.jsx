@@ -4,7 +4,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
 
-/* ---------- UI helpers (identiques à NouvelleCourse) ---------- */
+/* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
   return (
     <label className="block">
@@ -186,110 +186,98 @@ function EtapesRelaisEditor({ etapes, setEtapes }) {
   );
 }
 
-/* ---------- Éditeur des catégories d’équipe ---------- */
-function TeamCategoriesEditor({ cats, setCats }) {
+/* ---------- Éditeur des options du format (options_catalogue) ---------- */
+function OptionsEditor({ options, setOptions }) {
   const add = () =>
-    setCats([
-      ...cats,
+    setOptions([
+      ...options,
       {
         _local_id: uuidv4(),
-        code: "mixed", // mixed par défaut
-        label: "Mixte (≥1F & ≥1H)",
-        min_male: 1,
-        min_female: 1,
-        ratio_rule: "",
-        min_sum_age: null,
-        notes: "",
+        id: null,
+        label: "",
+        price_eur: "",
+        description: "",
+        is_active: true,
+        max_qty_per_inscription: "1",
       },
     ]);
+
   const update = (id, patch) =>
-    setCats(cats.map((c) => (c._local_id === id ? { ...c, ...patch } : c)));
-  const remove = (id) => setCats(cats.filter((c) => c._local_id !== id));
+    setOptions(options.map((o) => (o._local_id === id ? { ...o, ...patch } : o)));
+
+  const remove = (id) =>
+    setOptions(options.filter((o) => o._local_id !== id));
 
   return (
-    <div className="grid gap-4">
-      {cats.map((c) => (
+    <div className="grid gap-3">
+      {options.map((o) => (
         <div
-          key={c._local_id}
-          className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4"
+          key={o._local_id}
+          className="rounded-xl bg-white ring-1 ring-neutral-200 p-3 grid gap-3"
         >
-          <div className="grid grid-cols-1 sm:grid-cols-6 gap-4">
-            <Field label="Code">
-              <select
-                className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
-                value={c.code}
-                onChange={(e) => update(c._local_id, { code: e.target.value })}
-              >
-                <option value="open">Open</option>
-                <option value="male">Masculine</option>
-                <option value="female">Féminine</option>
-                <option value="mixed">Mixte</option>
-                <option value="masters">Masters</option>
-              </select>
-            </Field>
-            <Field label="Libellé">
+          <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <Field label="Libellé" required>
               <Input
-                value={c.label}
-                onChange={(e) =>
-                  update(c._local_id, { label: e.target.value })
-                }
-                placeholder="Ex. Mixte (≥1F & ≥1H)"
+                value={o.label}
+                onChange={(e) => update(o._local_id, { label: e.target.value })}
+                placeholder="Ex. Repas d'après-course"
               />
             </Field>
-            <Field label="Min hommes">
+            <Field label="Prix (€/unité)" required>
               <Input
                 type="number"
-                value={c.min_male || 0}
+                step="0.01"
+                value={o.price_eur}
                 onChange={(e) =>
-                  update(c._local_id, { min_male: Number(e.target.value) })
+                  update(o._local_id, { price_eur: e.target.value })
                 }
+                placeholder="Ex. 12"
               />
             </Field>
-            <Field label="Min femmes">
+            <Field label="Quantité max / inscription">
               <Input
                 type="number"
-                value={c.min_female || 0}
+                min={0}
+                value={o.max_qty_per_inscription}
                 onChange={(e) =>
-                  update(c._local_id, { min_female: Number(e.target.value) })
-                }
-              />
-            </Field>
-            <Field label="Ratio (opt.)">
-              <Input
-                value={c.ratio_rule || ""}
-                onChange={(e) =>
-                  update(c._local_id, { ratio_rule: e.target.value })
-                }
-                placeholder="Ex. 3:2"
-              />
-            </Field>
-            <Field label="Somme âges min (Masters)">
-              <Input
-                type="number"
-                value={c.min_sum_age || ""}
-                onChange={(e) =>
-                  update(c._local_id, {
-                    min_sum_age: e.target.value ? Number(e.target.value) : null,
+                  update(o._local_id, {
+                    max_qty_per_inscription: e.target.value,
                   })
                 }
               />
             </Field>
+            <Field label="Actif">
+              <div className="flex items-center h-[38px]">
+                <input
+                  type="checkbox"
+                  checked={o.is_active}
+                  onChange={(e) =>
+                    update(o._local_id, { is_active: e.target.checked })
+                  }
+                />
+                <span className="ml-2 text-xs text-neutral-600">
+                  Visible au moment de l’inscription
+                </span>
+              </div>
+            </Field>
           </div>
-          <Field label="Notes (opt.)">
+          <Field label="Description (optionnel)">
             <Textarea
-              value={c.notes || ""}
+              rows={2}
+              value={o.description || ""}
               onChange={(e) =>
-                update(c._local_id, { notes: e.target.value })
+                update(o._local_id, { description: e.target.value })
               }
+              placeholder="Détails pratiques, contenu, horaires, etc."
             />
           </Field>
-          <div className="mt-3">
+          <div className="flex justify-end">
             <button
               type="button"
-              onClick={() => remove(c._local_id)}
-              className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-sm text-red-700 hover:bg-red-100"
+              onClick={() => remove(o._local_id)}
+              className="rounded-xl border border-red-200 bg-red-50 px-3 py-1.5 text-xs font-semibold text-red-700 hover:bg-red-100"
             >
-              Supprimer la catégorie
+              Supprimer cette option
             </button>
           </div>
         </div>
@@ -297,9 +285,9 @@ function TeamCategoriesEditor({ cats, setCats }) {
       <button
         type="button"
         onClick={add}
-        className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+        className="rounded-xl bg-orange-500 px-3 py-1.5 text-xs font-semibold text-white hover:brightness-110"
       >
-        + Ajouter une catégorie d’équipe
+        + Ajouter une option
       </button>
     </div>
   );
@@ -348,6 +336,7 @@ export default function UpsertCourse() {
     adresse_depart: "",
     adresse_arrivee: "",
     prix: "",
+    // repas gardés en interne mais plus exposés en UI
     stock_repas: "",
     prix_repas: "",
     prix_total_inscription: "",
@@ -357,7 +346,7 @@ export default function UpsertCourse() {
     nb_max_coureurs: "",
     age_minimum: "",
     hebergements: "",
-    // Nouveaux
+    // Nouveaux / équipes
     type_format: "individuel",
     sport_global: "",
     team_size: "",
@@ -371,6 +360,7 @@ export default function UpsertCourse() {
     waitlist_enabled: false,
     quota_attente: 0,
     etapes: [],
+    options: [], // options_catalogue liées à ce format
   });
 
   const [formats, setFormats] = useState([formatTemplate()]);
@@ -405,19 +395,26 @@ export default function UpsertCourse() {
         return;
       }
       setLoading(true);
+
       const { data: c } = await supabase
         .from("courses")
         .select("*")
         .eq("id", id)
         .single();
+
       const { data: fs } = await supabase
         .from("formats")
         .select("*")
         .eq("course_id", id)
         .order("created_at", { ascending: true });
+
       let etapesByFormat = {};
+      let optionsByFormat = {};
+
       if (fs?.length) {
         const ids = fs.map((f) => f.id);
+
+        // Étapes relais
         const { data: etapes } = await supabase
           .from("formats_etapes")
           .select("*")
@@ -432,7 +429,30 @@ export default function UpsertCourse() {
             return acc;
           }, {});
         }
+
+        // Options catalogue
+        const { data: opts } = await supabase
+          .from("options_catalogue")
+          .select("*")
+          .in("format_id", ids);
+        if (opts) {
+          optionsByFormat = opts.reduce((acc, cur) => {
+            (acc[cur.format_id] ||= []).push({
+              _local_id: uuidv4(),
+              id: cur.id,
+              label: cur.label,
+              price_eur: (cur.price_cents / 100).toString(),
+              description: cur.description || "",
+              is_active: cur.is_active,
+              max_qty_per_inscription:
+                cur.max_qty_per_inscription?.toString() || "1",
+              image_url: cur.image_url || null,
+            });
+            return acc;
+          }, {});
+        }
       }
+
       setCourse({
         nom: c?.nom || "",
         lieu: c?.lieu || "",
@@ -442,6 +462,7 @@ export default function UpsertCourse() {
         imageFile: null,
         image_url: c?.image_url || "",
       });
+
       setFormats(
         (fs || []).map((f) => ({
           ...formatTemplate(),
@@ -464,6 +485,7 @@ export default function UpsertCourse() {
           adresse_depart: f.adresse_depart || "",
           adresse_arrivee: f.adresse_arrivee || "",
           prix: f.prix ?? "",
+          // champs repas gardés mais pas exposés
           stock_repas: f.stock_repas ?? "",
           prix_repas: f.prix_repas ?? "",
           prix_total_inscription: f.prix_total_inscription ?? "",
@@ -490,6 +512,7 @@ export default function UpsertCourse() {
           waitlist_enabled: !!f.waitlist_enabled,
           quota_attente: f.quota_attente ?? 0,
           etapes: etapesByFormat[f.id] || [],
+          options: optionsByFormat[f.id] || [],
         }))
       );
       setLoading(false);
@@ -563,6 +586,93 @@ export default function UpsertCourse() {
         } catch {}
         return { lat: null, lng: null };
       }
+
+      async function syncOptions(formatId, optionsArr) {
+        if (!formatId) return;
+        const keptOptionIds = [];
+
+        for (const opt of optionsArr || []) {
+          const label = opt.label?.trim();
+          if (!label) continue; // ignore lignes vides
+
+          const priceFloat = opt.price_eur
+            ? parseFloat(opt.price_eur.replace(",", "."))
+            : 0;
+          const price_cents = Number.isFinite(priceFloat)
+            ? Math.round(priceFloat * 100)
+            : 0;
+          const maxQtyInt = opt.max_qty_per_inscription
+            ? parseInt(opt.max_qty_per_inscription, 10)
+            : 10;
+          const max_qty_per_inscription = Number.isFinite(maxQtyInt)
+            ? maxQtyInt
+            : 10;
+
+          const payloadOpt = {
+            format_id: formatId,
+            label,
+            price_cents: price_cents < 0 ? 0 : price_cents,
+            description: opt.description || null,
+            image_url: opt.image_url || null,
+            is_active: opt.is_active !== false,
+            max_qty_per_inscription:
+              max_qty_per_inscription < 0 ? 0 : max_qty_per_inscription,
+          };
+
+          let optionId = null;
+          const looksUUID =
+            typeof opt.id === "string" && opt.id.length > 20;
+          if (looksUUID) {
+            const { data: chkOpt } = await supabase
+              .from("options_catalogue")
+              .select("id")
+              .eq("id", opt.id)
+              .maybeSingle();
+            if (chkOpt?.id) {
+              const { error: upErr } = await supabase
+                .from("options_catalogue")
+                .update(payloadOpt)
+                .eq("id", opt.id);
+              if (upErr) throw upErr;
+              optionId = opt.id;
+            } else {
+              const { data: insOpt, error: insOptErr } = await supabase
+                .from("options_catalogue")
+                .insert(payloadOpt)
+                .select("id")
+                .single();
+              if (insOptErr) throw insOptErr;
+              optionId = insOpt.id;
+            }
+          } else {
+            const { data: insOpt, error: insOptErr } = await supabase
+              .from("options_catalogue")
+              .insert(payloadOpt)
+              .select("id")
+              .single();
+            if (insOptErr) throw insOptErr;
+            optionId = insOpt.id;
+          }
+
+          keptOptionIds.push(optionId);
+        }
+
+        // supprimer les options supprimées dans le formulaire
+        const { data: existingOpts } = await supabase
+          .from("options_catalogue")
+          .select("id")
+          .eq("format_id", formatId);
+        const toDelete = (existingOpts || [])
+          .map((o) => o.id)
+          .filter((oid) => !keptOptionIds.includes(oid));
+        if (toDelete.length) {
+          await supabase
+            .from("options_catalogue")
+            .delete()
+            .in("id", toDelete);
+        }
+      }
+
       const { lat, lng } = await geocode(course.code_postal, course.lieu);
 
       // Upload image course
@@ -665,10 +775,7 @@ export default function UpsertCourse() {
         }
 
         const prix = f.prix ? parseFloat(f.prix) : 0;
-        const prix_repas = f.prix_repas ? parseFloat(f.prix_repas) : 0;
-        const prix_total_inscription =
-          prix +
-          (parseInt(f.stock_repas || "0", 10) > 0 ? prix_repas : 0);
+        const prix_total_inscription = prix; // repas supprimés, on ne les additionne plus
 
         const payload = {
           course_id: courseId,
@@ -691,8 +798,9 @@ export default function UpsertCourse() {
           adresse_depart: f.adresse_depart || null,
           adresse_arrivee: f.adresse_arrivee || null,
           prix,
-          stock_repas: f.stock_repas ? parseInt(f.stock_repas, 10) : 0,
-          prix_repas,
+          // repas : on force à 0, on garde les colonnes par compat
+          stock_repas: 0,
+          prix_repas: 0,
           prix_total_inscription,
           ravitaillements: f.ravitaillements || null,
           remise_dossards: f.remise_dossards || null,
@@ -811,6 +919,9 @@ export default function UpsertCourse() {
             .eq("format_id", formatId);
         }
 
+        // Options catalogue
+        await syncOptions(formatId, f.options || []);
+
         keptIds.push(formatId);
       }
 
@@ -856,8 +967,8 @@ export default function UpsertCourse() {
             </span>
           </h1>
           <p className="mt-2 text-neutral-600 text-base">
-            Renseignez les informations générales, ajoutez vos formats et
-            publiez quand tout est prêt.
+            Renseignez les informations générales, ajoutez vos formats et leurs
+            options, puis publiez quand tout est prêt.
           </p>
 
           {/* BADGE DEBUG TEMPORAIRE */}
@@ -1096,7 +1207,8 @@ export default function UpsertCourse() {
                   Formats de course
                 </h2>
                 <p className="mt-1 text-sm text-neutral-600">
-                  Ajoutez un ou plusieurs formats (10K, relais, rando, etc.).
+                  Ajoutez un ou plusieurs formats (10K, relais, rando, etc.),
+                  avec leurs options.
                 </p>
               </div>
               <button
@@ -1357,7 +1469,7 @@ export default function UpsertCourse() {
                       </Field>
                     </div>
 
-                    {/* Tarifs & repas */}
+                    {/* Tarifs – sans gestion spécifique des repas */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <Field label="Prix (€/pers.)">
                         <Input
@@ -1380,27 +1492,7 @@ export default function UpsertCourse() {
                           />
                         </Field>
                       )}
-                      <Field label="Stock repas">
-                        <Input
-                          name="stock_repas"
-                          value={f.stock_repas}
-                          onChange={(e) => handleFormatChange(index, e)}
-                          placeholder="0 si pas de repas"
-                        />
-                      </Field>
                     </div>
-                    {parseInt(f.stock_repas || "0", 10) > 0 && (
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <Field label="Prix du repas (€)">
-                          <Input
-                            name="prix_repas"
-                            value={f.prix_repas}
-                            onChange={(e) => handleFormatChange(index, e)}
-                            placeholder="Ex. 10"
-                          />
-                        </Field>
-                      </div>
-                    )}
 
                     {/* Fichiers */}
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -1546,6 +1638,21 @@ export default function UpsertCourse() {
                         />
                       </div>
                     )}
+
+                    {/* Options catalogue */}
+                    <div className="mt-4 pt-4 border-t border-dashed border-neutral-300 grid gap-3">
+                      <div className="flex items-center justify-between">
+                        <div className="text-sm font-semibold text-neutral-700">
+                          Options (repas, tee-shirt, navette, etc.)
+                        </div>
+                      </div>
+                      <OptionsEditor
+                        options={f.options || []}
+                        setOptions={(next) =>
+                          updateFormat(f.id, { options: next })
+                        }
+                      />
+                    </div>
                   </div>
                 </div>
               ))}
