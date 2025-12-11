@@ -1,6 +1,8 @@
 // src/pages/MonProfilCoureur.jsx
 import React, { useEffect, useState } from "react";
 import { supabase } from "../supabase";
+import { useNavigate } from "react-router-dom";
+import JustificatifFfaPps from "../components/JustificatifFfaPps";
 
 /* Utils */
 const nationalites = ["Française", "Espagnole", "Italienne", "Allemande", "Portugaise", "Autre"];
@@ -9,11 +11,14 @@ const pays = ["France", "Espagne", "Italie", "Allemagne", "Portugal", "Suisse", 
 export default function MonProfilCoureur() {
   const [profil, setProfil] = useState({});
   const [message, setMessage] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [isDeleting, setIsDeleting] = useState(false);
+  const navigate = useNavigate();
 
   useEffect(() => {
     const fetchProfil = async () => {
-      const session = await supabase.auth.getSession();
-      const user = session.data?.session?.user;
+      const { data: sessionData } = await supabase.auth.getSession();
+      const user = sessionData?.session?.user;
       if (!user) return;
 
       const { data, error } = await supabase
@@ -37,8 +42,9 @@ export default function MonProfilCoureur() {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const session = await supabase.auth.getSession();
-    const user = session.data?.session?.user;
+    setMessage("");
+    const { data: sessionData } = await supabase.auth.getSession();
+    const user = sessionData?.session?.user;
     if (!user) return;
 
     const profilToSave = { ...profil, user_id: user.id };
@@ -60,6 +66,49 @@ export default function MonProfilCoureur() {
 
     const { error } = await supabase.from("profils_utilisateurs").upsert(profilToSave);
     setMessage(error ? "Erreur lors de la mise à jour." : "Profil mis à jour !");
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleteError("");
+    const confirm = window.confirm(
+      "Cette action est irréversible.\n\nVotre compte sera supprimé et vos données personnelles seront effacées ou anonymisées.\nContinuer ?"
+    );
+    if (!confirm) return;
+
+    try {
+      setIsDeleting(true);
+      const { data: sessionData } = await supabase.auth.getSession();
+      const token = sessionData?.session?.access_token;
+      if (!token) {
+        throw new Error("Session introuvable. Veuillez vous reconnecter.");
+      }
+
+      const res = await fetch(
+        `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/delete-account`,
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        throw new Error(data?.error || "Erreur lors de la suppression du compte.");
+      }
+
+      // Déconnexion locale + redirection
+      await supabase.auth.signOut();
+      navigate("/");
+    } catch (err) {
+      console.error("Erreur suppression compte:", err);
+      setDeleteError(err.message || "Erreur lors de la suppression du compte.");
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -86,10 +135,20 @@ export default function MonProfilCoureur() {
           <Card title="Identité">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <Field label="Nom">
-                <Input name="nom" value={profil.nom || ""} onChange={handleChange} placeholder="Ex. Martin" />
+                <Input
+                  name="nom"
+                  value={profil.nom || ""}
+                  onChange={handleChange}
+                  placeholder="Ex. Martin"
+                />
               </Field>
               <Field label="Prénom">
-                <Input name="prenom" value={profil.prenom || ""} onChange={handleChange} placeholder="Ex. Léa" />
+                <Input
+                  name="prenom"
+                  value={profil.prenom || ""}
+                  onChange={handleChange}
+                  placeholder="Ex. Léa"
+                />
               </Field>
             </div>
 
@@ -120,11 +179,20 @@ export default function MonProfilCoureur() {
               </Field>
 
               <Field label="Date de naissance">
-                <Input type="date" name="date_naissance" value={profil.date_naissance || ""} onChange={handleChange} />
+                <Input
+                  type="date"
+                  name="date_naissance"
+                  value={profil.date_naissance || ""}
+                  onChange={handleChange}
+                />
               </Field>
 
               <Field label="Nationalité">
-                <Select name="nationalite" value={profil.nationalite || ""} onChange={handleChange}>
+                <Select
+                  name="nationalite"
+                  value={profil.nationalite || ""}
+                  onChange={handleChange}
+                >
                   <option value="">-- Choisir une nationalité --</option>
                   {nationalites.map((nat) => (
                     <option key={nat} value={nat}>
@@ -140,27 +208,62 @@ export default function MonProfilCoureur() {
           <Card title="Contact">
             <div className="grid grid-cols-1 gap-4">
               <Field label="Email">
-                <Input type="email" name="email" value={profil.email || ""} onChange={handleChange} placeholder="vous@exemple.com" />
+                <Input
+                  type="email"
+                  name="email"
+                  value={profil.email || ""}
+                  onChange={handleChange}
+                  placeholder="vous@exemple.com"
+                />
               </Field>
               <Field label="Téléphone">
-                <Input name="telephone" value={profil.telephone || ""} onChange={handleChange} placeholder="06 12 34 56 78" />
+                <Input
+                  name="telephone"
+                  value={profil.telephone || ""}
+                  onChange={handleChange}
+                  placeholder="06 12 34 56 78"
+                />
               </Field>
               <Field label="Adresse">
-                <Input name="adresse" value={profil.adresse || ""} onChange={handleChange} placeholder="N° et rue" />
+                <Input
+                  name="adresse"
+                  value={profil.adresse || ""}
+                  onChange={handleChange}
+                  placeholder="N° et rue"
+                />
               </Field>
               <Field label="Complément d'adresse">
-                <Input name="adresse_complement" value={profil.adresse_complement || ""} onChange={handleChange} placeholder="Bâtiment, étage…" />
+                <Input
+                  name="adresse_complement"
+                  value={profil.adresse_complement || ""}
+                  onChange={handleChange}
+                  placeholder="Bâtiment, étage…"
+                />
               </Field>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Code postal">
-                  <Input name="code_postal" value={profil.code_postal || ""} onChange={handleChange} placeholder="75001" />
+                  <Input
+                    name="code_postal"
+                    value={profil.code_postal || ""}
+                    onChange={handleChange}
+                    placeholder="75001"
+                  />
                 </Field>
                 <Field label="Ville">
-                  <Input name="ville" value={profil.ville || ""} onChange={handleChange} placeholder="Paris" />
+                  <Input
+                    name="ville"
+                    value={profil.ville || ""}
+                    onChange={handleChange}
+                    placeholder="Paris"
+                  />
                 </Field>
               </div>
               <Field label="Pays">
-                <Select name="pays" value={profil.pays || ""} onChange={handleChange}>
+                <Select
+                  name="pays"
+                  value={profil.pays || ""}
+                  onChange={handleChange}
+                >
                   <option value="">-- Choisir un pays --</option>
                   {pays.map((p) => (
                     <option key={p} value={p}>
@@ -175,8 +278,11 @@ export default function MonProfilCoureur() {
           {/* Résultats & justificatifs */}
           <Card title="Résultats & justificatifs">
             <div className="grid gap-4">
+              {/* Apparition dans les résultats */}
               <div>
-                <div className="text-sm font-semibold text-neutral-800 mb-1">Apparition dans les résultats</div>
+                <div className="text-sm font-semibold text-neutral-800 mb-1">
+                  Apparition dans les résultats
+                </div>
                 <p className="text-sm text-neutral-600 mb-2">
                   Conformément à la réglementation FFA, vous pouvez choisir que votre nom apparaisse ou non dans les résultats.
                 </p>
@@ -186,7 +292,10 @@ export default function MonProfilCoureur() {
                       type="radio"
                       name="apparaitre_resultats"
                       value="true"
-                      checked={profil.apparaitre_resultats === true || profil.apparaitre_resultats === "true"}
+                      checked={
+                        profil.apparaitre_resultats === true ||
+                        profil.apparaitre_resultats === "true"
+                      }
                       onChange={handleChange}
                     />
                     Oui
@@ -196,7 +305,10 @@ export default function MonProfilCoureur() {
                       type="radio"
                       name="apparaitre_resultats"
                       value="false"
-                      checked={profil.apparaitre_resultats === false || profil.apparaitre_resultats === "false"}
+                      checked={
+                        profil.apparaitre_resultats === false ||
+                        profil.apparaitre_resultats === "false"
+                      }
                       onChange={handleChange}
                     />
                     Non
@@ -204,44 +316,20 @@ export default function MonProfilCoureur() {
                 </div>
               </div>
 
+              {/* Justificatif FFA / PPS (remplacé par le composant dédié) */}
               <div>
-                <div className="text-sm font-semibold text-neutral-800 mb-1">Justificatif</div>
-                <p className="text-sm text-neutral-600 mb-2">Licence FFA ou PPS requis pour participer.</p>
-                <div className="grid sm:grid-cols-2 gap-2 text-sm">
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="justificatif_type"
-                      value="licence"
-                      checked={profil.justificatif_type === "licence"}
-                      onChange={handleChange}
-                    />
-                    Licence FFA
-                  </label>
-                  <label className="inline-flex items-center gap-2">
-                    <input
-                      type="radio"
-                      name="justificatif_type"
-                      value="pps"
-                      checked={profil.justificatif_type === "pps"}
-                      onChange={handleChange}
-                    />
-                    PPS (Parcours Prévention Santé)
-                  </label>
+                <div className="text-sm font-semibold text-neutral-800 mb-1">
+                  Justificatif (Licence FFA / PPS)
                 </div>
+                <p className="text-sm text-neutral-600 mb-2">
+                  Licence FFA ou PPS requis pour participer à certaines épreuves. Vous pouvez gérer votre justificatif ici.
+                </p>
 
-                {profil.justificatif_type === "licence" && (
-                  <div className="mt-3">
-                    <Field label="N° de licence">
-                      <Input
-                        name="numero_licence"
-                        value={profil.numero_licence || ""}
-                        onChange={handleChange}
-                        placeholder="Ex. 1234567"
-                      />
-                    </Field>
-                </div>
-                )}
+                {/* Le composant centralisé de vérification / gestion */}
+                <JustificatifFfaPps
+                  profil={profil}
+                  onProfilChange={setProfil}
+                />
               </div>
             </div>
           </Card>
@@ -250,7 +338,12 @@ export default function MonProfilCoureur() {
           <Card title="Divers">
             <div className="grid gap-4">
               <Field label="Club (facultatif)">
-                <Input name="club" value={profil.club || ""} onChange={handleChange} placeholder="Ex. AC Paris" />
+                <Input
+                  name="club"
+                  value={profil.club || ""}
+                  onChange={handleChange}
+                  placeholder="Ex. AC Paris"
+                />
               </Field>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Contact d'urgence - Nom">
@@ -273,6 +366,26 @@ export default function MonProfilCoureur() {
             </div>
           </Card>
 
+          {/* Sécurité & suppression de compte */}
+          <Card title="Sécurité & confidentialité">
+            <p className="text-sm text-neutral-700 mb-3">
+              Vous pouvez supprimer définitivement votre compte Tickrace. Cette action est irréversible : vos données
+              personnelles seront effacées ou anonymisées, et vous ne pourrez plus accéder à vos inscriptions depuis cet
+              espace.
+            </p>
+            {deleteError && (
+              <p className="text-sm text-rose-600 mb-2">{deleteError}</p>
+            )}
+            <button
+              type="button"
+              onClick={handleDeleteAccount}
+              disabled={isDeleting}
+              className="inline-flex items-center gap-2 rounded-xl border border-rose-500 px-5 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+            >
+              {isDeleting ? "Suppression en cours..." : "Supprimer mon compte"}
+            </button>
+          </Card>
+
           {/* Actions */}
           <div className="flex items-center gap-3">
             <button
@@ -282,7 +395,11 @@ export default function MonProfilCoureur() {
               Sauvegarder
             </button>
             {message && (
-              <p className={`text-sm ${message.includes("Erreur") ? "text-rose-600" : "text-emerald-700"}`}>
+              <p
+                className={`text-sm ${
+                  message.includes("Erreur") ? "text-rose-600" : "text-emerald-700"
+                }`}
+              >
                 {message}
               </p>
             )}
