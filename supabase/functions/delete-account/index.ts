@@ -79,7 +79,7 @@ serve(async (req: Request) => {
     // 2) Anonymiser les inscriptions
     // =============================
 
-    // 2.1) Cas où apparaitre_resultats = TRUE → garder nom/prénom, anonymiser le reste
+    // 2.1) apparaitre_resultats = true → garder nom/prénom, anonymiser le reste
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
@@ -126,7 +126,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // 2.2) Cas où apparaitre_resultats = FALSE → anonymiser tout
+    // 2.2) apparaitre_resultats = false → anonymiser tout
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
@@ -175,7 +175,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // 2.3) Cas où apparaitre_resultats est NULL → anonymiser tout
+    // 2.3) apparaitre_resultats IS NULL → anonymiser tout (par défaut)
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
@@ -276,36 +276,56 @@ serve(async (req: Request) => {
     }
 
     // =============================
-    // 5) (Optionnel) autres tables liées
+    // 5) Essayer de supprimer l'utilisateur auth
     // =============================
-    // ex:
-    // await supabaseAdmin.from("benevoles").delete().eq("user_id", userId);
+    let authUserDeleted = false;
+    let authUserDisabled = false;
 
-    // =============================
-    // 6) Supprimer l'utilisateur auth (best effort)
-    // =============================
-    let authUserDeleted = true;
     try {
       const { error: deleteUserError } =
         await supabaseAdmin.auth.admin.deleteUser(userId);
 
-      if (deleteUserError) {
-        authUserDeleted = false;
-        console.warn(
-          "Erreur deleteUser (non bloquant, données déjà anonymisées):",
-          deleteUserError
-        );
+      if (!deleteUserError) {
+        authUserDeleted = true;
+      } else {
+        console.warn("Erreur deleteUser, on tente un fallback:", deleteUserError);
       }
     } catch (e) {
-      authUserDeleted = false;
-      console.warn(
-        "Exception deleteUser (non bloquant, données déjà anonymisées):",
-        e
-      );
+      console.warn("Exception deleteUser, on tente un fallback:", e);
     }
 
     // =============================
-    // 7) OK
+    // 6) Fallback : si deleteUser échoue, on BAN + change l'email
+    // =============================
+    if (!authUserDeleted) {
+      try {
+        // email poubelle unique
+        const pseudoEmail = `deleted+${userId}@deleted.tickrace`;
+        // ban très long (Supabase gère un champ ban_duration en texte: "87600h" ≈ 10 ans)
+        const { error: updateError } =
+          await supabaseAdmin.auth.admin.updateUserById(userId, {
+            email: pseudoEmail,
+            ban_duration: "87600h", // ~10 ans
+          });
+
+        if (updateError) {
+          console.warn(
+            "Erreur fallback updateUserById (ban + email poubelle):",
+            updateError
+          );
+        } else {
+          authUserDisabled = true;
+        }
+      } catch (e) {
+        console.warn(
+          "Exception fallback updateUserById (ban + email poubelle):",
+          e
+        );
+      }
+    }
+
+    // =============================
+    // 7) Réponse OK
     // =============================
     return new Response(
       JSON.stringify({
@@ -314,8 +334,11 @@ serve(async (req: Request) => {
           "Compte et données personnelles supprimés / anonymisés. " +
           (authUserDeleted
             ? "Compte d'authentification supprimé."
-            : "Le compte d'authentification n'a pas pu être supprimé, mais il est désormais inutilisable côté application."),
+            : authUserDisabled
+            ? "Compte d'authentification désactivé et anonymisé."
+            : "Le compte d'authentification n'a pas pu être supprimé, mais vos données personnelles ont été anonymisées."),
         authUserDeleted,
+        authUserDisabled,
       }),
       {
         status: 200,
