@@ -2,19 +2,19 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-// Récupération des variables d'environnement
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
 serve(async (req: Request) => {
-  // CORS basique
+  // CORS
   if (req.method === "OPTIONS") {
     return new Response("ok", {
       headers: {
         "Access-Control-Allow-Origin": "*",
         "Access-Control-Allow-Methods": "POST, OPTIONS",
-        "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+        "Access-Control-Allow-Headers":
+          "authorization, x-client-info, apikey, content-type",
       },
     });
   }
@@ -46,18 +46,14 @@ serve(async (req: Request) => {
     );
   }
 
-  // Client "user" (pour récupérer l'utilisateur courant)
   const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
-    global: {
-      headers: { Authorization: authHeader },
-    },
+    global: { headers: { Authorization: authHeader } },
   });
 
-  // Client admin (service role) pour suppression / updates
   const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
   try {
-    // 1) Récupérer l'utilisateur courant via le token
+    // 1) Récupérer l'utilisateur courant
     const {
       data: { user },
       error: userError,
@@ -79,8 +75,60 @@ serve(async (req: Request) => {
 
     const userId = user.id;
 
+    // =============================
     // 2) Anonymiser les inscriptions
-    // Cas 1 : l'utilisateur n'avait PAS coché "apparaître dans les résultats"
+    // =============================
+
+    // 2.1) Cas où apparaitre_resultats = TRUE
+    // -> on garde nom/prénom, on anonymise le reste
+    {
+      const { error } = await supabaseAdmin
+        .from("inscriptions")
+        .update({
+          email: null,
+          telephone: null,
+          adresse: null,
+          adresse_complement: null,
+          code_postal: null,
+          ville: null,
+          pays: null,
+          date_naissance: null,
+          nationalite: null,
+          club: null,
+          contact_urgence_nom: null,
+          contact_urgence_telephone: null,
+          justificatif_type: null,
+          numero_licence: null,
+          justificatif_url: null,
+          pps_identifier: null,
+          pps_expiry_date: null,
+        })
+        .eq("coureur_id", userId)
+        .eq("apparaitre_resultats", true);
+
+      if (error) {
+        console.error(
+          "Erreur update inscriptions (apparaitre_resultats=true):",
+          error
+        );
+        return new Response(
+          JSON.stringify({
+            error:
+              "Erreur lors de l'anonymisation des inscriptions (apparaitre_resultats=true)",
+          }),
+          {
+            status: 500,
+            headers: {
+              "Content-Type": "application/json",
+              "Access-Control-Allow-Origin": "*",
+            },
+          }
+        );
+      }
+    }
+
+    // 2.2) Cas où apparaitre_resultats = FALSE
+    // -> on anonymise tout, y compris nom/prénom
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
@@ -90,6 +138,7 @@ serve(async (req: Request) => {
           email: null,
           telephone: null,
           adresse: null,
+          adresse_complement: null,
           code_postal: null,
           ville: null,
           pays: null,
@@ -98,17 +147,24 @@ serve(async (req: Request) => {
           club: null,
           contact_urgence_nom: null,
           contact_urgence_telephone: null,
-          // si tu as d'autres champs perso, les mettre à null ici
+          justificatif_type: null,
+          numero_licence: null,
+          justificatif_url: null,
+          pps_identifier: null,
+          pps_expiry_date: null,
         })
         .eq("coureur_id", userId)
-        .eq("afficher_resultats", false);
+        .eq("apparaitre_resultats", false);
 
       if (error) {
-        console.error("Erreur update inscriptions (afficher_resultats=false):", error);
+        console.error(
+          "Erreur update inscriptions (apparaitre_resultats=false):",
+          error
+        );
         return new Response(
           JSON.stringify({
             error:
-              "Erreur lors de l'anonymisation des inscriptions (afficher_resultats=false)",
+              "Erreur lors de l'anonymisation des inscriptions (apparaitre_resultats=false)",
           }),
           {
             status: 500,
@@ -121,15 +177,18 @@ serve(async (req: Request) => {
       }
     }
 
-    // Cas 2 : l'utilisateur AVAIT coché "apparaître dans les résultats"
-    // -> on garde nom/prénom, on anonymise tout le reste
+    // 2.3) Cas où apparaitre_resultats est NULL
+    // -> on anonymise tout (par défaut, pas d'accord explicite)
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
         .update({
+          nom: "[supprimé]",
+          prenom: null,
           email: null,
           telephone: null,
           adresse: null,
+          adresse_complement: null,
           code_postal: null,
           ville: null,
           pays: null,
@@ -138,16 +197,24 @@ serve(async (req: Request) => {
           club: null,
           contact_urgence_nom: null,
           contact_urgence_telephone: null,
+          justificatif_type: null,
+          numero_licence: null,
+          justificatif_url: null,
+          pps_identifier: null,
+          pps_expiry_date: null,
         })
         .eq("coureur_id", userId)
-        .eq("afficher_resultats", true);
+        .is("apparaitre_resultats", null);
 
       if (error) {
-        console.error("Erreur update inscriptions (afficher_resultats=true):", error);
+        console.error(
+          "Erreur update inscriptions (apparaitre_resultats IS NULL):",
+          error
+        );
         return new Response(
           JSON.stringify({
             error:
-              "Erreur lors de l'anonymisation des inscriptions (afficher_resultats=true)",
+              "Erreur lors de l'anonymisation des inscriptions (apparaitre_resultats IS NULL)",
           }),
           {
             status: 500,
@@ -160,7 +227,9 @@ serve(async (req: Request) => {
       }
     }
 
-    // 3) Supprimer le profil dans profils_utilisateurs
+    // =============================
+    // 3) Supprimer le profil
+    // =============================
     {
       const { error } = await supabaseAdmin
         .from("profils_utilisateurs")
@@ -169,7 +238,6 @@ serve(async (req: Request) => {
 
       if (error) {
         console.error("Erreur delete profils_utilisateurs:", error);
-        // Ce n'est pas bloquant pour la suite, mais on peut décider de stopper ici.
         return new Response(
           JSON.stringify({
             error: "Erreur lors de la suppression du profil utilisateur",
@@ -185,44 +253,44 @@ serve(async (req: Request) => {
       }
     }
 
-    // 4) (Optionnel) Supprimer les fichiers PPS dans le bucket "ppsjustificatifs"
-    // Ici on suppose que tu stockes les fichiers sous le dossier `${userId}/...`
-    // Adapte si ton path est différent.
+    // =============================
+    // 4) Supprimer fichiers PPS (non bloquant)
+    // =============================
     try {
       const bucket = supabaseAdmin.storage.from("ppsjustificatifs");
-
       const { data: files, error: listError } = await bucket.list(userId, {
         limit: 1000,
       });
 
       if (listError) {
-        console.warn("Erreur list fichiers PPS (non bloquant):", listError);
+        console.warn(
+          "Erreur list fichiers PPS (non bloquant):",
+          listError
+        );
       } else if (files && files.length > 0) {
         const pathsToRemove = files.map((f) => `${userId}/${f.name}`);
         const { error: removeError } = await bucket.remove(pathsToRemove);
         if (removeError) {
-          console.warn("Erreur suppression fichiers PPS (non bloquant):", removeError);
+          console.warn(
+            "Erreur suppression fichiers PPS (non bloquant):",
+            removeError
+          );
         }
       }
     } catch (e) {
       console.warn("Exception storage PPS (non bloquant):", e);
     }
 
-    // 5) (Optionnel) Nettoyage d'autres tables liées
-    // Exemple : crédits Tickrace, bénévoles, etc.
-    // À adapter selon ton schéma.
-    //
-    // await supabaseAdmin
-    //   .from("tickrace_credits")
-    //   .update({ user_id: null })
-    //   .eq("user_id", userId);
-    //
-    // await supabaseAdmin
-    //   .from("benevoles")
-    //   .delete()
-    //   .eq("user_id", userId);
+    // =============================
+    // 5) (Optionnel) autres tables liées
+    // =============================
+    // Exemple:
+    // await supabaseAdmin.from("benevoles").delete().eq("user_id", userId);
+    // await supabaseAdmin.from("tickrace_credits").update({ user_id: null }).eq("user_id", userId);
 
-    // 6) Supprimer l'utilisateur dans auth.users (via l'admin)
+    // =============================
+    // 6) Supprimer l'utilisateur auth
+    // =============================
     const { error: deleteUserError } =
       await supabaseAdmin.auth.admin.deleteUser(userId);
 
@@ -242,7 +310,9 @@ serve(async (req: Request) => {
       );
     }
 
-    // 7) Réponse OK
+    // =============================
+    // 7) OK
+    // =============================
     return new Response(
       JSON.stringify({
         success: true,
