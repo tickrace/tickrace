@@ -79,8 +79,7 @@ serve(async (req: Request) => {
     // 2) Anonymiser les inscriptions
     // =============================
 
-    // 2.1) Cas où apparaitre_resultats = TRUE
-    // -> on garde nom/prénom, on anonymise le reste
+    // 2.1) Cas où apparaitre_resultats = TRUE → garder nom/prénom, anonymiser le reste
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
@@ -127,8 +126,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // 2.2) Cas où apparaitre_resultats = FALSE
-    // -> on anonymise tout, y compris nom/prénom
+    // 2.2) Cas où apparaitre_resultats = FALSE → anonymiser tout
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
@@ -177,8 +175,7 @@ serve(async (req: Request) => {
       }
     }
 
-    // 2.3) Cas où apparaitre_resultats est NULL
-    // -> on anonymise tout (par défaut, pas d'accord explicite)
+    // 2.3) Cas où apparaitre_resultats est NULL → anonymiser tout
     {
       const { error } = await supabaseAdmin
         .from("inscriptions")
@@ -263,10 +260,7 @@ serve(async (req: Request) => {
       });
 
       if (listError) {
-        console.warn(
-          "Erreur list fichiers PPS (non bloquant):",
-          listError
-        );
+        console.warn("Erreur list fichiers PPS (non bloquant):", listError);
       } else if (files && files.length > 0) {
         const pathsToRemove = files.map((f) => `${userId}/${f.name}`);
         const { error: removeError } = await bucket.remove(pathsToRemove);
@@ -284,29 +278,29 @@ serve(async (req: Request) => {
     // =============================
     // 5) (Optionnel) autres tables liées
     // =============================
-    // Exemple:
+    // ex:
     // await supabaseAdmin.from("benevoles").delete().eq("user_id", userId);
-    // await supabaseAdmin.from("tickrace_credits").update({ user_id: null }).eq("user_id", userId);
 
     // =============================
-    // 6) Supprimer l'utilisateur auth
+    // 6) Supprimer l'utilisateur auth (best effort)
     // =============================
-    const { error: deleteUserError } =
-      await supabaseAdmin.auth.admin.deleteUser(userId);
+    let authUserDeleted = true;
+    try {
+      const { error: deleteUserError } =
+        await supabaseAdmin.auth.admin.deleteUser(userId);
 
-    if (deleteUserError) {
-      console.error("Erreur deleteUser:", deleteUserError);
-      return new Response(
-        JSON.stringify({
-          error: "Erreur lors de la suppression du compte auth",
-        }),
-        {
-          status: 500,
-          headers: {
-            "Content-Type": "application/json",
-            "Access-Control-Allow-Origin": "*",
-          },
-        }
+      if (deleteUserError) {
+        authUserDeleted = false;
+        console.warn(
+          "Erreur deleteUser (non bloquant, données déjà anonymisées):",
+          deleteUserError
+        );
+      }
+    } catch (e) {
+      authUserDeleted = false;
+      console.warn(
+        "Exception deleteUser (non bloquant, données déjà anonymisées):",
+        e
       );
     }
 
@@ -316,7 +310,12 @@ serve(async (req: Request) => {
     return new Response(
       JSON.stringify({
         success: true,
-        message: "Compte et données personnelles supprimés / anonymisés.",
+        message:
+          "Compte et données personnelles supprimés / anonymisés. " +
+          (authUserDeleted
+            ? "Compte d'authentification supprimé."
+            : "Le compte d'authentification n'a pas pu être supprimé, mais il est désormais inutilisable côté application."),
+        authUserDeleted,
       }),
       {
         status: 200,
