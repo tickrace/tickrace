@@ -115,22 +115,22 @@ export default function MonProfilCoureur() {
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
       <section className="bg-white border-b border-neutral-200">
-        <div className="mx-auto max-w-7xl px-4 py-10 text-center">
-          <h1 className="text-3xl sm:text-4xl font-black tracking-tight">
+        <div className="mx-auto max-w-7xl px-4 py-8 sm:py-10 text-center">
+          <h1 className="text-2xl sm:text-4xl font-black tracking-tight">
             Mon profil coureur{" "}
             <span className="font-black">
               <span className="text-orange-600">Tick</span>Race
             </span>
           </h1>
-          <p className="mt-2 text-neutral-600 text-base">
+          <p className="mt-2 text-neutral-600 text-sm sm:text-base">
             Complétez vos informations personnelles et sportives pour des inscriptions plus rapides.
           </p>
         </div>
       </section>
 
       {/* Formulaire */}
-      <div className="mx-auto max-w-3xl px-4 py-8">
-        <form onSubmit={handleSubmit} className="space-y-8">
+      <div className="mx-auto max-w-3xl px-4 py-6 sm:py-8">
+        <form onSubmit={handleSubmit} className="space-y-6 sm:space-y-8">
           {/* Identité */}
           <Card title="Identité">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -152,7 +152,7 @@ export default function MonProfilCoureur() {
               </Field>
             </div>
 
-            <div className="grid grid-cols-1 gap-4">
+            <div className="grid grid-cols-1 gap-4 mt-4">
               <Field label="Genre">
                 <div className="flex flex-wrap items-center gap-4 text-sm">
                   <label className="inline-flex items-center gap-2">
@@ -277,16 +277,16 @@ export default function MonProfilCoureur() {
 
           {/* Résultats & justificatifs */}
           <Card title="Résultats & justificatifs">
-            <div className="grid gap-4">
+            <div className="grid gap-6">
               {/* Apparition dans les résultats */}
               <div>
                 <div className="text-sm font-semibold text-neutral-800 mb-1">
                   Apparition dans les résultats
                 </div>
-                <p className="text-sm text-neutral-600 mb-2">
+                <p className="text-xs sm:text-sm text-neutral-600 mb-2">
                   Conformément à la réglementation FFA, vous pouvez choisir que votre nom apparaisse ou non dans les résultats.
                 </p>
-                <div className="flex items-center gap-4 text-sm">
+                <div className="flex flex-wrap items-center gap-4 text-sm">
                   <label className="inline-flex items-center gap-2">
                     <input
                       type="radio"
@@ -316,20 +316,16 @@ export default function MonProfilCoureur() {
                 </div>
               </div>
 
-              {/* Justificatif FFA / PPS (remplacé par le composant dédié) */}
+              {/* Justificatif FFA / PPS */}
               <div>
                 <div className="text-sm font-semibold text-neutral-800 mb-1">
                   Justificatif (Licence FFA / PPS)
                 </div>
-                <p className="text-sm text-neutral-600 mb-2">
+                <p className="text-xs sm:text-sm text-neutral-600 mb-2">
                   Licence FFA ou PPS requis pour participer à certaines épreuves. Vous pouvez gérer votre justificatif ici.
                 </p>
 
-                {/* Le composant centralisé de vérification / gestion */}
-                <JustificatifFfaPps
-                  profil={profil}
-                  onProfilChange={setProfil}
-                />
+                <JustificatifFfaPps profil={profil} onProfilChange={setProfil} />
               </div>
             </div>
           </Card>
@@ -368,35 +364,35 @@ export default function MonProfilCoureur() {
 
           {/* Sécurité & suppression de compte */}
           <Card title="Sécurité & confidentialité">
-            <p className="text-sm text-neutral-700 mb-3">
-              Vous pouvez supprimer définitivement votre compte Tickrace. Cette action est irréversible : vos données
-              personnelles seront effacées ou anonymisées, et vous ne pourrez plus accéder à vos inscriptions depuis cet
-              espace.
+            <p className="text-xs sm:text-sm text-neutral-700 mb-3">
+              Vous pouvez supprimer définitivement votre compte Tickrace. Cette action est irréversible :
+              vos données personnelles seront effacées ou anonymisées, et vous ne pourrez plus accéder à vos
+              inscriptions depuis cet espace.
             </p>
             {deleteError && (
-              <p className="text-sm text-rose-600 mb-2">{deleteError}</p>
+              <p className="text-xs sm:text-sm text-rose-600 mb-2">{deleteError}</p>
             )}
             <button
               type="button"
               onClick={handleDeleteAccount}
               disabled={isDeleting}
-              className="inline-flex items-center gap-2 rounded-xl border border-rose-500 px-5 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+              className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl border border-rose-500 px-5 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
             >
               {isDeleting ? "Suppression en cours..." : "Supprimer mon compte"}
             </button>
           </Card>
 
-          {/* Actions */}
-          <div className="flex items-center gap-3">
+          {/* Actions sauvegarde */}
+          <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3 mt-2">
             <button
               type="submit"
-              className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white hover:brightness-110"
+              className="w-full sm:w-auto inline-flex justify-center items-center gap-2 rounded-xl bg-orange-500 px-5 py-3 text-sm font-semibold text-white hover:brightness-110"
             >
               Sauvegarder
             </button>
             {message && (
               <p
-                className={`text-sm ${
+                className={`text-xs sm:text-sm ${
                   message.includes("Erreur") ? "text-rose-600" : "text-emerald-700"
                 }`}
               >
@@ -413,8 +409,8 @@ export default function MonProfilCoureur() {
 /* ---------- UI helpers ---------- */
 function Card({ title, children }) {
   return (
-    <section className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 p-5">
-      {title && <h2 className="text-lg font-semibold mb-3">{title}</h2>}
+    <section className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 p-4 sm:p-5">
+      {title && <h2 className="text-base sm:text-lg font-semibold mb-3">{title}</h2>}
       {children}
     </section>
   );
