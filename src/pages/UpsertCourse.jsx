@@ -1,9 +1,9 @@
 // src/pages/UpsertCourse.jsx
 import React, { useEffect, useState } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
-
+import { useParams, useNavigate, Link } from "react-router-dom";
 /* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
   return (
