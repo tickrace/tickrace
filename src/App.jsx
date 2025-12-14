@@ -40,6 +40,8 @@ import CGVOrganisateurs from "./pages/legal/CGVOrganisateurs";
 import CGVCoureurs from "./pages/legal/CGVCoureurs";
 import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
+import MentionsLegales from "./pages/legal/MentionsLegales";
+import Confidentialite from "./pages/legal/Confidentialite";
 
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -106,6 +108,8 @@ function AppContent() {
           <Route path="/legal/cgv-Coureurs" element={<CGVCoureurs />} />
           <Route path="/legal/remboursements" element={<Remboursements />} />
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
+<Route path="/legal/mentions-legales" element={<MentionsLegales />} />
+<Route path="/legal/confidentialite" element={<Confidentialite />} />
 
           {/* Protégées */}
           <Route
