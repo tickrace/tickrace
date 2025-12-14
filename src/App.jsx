@@ -37,7 +37,7 @@ import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
 
 import CGVOrganisateurs from "./pages/legal/CGVOrganisateurs";
-import CGVOrganisateurs from "./pages/legal/CGVCoureurs";
+import CGVCoureurs from "./pages/legal/CGVCoureurs";
 import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 
