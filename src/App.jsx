@@ -42,6 +42,7 @@ import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 import MentionsLegales from "./pages/legal/MentionsLegales";
 import Confidentialite from "./pages/legal/Confidentialite";
+import CreerUneCourse from "./pages/help/CreerUneCourse";
 
 import FAQ from "./pages/legal/FAQ";
 
@@ -87,6 +88,9 @@ function AppContent() {
           {/* Public */}
           <Route path="/" element={<Home />} />
           <Route path="/fonctionnalites" element={<Fonctionnalites />} />
+          <Route path="/help/creer-une-course" element={<CreerUneCourse />} />
+<Route path="/help" element={<Navigate to="/help/creer-une-course" replace />} />
+
           <Route path="/admin" element={<AdminHome />} />
 
           <Route path="/courses" element={<Courses />} />
@@ -113,6 +117,8 @@ function AppContent() {
 <Route path="/legal/mentions-legales" element={<MentionsLegales />} />
 <Route path="/legal/confidentialite" element={<Confidentialite />} />
 <Route path="/legal/faq" element={<FAQ />} />
+
+          
 
           {/* Protégées */}
           <Route
