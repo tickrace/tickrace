@@ -1,9 +1,10 @@
 // src/pages/UpsertCourse.jsx
 import React, { useEffect, useState } from "react";
-
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { BookOpen, ArrowUpRight } from "lucide-react";
+
 /* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
   return (
@@ -620,8 +621,7 @@ export default function UpsertCourse() {
           };
 
           let optionId = null;
-          const looksUUID =
-            typeof opt.id === "string" && opt.id.length > 20;
+          const looksUUID = typeof opt.id === "string" && opt.id.length > 20;
           if (looksUUID) {
             const { data: chkOpt } = await supabase
               .from("options_catalogue")
@@ -666,10 +666,7 @@ export default function UpsertCourse() {
           .map((o) => o.id)
           .filter((oid) => !keptOptionIds.includes(oid));
         if (toDelete.length) {
-          await supabase
-            .from("options_catalogue")
-            .delete()
-            .in("id", toDelete);
+          await supabase.from("options_catalogue").delete().in("id", toDelete);
         }
       }
 
@@ -735,29 +732,21 @@ export default function UpsertCourse() {
         if (f.imageFile) {
           const { data, error } = await supabase.storage
             .from("formats")
-            .upload(
-              `format-${Date.now()}-${f.nom || "sans-nom"}.jpg`,
-              f.imageFile,
-              { upsert: false }
-            );
+            .upload(`format-${Date.now()}-${f.nom || "sans-nom"}.jpg`, f.imageFile, {
+              upsert: false,
+            });
           if (!error)
-            imageFormatUrl = supabase.storage
-              .from("formats")
-              .getPublicUrl(data.path).data.publicUrl;
+            imageFormatUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
         let gpxUrl = f.gpx_url || null;
         if (f.gpx_urlFile) {
           const { data, error } = await supabase.storage
             .from("formats")
-            .upload(
-              `gpx-${Date.now()}-${f.nom || "sans-nom"}.gpx`,
-              f.gpx_urlFile,
-              { upsert: false }
-            );
+            .upload(`gpx-${Date.now()}-${f.nom || "sans-nom"}.gpx`, f.gpx_urlFile, {
+              upsert: false,
+            });
           if (!error)
-            gpxUrl = supabase.storage
-              .from("formats")
-              .getPublicUrl(data.path).data.publicUrl;
+            gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
         let reglementUrl = f.reglement_pdf_url || null;
         if (f.fichier_reglementFile) {
@@ -769,9 +758,7 @@ export default function UpsertCourse() {
               { upsert: false }
             );
           if (!error)
-            reglementUrl = supabase.storage
-              .from("reglements")
-              .getPublicUrl(data.path).data.publicUrl;
+            reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
         }
 
         const prix = f.prix ? parseFloat(f.prix) : 0;
@@ -789,12 +776,8 @@ export default function UpsertCourse() {
             ? f.type_epreuve
             : "trail",
           distance_km: f.distance_km ? parseFloat(f.distance_km) : null,
-          denivele_dplus: f.denivele_dplus
-            ? parseInt(f.denivele_dplus, 10)
-            : null,
-          denivele_dmoins: f.denivele_dmoins
-            ? parseInt(f.denivele_dmoins, 10)
-            : null,
+          denivele_dplus: f.denivele_dplus ? parseInt(f.denivele_dplus, 10) : null,
+          denivele_dmoins: f.denivele_dmoins ? parseInt(f.denivele_dmoins, 10) : null,
           adresse_depart: f.adresse_depart || null,
           adresse_arrivee: f.adresse_arrivee || null,
           prix,
@@ -806,9 +789,7 @@ export default function UpsertCourse() {
           remise_dossards: f.remise_dossards || null,
           dotation: f.dotation || null,
           reglement_pdf_url: reglementUrl,
-          nb_max_coureurs: f.nb_max_coureurs
-            ? parseInt(f.nb_max_coureurs, 10)
-            : null,
+          nb_max_coureurs: f.nb_max_coureurs ? parseInt(f.nb_max_coureurs, 10) : null,
           age_minimum: f.age_minimum ? parseInt(f.age_minimum, 10) : null,
           hebergements: f.hebergements || null,
           // nouveaux
@@ -822,12 +803,8 @@ export default function UpsertCourse() {
               : f.team_size
               ? Number(f.team_size)
               : null,
-          nb_coureurs_min: f.nb_coureurs_min
-            ? Number(f.nb_coureurs_min)
-            : null,
-          nb_coureurs_max: f.nb_coureurs_max
-            ? Number(f.nb_coureurs_max)
-            : null,
+          nb_coureurs_min: f.nb_coureurs_min ? Number(f.nb_coureurs_min) : null,
+          nb_coureurs_max: f.nb_coureurs_max ? Number(f.nb_coureurs_max) : null,
           prix_equipe: f.prix_equipe ? Number(f.prix_equipe) : null,
           inscription_ouverture: f.inscription_ouverture
             ? new Date(f.inscription_ouverture).toISOString()
@@ -844,16 +821,9 @@ export default function UpsertCourse() {
         let formatId = null;
         const looksUUID = typeof f.id === "string" && f.id.length > 20;
         if (isEdit && looksUUID) {
-          const { data: chk } = await supabase
-            .from("formats")
-            .select("id")
-            .eq("id", f.id)
-            .maybeSingle();
+          const { data: chk } = await supabase.from("formats").select("id").eq("id", f.id).maybeSingle();
           if (chk?.id) {
-            const { error: upErr } = await supabase
-              .from("formats")
-              .update(payload)
-              .eq("id", f.id);
+            const { error: upErr } = await supabase.from("formats").update(payload).eq("id", f.id);
             if (upErr) throw upErr;
             formatId = f.id;
           } else {
@@ -877,46 +847,29 @@ export default function UpsertCourse() {
 
         // Étapes relais
         if (payload.type_format === "relais") {
-          await supabase
-            .from("formats_etapes")
-            .delete()
-            .eq("format_id", formatId);
+          await supabase.from("formats_etapes").delete().eq("format_id", formatId);
           if (Array.isArray(f.etapes)) {
             for (const e of f.etapes) {
-              const { error: eErr } = await supabase
-                .from("formats_etapes")
-                .insert({
-                  format_id: formatId,
-                  ordre: e.ordre || 1,
-                  titre: e.titre || null,
-                  sport: e.sport || null,
-                  distance_km:
-                    e.distance_km !== "" && e.distance_km != null
-                      ? Number(e.distance_km)
-                      : null,
-                  denivele_dplus:
-                    e.denivele_dplus !== "" && e.denivele_dplus != null
-                      ? Number(e.denivele_dplus)
-                      : null,
-                  denivele_dmoins:
-                    e.denivele_dmoins !== "" && e.denivele_dmoins != null
-                      ? Number(e.denivele_dmoins)
-                      : null,
-                  gpx_url: e.gpx_url || null,
-                  description: e.description || null,
-                  cut_off_minutes:
-                    e.cut_off_minutes !== "" && e.cut_off_minutes != null
-                      ? Number(e.cut_off_minutes)
-                      : null,
-                });
+              const { error: eErr } = await supabase.from("formats_etapes").insert({
+                format_id: formatId,
+                ordre: e.ordre || 1,
+                titre: e.titre || null,
+                sport: e.sport || null,
+                distance_km: e.distance_km !== "" && e.distance_km != null ? Number(e.distance_km) : null,
+                denivele_dplus:
+                  e.denivele_dplus !== "" && e.denivele_dplus != null ? Number(e.denivele_dplus) : null,
+                denivele_dmoins:
+                  e.denivele_dmoins !== "" && e.denivele_dmoins != null ? Number(e.denivele_dmoins) : null,
+                gpx_url: e.gpx_url || null,
+                description: e.description || null,
+                cut_off_minutes:
+                  e.cut_off_minutes !== "" && e.cut_off_minutes != null ? Number(e.cut_off_minutes) : null,
+              });
               if (eErr) throw eErr;
             }
           }
         } else {
-          await supabase
-            .from("formats_etapes")
-            .delete()
-            .eq("format_id", formatId);
+          await supabase.from("formats_etapes").delete().eq("format_id", formatId);
         }
 
         // Options catalogue
@@ -926,15 +879,11 @@ export default function UpsertCourse() {
       }
 
       if (isEdit) {
-        const { data: existing } = await supabase
-          .from("formats")
-          .select("id")
-          .eq("course_id", id);
+        const { data: existing } = await supabase.from("formats").select("id").eq("course_id", id);
         const toDel = (existing || [])
           .map((r) => r.id)
           .filter((fid) => !keptIds.includes(fid));
-        if (toDel.length)
-          await supabase.from("formats").delete().in("id", toDel);
+        if (toDel.length) await supabase.from("formats").delete().in("id", toDel);
       }
 
       alert(isEdit ? "Épreuve mise à jour !" : "Épreuve créée !");
@@ -966,28 +915,35 @@ export default function UpsertCourse() {
               <span className="text-orange-600">Tick</span>Race
             </span>
           </h1>
+
+          {/* Lien vers le tuto (à placer juste sous le titre) */}
+          <div className="mt-3">
+            <Link
+              to="/help/creer-une-course"
+              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 transition"
+            >
+              <BookOpen className="h-4 w-4" />
+              Besoin d’aide ? Voir le tutoriel “Créer une course”
+              <ArrowUpRight className="h-4 w-4 opacity-70" />
+            </Link>
+
+            <p className="mt-1 text-xs text-neutral-500">
+              Étapes, checklist, options, chronométrage et publication.
+            </p>
+          </div>
+
           <p className="mt-2 text-neutral-600 text-base">
             Renseignez les informations générales, ajoutez vos formats et leurs
             options, puis publiez quand tout est prêt.
           </p>
 
-         
-          {/* Lien vers le tuto (à placer juste sous le titre) */}
-<div className="mt-3">
-  <Link
-    to="/help/creer-une-course"
-    className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 transition"
-  >
-    <BookOpen className="h-4 w-4" />
-    Besoin d’aide ? Voir le tutoriel “Créer une course”
-    <ArrowUpRight className="h-4 w-4 opacity-70" />
-  </Link>
-
-  <p className="mt-1 text-xs text-neutral-500">
-    Étapes, checklist, options, chronométrage et publication.
-  </p>
-</div>
-
+          {/* BADGE DEBUG TEMPORAIRE */}
+          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
+            <span>✅ UpsertCourse.jsx actif</span>
+            <span className="text-[10px] uppercase tracking-wide">
+              {isEdit ? "mode édition" : "mode création"}
+            </span>
+          </div>
         </div>
       </section>
 
@@ -1517,11 +1473,7 @@ export default function UpsertCourse() {
                         {f.gpx_url && (
                           <div className="text-xs text-neutral-600 mt-1 break-all">
                             Actuel :{" "}
-                            <a
-                              href={f.gpx_url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
+                            <a href={f.gpx_url} target="_blank" rel="noreferrer">
                               {f.gpx_url}
                             </a>
                           </div>
