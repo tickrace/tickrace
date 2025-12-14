@@ -149,7 +149,7 @@ export default function Footer() {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-white">Support</h3>
               <div className="space-y-2">
-                <FooterLink to="/faq" onClick={scrollTop}>
+                <FooterLink to="/legal/faq" onClick={scrollTop}>
                   <LifeBuoy className="h-4 w-4 opacity-80" />
                   FAQ
                 </FooterLink>
