@@ -10,6 +10,9 @@ import {
   Shield,
   FileText,
   LifeBuoy,
+  BookOpen,
+  Map,
+  CalendarDays,
 } from "lucide-react";
 
 const Container = ({ children }) => (
@@ -68,9 +71,9 @@ export default function Footer() {
       {/* Top band */}
       <div className="border-b border-neutral-800">
         <Container>
-          <div className="py-10 grid grid-cols-1 md:grid-cols-4 gap-10">
+          <div className="py-10 grid grid-cols-1 md:grid-cols-5 gap-10">
             {/* Brand */}
-            <div className="space-y-4">
+            <div className="space-y-4 md:col-span-2">
               <Link to="/" className="inline-flex items-center gap-3" onClick={scrollTop}>
                 <img
                   src="/logo.png"
@@ -100,6 +103,20 @@ export default function Footer() {
                   <Mail className="h-5 w-5" />
                 </IconBtn>
               </div>
+
+              <div className="mt-4 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
+                <div className="flex items-start gap-3">
+                  <div className="mt-0.5 rounded-xl bg-neutral-800 p-2">
+                    <Shield className="h-5 w-5 text-neutral-200" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-semibold text-white">Paiements sécurisés</p>
+                    <p className="text-sm text-neutral-300">
+                      Inscriptions et reversements automatisés via Stripe.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
 
             {/* Navigation */}
@@ -127,13 +144,13 @@ export default function Footer() {
                 </Link>
 
                 <Link
-                  to="/premium"
+                  to="/fonctionnalites"
                   onClick={scrollTop}
                   className={`text-sm inline-flex items-center gap-2 transition-colors ${
-                    isActive("/premium") ? activeClass : normalClass
+                    isActive("/fonctionnalites") ? activeClass : normalClass
                   }`}
                 >
-                  Premium <ArrowUpRight className="h-4 w-4 opacity-70" />
+                  Fonctionnalités <ArrowUpRight className="h-4 w-4 opacity-70" />
                 </Link>
 
                 <Link
@@ -148,42 +165,43 @@ export default function Footer() {
               </div>
             </div>
 
-            {/* Support */}
+            {/* Centre d’aide */}
             <div className="space-y-3">
-              <h3 className="text-sm font-semibold text-white">Support</h3>
+              <h3 className="text-sm font-semibold text-white">Centre d’aide</h3>
               <div className="space-y-2">
                 <FooterLink to="/legal/faq" onClick={scrollTop}>
                   <LifeBuoy className="h-4 w-4 opacity-80" />
                   FAQ
                 </FooterLink>
 
-                {/* (Actuellement on envoie vers Gmail, mais on affiche les emails Tickrace) */}
-                <ExternalLink href="mailto:contact.tickrace@gmail.com">
-                  <Mail className="h-4 w-4 opacity-80" />
-                  support@tickrace.com
-                </ExternalLink>
-                <ExternalLink href="mailto:contact.tickrace@gmail.com">
-                  <Mail className="h-4 w-4 opacity-80" />
-                  contact@tickrace.com
-                </ExternalLink>
+                <FooterLink to="/help/creer-une-course" onClick={scrollTop}>
+                  <BookOpen className="h-4 w-4 opacity-80" />
+                  Tutoriel : créer une course
+                </FooterLink>
+
+                <FooterLink to="/courses" onClick={scrollTop}>
+                  <Map className="h-4 w-4 opacity-80" />
+                  Trouver une course
+                </FooterLink>
+
+                <FooterLink to="/legal/remboursements" onClick={scrollTop}>
+                  <CalendarDays className="h-4 w-4 opacity-80" />
+                  Annulations & remboursements
+                </FooterLink>
               </div>
 
               <div className="mt-4 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-                <div className="flex items-start gap-3">
-                  <div className="mt-0.5 rounded-xl bg-neutral-800 p-2">
-                    <Shield className="h-5 w-5 text-neutral-200" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-white">Paiements sécurisés</p>
-                    <p className="text-sm text-neutral-300">
-                      Inscriptions et reversements automatisés via Stripe.
-                    </p>
-                  </div>
-                </div>
+                <p className="text-sm font-semibold text-white">Besoin d’aide ?</p>
+                <p className="mt-1 text-sm text-neutral-300">
+                  Écris-nous : <span className="font-semibold">support@tickrace.com</span>
+                </p>
+                <p className="mt-2 text-xs text-neutral-400">
+                  Astuce : indique le nom de la course + ton email d’inscription.
+                </p>
               </div>
             </div>
 
-            {/* Legal */}
+            {/* Légal */}
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-white">Légal</h3>
               <div className="space-y-2">
@@ -203,7 +221,6 @@ export default function Footer() {
                   <FileText className="h-4 w-4 opacity-80" />
                   Charte organisateur & anti-fraude
                 </FooterLink>
-
                 <FooterLink to="/legal/mentions-legales" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   Mentions légales
