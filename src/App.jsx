@@ -42,6 +42,7 @@ import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 import MentionsLegales from "./pages/legal/MentionsLegales";
 import Confidentialite from "./pages/legal/Confidentialite";
+import FAQ from "./pages/FAQ";
 
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
@@ -101,6 +102,7 @@ function AppContent() {
 
           <Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
           <Route path="/organisateur/benevoles" element={<ListeBenevoles />} />
+<Route path="/faq" element={<FAQ />} />
 
 
           {/* Légal */}
