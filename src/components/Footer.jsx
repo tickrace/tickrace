@@ -96,7 +96,7 @@ export default function Footer() {
                 <IconBtn href="https://youtube.com" label="YouTube">
                   <Youtube className="h-5 w-5" />
                 </IconBtn>
-                <IconBtn href="mailto:contact@tickrace.com" label="Email">
+                <IconBtn href="mailto:contact.tickrace@gmail.com" label="Email">
                   <Mail className="h-5 w-5" />
                 </IconBtn>
               </div>
@@ -134,7 +134,7 @@ export default function Footer() {
                   Premium <ArrowUpRight className="h-4 w-4 opacity-70" />
                 </Link>
                 <Link
-                  to="/organisateur"
+                  to="/organisateur/mon-espace"
                   onClick={scrollTop}
                   className={`text-sm inline-flex items-center gap-2 transition-colors ${
                     isActive("/organisateur") ? activeClass : normalClass
@@ -153,11 +153,11 @@ export default function Footer() {
                   <LifeBuoy className="h-4 w-4 opacity-80" />
                   FAQ
                 </FooterLink>
-                <ExternalLink href="mailto:support@tickrace.com">
+                <ExternalLink href="mailto:contact.tickrace@gmail.com">
                   <Mail className="h-4 w-4 opacity-80" />
                   support@tickrace.com
                 </ExternalLink>
-                <ExternalLink href="mailto:contact@tickrace.com">
+                <ExternalLink href="mailto:contact.tickrace@gmail.com">
                   <Mail className="h-4 w-4 opacity-80" />
                   contact@tickrace.com
                 </ExternalLink>
@@ -182,19 +182,19 @@ export default function Footer() {
             <div className="space-y-3">
               <h3 className="text-sm font-semibold text-white">Légal</h3>
               <div className="space-y-2">
-                <FooterLink to="/cgv-coureurs" onClick={scrollTop}>
+                <FooterLink to="/legal/cgv-coureurs" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   CGV Coureurs
                 </FooterLink>
-                <FooterLink to="/cgv-organisateurs" onClick={scrollTop}>
+                <FooterLink to="/legal/cgv-organisateurs" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   CGV Organisateurs
                 </FooterLink>
-                <FooterLink to="/remboursements" onClick={scrollTop}>
+                <FooterLink to="/legal/remboursements" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   Politique de remboursement
                 </FooterLink>
-                <FooterLink to="/charte-organisateur" onClick={scrollTop}>
+                <FooterLink to="/legal/charte-organisateur" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   Charte organisateur & anti-fraude
                 </FooterLink>
