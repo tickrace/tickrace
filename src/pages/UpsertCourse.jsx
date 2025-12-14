@@ -3,6 +3,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
+import { BookOpen, ArrowUpRight } from "lucide-react";
 
 /* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
@@ -971,15 +972,22 @@ export default function UpsertCourse() {
             options, puis publiez quand tout est prêt.
           </p>
 
-          {/* BADGE DEBUG TEMPORAIRE */}
-          <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
-            <span>✅ UpsertCourse.jsx actif</span>
-            <span className="text-[10px] uppercase tracking-wide">
-              {isEdit ? "mode édition" : "mode création"}
-            </span>
-          </div>
-        </div>
-      </section>
+          {/* Lien vers le tuto (à placer juste sous le titre) */}
+<div className="mt-3">
+  <Link
+    to="/help/creer-une-course"
+    className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 transition"
+  >
+    <BookOpen className="h-4 w-4" />
+    Besoin d’aide ? Voir le tutoriel “Créer une course”
+    <ArrowUpRight className="h-4 w-4 opacity-70" />
+  </Link>
+
+  <p className="mt-1 text-xs text-neutral-500">
+    Étapes, checklist, options, chronométrage et publication.
+  </p>
+</div>
+
 
       {/* Form */}
       <div className="mx-auto max-w-5xl px-4 py-8">
