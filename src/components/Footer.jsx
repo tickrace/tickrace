@@ -16,9 +16,10 @@ const Container = ({ children }) => (
   <div className="mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8">{children}</div>
 );
 
-const FooterLink = ({ to, children }) => (
+const FooterLink = ({ to, children, onClick }) => (
   <Link
     to={to}
+    onClick={onClick}
     className="text-sm text-neutral-300 hover:text-white transition-colors inline-flex items-center gap-2"
   >
     {children}
@@ -55,12 +56,10 @@ export default function Footer() {
   const { pathname } = useLocation();
 
   const scrollTop = () => {
-    // UX: remonte en haut quand on clique un lien du footer et qu'on est déjà sur la page
     if (typeof window !== "undefined") window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const isActive = (p) => pathname === p;
-
   const activeClass = "text-white";
   const normalClass = "text-neutral-300 hover:text-white";
 
@@ -81,6 +80,7 @@ export default function Footer() {
                 />
                 <span className="text-xl font-semibold tracking-tight">Tickrace</span>
               </Link>
+
               <p className="text-sm text-neutral-300 leading-6">
                 La plateforme moderne pour créer, gérer et partager des événements sportifs —
                 inscriptions, options, paiements et communauté.
@@ -115,6 +115,7 @@ export default function Footer() {
                 >
                   Accueil <ArrowUpRight className="h-4 w-4 opacity-70" />
                 </Link>
+
                 <Link
                   to="/courses"
                   onClick={scrollTop}
@@ -124,6 +125,7 @@ export default function Footer() {
                 >
                   Courses <ArrowUpRight className="h-4 w-4 opacity-70" />
                 </Link>
+
                 <Link
                   to="/premium"
                   onClick={scrollTop}
@@ -133,11 +135,12 @@ export default function Footer() {
                 >
                   Premium <ArrowUpRight className="h-4 w-4 opacity-70" />
                 </Link>
+
                 <Link
                   to="/organisateur/mon-espace"
                   onClick={scrollTop}
                   className={`text-sm inline-flex items-center gap-2 transition-colors ${
-                    isActive("/organisateur") ? activeClass : normalClass
+                    isActive("/organisateur/mon-espace") ? activeClass : normalClass
                   }`}
                 >
                   Espace organisateur <ArrowUpRight className="h-4 w-4 opacity-70" />
@@ -153,6 +156,8 @@ export default function Footer() {
                   <LifeBuoy className="h-4 w-4 opacity-80" />
                   FAQ
                 </FooterLink>
+
+                {/* (Actuellement on envoie vers Gmail, mais on affiche les emails Tickrace) */}
                 <ExternalLink href="mailto:contact.tickrace@gmail.com">
                   <Mail className="h-4 w-4 opacity-80" />
                   support@tickrace.com
@@ -199,7 +204,6 @@ export default function Footer() {
                   Charte organisateur & anti-fraude
                 </FooterLink>
 
-                {/* Bonus: placeholders utiles */}
                 <FooterLink to="/legal/mentions-legales" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   Mentions légales
