@@ -200,11 +200,11 @@ export default function Footer() {
                 </FooterLink>
 
                 {/* Bonus: placeholders utiles */}
-                <FooterLink to="/mentions-legales" onClick={scrollTop}>
+                <FooterLink to="/legal/mentions-legales" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   Mentions légales
                 </FooterLink>
-                <FooterLink to="/confidentialite" onClick={scrollTop}>
+                <FooterLink to="/legal/confidentialite" onClick={scrollTop}>
                   <FileText className="h-4 w-4 opacity-80" />
                   Confidentialité (RGPD)
                 </FooterLink>
