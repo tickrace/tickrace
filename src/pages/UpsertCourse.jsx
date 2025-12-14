@@ -3,7 +3,6 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
-import { BookOpen, ArrowUpRight } from "lucide-react";
 
 /* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
@@ -972,6 +971,7 @@ export default function UpsertCourse() {
             options, puis publiez quand tout est prêt.
           </p>
 
+         
           {/* Lien vers le tuto (à placer juste sous le titre) */}
 <div className="mt-3">
   <Link
@@ -988,6 +988,8 @@ export default function UpsertCourse() {
   </p>
 </div>
 
+        </div>
+      </section>
 
       {/* Form */}
       <div className="mx-auto max-w-5xl px-4 py-8">
