@@ -1,6 +1,5 @@
-// src/pages/FAQ.jsx
+// src/pages/legal/FAQ.jsx
 import React, { useMemo, useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import {
   HelpCircle,
   Search,
@@ -19,7 +18,13 @@ import {
   CheckCircle2,
 } from "lucide-react";
 
-/* ----------------------------- UI helpers ----------------------------- */
+/**
+ * Version "safe" :
+ * - pas de framer-motion / AnimatePresence
+ * - pas de RegExp highlight
+ * - accordéon simple
+ * - filtres simples
+ */
 
 const Container = ({ children }) => (
   <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8">{children}</div>
@@ -37,25 +42,8 @@ const IconBadge = ({ children }) => (
   </span>
 );
 
-function highlight(text, q) {
-  if (!q) return text;
-  const safe = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const re = new RegExp(`(${safe})`, "gi");
-  const parts = String(text).split(re);
-  return parts.map((p, i) =>
-    re.test(p) ? (
-      <mark key={i} className="rounded bg-amber-100 px-1 py-0.5 text-neutral-900">
-        {p}
-      </mark>
-    ) : (
-      <React.Fragment key={i}>{p}</React.Fragment>
-    )
-  );
-}
-
-/* ----------------------------- Data model ----------------------------- */
-
 const CATEGORIES = [
+  { key: "all", label: "Tout", icon: HelpCircle },
   { key: "coureurs", label: "Coureurs", icon: Users },
   { key: "organisateurs", label: "Organisateurs", icon: Settings },
   { key: "paiements", label: "Paiements", icon: CreditCard },
@@ -66,17 +54,17 @@ const CATEGORIES = [
 ];
 
 const FAQ_ITEMS = [
-  // --- Coureurs
+  // Coureurs
   {
     id: "c1",
     cat: "coureurs",
     icon: Users,
     q: "Dois-je créer un compte pour m’inscrire ?",
     a: [
-      "Oui, dans la plupart des cas. Le compte permet de retrouver tes inscriptions, tes justificatifs, et de gérer une annulation si nécessaire.",
-      "Si un événement active un parcours “inscription rapide”, Tickrace peut simplifier la création de compte, mais tu auras toujours un accès pour gérer ton inscription.",
+      "Oui, dans la plupart des cas : le compte permet de retrouver tes inscriptions et tes justificatifs.",
+      "Tu peux gérer ton inscription depuis l’espace “Mes inscriptions”.",
     ],
-    tags: ["compte", "inscription", "profil"],
+    tags: ["compte", "inscription"],
   },
   {
     id: "c2",
@@ -84,8 +72,9 @@ const FAQ_ITEMS = [
     icon: CheckCircle2,
     q: "Je n’ai pas reçu l’email de confirmation, que faire ?",
     a: [
-      "Vérifie tes spams / indésirables, puis assure-toi que l’adresse utilisée à l’inscription est correcte.",
-      "Tu peux aussi retrouver ta confirmation dans ton espace “Mes inscriptions”. Si besoin : support@tickrace.com.",
+      "Vérifie les spams/indésirables, puis l’adresse email utilisée.",
+      "Tu peux aussi retrouver l’état de ton inscription dans “Mes inscriptions”.",
+      "Si besoin : support@tickrace.com.",
     ],
     tags: ["email", "confirmation"],
   },
@@ -95,22 +84,22 @@ const FAQ_ITEMS = [
     icon: FileText,
     q: "À quoi servent les justificatifs (licence / PPS) ?",
     a: [
-      "Certains événements exigent un justificatif pour valider l’inscription (licence sportive, PPS, certificat, etc.).",
-      "Tickrace facilite l’ajout et la gestion de ces justificatifs. L’organisateur reste responsable des règles sportives applicables à l’épreuve.",
+      "Certains événements exigent un justificatif pour valider l’inscription (licence, PPS, etc.).",
+      "Tickrace facilite l’ajout/gestion, mais l’organisateur reste responsable des règles sportives de son épreuve.",
     ],
     tags: ["pps", "licence", "justificatif"],
   },
 
-  // --- Organisateurs
+  // Organisateurs
   {
     id: "o1",
     cat: "organisateurs",
     icon: BadgeEuro,
     q: "Combien coûte Tickrace en V1 ?",
     a: [
-      "Tickrace prélève une commission de 5 % sur le montant des inscriptions.",
+      "Tickrace prélève 5 % sur le montant des inscriptions.",
       "Tickrace prélève aussi 5 % sur les options organisateur (repas, t-shirt, tombola…).",
-      "L’option prestataire chronométrage est facturée à 1,30 € / coureur (Tickrace ne prend aucune commission dessus).",
+      "L’option prestataire chronométrage est facturée 1,30 € / coureur (sans commission Tickrace).",
     ],
     tags: ["commission", "5%", "options", "chrono"],
   },
@@ -118,10 +107,10 @@ const FAQ_ITEMS = [
     id: "o2",
     cat: "organisateurs",
     icon: Shield,
-    q: "Qui est responsable de l’événement (sécurité, autorisations, assurances) ?",
+    q: "Qui est responsable de l’événement ?",
     a: [
-      "L’organisateur est seul responsable de l’événement : autorisations, sécurité, assurances, conformité.",
-      "Tickrace est une plateforme technique et un intermédiaire de paiement : Tickrace n’est ni organisateur ni co-organisateur.",
+      "L’organisateur est seul responsable : autorisations, sécurité, assurances, conformité.",
+      "Tickrace est une plateforme technique et un intermédiaire de paiement.",
     ],
     tags: ["responsabilité", "assurance"],
   },
@@ -129,26 +118,26 @@ const FAQ_ITEMS = [
     id: "o3",
     cat: "organisateurs",
     icon: AlertTriangle,
-    q: "Comment Tickrace lutte contre la fraude côté organisateur ?",
+    q: "Anti-fraude : que peut faire Tickrace ?",
     a: [
-      "Tickrace peut demander des justificatifs et geler des fonds en cas de suspicion (signalements, incohérences, activité anormale).",
-      "En cas de fraude avérée, Tickrace peut annuler des ventes, rembourser les participants, résilier l’accès, et signaler aux autorités.",
-      "Voir la page “Charte organisateur & anti-fraude”.",
+      "Tickrace peut demander des justificatifs et geler des fonds en cas de suspicion.",
+      "En cas de fraude avérée : annulation de ventes, remboursements, résiliation d’accès, signalement.",
+      "Voir “Charte organisateur & anti-fraude”.",
     ],
-    tags: ["fraude", "charte", "gel"],
+    tags: ["fraude", "charte"],
   },
 
-  // --- Paiements
+  // Paiements
   {
     id: "p1",
     cat: "paiements",
     icon: CreditCard,
     q: "Comment fonctionne le paiement côté coureur ?",
     a: [
-      "Le paiement s’effectue via un prestataire sécurisé (Stripe). Une fois le paiement confirmé, l’inscription est enregistrée.",
-      "Dans certains cas (paiement en attente), l’inscription peut rester en statut “pending” jusqu’à confirmation.",
+      "Le paiement est réalisé via un prestataire sécurisé (Stripe).",
+      "Une fois confirmé, l’inscription est enregistrée. Si le paiement est en attente, l’inscription peut rester “pending”.",
     ],
-    tags: ["stripe", "paiement", "pending"],
+    tags: ["stripe", "paiement"],
   },
   {
     id: "p2",
@@ -156,8 +145,8 @@ const FAQ_ITEMS = [
     icon: CreditCard,
     q: "Comment fonctionnent les reversements côté organisateur ?",
     a: [
-      "Les reversements sont effectués automatiquement selon les modalités techniques de la plateforme et du prestataire de paiement.",
-      "Les montants reversés correspondent aux sommes encaissées, déduction faite des commissions Tickrace applicables.",
+      "Les reversements sont automatisés selon les modalités techniques de la plateforme et du prestataire de paiement.",
+      "Les montants reversés correspondent aux sommes encaissées, déduction faite des commissions applicables.",
     ],
     tags: ["reversement", "stripe express"],
   },
@@ -167,39 +156,39 @@ const FAQ_ITEMS = [
     icon: AlertTriangle,
     q: "Que se passe-t-il en cas de chargeback (rétrofacturation) ?",
     a: [
-      "En cas de litige bancaire (chargeback), le montant contesté peut être bloqué, déduit ou compensé dans les reversements en attente, jusqu’à résolution du dossier.",
+      "Le montant contesté peut être bloqué/déduit/compensé dans les reversements en attente jusqu’à résolution.",
       "Tickrace peut demander des éléments au coureur et/ou à l’organisateur pour répondre au litige.",
     ],
     tags: ["chargeback", "litige"],
   },
 
-  // --- Annulations
+  // Annulations
   {
     id: "a1",
     cat: "annulations",
     icon: CalendarDays,
-    q: "Quelle est la politique d’annulation Tickrace (commune) ?",
+    q: "Quelle est la politique d’annulation (commune) ?",
     a: [
-      "La politique d’annulation est commune et définie par Tickrace. Elle s’applique à tous les événements en V1.",
+      "La politique d’annulation est commune en V1 : elle est définie par Tickrace.",
       "La commission Tickrace de 5 % est conservée en toutes circonstances.",
-      "Le remboursement éventuel se calcule sur la base restante après déduction de cette commission.",
+      "Le remboursement s’applique sur la base restante après déduction de cette commission.",
     ],
-    tags: ["annulation", "barème", "5%"],
+    tags: ["annulation", "barème"],
   },
   {
     id: "a2",
     cat: "annulations",
     icon: CalendarDays,
-    q: "Quel est le barème de remboursement en cas d’annulation par le coureur ?",
+    q: "Quel est le barème de remboursement (annulation coureur) ?",
     a: [
-      "J-30 et plus : 90 %",
-      "J-15 à J-29 : 70 %",
-      "J-7 à J-14 : 50 %",
-      "J-3 à J-6 : 30 %",
-      "J-0 à J-2 : 0 %",
-      "Ces pourcentages s’appliquent après déduction de la commission Tickrace (5 %).",
+      "J-30+ : 90 %",
+      "J-15–29 : 70 %",
+      "J-7–14 : 50 %",
+      "J-3–6 : 30 %",
+      "J-0–2 : 0 %",
+      "Pourcentages appliqués après déduction de la commission Tickrace (5 %).",
     ],
-    tags: ["barème", "remboursement"],
+    tags: ["remboursement", "barème"],
   },
   {
     id: "a3",
@@ -207,21 +196,21 @@ const FAQ_ITEMS = [
     icon: Info,
     q: "Les options (repas, t-shirt…) sont-elles remboursées ?",
     a: [
-      "Certaines options peuvent être exclues du remboursement si la prestation a déjà été engagée (ex. production, personnalisation, commande).",
+      "Certaines options peuvent être exclues du remboursement si la prestation a déjà été engagée (commande, personnalisation…).",
       "Les exclusions éventuelles sont indiquées au moment de l’inscription.",
     ],
     tags: ["options", "tshirt", "repas"],
   },
 
-  // --- Chronométrage
+  // Chronométrage
   {
     id: "ch1",
     cat: "chrono",
     icon: Timer,
-    q: "À quoi correspond l’option prestataire chronométrage (1,30 € / coureur) ?",
+    q: "À quoi correspond l’option chronométrage (1,30 € / coureur) ?",
     a: [
-      "C’est un service fourni par un prestataire tiers (matériel, puces, dispositif de chrono, etc.).",
-      "Tickrace agit comme intermédiaire technique et de facturation. Tickrace ne prélève aucune commission sur cette option.",
+      "C’est une prestation fournie par un prestataire tiers (matériel, puces, dispositif de chrono…).",
+      "Tickrace agit comme intermédiaire technique et de facturation. Pas de commission Tickrace sur cette option.",
     ],
     tags: ["chrono", "prestataire", "1.30"],
   },
@@ -231,20 +220,20 @@ const FAQ_ITEMS = [
     icon: Timer,
     q: "Qui est responsable en cas d’erreur de chronométrage ?",
     a: [
-      "Le prestataire de chronométrage est seul responsable de la bonne exécution de sa prestation.",
-      "Tickrace ne peut être tenue responsable d’un dysfonctionnement du matériel, d’une erreur de chrono ou d’un retard du prestataire.",
+      "Le prestataire de chronométrage est responsable de sa prestation.",
+      "Tickrace ne peut être tenue responsable d’un dysfonctionnement du matériel ou d’une erreur de chrono.",
     ],
     tags: ["résultats", "erreur"],
   },
 
-  // --- Légal & RGPD
+  // Legal
   {
     id: "l1",
     cat: "legal",
     icon: FileText,
-    q: "Où trouver les CGV et politiques Tickrace ?",
+    q: "Où trouver les CGV et documents légaux ?",
     a: [
-      "Les CGV Coureurs, CGV Organisateurs, la Politique de remboursement, la Charte organisateur & anti-fraude, les Mentions légales et la Confidentialité (RGPD) sont accessibles via le footer.",
+      "Les CGV Coureurs, CGV Organisateurs, Remboursements, Charte organisateur, Mentions légales et Confidentialité sont accessibles via le footer.",
     ],
     tags: ["cgv", "legal", "rgpd"],
   },
@@ -252,57 +241,39 @@ const FAQ_ITEMS = [
     id: "l2",
     cat: "legal",
     icon: Shield,
-    q: "Comment Tickrace gère les données personnelles (RGPD) ?",
+    q: "RGPD : quels sont mes droits ?",
     a: [
-      "Tickrace traite les données nécessaires à la gestion des comptes, inscriptions, paiements et événements.",
-      "Les données peuvent être partagées avec l’organisateur et certains prestataires (ex. chronométrage) uniquement pour exécuter le service.",
-      "Tu peux exercer tes droits (accès, rectification, suppression, etc.) via contact@tickrace.com.",
+      "Tu disposes de droits d’accès, rectification, effacement, opposition, limitation et portabilité.",
+      "Pour exercer tes droits : contact@tickrace.com.",
     ],
-    tags: ["rgpd", "données", "privacy"],
+    tags: ["rgpd", "données"],
   },
 
-  // --- Support
+  // Support
   {
     id: "s1",
     cat: "support",
     icon: Mail,
     q: "Comment contacter Tickrace ?",
-    a: [
-      "Pour toute question : support@tickrace.com.",
-      "Pour une demande générale : contact@tickrace.com.",
-    ],
+    a: ["Support : support@tickrace.com", "Contact : contact@tickrace.com"],
     tags: ["support", "contact"],
   },
   {
     id: "s2",
     cat: "support",
     icon: HelpCircle,
-    q: "J’ai un problème technique sur mon inscription, qui contacter ?",
+    q: "J’ai un problème technique, que dois-je envoyer au support ?",
     a: [
-      "Commence par vérifier ton espace “Mes inscriptions” (statut, paiement, options).",
-      "Si le problème persiste : support@tickrace.com avec (1) ton email d’inscription, (2) le nom de la course, (3) une capture si possible.",
+      "Ton email d’inscription, le nom de la course, et une capture d’écran si possible.",
+      "Indique aussi l’URL exacte et ce que tu attendais (ex : paiement validé, page blanche, erreur…).",
     ],
     tags: ["bug", "aide"],
   },
 ];
 
-/* ----------------------------- Component ----------------------------- */
-
-function CategoryTabs({ active, onChange, counts }) {
+function Tabs({ active, setActive, counts }) {
   return (
     <div className="flex flex-wrap gap-2">
-      <button
-        type="button"
-        onClick={() => onChange("all")}
-        className={`rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition ${
-          active === "all"
-            ? "bg-neutral-900 text-white ring-neutral-900"
-            : "bg-white text-neutral-800 ring-neutral-200 hover:bg-neutral-50"
-        }`}
-      >
-        Tout <span className="ml-2 rounded-lg bg-neutral-100 px-2 py-0.5 text-xs text-neutral-700">{counts.all}</span>
-      </button>
-
       {CATEGORIES.map((c) => {
         const Icon = c.icon;
         const isOn = active === c.key;
@@ -310,7 +281,7 @@ function CategoryTabs({ active, onChange, counts }) {
           <button
             key={c.key}
             type="button"
-            onClick={() => onChange(c.key)}
+            onClick={() => setActive(c.key)}
             className={`rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition inline-flex items-center gap-2 ${
               isOn
                 ? "bg-neutral-900 text-white ring-neutral-900"
@@ -319,7 +290,11 @@ function CategoryTabs({ active, onChange, counts }) {
           >
             <Icon className="h-4 w-4 opacity-90" />
             {c.label}
-            <span className={`ml-1 rounded-lg px-2 py-0.5 text-xs ${isOn ? "bg-white/15 text-white" : "bg-neutral-100 text-neutral-700"}`}>
+            <span
+              className={`ml-1 rounded-lg px-2 py-0.5 text-xs ${
+                isOn ? "bg-white/15 text-white" : "bg-neutral-100 text-neutral-700"
+              }`}
+            >
               {counts[c.key] ?? 0}
             </span>
           </button>
@@ -329,17 +304,12 @@ function CategoryTabs({ active, onChange, counts }) {
   );
 }
 
-function AccordionItem({ item, open, onToggle, query }) {
+function AccordionItem({ item, open, onToggle }) {
   const Icon = item.icon || HelpCircle;
 
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm overflow-hidden">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="w-full text-left"
-        aria-expanded={open}
-      >
+      <button type="button" onClick={onToggle} className="w-full text-left" aria-expanded={open}>
         <div className="flex items-start gap-4 px-5 py-4">
           <IconBadge>
             <Icon className="h-5 w-5" />
@@ -347,9 +317,7 @@ function AccordionItem({ item, open, onToggle, query }) {
 
           <div className="flex-1">
             <div className="flex items-start justify-between gap-3">
-              <h3 className="text-base font-semibold text-neutral-900">
-                {highlight(item.q, query)}
-              </h3>
+              <h3 className="text-base font-semibold text-neutral-900">{item.q}</h3>
               <span className="mt-1 text-neutral-500">
                 {open ? <ChevronUp className="h-5 w-5" /> : <ChevronDown className="h-5 w-5" />}
               </span>
@@ -357,12 +325,12 @@ function AccordionItem({ item, open, onToggle, query }) {
 
             {item.tags?.length ? (
               <div className="mt-2 flex flex-wrap gap-1.5">
-                {item.tags.slice(0, 5).map((t) => (
+                {item.tags.slice(0, 6).map((t) => (
                   <span
                     key={t}
                     className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold text-neutral-700 ring-1 ring-neutral-200"
                   >
-                    {highlight(t, query)}
+                    {t}
                   </span>
                 ))}
               </div>
@@ -371,35 +339,13 @@ function AccordionItem({ item, open, onToggle, query }) {
         </div>
       </button>
 
-      <AnimatePresence initial={false}>
-        {open && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.22 }}
-            className="border-t border-neutral-200"
-          >
-            <div className="px-5 py-4 text-sm leading-6 text-neutral-800">
-              {Array.isArray(item.a) ? (
-                <ul className="space-y-2">
-                  {item.a.map((line, idx) => (
-                    <li key={idx}>
-                      {typeof line === "string" ? (
-                        <p>{highlight(line, query)}</p>
-                      ) : (
-                        line
-                      )}
-                    </li>
-                  ))}
-                </ul>
-              ) : (
-                <p>{highlight(item.a, query)}</p>
-              )}
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {open ? (
+        <div className="border-t border-neutral-200">
+          <div className="px-5 py-4 text-sm leading-6 text-neutral-800 space-y-2">
+            {Array.isArray(item.a) ? item.a.map((line, idx) => <p key={idx}>{line}</p>) : <p>{item.a}</p>}
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -409,19 +355,19 @@ export default function FAQ() {
   const [activeCat, setActiveCat] = useState("all");
   const [openIds, setOpenIds] = useState(() => new Set());
 
-  const normalizedQuery = query.trim().toLowerCase();
-
   const counts = useMemo(() => {
-    const base = { all: FAQ_ITEMS.length };
+    const base = {};
     for (const c of CATEGORIES) base[c.key] = 0;
+    base.all = FAQ_ITEMS.length;
     for (const it of FAQ_ITEMS) base[it.cat] = (base[it.cat] ?? 0) + 1;
     return base;
   }, []);
 
   const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
     return FAQ_ITEMS.filter((it) => {
       if (activeCat !== "all" && it.cat !== activeCat) return false;
-      if (!normalizedQuery) return true;
+      if (!q) return true;
 
       const hay = [
         it.q,
@@ -431,13 +377,12 @@ export default function FAQ() {
         .join(" ")
         .toLowerCase();
 
-      return hay.includes(normalizedQuery);
+      return hay.includes(q);
     });
-  }, [activeCat, normalizedQuery]);
+  }, [activeCat, query]);
 
   const openAll = () => setOpenIds(new Set(filtered.map((x) => x.id)));
   const closeAll = () => setOpenIds(new Set());
-
   const toggle = (id) => {
     setOpenIds((prev) => {
       const next = new Set(prev);
@@ -449,7 +394,6 @@ export default function FAQ() {
 
   return (
     <div className="min-h-screen bg-neutral-50">
-      {/* Header */}
       <div className="border-b border-neutral-200 bg-white">
         <Container>
           <div className="py-10 space-y-5">
@@ -467,7 +411,7 @@ export default function FAQ() {
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">Foire aux questions</h1>
               <p className="max-w-3xl text-sm text-neutral-600">
-                Recherche + filtres + accordéon. Si tu veux, je te rajoute encore 20 questions “terrain” côté organisateur.
+                Recherche + filtres + accordéon (version stable).
               </p>
             </div>
 
@@ -493,10 +437,8 @@ export default function FAQ() {
               </div>
             </div>
 
-            {/* Tabs */}
-            <CategoryTabs active={activeCat} onChange={setActiveCat} counts={counts} />
+            <Tabs active={activeCat} setActive={setActiveCat} counts={counts} />
 
-            {/* Actions */}
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
@@ -521,7 +463,6 @@ export default function FAQ() {
         </Container>
       </div>
 
-      {/* Content */}
       <Container>
         <div className="py-10 space-y-4">
           {filtered.length === 0 ? (
@@ -538,12 +479,10 @@ export default function FAQ() {
                 item={item}
                 open={openIds.has(item.id)}
                 onToggle={() => toggle(item.id)}
-                query={normalizedQuery}
               />
             ))
           )}
 
-          {/* Support card */}
           <div className="rounded-2xl border border-neutral-200 bg-white p-6">
             <div className="flex items-start gap-3">
               <IconBadge>
