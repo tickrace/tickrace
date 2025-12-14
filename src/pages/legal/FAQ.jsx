@@ -16,6 +16,7 @@ import {
   BadgeEuro,
   Settings,
   CheckCircle2,
+  Info,
 } from "lucide-react";
 
 /**

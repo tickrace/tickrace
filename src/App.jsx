@@ -107,7 +107,7 @@ function AppContent() {
 
           {/* Légal */}
           <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
-          <Route path="/legal/cgv-Coureurs" element={<CGVCoureurs />} />
+          <Route path="/legal/cgv-coureurs" element={<CGVCoureurs />} />
           <Route path="/legal/remboursements" element={<Remboursements />} />
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 <Route path="/legal/mentions-legales" element={<MentionsLegales />} />
