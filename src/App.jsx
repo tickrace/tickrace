@@ -37,6 +37,7 @@ import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
 
 import CGVOrganisateurs from "./pages/legal/CGVOrganisateurs";
+import CGVOrganisateurs from "./pages/legal/CGVCoureurs";
 import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 
@@ -102,6 +103,7 @@ function AppContent() {
 
           {/* Légal */}
           <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
+          <Route path="/legal/cgv-Coureurs" element={<CGVCoureurs />} />
           <Route path="/legal/remboursements" element={<Remboursements />} />
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
 
