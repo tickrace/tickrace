@@ -113,6 +113,19 @@ export default function Home() {
   const [simExtras, setSimExtras] = useState(3); // options / panier moyen
   const [simStripe, setSimStripe] = useState("eu"); // eu | international
 
+  const featured = useMemo(() => {
+    const now = new Date();
+    return {
+      tag: "À LA UNE",
+      title: "L’article de la semaine arrive sur TickRace",
+      excerpt:
+        "Bientôt : une sélection éditoriale (actu, conseils, nouveautés, coups de cœur) qui changera chaque semaine sur la page d’accueil.",
+      editionLabel: `Édition du ${fmtDate(now)}`,
+      ctaLabel: "Découvrir",
+      href: "#",
+    };
+  }, []);
+
   const goOrganizer = () => {
     if (!session?.user) {
       navigate("/login");
@@ -223,7 +236,13 @@ export default function Home() {
               transition={{ duration: 0.5 }}
               className="space-y-4"
             >
-              <Pill>Nouvelle V1 — Carte interactive, chat & annulation simplifiée</Pill>
+              <div className="flex flex-wrap items-center gap-2">
+                <Pill>Nouvelle V1 — Carte interactive, chat & annulation simplifiée</Pill>
+                <span className="inline-flex items-center gap-2 rounded-full bg-white/70 px-3 py-1 text-xs font-semibold text-neutral-900 ring-1 ring-neutral-200">
+                  Bêta — site en cours de développement
+                </span>
+              </div>
+
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
                 Inscris-toi, organise, cours.{" "}
                 <span className="text-orange-600">Une seule plateforme.</span>
@@ -451,29 +470,56 @@ export default function Home() {
           >
             <Card className="p-6">
               <div className="grid grid-cols-2 gap-4">
-                {/* BLOC PARTENAIRE (placeholder) */}
-                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
-                  <div className="flex flex-col sm:flex-row gap-4">
-                    <div className="sm:w-40 w-full">
-                      {/* Photo partenaire à ajouter plus tard */}
-                      <div className="aspect-[16/10] w-full rounded-xl bg-neutral-200/70 ring-1 ring-neutral-200 grid place-items-center text-neutral-500 text-xs">
-                        Photo partenaire
+                {/* À LA UNE (dominant, “home qui change”) */}
+                <div className="col-span-2 overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-neutral-900 text-white">
+                  <div className="grid grid-cols-1 sm:grid-cols-5">
+                    {/* Visuel */}
+                    <div className="sm:col-span-2 relative">
+                      <div className="h-40 sm:h-full w-full bg-[radial-gradient(90%_80%_at_20%_0%,#fb923c_0%,transparent_55%),radial-gradient(80%_70%_at_90%_30%,#a3e635_0%,transparent_55%),linear-gradient(135deg,#0a0a0a_0%,#171717_55%,#0a0a0a_100%)]" />
+                      <div className="absolute inset-0 grid place-items-center text-white/70 text-xs font-semibold">
+                        Image hebdo (à venir)
+                      </div>
+                      <div className="absolute left-3 top-3">
+                        <span className="inline-flex items-center rounded-full bg-lime-400 px-3 py-1 text-[11px] font-black text-neutral-900">
+                          {featured.tag}
+                        </span>
                       </div>
                     </div>
-                    <div className="flex-1">
-                      <div className="text-xs font-semibold text-neutral-500">Partenaire média</div>
-                      <div className="mt-1 text-lg font-bold">Esprit Trail (à venir)</div>
-                      <p className="mt-1 text-sm text-neutral-600">
-                        Un contenu éditorial renouvelé (actu, conseils, sélection de courses),
-                        mis en avant sur TickRace. Cliquez pour découvrir l’article de la semaine.
+
+                    {/* Texte */}
+                    <div className="sm:col-span-3 p-4 sm:p-5">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-white/70">
+                        <span className="rounded-full bg-white/10 px-2 py-1 ring-1 ring-white/10">
+                          Mise à jour hebdo
+                        </span>
+                        <span className="rounded-full bg-white/10 px-2 py-1 ring-1 ring-white/10">
+                          Site en cours de développement
+                        </span>
+                        <span className="rounded-full bg-white/10 px-2 py-1 ring-1 ring-white/10">
+                          {featured.editionLabel}
+                        </span>
+                      </div>
+
+                      <h3 className="mt-3 text-xl sm:text-2xl font-black leading-tight">
+                        {featured.title}
+                      </h3>
+                      <p className="mt-2 text-sm text-white/80 max-w-xl">
+                        {featured.excerpt}
                       </p>
-                      <div className="mt-3">
+
+                      <div className="mt-4 flex flex-wrap items-center gap-3">
+                        <a
+                          href={featured.href}
+                          className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:brightness-95"
+                        >
+                          {featured.ctaLabel} <ArrowRight className="h-4 w-4" />
+                        </a>
                         <button
                           type="button"
-                          className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                          onClick={() => {}}
+                          className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/15"
                         >
-                          Découvrir
-                          <ArrowRight className="h-4 w-4" />
+                          Proposer un partenariat
                         </button>
                       </div>
                     </div>
@@ -491,14 +537,14 @@ export default function Home() {
                         Net organisateur : {fmtEUR(sim.netOrganisateur)}
                       </div>
                       <div className="mt-1 text-xs text-neutral-500">
-                        Inclut 5% Tickrace + frais de paiement estimés (Stripe).
+                        Inclut 5% Tickrace + frais de paiement estimés (Stripe). Reversements automatiques à J+1.
                       </div>
                     </div>
                     <button
                       onClick={goOrganizer}
                       className="shrink-0 rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                     >
-                      Tester dans l’espace
+                      Ouvrir l’espace
                     </button>
                   </div>
 
@@ -664,14 +710,15 @@ export default function Home() {
                           <span className="font-semibold">{fmtEUR(sim.netParInscrit)}</span>
                         </div>
                         <div className="mt-2 text-xs text-neutral-500">
-                          Estimation indicative. Le détail réel (options, coupons, annulations,
-                          remboursements) est calculé dans l’espace organisateur.
+                          Estimation indicative. Le détail réel (options, coupons, annulations, remboursements)
+                          est calculé dans l’espace organisateur.
                         </div>
                       </div>
                     </div>
                   </div>
                 </div>
 
+                {/* Reversements (petit rappel) */}
                 <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
                   <div className="text-xs font-semibold text-neutral-500">Reversements</div>
                   <div className="mt-2 flex items-center justify-between">
