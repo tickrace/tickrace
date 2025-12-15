@@ -41,6 +41,14 @@ export default function AdminHome() {
         </Link>
 
         <Link
+          to="/admin/contact"
+          className="p-4 rounded-xl border shadow-sm hover:shadow-md bg-white"
+        >
+          <h2 className="text-lg font-semibold">Messages contact</h2>
+          <p className="text-sm text-gray-500">Demandes coureurs, organisateurs, partenaires</p>
+        </Link>
+
+        <Link
           to="/admin/dashboard"
           className="p-4 rounded-xl border shadow-sm hover:shadow-md bg-white"
         >

@@ -9,11 +9,13 @@ export default function AdminLayout({ children }) {
         <NavLink to="/admin/courses" className="block">Courses</NavLink>
         <NavLink to="/admin/inscriptions" className="block">Inscriptions</NavLink>
         <NavLink to="/admin/payouts" className="block">Paiements</NavLink>
-      
-      <NavLink to="/admin/categories">
-  Catégories d'âge
-</NavLink>
-</aside>
+
+        <NavLink to="/admin/contact" className="block">Messages contact</NavLink>
+
+        <NavLink to="/admin/categories">
+          Catégories d'âge
+        </NavLink>
+      </aside>
       <main className="flex-1">
         {children ?? <Outlet />}
       </main>
