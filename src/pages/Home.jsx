@@ -53,31 +53,6 @@ const CTA = ({ children, to, href, className = "" }) =>
     </Link>
   );
 
-const Ghost = ({ children, to, href, className = "" }) =>
-  href ? (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className={[
-        "inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </a>
-  ) : (
-    <Link
-      to={to || "#"}
-      className={[
-        "inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </Link>
-  );
-
 const Card = ({ children, className = "" }) => (
   <div
     className={[
@@ -118,6 +93,14 @@ const fmtEUR = (n) =>
     maximumFractionDigits: 2,
   }).format(Number(n || 0));
 
+function getISOWeek(date) {
+  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
+  const dayNum = d.getUTCDay() || 7; // 1..7 (lundi..dimanche)
+  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
+}
+
 // ============================
 // Page
 // ============================
@@ -139,8 +122,13 @@ export default function Home() {
     else navigate("/organisateur/mon-espace");
   };
 
+  // À LA UNE : rotation hebdo entre tes 4 images du dossier public/
   const featured = useMemo(() => {
     const now = new Date();
+    const week = getISOWeek(now);
+    const images = ["/OIP.jpg", "/OIP2.jpg", "/OIP3.jpg", "/OIP4.jpg"];
+    const imageSrc = images[week % images.length];
+
     return {
       tag: "À LA UNE",
       title: "Article & photo de la semaine",
@@ -148,9 +136,8 @@ export default function Home() {
         "Ici, tu mettras un contenu qui change chaque semaine : actu, conseils, sélection de courses, focus organisateur…",
       editionLabel: `Semaine du ${fmtDate(now)}`,
       ctaLabel: "Lire",
-      href: "#", // à remplacer plus tard
-      // ✅ Mini photo locale : mets /public/a-la-une.jpg et change-la chaque semaine
-      imageSrc: "/a-la-une.jpg",
+      href: "#",
+      imageSrc,
     };
   }, []);
 
@@ -313,7 +300,7 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* À LA UNE — bandeau full width (mini photo, pas d'aplat) */}
+      {/* À LA UNE — bandeau full width */}
       <section className="py-6 sm:py-8">
         <Container>
           <Card className="p-4 sm:p-5">
@@ -488,7 +475,7 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* 3 BLOCS ÉGAUX (plus de vide colonne gauche) */}
+      {/* 3 BLOCS ÉGAUX */}
       <section className="py-10 sm:py-14 bg-white">
         <Container>
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
@@ -497,8 +484,7 @@ export default function Home() {
                 Une plateforme pour organiser et courir
               </h2>
               <p className="mt-2 text-neutral-600 max-w-2xl">
-                Des outils clairs, une expérience moderne, et une page d’accueil qui peut évoluer chaque semaine
-                grâce à “À LA UNE”.
+                Des outils clairs, une expérience moderne, et une page d’accueil qui évolue grâce à “À LA UNE”.
               </p>
             </div>
             <div className="flex gap-2">
@@ -518,13 +504,11 @@ export default function Home() {
           </div>
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Organisateur */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Publiez votre course en quelques minutes</h3>
               <p className="mt-2 text-sm text-neutral-600">
                 Page dédiée, inscriptions, quotas, options, reversements automatiques. Fini les tableaux Excel.
               </p>
-
               <ul className="mt-4 grid gap-2 text-sm text-neutral-700">
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-orange-500" /> Multi-formats & quotas par format
@@ -536,7 +520,6 @@ export default function Home() {
                   <span className="h-2 w-2 rounded-full bg-orange-500" /> Annulation en ligne (crédit / remboursement)
                 </li>
               </ul>
-
               <div className="mt-6 flex gap-2">
                 <button
                   onClick={goOrganizer}
@@ -551,20 +534,17 @@ export default function Home() {
                   Détails
                 </Link>
               </div>
-
               <div className="mt-5 flex flex-wrap gap-2">
                 <Badge>5% Tickrace</Badge>
                 <Badge>Reversement J+1</Badge>
               </div>
             </Card>
 
-            {/* Chat */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Discutez sous chaque épreuve</h3>
               <p className="mt-2 text-sm text-neutral-600">
                 Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse rapide.
               </p>
-
               <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
@@ -583,7 +563,6 @@ export default function Home() {
                   </div>
                 </div>
               </div>
-
               <div className="mt-6 flex gap-2">
                 <Link
                   to="/courses"
@@ -600,7 +579,6 @@ export default function Home() {
               </div>
             </Card>
 
-            {/* Simulateur */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Simulateur de gains organisateur</h3>
               <p className="mt-2 text-sm text-neutral-600">
@@ -713,7 +691,6 @@ export default function Home() {
             </Card>
           </div>
 
-          {/* Ajout pour densifier + donner plus de “titres” */}
           <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
             <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
               <div className="text-sm font-black">Carte interactive</div>
