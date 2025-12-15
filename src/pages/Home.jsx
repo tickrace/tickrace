@@ -313,7 +313,7 @@ export default function Home() {
                   <img
                     src={featured.imageSrc}
                     alt="À la une"
-                    className="h-16 w-16 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
+                    className="h-160 w-160 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
                     loading="lazy"
                   />
                   <span className="absolute -top-2 -left-2 rounded-full bg-lime-400 px-2 py-1 text-[10px] font-black text-neutral-900 ring-1 ring-neutral-200">
@@ -785,7 +785,7 @@ export default function Home() {
                 <li>• Traçabilité et statut côté organisateur.</li>
               </ul>
               <div className="mt-auto pt-4">
-                <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
+                <Link to="/legal/remboursements" className="text-sm font-semibold text-neutral-800 hover:underline">
                   Comprendre l’annulation →
                 </Link>
               </div>
