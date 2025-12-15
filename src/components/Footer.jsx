@@ -190,15 +190,22 @@ export default function Footer() {
                 </FooterLink>
               </div>
 
-              <div className="mt-4 rounded-2xl border border-neutral-800 bg-neutral-900 p-4">
-                <p className="text-sm font-semibold text-white">Besoin d’aide ?</p>
+              {/* Bloc contact -> /contact */}
+              <Link
+                to="/contact"
+                onClick={scrollTop}
+                className="mt-4 block rounded-2xl border border-neutral-800 bg-neutral-900 p-4 hover:bg-neutral-800/60 transition-colors"
+              >
+                <p className="text-sm font-semibold text-white inline-flex items-center gap-2">
+                  Besoin d’aide ? <ArrowUpRight className="h-4 w-4 opacity-70" />
+                </p>
                 <p className="mt-1 text-sm text-neutral-300">
                   Écris-nous : <span className="font-semibold">support@tickrace.com</span>
                 </p>
                 <p className="mt-2 text-xs text-neutral-400">
                   Astuce : indique le nom de la course + ton email d’inscription.
                 </p>
-              </div>
+              </Link>
             </div>
 
             {/* Légal */}
