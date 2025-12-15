@@ -1,6 +1,7 @@
 ﻿// src/App.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
+import Contact from "./pages/Contact";
 
 import { UserProvider, useUser } from "./contexts/UserContext";
 import AuthRedirectWrapper from "./components/AuthRedirectWrapper";
@@ -86,6 +87,8 @@ function AppContent() {
       <main className="flex-1">
         <Routes>
           {/* Public */}
+          <Route path="/contact" element={<Contact />} />
+
           <Route path="/" element={<Home />} />
           <Route path="/fonctionnalites" element={<Fonctionnalites />} />
           <Route path="/help/creer-une-course" element={<CreerUneCourse />} />
