@@ -256,7 +256,6 @@ export default function Home() {
                 <CTA to="/courses">
                   <ArrowRight className="h-4 w-4" /> Trouver une course
                 </CTA>
-                {/* Redirection conditionnelle vers espace organisateur */}
                 <button
                   onClick={goOrganizer}
                   className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
@@ -297,7 +296,6 @@ export default function Home() {
       {/* SEARCH + DERNIÈRES COURSES */}
       <section id="courses" className="py-8 sm:py-12">
         <Container>
-          {/* (Optionnel) barre de recherche rapide */}
           <Card className="p-4 sm:p-6">
             <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
               <div className="grid flex-1 grid-cols-1 sm:grid-cols-3 gap-3">
@@ -338,7 +336,6 @@ export default function Home() {
             </div>
           </Card>
 
-          {/* Cartes des 3 dernières épreuves en ligne */}
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
@@ -419,9 +416,10 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* ORGANISER BLOCK */}
+      {/* ORGANISER + COMMUNITY (regroupés) */}
       <section id="org" className="py-12 sm:py-16 bg-white">
-        <Container className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+        {/* ✅ IMPORTANT: items-start pour supprimer les grands vides */}
+        <Container className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
           <motion.div
             initial={{ opacity: 0, x: -10 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -451,7 +449,6 @@ export default function Home() {
               </li>
             </ul>
             <div className="mt-6 flex gap-3">
-              {/* Redirection conditionnelle vers espace organisateur */}
               <button
                 onClick={goOrganizer}
                 className="inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px"
@@ -470,10 +467,9 @@ export default function Home() {
           >
             <Card className="p-6">
               <div className="grid grid-cols-2 gap-4">
-                {/* À LA UNE (dominant, “home qui change”) */}
+                {/* À LA UNE */}
                 <div className="col-span-2 overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-neutral-900 text-white">
                   <div className="grid grid-cols-1 sm:grid-cols-5">
-                    {/* Visuel */}
                     <div className="sm:col-span-2 relative">
                       <div className="h-40 sm:h-full w-full bg-[radial-gradient(90%_80%_at_20%_0%,#fb923c_0%,transparent_55%),radial-gradient(80%_70%_at_90%_30%,#a3e635_0%,transparent_55%),linear-gradient(135deg,#0a0a0a_0%,#171717_55%,#0a0a0a_100%)]" />
                       <div className="absolute inset-0 grid place-items-center text-white/70 text-xs font-semibold">
@@ -486,7 +482,6 @@ export default function Home() {
                       </div>
                     </div>
 
-                    {/* Texte */}
                     <div className="sm:col-span-3 p-4 sm:p-5">
                       <div className="flex flex-wrap items-center gap-2 text-xs text-white/70">
                         <span className="rounded-full bg-white/10 px-2 py-1 ring-1 ring-white/10">
@@ -503,9 +498,7 @@ export default function Home() {
                       <h3 className="mt-3 text-xl sm:text-2xl font-black leading-tight">
                         {featured.title}
                       </h3>
-                      <p className="mt-2 text-sm text-white/80 max-w-xl">
-                        {featured.excerpt}
-                      </p>
+                      <p className="mt-2 text-sm text-white/80 max-w-xl">{featured.excerpt}</p>
 
                       <div className="mt-4 flex flex-wrap items-center gap-3">
                         <a
@@ -526,7 +519,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* SIMULATEUR DE GAINS */}
+                {/* SIMULATEUR */}
                 <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
                   <div className="flex items-start justify-between gap-3">
                     <div>
@@ -718,7 +711,7 @@ export default function Home() {
                   </div>
                 </div>
 
-                {/* Reversements (petit rappel) */}
+                {/* Reversements */}
                 <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
                   <div className="text-xs font-semibold text-neutral-500">Reversements</div>
                   <div className="mt-2 flex items-center justify-between">
@@ -740,71 +733,72 @@ export default function Home() {
             </Card>
           </motion.div>
         </Container>
-      </section>
 
-      {/* COMMUNITY */}
-      <section id="community" className="py-12 sm:py-16 bg-white">
-        <Container className="grid items-center gap-10 lg:grid-cols-2">
-          <motion.div
-            initial={{ opacity: 0, x: -10 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.45 }}
-          >
-            <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
-              Discutez sous chaque épreuve
-            </h2>
-            <p className="mt-2 text-neutral-600 max-w-xl">
-              Posez vos questions, organisez du covoiturage, et mentionnez l{"' "}
-              <span className="font-semibold">@IA</span> pour obtenir des infos instantanées
-              sur le parcours, l’équipement ou le ravito.
-            </p>
-            <div className="mt-6 flex gap-3">
-              <Ghost to="/courses">Voir un exemple</Ghost>
-              <CTA to="/courses">
-                <MessageCircle className="h-4 w-4" /> Ouvrir un chat
-              </CTA>
-            </div>
-          </motion.div>
-          <motion.div
-            initial={{ opacity: 0, x: 10 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.45 }}
-          >
-            <Card className="p-6">
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-orange-300 to-amber-300" />
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold">Léa</div>
-                    <div className="text-sm text-neutral-700">
-                      Quel dénivelé cumulé sur le 32K ?
-                    </div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold">@IA</div>
-                    <div className="text-sm text-neutral-700">+2630 m D+</div>
-                  </div>
-                </div>
-                <div className="flex items-start gap-3">
-                  <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
-                  <div className="flex-1">
-                    <div className="text-sm font-semibold">Marco</div>
-                    <div className="text-sm text-neutral-700">
-                      Des passages techniques ?
-                      <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] ring-1 ring-neutral-200">
-                        Skyrace
-                      </span>
-                    </div>
-                  </div>
-                </div>
+        {/* CHAT juste en dessous */}
+        <Container className="mt-12">
+          <div className="grid items-center gap-10 lg:grid-cols-2">
+            <motion.div
+              initial={{ opacity: 0, x: -10 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.45 }}
+            >
+              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
+                Discutez sous chaque épreuve
+              </h2>
+              <p className="mt-2 text-neutral-600 max-w-xl">
+                Posez vos questions, organisez du covoiturage, et mentionnez l{"' "}
+                <span className="font-semibold">@IA</span> pour obtenir des infos instantanées
+                sur le parcours, l’équipement ou le ravito.
+              </p>
+              <div className="mt-6 flex gap-3">
+                <Ghost to="/courses">Voir un exemple</Ghost>
+                <CTA to="/courses">
+                  <MessageCircle className="h-4 w-4" /> Ouvrir un chat
+                </CTA>
               </div>
-            </Card>
-          </motion.div>
+            </motion.div>
+
+            <motion.div
+              initial={{ opacity: 0, x: 10 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ duration: 0.45 }}
+            >
+              <Card className="p-6">
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-orange-300 to-amber-300" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">Léa</div>
+                      <div className="text-sm text-neutral-700">
+                        Quel dénivelé cumulé sur le 32K ?
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">@IA</div>
+                      <div className="text-sm text-neutral-700">+2630 m D+</div>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">Marco</div>
+                      <div className="text-sm text-neutral-700">
+                        Des passages techniques ?
+                        <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] ring-1 ring-neutral-200">
+                          Skyrace
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </Card>
+            </motion.div>
+          </div>
         </Container>
       </section>
     </div>
