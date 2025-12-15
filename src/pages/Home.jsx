@@ -1,5 +1,5 @@
 // src/pages/Home.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Mountain,
@@ -67,7 +67,9 @@ const Ghost = ({ children, to, href }) =>
   );
 
 const Card = ({ children, className = "" }) => (
-  <div className={`rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 ${className}`}>
+  <div
+    className={`rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 ${className}`}
+  >
     {children}
   </div>
 );
@@ -88,6 +90,13 @@ const fmtDate = (d) =>
       }).format(typeof d === "string" ? new Date(d) : d)
     : "";
 
+const fmtEUR = (n) =>
+  new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR",
+    maximumFractionDigits: 2,
+  }).format(Number(n || 0));
+
 // ============================
 // Page
 // ============================
@@ -98,6 +107,12 @@ export default function Home() {
   const [latest, setLatest] = useState([]);
   const [loading, setLoading] = useState(true);
 
+  // Simulateur (home)
+  const [simParticipants, setSimParticipants] = useState(250);
+  const [simPrix, setSimPrix] = useState(25);
+  const [simExtras, setSimExtras] = useState(3); // options / panier moyen
+  const [simStripe, setSimStripe] = useState("eu"); // eu | international
+
   const goOrganizer = () => {
     if (!session?.user) {
       navigate("/login");
@@ -105,6 +120,40 @@ export default function Home() {
       navigate("/organisateur/mon-espace");
     }
   };
+
+  const sim = useMemo(() => {
+    const n = Math.max(0, Number(simParticipants || 0));
+    const prix = Math.max(0, Number(simPrix || 0));
+    const extras = Math.max(0, Number(simExtras || 0));
+
+    const totalParInscrit = prix + extras;
+    const brut = n * totalParInscrit;
+
+    const commissionTickrace = brut * 0.05;
+
+    // Estimation Stripe (par transaction)
+    // UE : 1,4% + 0,25€
+    // International : 2,9% + 0,25€
+    const stripePct = simStripe === "international" ? 0.029 : 0.014;
+    const stripeFixe = 0.25;
+    const fraisStripe = brut * stripePct + n * stripeFixe;
+
+    const netOrganisateur = Math.max(0, brut - commissionTickrace - fraisStripe);
+
+    return {
+      n,
+      prix,
+      extras,
+      totalParInscrit,
+      brut,
+      commissionTickrace,
+      fraisStripe,
+      netOrganisateur,
+      netParInscrit: n > 0 ? netOrganisateur / n : 0,
+      stripePct,
+      stripeFixe,
+    };
+  }, [simParticipants, simPrix, simExtras, simStripe]);
 
   // Charger 3 dernières courses en ligne
   useEffect(() => {
@@ -216,11 +265,10 @@ export default function Home() {
             >
               <div className="aspect-[4/3] overflow-hidden rounded-3xl ring-1 ring-neutral-200 shadow-xl">
                 <img
-  src="/home.png"
-  alt="Coureurs sur TickRace"
-  className="h-full w-full object-cover"
-/>
-
+                  src="/home.png"
+                  alt="Coureurs sur TickRace"
+                  className="h-full w-full object-cover"
+                />
               </div>
             </motion.div>
           </div>
@@ -248,10 +296,7 @@ export default function Home() {
                   <label className="text-xs font-semibold text-neutral-600">Date</label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <CalendarDays className="h-4 w-4 text-neutral-400" />
-                    <input
-                      type="date"
-                      className="w-full bg-transparent text-sm outline-none"
-                    />
+                    <input type="date" className="w-full bg-transparent text-sm outline-none" />
                   </div>
                 </div>
                 <div>
@@ -298,11 +343,7 @@ export default function Home() {
                 <Card key={r.id} className="overflow-hidden">
                   <div className="relative">
                     {r.image_url ? (
-                      <img
-                        src={r.image_url}
-                        alt={r.nom}
-                        className="h-44 w-full object-cover"
-                      />
+                      <img src={r.image_url} alt={r.nom} className="h-44 w-full object-cover" />
                     ) : (
                       <div className="h-44 w-full grid place-items-center bg-neutral-100 text-neutral-400">
                         <Mountain className="h-6 w-6" />
@@ -319,9 +360,7 @@ export default function Home() {
                   <div className="p-4">
                     <div className="flex items-start justify-between gap-3">
                       <div>
-                        <h3 className="text-base font-bold leading-snug line-clamp-1">
-                          {r.nom}
-                        </h3>
+                        <h3 className="text-base font-bold leading-snug line-clamp-1">{r.nom}</h3>
                         <div className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
                           <MapPin className="h-3.5 w-3.5" /> {r.lieu} ({r.departement})
                         </div>
@@ -421,6 +460,192 @@ export default function Home() {
                   <div className="text-xs font-semibold text-neutral-500">Revenus (30j)</div>
                   <div className="mt-2 text-2xl font-black">12 430€</div>
                   <div className="mt-2 h-20 rounded-lg bg-gradient-to-br from-neutral-200 to-neutral-300" />
+                </div>
+
+                {/* SIMULATEUR DE GAINS */}
+                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-xs font-semibold text-neutral-500">
+                        Simulateur de gains (estimation)
+                      </div>
+                      <div className="mt-1 text-lg font-bold">
+                        Net organisateur : {fmtEUR(sim.netOrganisateur)}
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500">
+                        Inclut 5% Tickrace + frais de paiement estimés (Stripe).
+                      </div>
+                    </div>
+                    <button
+                      onClick={goOrganizer}
+                      className="shrink-0 rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
+                    >
+                      Tester dans l’espace
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold text-neutral-600">Inscrits</div>
+                        <div className="text-xs font-semibold text-neutral-900">{sim.n}</div>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={3000}
+                        step={10}
+                        value={simParticipants}
+                        onChange={(e) => setSimParticipants(Number(e.target.value))}
+                        className="mt-2 w-full"
+                      />
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={10}
+                          value={simParticipants}
+                          onChange={(e) => setSimParticipants(Number(e.target.value || 0))}
+                          className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold text-neutral-600">
+                          Prix moyen inscription
+                        </div>
+                        <div className="text-xs font-semibold text-neutral-900">{fmtEUR(sim.prix)}</div>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={120}
+                        step={1}
+                        value={simPrix}
+                        onChange={(e) => setSimPrix(Number(e.target.value))}
+                        className="mt-2 w-full"
+                      />
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={simPrix}
+                          onChange={(e) => setSimPrix(Number(e.target.value || 0))}
+                          className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
+                      <div className="flex items-center justify-between">
+                        <div className="text-xs font-semibold text-neutral-600">
+                          Panier moyen options
+                        </div>
+                        <div className="text-xs font-semibold text-neutral-900">
+                          {fmtEUR(sim.extras)}
+                        </div>
+                      </div>
+                      <input
+                        type="range"
+                        min={0}
+                        max={40}
+                        step={1}
+                        value={simExtras}
+                        onChange={(e) => setSimExtras(Number(e.target.value))}
+                        className="mt-2 w-full"
+                      />
+                      <div className="mt-2 flex gap-2">
+                        <input
+                          type="number"
+                          min={0}
+                          step={1}
+                          value={simExtras}
+                          onChange={(e) => setSimExtras(Number(e.target.value || 0))}
+                          className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
+                      <div className="text-xs font-semibold text-neutral-600">Paiement (estimation)</div>
+                      <div className="mt-2 flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSimStripe("eu")}
+                          className={[
+                            "flex-1 rounded-xl px-3 py-2 text-sm font-semibold ring-1",
+                            simStripe === "eu"
+                              ? "bg-neutral-900 text-white ring-neutral-900"
+                              : "bg-white text-neutral-800 ring-neutral-200 hover:bg-neutral-50",
+                          ].join(" ")}
+                        >
+                          Carte UE
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSimStripe("international")}
+                          className={[
+                            "flex-1 rounded-xl px-3 py-2 text-sm font-semibold ring-1",
+                            simStripe === "international"
+                              ? "bg-neutral-900 text-white ring-neutral-900"
+                              : "bg-white text-neutral-800 ring-neutral-200 hover:bg-neutral-50",
+                          ].join(" ")}
+                        >
+                          International
+                        </button>
+                      </div>
+                      <div className="mt-2 text-xs text-neutral-500">
+                        {simStripe === "international"
+                          ? "Estimation : 2,9% + 0,25€ / paiement"
+                          : "Estimation : 1,4% + 0,25€ / paiement"}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
+                      <div className="text-xs font-semibold text-neutral-600">Détail</div>
+                      <div className="mt-2 space-y-1 text-sm">
+                        <div className="flex items-center justify-between">
+                          <span className="text-neutral-600">Total encaissé</span>
+                          <span className="font-semibold">{fmtEUR(sim.brut)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-neutral-600">Commission Tickrace (5%)</span>
+                          <span className="font-semibold">-{fmtEUR(sim.commissionTickrace)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-neutral-600">Frais de paiement estimés</span>
+                          <span className="font-semibold">-{fmtEUR(sim.fraisStripe)}</span>
+                        </div>
+                        <div className="mt-2 border-t border-neutral-200 pt-2 flex items-center justify-between">
+                          <span className="text-neutral-900 font-semibold">Net organisateur</span>
+                          <span className="text-neutral-900 font-black">{fmtEUR(sim.netOrganisateur)}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
+                      <div className="text-xs font-semibold text-neutral-600">Lecture rapide</div>
+                      <div className="mt-2 text-sm text-neutral-700 space-y-1">
+                        <div className="flex items-center justify-between">
+                          <span>Recette / inscrit (moyenne)</span>
+                          <span className="font-semibold">{fmtEUR(sim.totalParInscrit)}</span>
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span>Net / inscrit (moyenne)</span>
+                          <span className="font-semibold">{fmtEUR(sim.netParInscrit)}</span>
+                        </div>
+                        <div className="mt-2 text-xs text-neutral-500">
+                          Estimation indicative. Le détail réel (options, coupons, annulations, remboursements)
+                          est calculé dans l’espace organisateur.
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
