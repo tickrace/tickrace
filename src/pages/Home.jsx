@@ -28,39 +28,51 @@ const Pill = ({ children }) => (
   </span>
 );
 
-const CTA = ({ children, to, href }) =>
+const CTA = ({ children, to, href, className = "" }) =>
   href ? (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px"
+      className={[
+        "inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px",
+        className,
+      ].join(" ")}
     >
       {children}
     </a>
   ) : (
     <Link
       to={to || "#"}
-      className="inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px"
+      className={[
+        "inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px",
+        className,
+      ].join(" ")}
     >
       {children}
     </Link>
   );
 
-const Ghost = ({ children, to, href }) =>
+const Ghost = ({ children, to, href, className = "" }) =>
   href ? (
     <a
       href={href}
       target="_blank"
       rel="noreferrer"
-      className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+      className={[
+        "inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20",
+        className,
+      ].join(" ")}
     >
       {children}
     </a>
   ) : (
     <Link
       to={to || "#"}
-      className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+      className={[
+        "inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20",
+        className,
+      ].join(" ")}
     >
       {children}
     </Link>
@@ -68,7 +80,10 @@ const Ghost = ({ children, to, href }) =>
 
 const Card = ({ children, className = "" }) => (
   <div
-    className={`rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200 ${className}`}
+    className={[
+      "rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200",
+      className,
+    ].join(" ")}
   >
     {children}
   </div>
@@ -76,6 +91,12 @@ const Card = ({ children, className = "" }) => (
 
 const Badge = ({ children }) => (
   <span className="inline-flex items-center gap-1 rounded-full bg-neutral-100 px-2 py-1 text-[11px] font-medium text-neutral-700 ring-1 ring-neutral-200">
+    {children}
+  </span>
+);
+
+const SoftTag = ({ children }) => (
+  <span className="inline-flex items-center rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold text-neutral-700 ring-1 ring-neutral-200">
     {children}
   </span>
 );
@@ -110,29 +131,28 @@ export default function Home() {
   // Simulateur (home)
   const [simParticipants, setSimParticipants] = useState(250);
   const [simPrix, setSimPrix] = useState(25);
-  const [simExtras, setSimExtras] = useState(3); // options / panier moyen
+  const [simExtras, setSimExtras] = useState(3); // panier moyen options
   const [simStripe, setSimStripe] = useState("eu"); // eu | international
+
+  const goOrganizer = () => {
+    if (!session?.user) navigate("/login");
+    else navigate("/organisateur/mon-espace");
+  };
 
   const featured = useMemo(() => {
     const now = new Date();
     return {
       tag: "À LA UNE",
-      title: "L’article de la semaine arrive sur TickRace",
+      title: "Article & photo de la semaine",
       excerpt:
-        "Bientôt : une sélection éditoriale (actu, conseils, nouveautés, coups de cœur) qui changera chaque semaine sur la page d’accueil.",
-      editionLabel: `Édition du ${fmtDate(now)}`,
-      ctaLabel: "Découvrir",
-      href: "#",
+        "Ici, tu mettras un contenu qui change chaque semaine : actu, conseils, sélection de courses, focus organisateur…",
+      editionLabel: `Semaine du ${fmtDate(now)}`,
+      ctaLabel: "Lire",
+      href: "#", // à remplacer plus tard
+      // ✅ Mini photo locale : mets /public/a-la-une.jpg et change-la chaque semaine
+      imageSrc: "/a-la-une.jpg",
     };
   }, []);
-
-  const goOrganizer = () => {
-    if (!session?.user) {
-      navigate("/login");
-    } else {
-      navigate("/organisateur/mon-espace");
-    }
-  };
 
   const sim = useMemo(() => {
     const n = Math.max(0, Number(simParticipants || 0));
@@ -163,8 +183,6 @@ export default function Home() {
       fraisStripe,
       netOrganisateur,
       netParInscrit: n > 0 ? netOrganisateur / n : 0,
-      stripePct,
-      stripeFixe,
     };
   }, [simParticipants, simPrix, simExtras, simStripe]);
 
@@ -180,7 +198,6 @@ export default function Home() {
           .limit(3);
         if (error) throw error;
 
-        // On ramène aussi des infos de formats pour distance/d+
         const ids = (data || []).map((c) => c.id);
         let byCourse = {};
         if (ids.length) {
@@ -247,11 +264,13 @@ export default function Home() {
                 Inscris-toi, organise, cours.{" "}
                 <span className="text-orange-600">Une seule plateforme.</span>
               </h1>
+
               <p className="text-neutral-600 max-w-xl">
                 TickRace centralise la création d’épreuves, l’inscription coureurs, le chat
                 communautaire, la gestion des bénévoles et les reversements automatiques.
                 Une solution pensée pour simplifier la vie des organisateurs et des coureurs.
               </p>
+
               <div className="flex flex-wrap gap-3 pt-1">
                 <CTA to="/courses">
                   <ArrowRight className="h-4 w-4" /> Trouver une course
@@ -263,6 +282,7 @@ export default function Home() {
                   <Settings className="h-4 w-4" /> Je suis organisateur
                 </button>
               </div>
+
               <div className="flex flex-wrap items-center gap-3 pt-2 text-xs text-neutral-500">
                 <Badge>
                   <Star className="h-3.5 w-3.5" /> 5% frais plateforme organisateur
@@ -290,6 +310,55 @@ export default function Home() {
               </div>
             </motion.div>
           </div>
+        </Container>
+      </section>
+
+      {/* À LA UNE — bandeau full width (mini photo, pas d'aplat) */}
+      <section className="py-6 sm:py-8">
+        <Container>
+          <Card className="p-4 sm:p-5">
+            <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
+              <div className="flex items-start gap-3 flex-1">
+                <div className="relative">
+                  <img
+                    src={featured.imageSrc}
+                    alt="À la une"
+                    className="h-16 w-16 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
+                    loading="lazy"
+                  />
+                  <span className="absolute -top-2 -left-2 rounded-full bg-lime-400 px-2 py-1 text-[10px] font-black text-neutral-900 ring-1 ring-neutral-200">
+                    {featured.tag}
+                  </span>
+                </div>
+
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <SoftTag>{featured.editionLabel}</SoftTag>
+                    <SoftTag>Mise à jour hebdo</SoftTag>
+                    <SoftTag>Site en cours de développement</SoftTag>
+                  </div>
+                  <div className="mt-2 text-base sm:text-lg font-black leading-snug">
+                    {featured.title}
+                  </div>
+                  <p className="mt-1 text-sm text-neutral-600 line-clamp-2">
+                    {featured.excerpt}
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <CTA href={featured.href} className="px-4 py-2 rounded-xl">
+                  {featured.ctaLabel} <ArrowRight className="h-4 w-4" />
+                </CTA>
+                <Link
+                  to="/contact"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                >
+                  Partenariat
+                </Link>
+              </div>
+            </div>
+          </Card>
         </Container>
       </section>
 
@@ -331,7 +400,12 @@ export default function Home() {
                 <CTA to="/courses">
                   <ArrowRight className="h-4 w-4" /> Rechercher
                 </CTA>
-                <Ghost to="/courses">Voir la carte</Ghost>
+                <Link
+                  to="/courses"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                >
+                  Voir la carte
+                </Link>
               </div>
             </div>
           </Card>
@@ -374,14 +448,11 @@ export default function Home() {
                     )}
                   </div>
                   <div className="p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <h3 className="text-base font-bold leading-snug line-clamp-1">{r.nom}</h3>
-                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                          <MapPin className="h-3.5 w-3.5" /> {r.lieu} ({r.departement})
-                        </div>
-                      </div>
+                    <h3 className="text-base font-bold leading-snug line-clamp-1">{r.nom}</h3>
+                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
+                      <MapPin className="h-3.5 w-3.5" /> {r.lieu} ({r.departement})
                     </div>
+
                     <div className="mt-3 flex items-center gap-3 text-sm">
                       {r.minDist != null && r.maxDist != null && (
                         <Badge>
@@ -394,6 +465,7 @@ export default function Home() {
                         </Badge>
                       )}
                     </div>
+
                     <div className="mt-4 flex items-center justify-between">
                       <Link
                         to={`/inscription/${r.id}`}
@@ -416,364 +488,90 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* ORGANISER + COMMUNITY (regroupés) */}
-      <section id="org" className="py-12 sm:py-16 bg-white">
-        {/* ✅ IMPORTANT: items-start pour supprimer les grands vides */}
-        <Container className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
-          <motion.div
-            initial={{ opacity: 0, x: -10 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.45 }}
-          >
-            <h2 className="text-3xl sm:4xl font-black tracking-tight">
-              Publiez votre course en quelques minutes
-            </h2>
-            <p className="mt-3 text-neutral-600 max-w-xl">
-              Créez une page dédiée, gérez les inscriptions, les bénévoles, les reversements
-              automatiques et le chat sous l’épreuve. Tout est pensé pour gagner du temps
-              et limiter les fichiers Excel.
-            </p>
-            <ul className="mt-5 grid gap-2 text-sm text-neutral-700">
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-orange-500" /> Multi-formats
-                (individuel, groupe, relais) & quotas par format
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-orange-500" /> Paiements Stripe &
-                reversements automatiques à J+1
-              </li>
-              <li className="flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-orange-500" /> Annulation en ligne
-                par le coureur, avec crédit / remboursement calculé automatiquement
-              </li>
-            </ul>
-            <div className="mt-6 flex gap-3">
+      {/* 3 BLOCS ÉGAUX (plus de vide colonne gauche) */}
+      <section className="py-10 sm:py-14 bg-white">
+        <Container>
+          <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
+            <div>
+              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
+                Une plateforme pour organiser et courir
+              </h2>
+              <p className="mt-2 text-neutral-600 max-w-2xl">
+                Des outils clairs, une expérience moderne, et une page d’accueil qui peut évoluer chaque semaine
+                grâce à “À LA UNE”.
+              </p>
+            </div>
+            <div className="flex gap-2">
               <button
                 onClick={goOrganizer}
-                className="inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px"
+                className="inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-4 py-2 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300"
               >
-                <Settings className="h-4 w-4" /> Accéder à l'espace organisateur
+                <Settings className="h-4 w-4" /> Espace organisateur
               </button>
-              <Ghost to="/fonctionnalites">Voir toutes les fonctionnalités</Ghost>
+              <Link
+                to="/courses"
+                className="inline-flex items-center gap-2 rounded-2xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+              >
+                Voir les courses
+              </Link>
             </div>
-          </motion.div>
+          </div>
 
-          <motion.div
-            initial={{ opacity: 0, x: 10 }}
-            whileInView={{ opacity: 1, x: 0 }}
-            viewport={{ once: true }}
-            transition={{ duration: 0.45 }}
-          >
-            <Card className="p-6">
-              <div className="grid grid-cols-2 gap-4">
-                {/* À LA UNE */}
-                <div className="col-span-2 overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-neutral-900 text-white">
-                  <div className="grid grid-cols-1 sm:grid-cols-5">
-                    <div className="sm:col-span-2 relative">
-                      <div className="h-40 sm:h-full w-full bg-[radial-gradient(90%_80%_at_20%_0%,#fb923c_0%,transparent_55%),radial-gradient(80%_70%_at_90%_30%,#a3e635_0%,transparent_55%),linear-gradient(135deg,#0a0a0a_0%,#171717_55%,#0a0a0a_100%)]" />
-                      <div className="absolute inset-0 grid place-items-center text-white/70 text-xs font-semibold">
-                        Image hebdo (à venir)
-                      </div>
-                      <div className="absolute left-3 top-3">
-                        <span className="inline-flex items-center rounded-full bg-lime-400 px-3 py-1 text-[11px] font-black text-neutral-900">
-                          {featured.tag}
-                        </span>
-                      </div>
-                    </div>
+          <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Organisateur */}
+            <Card className="p-6 h-full">
+              <h3 className="text-xl font-black">Publiez votre course en quelques minutes</h3>
+              <p className="mt-2 text-sm text-neutral-600">
+                Page dédiée, inscriptions, quotas, options, reversements automatiques. Fini les tableaux Excel.
+              </p>
 
-                    <div className="sm:col-span-3 p-4 sm:p-5">
-                      <div className="flex flex-wrap items-center gap-2 text-xs text-white/70">
-                        <span className="rounded-full bg-white/10 px-2 py-1 ring-1 ring-white/10">
-                          Mise à jour hebdo
-                        </span>
-                        <span className="rounded-full bg-white/10 px-2 py-1 ring-1 ring-white/10">
-                          Site en cours de développement
-                        </span>
-                        <span className="rounded-full bg-white/10 px-2 py-1 ring-1 ring-white/10">
-                          {featured.editionLabel}
-                        </span>
-                      </div>
+              <ul className="mt-4 grid gap-2 text-sm text-neutral-700">
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-orange-500" /> Multi-formats & quotas par format
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-orange-500" /> Paiements Stripe & reversements
+                </li>
+                <li className="flex items-center gap-2">
+                  <span className="h-2 w-2 rounded-full bg-orange-500" /> Annulation en ligne (crédit / remboursement)
+                </li>
+              </ul>
 
-                      <h3 className="mt-3 text-xl sm:text-2xl font-black leading-tight">
-                        {featured.title}
-                      </h3>
-                      <p className="mt-2 text-sm text-white/80 max-w-xl">{featured.excerpt}</p>
+              <div className="mt-6 flex gap-2">
+                <button
+                  onClick={goOrganizer}
+                  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  Ouvrir l’espace <ArrowRight className="h-4 w-4" />
+                </button>
+                <Link
+                  to="/fonctionnalites"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                >
+                  Détails
+                </Link>
+              </div>
 
-                      <div className="mt-4 flex flex-wrap items-center gap-3">
-                        <a
-                          href={featured.href}
-                          className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:brightness-95"
-                        >
-                          {featured.ctaLabel} <ArrowRight className="h-4 w-4" />
-                        </a>
-                        <button
-                          type="button"
-                          onClick={() => {}}
-                          className="inline-flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/15"
-                        >
-                          Proposer un partenariat
-                        </button>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* SIMULATEUR */}
-                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-xs font-semibold text-neutral-500">
-                        Simulateur de gains (estimation)
-                      </div>
-                      <div className="mt-1 text-lg font-bold">
-                        Net organisateur : {fmtEUR(sim.netOrganisateur)}
-                      </div>
-                      <div className="mt-1 text-xs text-neutral-500">
-                        Inclut 5% Tickrace + frais de paiement estimés (Stripe). Reversements automatiques à J+1.
-                      </div>
-                    </div>
-                    <button
-                      onClick={goOrganizer}
-                      className="shrink-0 rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
-                    >
-                      Ouvrir l’espace
-                    </button>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-semibold text-neutral-600">Inscrits</div>
-                        <div className="text-xs font-semibold text-neutral-900">{sim.n}</div>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={3000}
-                        step={10}
-                        value={simParticipants}
-                        onChange={(e) => setSimParticipants(Number(e.target.value))}
-                        className="mt-2 w-full"
-                      />
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={10}
-                          value={simParticipants}
-                          onChange={(e) => setSimParticipants(Number(e.target.value || 0))}
-                          className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-semibold text-neutral-600">
-                          Prix moyen inscription
-                        </div>
-                        <div className="text-xs font-semibold text-neutral-900">
-                          {fmtEUR(sim.prix)}
-                        </div>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={120}
-                        step={1}
-                        value={simPrix}
-                        onChange={(e) => setSimPrix(Number(e.target.value))}
-                        className="mt-2 w-full"
-                      />
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={simPrix}
-                          onChange={(e) => setSimPrix(Number(e.target.value || 0))}
-                          className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
-                      <div className="flex items-center justify-between">
-                        <div className="text-xs font-semibold text-neutral-600">
-                          Panier moyen options
-                        </div>
-                        <div className="text-xs font-semibold text-neutral-900">
-                          {fmtEUR(sim.extras)}
-                        </div>
-                      </div>
-                      <input
-                        type="range"
-                        min={0}
-                        max={40}
-                        step={1}
-                        value={simExtras}
-                        onChange={(e) => setSimExtras(Number(e.target.value))}
-                        className="mt-2 w-full"
-                      />
-                      <div className="mt-2 flex gap-2">
-                        <input
-                          type="number"
-                          min={0}
-                          step={1}
-                          value={simExtras}
-                          onChange={(e) => setSimExtras(Number(e.target.value || 0))}
-                          className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
-                      <div className="text-xs font-semibold text-neutral-600">
-                        Paiement (estimation)
-                      </div>
-                      <div className="mt-2 flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setSimStripe("eu")}
-                          className={[
-                            "flex-1 rounded-xl px-3 py-2 text-sm font-semibold ring-1",
-                            simStripe === "eu"
-                              ? "bg-neutral-900 text-white ring-neutral-900"
-                              : "bg-white text-neutral-800 ring-neutral-200 hover:bg-neutral-50",
-                          ].join(" ")}
-                        >
-                          Carte UE
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setSimStripe("international")}
-                          className={[
-                            "flex-1 rounded-xl px-3 py-2 text-sm font-semibold ring-1",
-                            simStripe === "international"
-                              ? "bg-neutral-900 text-white ring-neutral-900"
-                              : "bg-white text-neutral-800 ring-neutral-200 hover:bg-neutral-50",
-                          ].join(" ")}
-                        >
-                          International
-                        </button>
-                      </div>
-                      <div className="mt-2 text-xs text-neutral-500">
-                        {simStripe === "international"
-                          ? "Estimation : 2,9% + 0,25€ / paiement"
-                          : "Estimation : 1,4% + 0,25€ / paiement"}
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
-                      <div className="text-xs font-semibold text-neutral-600">Détail</div>
-                      <div className="mt-2 space-y-1 text-sm">
-                        <div className="flex items-center justify-between">
-                          <span className="text-neutral-600">Total encaissé</span>
-                          <span className="font-semibold">{fmtEUR(sim.brut)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-neutral-600">Commission Tickrace (5%)</span>
-                          <span className="font-semibold">-{fmtEUR(sim.commissionTickrace)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span className="text-neutral-600">Frais de paiement estimés</span>
-                          <span className="font-semibold">-{fmtEUR(sim.fraisStripe)}</span>
-                        </div>
-                        <div className="mt-2 border-t border-neutral-200 pt-2 flex items-center justify-between">
-                          <span className="text-neutral-900 font-semibold">Net organisateur</span>
-                          <span className="text-neutral-900 font-black">
-                            {fmtEUR(sim.netOrganisateur)}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
-                      <div className="text-xs font-semibold text-neutral-600">Lecture rapide</div>
-                      <div className="mt-2 text-sm text-neutral-700 space-y-1">
-                        <div className="flex items-center justify-between">
-                          <span>Recette / inscrit (moyenne)</span>
-                          <span className="font-semibold">{fmtEUR(sim.totalParInscrit)}</span>
-                        </div>
-                        <div className="flex items-center justify-between">
-                          <span>Net / inscrit (moyenne)</span>
-                          <span className="font-semibold">{fmtEUR(sim.netParInscrit)}</span>
-                        </div>
-                        <div className="mt-2 text-xs text-neutral-500">
-                          Estimation indicative. Le détail réel (options, coupons, annulations, remboursements)
-                          est calculé dans l’espace organisateur.
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Reversements */}
-                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
-                  <div className="text-xs font-semibold text-neutral-500">Reversements</div>
-                  <div className="mt-2 flex items-center justify-between">
-                    <div>
-                      <div className="text-lg font-bold">95% automatique à J+1</div>
-                      <div className="text-xs text-neutral-500">Acompte sur demande</div>
-                    </div>
-                    <a
-                      href="https://www.tickrace.com/monprofilorganisateur"
-                      target="_blank"
-                      rel="noreferrer"
-                      className="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
-                    >
-                      Configurer
-                    </a>
-                  </div>
-                </div>
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Badge>5% Tickrace</Badge>
+                <Badge>Reversement J+1</Badge>
               </div>
             </Card>
-          </motion.div>
-        </Container>
 
-        {/* CHAT juste en dessous */}
-        <Container className="mt-12">
-          <div className="grid items-center gap-10 lg:grid-cols-2">
-            <motion.div
-              initial={{ opacity: 0, x: -10 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.45 }}
-            >
-              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
-                Discutez sous chaque épreuve
-              </h2>
-              <p className="mt-2 text-neutral-600 max-w-xl">
-                Posez vos questions, organisez du covoiturage, et mentionnez l{"' "}
-                <span className="font-semibold">@IA</span> pour obtenir des infos instantanées
-                sur le parcours, l’équipement ou le ravito.
+            {/* Chat */}
+            <Card className="p-6 h-full">
+              <h3 className="text-xl font-black">Discutez sous chaque épreuve</h3>
+              <p className="mt-2 text-sm text-neutral-600">
+                Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse rapide.
               </p>
-              <div className="mt-6 flex gap-3">
-                <Ghost to="/courses">Voir un exemple</Ghost>
-                <CTA to="/courses">
-                  <MessageCircle className="h-4 w-4" /> Ouvrir un chat
-                </CTA>
-              </div>
-            </motion.div>
 
-            <motion.div
-              initial={{ opacity: 0, x: 10 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              viewport={{ once: true }}
-              transition={{ duration: 0.45 }}
-            >
-              <Card className="p-6">
+              <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-orange-300 to-amber-300" />
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200" />
                     <div className="flex-1">
                       <div className="text-sm font-semibold">Léa</div>
-                      <div className="text-sm text-neutral-700">
-                        Quel dénivelé cumulé sur le 32K ?
-                      </div>
+                      <div className="text-sm text-neutral-700">Quel dénivelé cumulé sur le 32K ?</div>
                     </div>
                   </div>
                   <div className="flex items-start gap-3">
@@ -783,21 +581,156 @@ export default function Home() {
                       <div className="text-sm text-neutral-700">+2630 m D+</div>
                     </div>
                   </div>
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">Marco</div>
-                      <div className="text-sm text-neutral-700">
-                        Des passages techniques ?
-                        <span className="ml-2 rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] ring-1 ring-neutral-200">
-                          Skyrace
-                        </span>
-                      </div>
+                </div>
+              </div>
+
+              <div className="mt-6 flex gap-2">
+                <Link
+                  to="/courses"
+                  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  <MessageCircle className="h-4 w-4" /> Voir un chat <ArrowRight className="h-4 w-4" />
+                </Link>
+                <Link
+                  to="/courses"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                >
+                  Trouver une course
+                </Link>
+              </div>
+            </Card>
+
+            {/* Simulateur */}
+            <Card className="p-6 h-full">
+              <h3 className="text-xl font-black">Simulateur de gains organisateur</h3>
+              <p className="mt-2 text-sm text-neutral-600">
+                Estimation rapide : 5% Tickrace + frais de paiement estimés (Stripe).
+              </p>
+
+              <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+                <div className="text-xs font-semibold text-neutral-500">Net organisateur (estimation)</div>
+                <div className="mt-1 text-2xl font-black">{fmtEUR(sim.netOrganisateur)}</div>
+                <div className="mt-1 text-xs text-neutral-500">
+                  ~ {fmtEUR(sim.netParInscrit)} / inscrit • reversements automatiques à J+1
+                </div>
+
+                <div className="mt-4 grid grid-cols-1 gap-3">
+                  <div className="grid grid-cols-2 gap-2">
+                    <label className="text-xs font-semibold text-neutral-600">
+                      Inscrits
+                      <input
+                        type="number"
+                        min={0}
+                        step={10}
+                        value={simParticipants}
+                        onChange={(e) => setSimParticipants(Number(e.target.value || 0))}
+                        className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                      />
+                    </label>
+                    <label className="text-xs font-semibold text-neutral-600">
+                      Prix inscription
+                      <input
+                        type="number"
+                        min={0}
+                        step={1}
+                        value={simPrix}
+                        onChange={(e) => setSimPrix(Number(e.target.value || 0))}
+                        className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                      />
+                    </label>
+                  </div>
+
+                  <label className="text-xs font-semibold text-neutral-600">
+                    Panier options (moyenne)
+                    <input
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={simExtras}
+                      onChange={(e) => setSimExtras(Number(e.target.value || 0))}
+                      className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                    />
+                  </label>
+
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setSimStripe("eu")}
+                      className={[
+                        "flex-1 rounded-xl px-3 py-2 text-sm font-semibold ring-1",
+                        simStripe === "eu"
+                          ? "bg-neutral-900 text-white ring-neutral-900"
+                          : "bg-white text-neutral-800 ring-neutral-200 hover:bg-neutral-50",
+                      ].join(" ")}
+                    >
+                      Carte UE
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setSimStripe("international")}
+                      className={[
+                        "flex-1 rounded-xl px-3 py-2 text-sm font-semibold ring-1",
+                        simStripe === "international"
+                          ? "bg-neutral-900 text-white ring-neutral-900"
+                          : "bg-white text-neutral-800 ring-neutral-200 hover:bg-neutral-50",
+                      ].join(" ")}
+                    >
+                      International
+                    </button>
+                  </div>
+
+                  <div className="mt-1 text-sm">
+                    <div className="flex items-center justify-between">
+                      <span className="text-neutral-600">Total encaissé</span>
+                      <span className="font-semibold">{fmtEUR(sim.brut)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-neutral-600">Commission Tickrace (5%)</span>
+                      <span className="font-semibold">-{fmtEUR(sim.commissionTickrace)}</span>
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <span className="text-neutral-600">Frais paiement estimés</span>
+                      <span className="font-semibold">-{fmtEUR(sim.fraisStripe)}</span>
                     </div>
                   </div>
                 </div>
-              </Card>
-            </motion.div>
+              </div>
+
+              <div className="mt-6 flex gap-2">
+                <button
+                  onClick={goOrganizer}
+                  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  Ouvrir l’espace <ArrowRight className="h-4 w-4" />
+                </button>
+                <Link
+                  to="/fonctionnalites"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                >
+                  Comprendre le modèle
+                </Link>
+              </div>
+            </Card>
+          </div>
+
+          {/* Ajout pour densifier + donner plus de “titres” */}
+          <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+              <div className="text-sm font-black">Carte interactive</div>
+              <div className="mt-1 text-xs text-neutral-600">Liste + map des courses.</div>
+            </div>
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+              <div className="text-sm font-black">Options & promos</div>
+              <div className="mt-1 text-xs text-neutral-600">Upsell simple, codes promo.</div>
+            </div>
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+              <div className="text-sm font-black">Annulation simple</div>
+              <div className="mt-1 text-xs text-neutral-600">Crédit / remboursement auto.</div>
+            </div>
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+              <div className="text-sm font-black">Bénévoles</div>
+              <div className="mt-1 text-xs text-neutral-600">Missions & suivi (roadmap).</div>
+            </div>
           </div>
         </Container>
       </section>
