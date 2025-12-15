@@ -133,7 +133,7 @@ export default function Home() {
       tag: "À LA UNE",
       title: "Article & photo de la semaine",
       excerpt:
-        "Ici, tu mettras un contenu qui change chaque semaine : actu, conseils, sélection de courses, focus organisateur…",
+        "Les actus de la semaine : actu, conseils, sélection de courses, focus organisateur…",
       editionLabel: `Semaine du ${fmtDate(now)}`,
       ctaLabel: "Lire",
       href: "#",
@@ -310,7 +310,7 @@ export default function Home() {
                   <img
                     src={featured.imageSrc}
                     alt="À la une"
-                    className="h-16 w-16 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
+                    className="h-60 w-60 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
                     loading="lazy"
                   />
                   <span className="absolute -top-2 -left-2 rounded-full bg-lime-400 px-2 py-1 text-[10px] font-black text-neutral-900 ring-1 ring-neutral-200">
