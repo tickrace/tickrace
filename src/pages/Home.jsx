@@ -10,6 +10,10 @@ import {
   ArrowRight,
   MessageCircle,
   Settings,
+  Map,
+  Tag,
+  Undo2,
+  Users,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -133,7 +137,7 @@ export default function Home() {
       tag: "À LA UNE",
       title: "Article & photo de la semaine",
       excerpt:
-        "Les actus de la semaine : actu, conseils, sélection de courses, focus organisateur…",
+        "Ici, tu mettras un contenu qui change chaque semaine : actu, conseils, sélection de courses, focus organisateur…",
       editionLabel: `Semaine du ${fmtDate(now)}`,
       ctaLabel: "Lire",
       href: "#",
@@ -255,7 +259,6 @@ export default function Home() {
               <p className="text-neutral-600 max-w-xl">
                 TickRace centralise la création d’épreuves, l’inscription coureurs, le chat
                 communautaire, la gestion des bénévoles et les reversements automatiques.
-                Une solution pensée pour simplifier la vie des organisateurs et des coureurs.
               </p>
 
               <div className="flex flex-wrap gap-3 pt-1">
@@ -310,7 +313,7 @@ export default function Home() {
                   <img
                     src={featured.imageSrc}
                     alt="À la une"
-                    className="h-60 w-60 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
+                    className="h-16 w-16 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
                     loading="lazy"
                   />
                   <span className="absolute -top-2 -left-2 rounded-full bg-lime-400 px-2 py-1 text-[10px] font-black text-neutral-900 ring-1 ring-neutral-200">
@@ -504,6 +507,7 @@ export default function Home() {
           </div>
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
+            {/* Organisateur */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Publiez votre course en quelques minutes</h3>
               <p className="mt-2 text-sm text-neutral-600">
@@ -540,11 +544,13 @@ export default function Home() {
               </div>
             </Card>
 
+            {/* Chat (étoffé) */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Discutez sous chaque épreuve</h3>
               <p className="mt-2 text-sm text-neutral-600">
                 Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse rapide.
               </p>
+
               <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
@@ -554,6 +560,7 @@ export default function Home() {
                       <div className="text-sm text-neutral-700">Quel dénivelé cumulé sur le 32K ?</div>
                     </div>
                   </div>
+
                   <div className="flex items-start gap-3">
                     <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
                     <div className="flex-1">
@@ -561,8 +568,41 @@ export default function Home() {
                       <div className="text-sm text-neutral-700">+2630 m D+</div>
                     </div>
                   </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">Marco</div>
+                      <div className="text-sm text-neutral-700">Il y a des ravitos eau / solide ?</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">@IA</div>
+                      <div className="text-sm text-neutral-700">Oui : points d’eau + ravitos principaux (selon fiche course).</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">Anaïs</div>
+                      <div className="text-sm text-neutral-700">Barrières horaires ? Départ à quelle heure ?</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
+                    <div className="flex-1">
+                      <div className="text-sm font-semibold">Organisateur</div>
+                      <div className="text-sm text-neutral-700">Toutes les infos seront publiées ici + notification aux inscrits.</div>
+                    </div>
+                  </div>
                 </div>
               </div>
+
               <div className="mt-6 flex gap-2">
                 <Link
                   to="/courses"
@@ -579,6 +619,7 @@ export default function Home() {
               </div>
             </Card>
 
+            {/* Simulateur */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Simulateur de gains organisateur</h3>
               <p className="mt-2 text-sm text-neutral-600">
@@ -691,22 +732,82 @@ export default function Home() {
             </Card>
           </div>
 
-          <div className="mt-8 grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-              <div className="text-sm font-black">Carte interactive</div>
-              <div className="mt-1 text-xs text-neutral-600">Liste + map des courses.</div>
+          {/* ✅ Feature cards agrandies */}
+          <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-5 min-h-[190px] flex flex-col">
+              <div className="flex items-center gap-2 text-neutral-900">
+                <Map className="h-5 w-5" />
+                <div className="text-base font-black">Carte interactive</div>
+              </div>
+              <p className="mt-2 text-sm text-neutral-600">
+                Trouve une course en un coup d’œil : liste + carte, filtres et recherche.
+              </p>
+              <ul className="mt-3 text-sm text-neutral-700 space-y-1">
+                <li>• Localisation, date, distance, D+.</li>
+                <li>• Accès rapide à la fiche et à l’inscription.</li>
+              </ul>
+              <div className="mt-auto pt-4">
+                <Link to="/courses" className="text-sm font-semibold text-neutral-800 hover:underline">
+                  Explorer les courses →
+                </Link>
+              </div>
             </div>
-            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-              <div className="text-sm font-black">Options & promos</div>
-              <div className="mt-1 text-xs text-neutral-600">Upsell simple, codes promo.</div>
+
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-5 min-h-[190px] flex flex-col">
+              <div className="flex items-center gap-2 text-neutral-900">
+                <Tag className="h-5 w-5" />
+                <div className="text-base font-black">Options & promos</div>
+              </div>
+              <p className="mt-2 text-sm text-neutral-600">
+                Vends simplement des extras (repas, navette, textile…) et gère des codes promo.
+              </p>
+              <ul className="mt-3 text-sm text-neutral-700 space-y-1">
+                <li>• Catalogue d’options, quantités, quotas.</li>
+                <li>• Codes promo par format / public cible.</li>
+              </ul>
+              <div className="mt-auto pt-4">
+                <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
+                  Voir les options →
+                </Link>
+              </div>
             </div>
-            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-              <div className="text-sm font-black">Annulation simple</div>
-              <div className="mt-1 text-xs text-neutral-600">Crédit / remboursement auto.</div>
+
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-5 min-h-[190px] flex flex-col">
+              <div className="flex items-center gap-2 text-neutral-900">
+                <Undo2 className="h-5 w-5" />
+                <div className="text-base font-black">Annulation simple</div>
+              </div>
+              <p className="mt-2 text-sm text-neutral-600">
+                Le coureur annule en ligne, et Tickrace calcule automatiquement le crédit / remboursement.
+              </p>
+              <ul className="mt-3 text-sm text-neutral-700 space-y-1">
+                <li>• Règles selon J-xx, frais, options incluses.</li>
+                <li>• Traçabilité et statut côté organisateur.</li>
+              </ul>
+              <div className="mt-auto pt-4">
+                <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
+                  Comprendre l’annulation →
+                </Link>
+              </div>
             </div>
-            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-              <div className="text-sm font-black">Bénévoles</div>
-              <div className="mt-1 text-xs text-neutral-600">Missions & suivi (roadmap).</div>
+
+            <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-5 min-h-[190px] flex flex-col">
+              <div className="flex items-center gap-2 text-neutral-900">
+                <Users className="h-5 w-5" />
+                <div className="text-base font-black">Bénévoles</div>
+              </div>
+              <p className="mt-2 text-sm text-neutral-600">
+                Simplifie la gestion des missions : inscriptions, planning, points de passage (roadmap).
+              </p>
+              <ul className="mt-3 text-sm text-neutral-700 space-y-1">
+                <li>• Affectations & communication équipe.</li>
+                <li>• Suivi sur mobile sur le terrain (V2+).</li>
+              </ul>
+              <div className="mt-auto pt-4">
+                <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
+                  Découvrir la roadmap →
+                </Link>
+              </div>
             </div>
           </div>
         </Container>
