@@ -451,15 +451,33 @@ export default function Home() {
           >
             <Card className="p-6">
               <div className="grid grid-cols-2 gap-4">
-                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
-                  <div className="text-xs font-semibold text-neutral-500">Inscriptions</div>
-                  <div className="mt-2 text-2xl font-black">1 254</div>
-                  <div className="mt-2 h-20 rounded-lg bg-gradient-to-br from-orange-200 to-amber-200" />
-                </div>
-                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200">
-                  <div className="text-xs font-semibold text-neutral-500">Revenus (30j)</div>
-                  <div className="mt-2 text-2xl font-black">12 430€</div>
-                  <div className="mt-2 h-20 rounded-lg bg-gradient-to-br from-neutral-200 to-neutral-300" />
+                {/* BLOC PARTENAIRE (placeholder) */}
+                <div className="rounded-xl bg-neutral-50 p-4 ring-1 ring-neutral-200 col-span-2">
+                  <div className="flex flex-col sm:flex-row gap-4">
+                    <div className="sm:w-40 w-full">
+                      {/* Photo partenaire à ajouter plus tard */}
+                      <div className="aspect-[16/10] w-full rounded-xl bg-neutral-200/70 ring-1 ring-neutral-200 grid place-items-center text-neutral-500 text-xs">
+                        Photo partenaire
+                      </div>
+                    </div>
+                    <div className="flex-1">
+                      <div className="text-xs font-semibold text-neutral-500">Partenaire média</div>
+                      <div className="mt-1 text-lg font-bold">Esprit Trail (à venir)</div>
+                      <p className="mt-1 text-sm text-neutral-600">
+                        Un contenu éditorial renouvelé (actu, conseils, sélection de courses),
+                        mis en avant sur TickRace. Cliquez pour découvrir l’article de la semaine.
+                      </p>
+                      <div className="mt-3">
+                        <button
+                          type="button"
+                          className="inline-flex items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                        >
+                          Découvrir
+                          <ArrowRight className="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 {/* SIMULATEUR DE GAINS */}
@@ -516,7 +534,9 @@ export default function Home() {
                         <div className="text-xs font-semibold text-neutral-600">
                           Prix moyen inscription
                         </div>
-                        <div className="text-xs font-semibold text-neutral-900">{fmtEUR(sim.prix)}</div>
+                        <div className="text-xs font-semibold text-neutral-900">
+                          {fmtEUR(sim.prix)}
+                        </div>
                       </div>
                       <input
                         type="range"
@@ -570,7 +590,9 @@ export default function Home() {
                     </div>
 
                     <div className="rounded-xl bg-white p-3 ring-1 ring-neutral-200">
-                      <div className="text-xs font-semibold text-neutral-600">Paiement (estimation)</div>
+                      <div className="text-xs font-semibold text-neutral-600">
+                        Paiement (estimation)
+                      </div>
                       <div className="mt-2 flex gap-2">
                         <button
                           type="button"
@@ -623,7 +645,9 @@ export default function Home() {
                         </div>
                         <div className="mt-2 border-t border-neutral-200 pt-2 flex items-center justify-between">
                           <span className="text-neutral-900 font-semibold">Net organisateur</span>
-                          <span className="text-neutral-900 font-black">{fmtEUR(sim.netOrganisateur)}</span>
+                          <span className="text-neutral-900 font-black">
+                            {fmtEUR(sim.netOrganisateur)}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -640,8 +664,8 @@ export default function Home() {
                           <span className="font-semibold">{fmtEUR(sim.netParInscrit)}</span>
                         </div>
                         <div className="mt-2 text-xs text-neutral-500">
-                          Estimation indicative. Le détail réel (options, coupons, annulations, remboursements)
-                          est calculé dans l’espace organisateur.
+                          Estimation indicative. Le détail réel (options, coupons, annulations,
+                          remboursements) est calculé dans l’espace organisateur.
                         </div>
                       </div>
                     </div>
@@ -685,8 +709,8 @@ export default function Home() {
             </h2>
             <p className="mt-2 text-neutral-600 max-w-xl">
               Posez vos questions, organisez du covoiturage, et mentionnez l{"' "}
-              <span className="font-semibold">@IA</span> pour obtenir des infos
-              instantanées sur le parcours, l’équipement ou le ravito.
+              <span className="font-semibold">@IA</span> pour obtenir des infos instantanées
+              sur le parcours, l’équipement ou le ravito.
             </p>
             <div className="mt-6 flex gap-3">
               <Ghost to="/courses">Voir un exemple</Ghost>
