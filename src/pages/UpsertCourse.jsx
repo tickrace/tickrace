@@ -4,6 +4,7 @@ import { useParams, useNavigate, Link } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
 import { BookOpen, ArrowUpRight } from "lucide-react";
+import GainPreview from "../components/GainPreview";
 
 /* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
@@ -235,6 +236,11 @@ function OptionsEditor({ options, setOptions }) {
                 placeholder="Ex. 12"
               />
             </Field>
+            <GainPreview
+  basePriceEUR={Number(o.price_eur || 0)}
+  defaultParticipants={200}
+/>
+            
             <Field label="Quantité max / inscription">
               <Input
                 type="number"
