@@ -1449,9 +1449,7 @@ export default function UpsertCourse() {
                           placeholder="Ex. 35"
                         />
                       </Field>
-<div className="mt-2">
-  <GainPreview basePriceEUR={Number(o.price_eur || 0)} defaultParticipants={200} />
-</div>
+
 
                       {f.type_format !== "individuel" && (
                         <Field label="Prix équipe (optionnel)">
