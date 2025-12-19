@@ -239,6 +239,10 @@ function OptionsEditor({ options, setOptions }) {
             <div className="mt-2">
   <GainPreview basePriceEUR={Number(o.price_eur || 0)} defaultParticipants={200} />
 </div>
+<div className="mt-2 rounded-xl bg-red-100 p-3 text-sm">
+  TEST GAINPREVIEW
+</div>
+
             
             <Field label="Quantité max / inscription">
               <Input
