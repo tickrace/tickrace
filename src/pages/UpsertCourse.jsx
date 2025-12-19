@@ -1448,6 +1448,14 @@ export default function UpsertCourse() {
                           onChange={(e) => handleFormatChange(index, e)}
                           placeholder="Ex. 35"
                         />
+
+                        {/* Aperçu gains organisateur (repliable) */}
+    <div className="mt-2">
+      <GainPreview
+        basePriceEUR={Number(f.prix || 0)}
+        defaultParticipants={Number(f.nb_max_coureurs || 200)}
+      />
+    </div>
                       </Field>
 
 
