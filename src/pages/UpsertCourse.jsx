@@ -236,10 +236,9 @@ function OptionsEditor({ options, setOptions }) {
                 placeholder="Ex. 12"
               />
             </Field>
-            <GainPreview
-  basePriceEUR={Number(o.price_eur || 0)}
-  defaultParticipants={200}
-/>
+            <div className="mt-2">
+  <GainPreview basePriceEUR={Number(o.price_eur || 0)} defaultParticipants={200} />
+</div>
             
             <Field label="Quantité max / inscription">
               <Input
