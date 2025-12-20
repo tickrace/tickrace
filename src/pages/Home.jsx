@@ -75,12 +75,6 @@ const Badge = ({ children }) => (
   </span>
 );
 
-const SoftTag = ({ children }) => (
-  <span className="inline-flex items-center rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] font-semibold text-neutral-700 ring-1 ring-neutral-200">
-    {children}
-  </span>
-);
-
 // --- Utils
 const fmtDate = (d) =>
   d
@@ -97,14 +91,6 @@ const fmtEUR = (n) =>
     currency: "EUR",
     maximumFractionDigits: 2,
   }).format(Number(n || 0));
-
-function getISOWeek(date) {
-  const d = new Date(Date.UTC(date.getFullYear(), date.getMonth(), date.getDate()));
-  const dayNum = d.getUTCDay() || 7; // 1..7 (lundi..dimanche)
-  d.setUTCDate(d.getUTCDate() + 4 - dayNum);
-  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
-  return Math.ceil(((d - yearStart) / 86400000 + 1) / 7);
-}
 
 // ============================
 // Page
@@ -126,10 +112,6 @@ export default function Home() {
     if (!session?.user) navigate("/login");
     else navigate("/organisateur/mon-espace");
   };
-
-  // À LA UNE : rotation hebdo entre tes 4 images du dossier public/
-  <ALaUneSection />
-
 
   const sim = useMemo(() => {
     const n = Math.max(0, Number(simParticipants || 0));
@@ -289,54 +271,8 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* À LA UNE — bandeau full width */}
-      <section className="py-6 sm:py-8">
-        <Container>
-          <Card className="p-4 sm:p-5">
-            <div className="flex flex-col sm:flex-row gap-4 sm:items-center">
-              <div className="flex items-start gap-3 flex-1">
-                <div className="relative">
-                  <img
-                    src={featured.imageSrc}
-                    alt="À la une"
-                    className="h-160 w-120 rounded-2xl object-cover ring-1 ring-neutral-200 bg-neutral-100"
-                    loading="lazy"
-                  />
-                  <span className="absolute -top-2 -left-2 rounded-full bg-lime-400 px-2 py-1 text-[10px] font-black text-neutral-900 ring-1 ring-neutral-200">
-                    {featured.tag}
-                  </span>
-                </div>
-
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <SoftTag>{featured.editionLabel}</SoftTag>
-                    <SoftTag>Mise à jour hebdo</SoftTag>
-                    <SoftTag>Site en cours de développement</SoftTag>
-                  </div>
-                  <div className="mt-2 text-base sm:text-lg font-black leading-snug">
-                    {featured.title}
-                  </div>
-                  <p className="mt-1 text-sm text-neutral-600 line-clamp-2">
-                    {featured.excerpt}
-                  </p>
-                </div>
-              </div>
-
-              <div className="flex gap-2">
-                <CTA href={featured.href} className="px-4 py-2 rounded-xl">
-                  {featured.ctaLabel} <ArrowRight className="h-4 w-4" />
-                </CTA>
-                <Link
-                  to="/contact"
-                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
-                >
-                  Partenariat
-                </Link>
-              </div>
-            </div>
-          </Card>
-        </Container>
-      </section>
+      {/* À LA UNE — désormais géré par le composant (plus de 'featured' ici) */}
+      <ALaUneSection />
 
       {/* SEARCH + DERNIÈRES COURSES */}
       <section id="courses" className="py-8 sm:py-12">
@@ -530,65 +466,12 @@ export default function Home() {
               </div>
             </Card>
 
-            {/* Chat (étoffé) */}
+            {/* Chat */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Discutez sous chaque épreuve</h3>
               <p className="mt-2 text-sm text-neutral-600">
                 Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse rapide.
               </p>
-
-              <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-                <div className="space-y-3">
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">Léa</div>
-                      <div className="text-sm text-neutral-700">Quel dénivelé cumulé sur le 32K ?</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">@IA</div>
-                      <div className="text-sm text-neutral-700">+2630 m D+</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">Marco</div>
-                      <div className="text-sm text-neutral-700">Il y a des ravitos eau / solide ?</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">@IA</div>
-                      <div className="text-sm text-neutral-700">Oui : points d’eau + ravitos principaux (selon fiche course).</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">Anaïs</div>
-                      <div className="text-sm text-neutral-700">Barrières horaires ? Départ à quelle heure ?</div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-start gap-3">
-                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200" />
-                    <div className="flex-1">
-                      <div className="text-sm font-semibold">Organisateur</div>
-                      <div className="text-sm text-neutral-700">Toutes les infos seront publiées ici + notification aux inscrits.</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
               <div className="mt-6 flex gap-2">
                 <Link
                   to="/courses"
@@ -718,7 +601,7 @@ export default function Home() {
             </Card>
           </div>
 
-          {/* ✅ Feature cards agrandies */}
+          {/* ✅ Feature cards */}
           <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-5 min-h-[190px] flex flex-col">
               <div className="flex items-center gap-2 text-neutral-900">

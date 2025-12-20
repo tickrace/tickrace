@@ -2,6 +2,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ArrowUpRight, CalendarDays } from "lucide-react";
 import { supabase } from "../../supabase";
+import { Link } from "react-router-dom";
+
+const Container = ({ children, className = "" }) => (
+  <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>
+    {children}
+  </div>
+);
 
 const fmtDate = (d) =>
   d
@@ -23,6 +30,10 @@ function Card({ children, className = "" }) {
       {children}
     </div>
   );
+}
+
+function isInternalLink(url) {
+  return typeof url === "string" && url.startsWith("/");
 }
 
 export default function ALaUneSection({
@@ -53,7 +64,6 @@ export default function ALaUneSection({
           .maybeSingle();
 
         if (error) throw error;
-
         setUne(data || null);
       } catch (e) {
         console.error("[ALaUneSection] fetch error:", e);
@@ -69,85 +79,96 @@ export default function ALaUneSection({
     return une || fallback;
   }, [loading, une, fallback]);
 
-  if (loading) {
-    return (
-      <Card className="overflow-hidden">
-        <div className="grid grid-cols-1 lg:grid-cols-5">
-          <div className="lg:col-span-2 h-44 lg:h-full bg-neutral-100 animate-pulse" />
-          <div className="lg:col-span-3 p-5 space-y-3">
-            <div className="h-4 w-28 bg-neutral-100 rounded animate-pulse" />
-            <div className="h-6 w-2/3 bg-neutral-100 rounded animate-pulse" />
-            <div className="h-4 w-full bg-neutral-100 rounded animate-pulse" />
-            <div className="h-4 w-5/6 bg-neutral-100 rounded animate-pulse" />
-            <div className="h-10 w-40 bg-neutral-100 rounded-xl animate-pulse" />
-          </div>
-        </div>
-      </Card>
-    );
-  }
-
-  if (!content) return null;
-
-  const img = content.image_url || fallback.image_url;
-
   return (
-    <Card className="overflow-hidden">
-      <div className="grid grid-cols-1 lg:grid-cols-5">
-        <div className="lg:col-span-2 relative">
-          <div className="absolute left-4 top-4 z-10">
-            <span className="inline-flex items-center gap-2 rounded-full bg-neutral-900/80 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/10">
-              À LA UNE
-            </span>
-          </div>
-          <div className="h-48 lg:h-full bg-neutral-100">
-            {img ? (
-              <img
-                src={img}
-                alt={content.title}
-                className="h-full w-full object-cover"
-                loading="lazy"
-              />
-            ) : (
-              <div className="h-full w-full grid place-items-center text-neutral-400">
-                (image)
+    <section className="py-6 sm:py-8">
+      <Container>
+        {loading ? (
+          <Card className="overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-5">
+              <div className="lg:col-span-2 h-44 lg:h-full bg-neutral-100 animate-pulse" />
+              <div className="lg:col-span-3 p-5 space-y-3">
+                <div className="h-4 w-28 bg-neutral-100 rounded animate-pulse" />
+                <div className="h-6 w-2/3 bg-neutral-100 rounded animate-pulse" />
+                <div className="h-4 w-full bg-neutral-100 rounded animate-pulse" />
+                <div className="h-4 w-5/6 bg-neutral-100 rounded animate-pulse" />
+                <div className="h-10 w-40 bg-neutral-100 rounded-xl animate-pulse" />
               </div>
-            )}
-          </div>
-        </div>
+            </div>
+          </Card>
+        ) : !content ? null : (
+          <Card className="overflow-hidden">
+            <div className="grid grid-cols-1 lg:grid-cols-5">
+              <div className="lg:col-span-2 relative">
+                <div className="absolute left-4 top-4 z-10">
+                  <span className="inline-flex items-center gap-2 rounded-full bg-neutral-900/80 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/10">
+                    À LA UNE
+                  </span>
+                </div>
 
-        <div className="lg:col-span-3 p-5">
-          <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
-            <span className="inline-flex items-center gap-2">
-              <CalendarDays className="h-4 w-4" />
-              {fmtDate(content.published_at)}
-            </span>
-            <span className="text-neutral-300">•</span>
-            <span>Mis à jour régulièrement</span>
-          </div>
+                <div className="h-48 lg:h-full bg-neutral-100">
+                  {content.image_url ? (
+                    <img
+                      src={content.image_url}
+                      alt={content.title}
+                      className="h-full w-full object-cover"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="h-full w-full grid place-items-center text-neutral-400">
+                      (image)
+                    </div>
+                  )}
+                </div>
+              </div>
 
-          <h3 className="mt-2 text-xl sm:text-2xl font-black tracking-tight">
-            {content.title}
-          </h3>
+              <div className="lg:col-span-3 p-5">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
+                  <span className="inline-flex items-center gap-2">
+                    <CalendarDays className="h-4 w-4" />
+                    {fmtDate(content.published_at)}
+                  </span>
+                  <span className="text-neutral-300">•</span>
+                  <span>Mis à jour régulièrement</span>
+                </div>
 
-          <p className="mt-2 text-sm text-neutral-700 whitespace-pre-line">
-            {content.body}
-          </p>
+                <h3 className="mt-2 text-xl sm:text-2xl font-black tracking-tight">
+                  {content.title}
+                </h3>
 
-          {content.link_url && (
-            <a
-              href={content.link_url}
-              className="mt-4 inline-flex items-center gap-2 rounded-2xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
-            >
-              En savoir plus <ArrowUpRight className="h-4 w-4 opacity-80" />
-            </a>
-          )}
+                <p className="mt-2 text-sm text-neutral-700 whitespace-pre-line">
+                  {content.body}
+                </p>
 
-          {/* Petit disclaimer “site en cours de dev” (toujours visible, discret) */}
-          <div className="mt-4 text-[11px] text-neutral-500">
-            Le site est en cours de développement : certaines fonctionnalités et pages évoluent chaque semaine.
-          </div>
-        </div>
-      </div>
-    </Card>
+                {content.link_url && (
+                  <div className="mt-4">
+                    {isInternalLink(content.link_url) ? (
+                      <Link
+                        to={content.link_url}
+                        className="inline-flex items-center gap-2 rounded-2xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                      >
+                        En savoir plus <ArrowUpRight className="h-4 w-4 opacity-80" />
+                      </Link>
+                    ) : (
+                      <a
+                        href={content.link_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="inline-flex items-center gap-2 rounded-2xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                      >
+                        En savoir plus <ArrowUpRight className="h-4 w-4 opacity-80" />
+                      </a>
+                    )}
+                  </div>
+                )}
+
+                <div className="mt-4 text-[11px] text-neutral-500">
+                  Le site est en cours de développement : certaines fonctionnalités et pages évoluent chaque semaine.
+                </div>
+              </div>
+            </div>
+          </Card>
+        )}
+      </Container>
+    </section>
   );
 }
