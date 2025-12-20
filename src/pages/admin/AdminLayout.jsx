@@ -15,6 +15,8 @@ export default function AdminLayout({ children }) {
         <NavLink to="/admin/categories">
           Catégories d'âge
         </NavLink>
+        <NavLink to="/admin/a-la-une" className="block">À la une</NavLink>
+
       </aside>
       <main className="flex-1">
         {children ?? <Outlet />}

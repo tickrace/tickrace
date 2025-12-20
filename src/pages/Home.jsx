@@ -18,6 +18,7 @@ import {
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
+import ALaUneSection from "../components/home/ALaUneSection";
 
 // --- Mini helpers
 const Container = ({ children, className = "" }) => (
@@ -127,23 +128,8 @@ export default function Home() {
   };
 
   // À LA UNE : rotation hebdo entre tes 4 images du dossier public/
-  const featured = useMemo(() => {
-    const now = new Date();
-    const week = getISOWeek(now);
-    const images = ["/OIP.jpg", "/OIP2.jpg", "/OIP3.jpg", "/OIP4.jpg"];
-    const imageSrc = images[week % images.length];
+  <ALaUneSection />
 
-    return {
-      tag: "À LA UNE",
-      title: "Article & photo de la semaine",
-      excerpt:
-        "Ici, tu mettras un contenu qui change chaque semaine : actu, conseils, sélection de courses, focus organisateur…",
-      editionLabel: `Semaine du ${fmtDate(now)}`,
-      ctaLabel: "Lire",
-      href: "#",
-      imageSrc,
-    };
-  }, []);
 
   const sim = useMemo(() => {
     const n = Math.max(0, Number(simParticipants || 0));
