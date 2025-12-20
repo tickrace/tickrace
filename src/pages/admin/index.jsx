@@ -65,6 +65,16 @@ export default function AdminHome() {
             Gestion des catégories par fédération (FFA, cyclisme, etc.)
           </p>
         </Link>
+        <Link
+  to="/admin/a-la-une"
+  className="p-4 rounded-xl border shadow-sm hover:shadow-md bg-white"
+>
+  <h2 className="text-lg font-semibold">À la une</h2>
+  <p className="text-sm text-gray-500">
+    Gérer le bloc “À LA UNE” de la page d’accueil (photo, titre, texte, lien, date).
+  </p>
+</Link>
+
       </div>
     </div>
   );
