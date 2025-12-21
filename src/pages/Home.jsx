@@ -260,18 +260,14 @@ export default function Home() {
               className="relative"
             >
               <div className="aspect-[4/3] overflow-hidden rounded-3xl ring-1 ring-neutral-200 shadow-xl">
-                <img
-                  src="/home.png"
-                  alt="Coureurs sur TickRace"
-                  className="h-full w-full object-cover"
-                />
+                <img src="/home.png" alt="Coureurs sur TickRace" className="h-full w-full object-cover" />
               </div>
             </motion.div>
           </div>
         </Container>
       </section>
 
-      {/* À LA UNE — désormais géré par le composant (plus de 'featured' ici) */}
+      {/* À LA UNE — géré par le composant */}
       <ALaUneSection />
 
       {/* SEARCH + DERNIÈRES COURSES */}
@@ -284,10 +280,7 @@ export default function Home() {
                   <label className="text-xs font-semibold text-neutral-600">Lieu</label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <MapPin className="h-4 w-4 text-neutral-400" />
-                    <input
-                      className="w-full bg-transparent text-sm outline-none"
-                      placeholder="Ville, région…"
-                    />
+                    <input className="w-full bg-transparent text-sm outline-none" placeholder="Ville, région…" />
                   </div>
                 </div>
                 <div>
@@ -336,9 +329,7 @@ export default function Home() {
               ))
             ) : latest.length === 0 ? (
               <div className="sm:col-span-2 lg:col-span-3">
-                <Card className="p-6 text-center text-neutral-600">
-                  Aucune épreuve en ligne pour le moment.
-                </Card>
+                <Card className="p-6 text-center text-neutral-600">Aucune épreuve en ligne pour le moment.</Card>
               </div>
             ) : (
               latest.map((r) => (
@@ -385,10 +376,7 @@ export default function Home() {
                       >
                         S'inscrire
                       </Link>
-                      <Link
-                        to={`/courses/${r.id}`}
-                        className="text-sm font-semibold text-neutral-700 hover:underline"
-                      >
+                      <Link to={`/courses/${r.id}`} className="text-sm font-semibold text-neutral-700 hover:underline">
                         Voir la fiche
                       </Link>
                     </div>
@@ -405,9 +393,7 @@ export default function Home() {
         <Container>
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
             <div>
-              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">
-                Une plateforme pour organiser et courir
-              </h2>
+              <h2 className="text-3xl sm:text-4xl font-black tracking-tight">Une plateforme pour organiser et courir</h2>
               <p className="mt-2 text-neutral-600 max-w-2xl">
                 Des outils clairs, une expérience moderne, et une page d’accueil qui évolue grâce à “À LA UNE”.
               </p>
@@ -466,12 +452,72 @@ export default function Home() {
               </div>
             </Card>
 
-            {/* Chat */}
+            {/* Chat — avec exemple étoffé */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Discutez sous chaque épreuve</h3>
               <p className="mt-2 text-sm text-neutral-600">
-                Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse rapide.
+                Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse
+                rapide.
               </p>
+
+              {/* ✅ Exemple de chat (étoffé) */}
+              <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+                <div className="space-y-3">
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200 ring-1 ring-orange-300/40" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Léa</div>
+                      <div className="text-sm text-neutral-700">Quel dénivelé cumulé sur le 32K ?</div>
+                      <div className="text-[11px] text-neutral-400 mt-0.5">Il y a 3 min</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200 ring-1 ring-neutral-300/50" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">@IA</div>
+                      <div className="text-sm text-neutral-700">
+                        Sur la fiche actuelle : <span className="font-semibold">+2630 m D+</span>. (Ça peut évoluer si
+                        l’organisateur met à jour la trace.)
+                      </div>
+                      <div className="text-[11px] text-neutral-400 mt-0.5">Il y a 2 min</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-orange-200 ring-1 ring-orange-300/40" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Marco</div>
+                      <div className="text-sm text-neutral-700">Il y a des ravitos eau / solide ?</div>
+                      <div className="text-[11px] text-neutral-400 mt-0.5">Il y a 1 min</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200 ring-1 ring-neutral-300/50" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">@IA</div>
+                      <div className="text-sm text-neutral-700">
+                        Oui : points d’eau + ravitos principaux (selon la fiche et le règlement). Si tu veux, ping
+                        l’orga pour le détail.
+                      </div>
+                      <div className="text-[11px] text-neutral-400 mt-0.5">À l’instant</div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    <div className="h-9 w-9 shrink-0 rounded-full bg-neutral-200 ring-1 ring-neutral-300/50" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-sm font-semibold">Organisateur</div>
+                      <div className="text-sm text-neutral-700">
+                        Merci ! On publie le plan ravito + barrières horaires ce soir, et les inscrits seront notifiés.
+                      </div>
+                      <div className="text-[11px] text-neutral-400 mt-0.5">À l’instant</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <div className="mt-6 flex gap-2">
                 <Link
                   to="/courses"
@@ -491,9 +537,7 @@ export default function Home() {
             {/* Simulateur */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Simulateur de gains organisateur</h3>
-              <p className="mt-2 text-sm text-neutral-600">
-                Estimation rapide : 5% Tickrace + frais de paiement estimés (Stripe).
-              </p>
+              <p className="mt-2 text-sm text-neutral-600">Estimation rapide : 5% Tickrace + frais de paiement estimés (Stripe).</p>
 
               <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
                 <div className="text-xs font-semibold text-neutral-500">Net organisateur (estimation)</div>
