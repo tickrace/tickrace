@@ -1,4 +1,4 @@
-﻿// src/App.jsx
+// src/App.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import Contact from "./pages/Contact";
@@ -61,6 +61,8 @@ import MemberDetails from "./pages/MemberDetails";
 import MonInscriptionEquipe from "./pages/MonInscriptionEquipe";
 // En haut du fichier, avec les autres imports de pages
 import ClassementArrivees from "./pages/ClassementArrivees";
+// imports (dans App.jsx)
+import ReglementAssistant from "./pages/ReglementAssistant";
 
 function AppContent() {
   const { currentRole } = useUser();
@@ -147,6 +149,16 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+          // route (dans <Routes> …)
+<Route
+  path="/organisateur/reglement/:courseId"
+  element={
+    <ProtectedRoute>
+      <ReglementAssistant />
+    </ProtectedRoute>
+  }
+/>
+
           <Route
             path="/mon-inscription/:id"
             element={
@@ -331,7 +343,7 @@ function AppContent() {
     </AdminRoute>
   }
 />
-
+ 
 
           {/* Fallback */}
           <Route

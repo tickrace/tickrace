@@ -448,6 +448,15 @@ export default function MonEspaceOrganisateur() {
                         <Timer size={16} />
                         Classement live
                       </Link>
+                      {/* NOUVEAU : bouton Règlement (assistant) */}
+<Link
+  to={`/organisateur/reglement/${course.id}`}
+  className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-3 py-2 text-white text-sm font-semibold hover:bg-orange-700"
+>
+  <FileText size={16} />
+  Règlement
+</Link>
+
 
                       <button
                         onClick={() => handleDuplicate(course)}
