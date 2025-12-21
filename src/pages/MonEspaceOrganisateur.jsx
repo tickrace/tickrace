@@ -458,6 +458,7 @@ export default function MonEspaceOrganisateur() {
 </Link>
 
 
+
                       <button
                         onClick={() => handleDuplicate(course)}
                         className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"

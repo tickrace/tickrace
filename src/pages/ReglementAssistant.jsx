@@ -787,6 +787,7 @@ export default function ReglementAssistant() {
               </span>
             )}
           </div>
+          
           <div>
             {status === "published" ? (
               <span className="inline-flex items-center gap-2 text-green-700">
