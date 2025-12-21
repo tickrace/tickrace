@@ -149,7 +149,7 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-          // route (dans <Routes> …)
+          {/* Assistant règlement */}
 <Route
   path="/organisateur/reglement/:courseId"
   element={
@@ -158,6 +158,7 @@ function AppContent() {
     </ProtectedRoute>
   }
 />
+
 
           <Route
             path="/mon-inscription/:id"
