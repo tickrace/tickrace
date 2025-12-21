@@ -50,20 +50,16 @@ function escapeHtml(str) {
 }
 
 // ---------- depends_on utils ----------
-function getAnswerValue(answers, key, formatId = null) {
+function getAnswerValue(answers, key) {
   if (!answers) return undefined;
-  if (formatId && answers.formats && answers.formats[formatId]) {
-    const v = answers.formats[formatId][key];
-    if (v !== undefined) return v;
-  }
   return answers.global ? answers.global[key] : undefined;
 }
 
-function shouldShowQuestion(question, answers, formatId = null) {
+function shouldShowQuestion(question, answers) {
   const dep = question?.depends_on;
   if (!dep || Object.keys(dep).length === 0) return true;
 
-  const actual = getAnswerValue(answers, dep.key, formatId);
+  const actual = getAnswerValue(answers, dep.key);
 
   switch (dep.op) {
     case "equals":
@@ -224,12 +220,10 @@ export default function ReglementAssistant() {
   const [loadError, setLoadError] = useState("");
 
   const [course, setCourse] = useState(null);
-  const [formats, setFormats] = useState([]);
 
   const [questions, setQuestions] = useState([]);
-  const [answers, setAnswers] = useState({ global: {}, formats: {}, meta: { version: 1 } });
-
-  const [activeTab, setActiveTab] = useState("global"); // global | formats
+  // ✅ commun à tous les formats : answers.global uniquement
+  const [answers, setAnswers] = useState({ global: {}, meta: { version: 1 } });
 
   const [reglementId, setReglementId] = useState(null);
   const [generatedMd, setGeneratedMd] = useState("");
@@ -253,12 +247,9 @@ export default function ReglementAssistant() {
         setLoading(true);
         setLoadError("");
 
-        // course + formats
+        // course
         const { data: c, error: cErr } = await supabase.from("courses").select("*").eq("id", courseId).single();
         if (cErr) throw new Error(cErr.message);
-
-        const { data: f, error: fErr } = await supabase.from("formats").select("*").eq("course_id", courseId);
-        if (fErr) throw new Error(fErr.message);
 
         // questions
         const { data: q, error: qErr } = await supabase
@@ -279,18 +270,25 @@ export default function ReglementAssistant() {
         if (rErr) throw new Error(rErr.message);
 
         setCourse(c || null);
-        setFormats(f || []);
         setQuestions(q || []);
 
         if (reg) {
           setReglementId(reg.id);
           setStatus(reg.status || "draft");
-          if (reg.answers) setAnswers(reg.answers);
+
+          // ✅ on normalise : on ne garde QUE global/meta
+          const incoming = reg.answers || {};
+          const normalized = {
+            global: incoming.global || {},
+            meta: { ...(incoming.meta || {}), version: incoming?.meta?.version ?? 1 },
+          };
+
+          setAnswers(normalized);
           setGeneratedMd(reg.edited_md || reg.generated_md || "");
         } else {
           setReglementId(null);
           setStatus("draft");
-          setAnswers({ global: {}, formats: {}, meta: { version: 1 } });
+          setAnswers({ global: {}, meta: { version: 1 } });
           setGeneratedMd("");
         }
 
@@ -315,27 +313,12 @@ export default function ReglementAssistant() {
     return Array.from(map.entries());
   }, [questions]);
 
-  const perFormatQuestions = useMemo(() => {
-    return (questions || []).filter((q) => typeof q.key === "string" && q.key.startsWith("format."));
-  }, [questions]);
-
   /* ------------------------------- Set answers ------------------------------ */
 
   const setGlobalAnswer = (key, value) => {
     setAnswers((prev) => ({
       ...(prev || {}),
       global: { ...(prev?.global || {}), [key]: value },
-      meta: { ...(prev?.meta || {}), updated_at: new Date().toISOString() },
-    }));
-  };
-
-  const setFormatAnswer = (formatId, key, value) => {
-    setAnswers((prev) => ({
-      ...(prev || {}),
-      formats: {
-        ...(prev?.formats || {}),
-        [formatId]: { ...(prev?.formats?.[formatId] || {}), [key]: value },
-      },
       meta: { ...(prev?.meta || {}), updated_at: new Date().toISOString() },
     }));
   };
@@ -368,9 +351,8 @@ export default function ReglementAssistant() {
         if (data?.id) setReglementId(data.id);
         if (data?.status) setStatus(data.status);
         setLastSavedAt(new Date());
-      } catch (e) {
-        // on ne bloque pas l’UI, mais on peut afficher une alerte si tu veux
-        // console.error(e);
+      } catch {
+        // silent
       } finally {
         setSavingDraft(false);
       }
@@ -395,7 +377,6 @@ export default function ReglementAssistant() {
       if (error) throw new Error(error.message);
       if (data?.markdown) setGeneratedMd(data.markdown);
 
-      // si l’edge renvoie le reglement
       if (data?.reglement?.id) setReglementId(data.reglement.id);
       if (data?.reglement?.status) setStatus(data.reglement.status);
     } catch (e) {
@@ -515,10 +496,8 @@ export default function ReglementAssistant() {
   }
 
   function resetText() {
-    if (!confirm("Remplacer le texte actuel par la dernière version générée (si disponible) ?")) return;
-    // Si tu veux une vraie “dernière version générée” distincte, stocke generated_md séparément dans l’état.
-    // Ici on garde simple : on ne peut que vider ou conserver.
-    setGeneratedMd((prev) => prev); // no-op, placeholder si tu veux brancher plus tard.
+    if (!confirm("Reset (placeholder) : cette action ne change rien pour l’instant.")) return;
+    setGeneratedMd((prev) => prev); // no-op
   }
 
   /* ---------------------------------- Render -------------------------------- */
@@ -564,7 +543,11 @@ export default function ReglementAssistant() {
               </span>
 
               <span className="text-neutral-500">
-                {savingDraft ? "Enregistrement auto…" : lastSavedAt ? `Dernière sauvegarde : ${lastSavedAt.toLocaleTimeString("fr-FR")}` : ""}
+                {savingDraft
+                  ? "Enregistrement auto…"
+                  : lastSavedAt
+                  ? `Dernière sauvegarde : ${lastSavedAt.toLocaleTimeString("fr-FR")}`
+                  : ""}
               </span>
 
               {reglementId ? <span className="text-neutral-400">• id: {reglementId}</span> : null}
@@ -608,104 +591,38 @@ export default function ReglementAssistant() {
             {formatDateFR(course?.date)}
           </div>
           <div className="mt-2 text-xs text-neutral-500">
-            Onglet “Par format” : uniquement les questions dont la clé commence par <code>format.</code>
+            Le règlement est <b>commun à tous les formats</b>. Les questions avec une clé <code>format.*</code> sont ignorées.
           </div>
-        </div>
-
-        {/* Tabs */}
-        <div className="mt-5 flex flex-wrap gap-2">
-          <button
-            onClick={() => setActiveTab("global")}
-            className={[
-              "rounded-xl px-3 py-2 text-sm font-semibold border",
-              activeTab === "global"
-                ? "border-orange-300 bg-orange-50 text-neutral-900"
-                : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50",
-            ].join(" ")}
-          >
-            Paramètres généraux
-          </button>
-          <button
-            onClick={() => setActiveTab("formats")}
-            className={[
-              "rounded-xl px-3 py-2 text-sm font-semibold border",
-              activeTab === "formats"
-                ? "border-orange-300 bg-orange-50 text-neutral-900"
-                : "border-neutral-200 bg-white text-neutral-700 hover:bg-neutral-50",
-            ].join(" ")}
-          >
-            Par format (optionnel)
-          </button>
         </div>
       </div>
 
       {/* Global questions */}
-      {activeTab === "global" && (
-        <div className="mt-6 space-y-6">
-          {questionsBySection.map(([section, qs]) => {
-            // On exclut les "format.*" de l’onglet global
-            const visible = qs
-              .filter((q) => !(typeof q.key === "string" && q.key.startsWith("format.")))
-              .filter((q) => shouldShowQuestion(q, answers));
+      <div className="mt-6 space-y-6">
+        {questionsBySection.map(([section, qs]) => {
+          // ✅ On ignore totalement les questions format.*
+          const visible = (qs || [])
+            .filter((q) => !(typeof q.key === "string" && q.key.startsWith("format.")))
+            .filter((q) => shouldShowQuestion(q, answers));
 
-            if (visible.length === 0) return null;
+          if (visible.length === 0) return null;
 
-            return (
-              <div key={section} className="rounded-2xl border border-neutral-200 bg-white p-5">
-                <div className="text-lg font-black text-neutral-900">{section}</div>
-                <div className="mt-4 grid gap-4">
-                  {visible.map((q) => (
-                    <QuestionField
-                      key={q.key}
-                      q={q}
-                      value={answers?.global?.[q.key]}
-                      onChange={(val) => setGlobalAnswer(q.key, val)}
-                    />
-                  ))}
-                </div>
+          return (
+            <div key={section} className="rounded-2xl border border-neutral-200 bg-white p-5">
+              <div className="text-lg font-black text-neutral-900">{section}</div>
+              <div className="mt-4 grid gap-4">
+                {visible.map((q) => (
+                  <QuestionField
+                    key={q.key}
+                    q={q}
+                    value={answers?.global?.[q.key]}
+                    onChange={(val) => setGlobalAnswer(q.key, val)}
+                  />
+                ))}
               </div>
-            );
-          })}
-        </div>
-      )}
-
-      {/* Per-format */}
-      {activeTab === "formats" && (
-        <div className="mt-6 space-y-6">
-          {(formats || []).map((fmt) => {
-            const formatId = fmt.id;
-
-            const visible = perFormatQuestions.filter((q) => shouldShowQuestion(q, answers, formatId));
-
-            return (
-              <div key={formatId} className="rounded-2xl border border-neutral-200 bg-white p-5">
-                <div className="text-lg font-black text-neutral-900">{fmt.nom || "Format"}</div>
-                <p className="mt-1 text-sm text-neutral-600">
-                  Paramètres spécifiques à ce format (nocturne, % goudron, matériel, etc.).
-                </p>
-
-                {visible.length === 0 ? (
-                  <div className="mt-4 text-sm text-neutral-600">
-                    Aucune question “par format” pour l’instant. Ajoute des entrées dans <code>reglement_questions</code>{" "}
-                    avec une clé qui commence par <code>format.</code>
-                  </div>
-                ) : (
-                  <div className="mt-4 grid gap-4">
-                    {visible.map((q) => (
-                      <QuestionField
-                        key={q.key}
-                        q={q}
-                        value={answers?.formats?.[formatId]?.[q.key]}
-                        onChange={(val) => setFormatAnswer(formatId, q.key, val)}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      )}
+            </div>
+          );
+        })}
+      </div>
 
       {/* Editor + Export */}
       <div className="mt-8 rounded-2xl border border-neutral-200 bg-white p-5">
@@ -787,12 +704,12 @@ export default function ReglementAssistant() {
               </span>
             )}
           </div>
-          
+
           <div>
             {status === "published" ? (
               <span className="inline-flex items-center gap-2 text-green-700">
                 <CheckCircle2 className="h-4 w-4" />
-                Publié (pense à rendre la page publique côté front)
+                Publié
               </span>
             ) : (
               <span className="inline-flex items-center gap-2">
