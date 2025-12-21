@@ -9,12 +9,14 @@ import {
   Pencil,
   Eye,
   FilePlus,
+  FileText,
   Trash2,
   Globe,
   Lock,
   Link2,
   Timer,
 } from "lucide-react";
+
 
 function eur(cents) {
   if (!Number.isFinite(cents)) cents = 0;
