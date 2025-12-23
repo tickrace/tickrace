@@ -2,16 +2,13 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import Stripe from "https://esm.sh/stripe@16.6.0?target=deno";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
-
 const SEND_INSCRIPTION_EMAIL_URL = Deno.env.get("SEND_INSCRIPTION_EMAIL_URL") || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
 
 function cors(h = new Headers()) {
   h.set("Access-Control-Allow-Origin", "*");
@@ -21,6 +18,33 @@ function cors(h = new Headers()) {
   return h;
 }
 
+const STRIPE_API = "https://api.stripe.com/v1";
+
+async function stripeGet(path: string) {
+  const resp = await fetch(`${STRIPE_API}${path}`, {
+    method: "GET",
+    headers: {
+      Authorization: `Bearer ${STRIPE_SECRET_KEY}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    },
+  });
+
+  const txt = await resp.text();
+  let parsed: any = null;
+  try {
+    parsed = JSON.parse(txt);
+  } catch {
+    // ignore
+  }
+
+  if (!resp.ok) {
+    console.error("STRIPE_GET_ERROR", path, resp.status, txt);
+    throw new Error(`Stripe GET failed: ${path}`);
+  }
+  return parsed;
+}
+
+// Appel de l'Edge Function send-inscription-email
 async function callSendInscriptionEmail(inscriptionId: string) {
   if (!SEND_INSCRIPTION_EMAIL_URL) {
     console.warn("SEND_INSCRIPTION_EMAIL_URL non défini, email non envoyé pour", inscriptionId);
@@ -44,29 +68,12 @@ async function callSendInscriptionEmail(inscriptionId: string) {
   }
 }
 
-/** Util: charge les frais Stripe (bt.fee) en cents depuis un charge.balance_transaction */
-async function getStripeFeeFromCharge(charge: Stripe.Charge) {
-  if (!charge) return { balanceTxId: null as string | null, feeTotal: null as number | null };
-
-  const btId = typeof charge.balance_transaction === "string" ? charge.balance_transaction : null;
-  if (!btId) return { balanceTxId: null, feeTotal: null };
-
-  try {
-    const bt = await stripe.balanceTransactions.retrieve(btId);
-    const fee = typeof bt.fee === "number" ? bt.fee : null; // cents
-    return { balanceTxId: btId, feeTotal: fee };
-  } catch (e) {
-    console.error("BALANCE_TX_RETRIEVE_ERROR", e);
-    return { balanceTxId: btId, feeTotal: null };
-  }
-}
-
-/** Util: traite 1 refund Stripe (id re_...) : met à jour paiements + upsert remboursements */
-async function processRefund(refund: Stripe.Refund) {
-  const refundId = refund.id; // re_...
-  const piId = (refund.payment_intent as string | null) ?? null;
-  const amount = refund.amount || 0; // cents
-  const status = refund.status || "unknown"; // 'succeeded' | 'pending' | 'failed' ...
+/** Refund handler (object = Refund) */
+async function processRefund(refund: any) {
+  const refundId = refund?.id as string; // re_...
+  const piId = (refund?.payment_intent as string | null) ?? null;
+  const amount = Number(refund?.amount || 0); // cents
+  const status = (refund?.status as string) || "unknown"; // succeeded/pending/failed...
 
   console.log("PROCESS_REFUND", refundId, "pi", piId, "amount", amount, "status", status);
 
@@ -87,7 +94,7 @@ async function processRefund(refund: Stripe.Refund) {
   // 2) MAJ paiements (refunded_total + statut)
   if (paiement) {
     const prevRefunded = Number(paiement.refunded_total_cents || 0);
-    const newRefundTotal = prevRefunded + Number(amount || 0);
+    const newRefundTotal = prevRefunded + amount;
 
     const total = Number(paiement.total_amount_cents || 0);
     let newStatus = "rembourse";
@@ -114,10 +121,8 @@ async function processRefund(refund: Stripe.Refund) {
 
   if (exErr) console.error("REFUND_EXISTING_LOOKUP_ERROR", exErr);
 
-  const processedAt =
-    status === "succeeded" ? new Date().toISOString() : null;
+  const processedAt = status === "succeeded" ? new Date().toISOString() : null;
 
-  // si on n'a pas paiement, on ne peut pas lier : on log seulement
   if (!paiement) {
     console.warn("NO_PAIEMENT_FOR_REFUND", refundId);
     return;
@@ -148,10 +153,9 @@ async function processRefund(refund: Stripe.Refund) {
     refund_cents: amount || 0,
     non_refundable_cents: 0,
     stripe_refund_id: refundId,
-    status: status, // 'succeeded' etc
+    status,
     processed_at: processedAt,
     reason: "Remboursement Stripe",
-    // 🔥 V2 ledger: seul un refund réellement Stripe doit impacter la compta
     effective_refund: status === "succeeded",
     requested_at: new Date().toISOString(),
   };
@@ -174,36 +178,32 @@ serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v6");
+  console.log("STRIPE-WEBHOOK v7 (NO SDK)");
 
-  let event: Stripe.Event;
+  let event: any;
   try {
-    const body = await req.json();
-    event = body as Stripe.Event;
+    event = await req.json();
   } catch (err) {
     console.error("WEBHOOK_PARSE_ERROR", err);
-    return new Response(JSON.stringify({ error: "invalid_payload" }), {
-      status: 400,
-      headers,
-    });
+    return new Response(JSON.stringify({ error: "invalid_payload" }), { status: 400, headers });
   }
 
   try {
-    console.log("WEBHOOK_EVENT_TYPE", event.type);
+    console.log("WEBHOOK_EVENT_TYPE", event?.type);
 
     /* ====================================================================== */
-    /* 1) checkout.session.completed → base paiement + inscriptions + emails  */
+    /* 1) checkout.session.completed                                          */
     /* ====================================================================== */
     if (event.type === "checkout.session.completed") {
-      const session = event.data.object as Stripe.Checkout.Session;
-      const sessionId = session.id;
+      const session = event.data.object as any;
+      const sessionId = session.id as string;
 
       console.log("CHECKOUT_COMPLETED_SESSION_ID", sessionId);
 
       const paymentIntentId =
         typeof session.payment_intent === "string"
           ? session.payment_intent
-          : (session.payment_intent as any)?.id || null;
+          : session.payment_intent?.id || null;
 
       const meta = (session.metadata || {}) as Record<string, string>;
       let inscriptionIds: string[] = [];
@@ -234,7 +234,6 @@ serve(async (req) => {
       const montant_total_cents = session.amount_total ?? null;
       const devise = session.currency || null;
 
-      // Récup ligne paiements existante pour cette session
       const payRes = await supabase
         .from("paiements")
         .select("id, inscription_ids")
@@ -246,7 +245,6 @@ serve(async (req) => {
       const existingInsIds = (payRes.data?.inscription_ids as string[] | null) || [];
       const finalInscriptionIds = inscriptionIds.length > 0 ? inscriptionIds : existingInsIds;
 
-      // MAJ paiement (status paye)
       const upd = await supabase
         .from("paiements")
         .update({
@@ -268,7 +266,6 @@ serve(async (req) => {
       if (upd.error) console.error("PAYMENT_UPDATE_ERROR_CHECKOUT", upd.error);
       else console.log("PAYMENT_UPDATE_OK_CHECKOUT", upd.data?.id);
 
-      // MAJ inscriptions + options + groupes
       if (finalInscriptionIds.length) {
         const u1 = await supabase.from("inscriptions").update({ statut: "paye" }).in("id", finalInscriptionIds);
         if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
@@ -291,7 +288,6 @@ serve(async (req) => {
           if (u3.error) console.error("GROUPS_UPDATE_ERROR", u3.error);
         }
 
-        // emails (un par inscription)
         for (const insId of finalInscriptionIds) {
           try {
             await callSendInscriptionEmail(insId);
@@ -303,51 +299,29 @@ serve(async (req) => {
     }
 
     /* ====================================================================== */
-    /* 2) payment_intent.succeeded → enrichir paiements (fee_total etc.)      */
+    /* 2) charge.succeeded → fee_total + receipt_url + charge_id              */
     /* ====================================================================== */
-    if (event.type === "payment_intent.succeeded") {
-      const pi = event.data.object as Stripe.PaymentIntent;
-      const paymentIntentId = pi.id;
+    if (event.type === "charge.succeeded") {
+      const ch = event.data.object as any;
 
-      console.log("PI_SUCCEEDED_ID", paymentIntentId);
+      const chargeId = (ch?.id as string) ?? null;
+      const receiptUrl = (ch?.receipt_url as string | null) ?? null;
+      const balanceTxId = typeof ch?.balance_transaction === "string" ? ch.balance_transaction : null;
+      const paymentIntentId = typeof ch?.payment_intent === "string" ? ch.payment_intent : null;
 
-      const charge = pi.charges?.data?.[0] as Stripe.Charge | undefined;
+      console.log("CHARGE_SUCCEEDED", chargeId, "pi", paymentIntentId, "bt", balanceTxId);
 
-      let receiptUrl: string | null = null;
-      let chargeId: string | null = null;
-      let balanceTxId: string | null = null;
       let feeTotal: number | null = null; // cents
-      let platformFeeAmount: number | null = null;
-
-      if (charge) {
-        chargeId = charge.id;
-        receiptUrl = (charge.receipt_url as string | null) ?? null;
-
-        const feeInfo = await getStripeFeeFromCharge(charge);
-        balanceTxId = feeInfo.balanceTxId;
-        feeTotal = feeInfo.feeTotal;
-
-        if (typeof charge.application_fee_amount === "number") {
-          platformFeeAmount = charge.application_fee_amount;
-        } else if (typeof (pi as any).application_fee_amount === "number") {
-          platformFeeAmount = (pi as any).application_fee_amount;
+      if (balanceTxId) {
+        try {
+          const bt = await stripeGet(`/balance_transactions/${balanceTxId}`);
+          feeTotal = typeof bt?.fee === "number" ? bt.fee : null;
+        } catch (e) {
+          console.error("BALANCE_TX_FETCH_ERROR", e);
         }
       }
 
-      // retrouver la session checkout liée au PI
-      const sessList = await stripe.checkout.sessions.list({
-        payment_intent: paymentIntentId,
-        limit: 1,
-      });
-      const sessionFromList = sessList.data?.[0] || null;
-      const sessionId = sessionFromList?.id || null;
-
-      if (!sessionId) {
-        console.error("NO_SESSION_FOR_PI", paymentIntentId);
-      } else {
-        // IMPORTANT: on force fee_total en int cents si présent
-        const feeTotalInt = typeof feeTotal === "number" ? Math.round(feeTotal) : null;
-
+      if (paymentIntentId) {
         const upd = await supabase
           .from("paiements")
           .update({
@@ -357,47 +331,30 @@ serve(async (req) => {
             charge_id: chargeId,
             receipt_url: receiptUrl,
             balance_transaction_id: balanceTxId,
-            fee_total: feeTotalInt,
-            platform_fee_amount: platformFeeAmount,
+            fee_total: feeTotal,
             updated_at: new Date().toISOString(),
           })
-          .eq("stripe_session_id", sessionId)
-          .select("id, fee_total, status")
-          .maybeSingle();
+          .or(`stripe_payment_intent_id.eq.${paymentIntentId},stripe_payment_intent.eq.${paymentIntentId}`);
 
-        if (upd.error) {
-          console.error("PAYMENT_UPDATE_ERROR_PI", upd.error);
-        } else {
-          console.log("PAYMENT_UPDATE_OK_PI", sessionId, "fee_total", upd.data?.fee_total);
-
-          // OPTIONNEL: si tu veux déclencher l'ajustement ledger immédiatement (au lieu d'un trigger DB)
-          // (à activer seulement si tu as la fonction SQL post_ledger_stripe_fee_adjustment)
-          // if (upd.data?.id && upd.data?.status === "paye" && upd.data?.fee_total) {
-          //   const r = await supabase.rpc("post_ledger_stripe_fee_adjustment", { p_paiement_id: upd.data.id });
-          //   if (r.error) console.error("LEDGER_FEE_ADJUST_RPC_ERROR", r.error);
-          // }
-        }
+        if (upd.error) console.error("PAYMENT_UPDATE_ERROR_CHARGE", upd.error);
+        else console.log("PAYMENT_UPDATE_OK_CHARGE", paymentIntentId, "fee_total", feeTotal);
+      } else {
+        console.warn("CHARGE_WITHOUT_PI", chargeId);
       }
     }
 
     /* ====================================================================== */
-    /* 3) Refunds (PROPRE)                                                    */
+    /* 3) Refunds propres                                                     */
     /* ====================================================================== */
-    // On évite charge.refunded car son object = Charge (source des ch_...).
-    // On traite uniquement refund.created / refund.updated (object = Refund).
     if (event.type === "refund.created" || event.type === "refund.updated") {
-      const refundObj = event.data.object as Stripe.Refund;
-      await processRefund(refundObj);
+      await processRefund(event.data.object);
     }
 
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
-  } catch (e) {
+  } catch (e: any) {
     console.error("WEBHOOK_FATAL", e);
     return new Response(
-      JSON.stringify({
-        error: "webhook_failed",
-        details: String((e as any)?.message ?? e),
-      }),
+      JSON.stringify({ error: "webhook_failed", details: String(e?.message ?? e) }),
       { status: 500, headers },
     );
   }
