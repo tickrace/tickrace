@@ -1,6 +1,6 @@
 // src/pages/ReglementAssistant.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import {
   Save,
@@ -13,6 +13,7 @@ import {
   FileText,
   RefreshCcw,
   Globe,
+  ArrowLeft,
 } from "lucide-react";
 
 /* --------------------------------- Helpers -------------------------------- */
@@ -49,7 +50,6 @@ function escapeHtml(str) {
     .replaceAll("'", "&#039;");
 }
 
-// ---------- depends_on utils ----------
 function getAnswerValue(answers, key) {
   if (!answers) return undefined;
   return answers.global ? answers.global[key] : undefined;
@@ -73,7 +73,6 @@ function shouldShowQuestion(question, answers) {
     case "in":
       return Array.isArray(dep.value) ? dep.value.includes(actual) : false;
     default:
-      // fail-open
       return true;
   }
 }
@@ -91,12 +90,40 @@ function normalizeOptions(opts) {
 
 /* ------------------------------ UI Components ------------------------------ */
 
+function Pill({ children, tone = "neutral" }) {
+  const cls =
+    tone === "green"
+      ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+      : tone === "amber"
+      ? "bg-amber-50 text-amber-900 border-amber-200"
+      : "bg-neutral-50 text-neutral-800 border-neutral-200";
+  return (
+    <span className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-semibold ${cls}`}>
+      {children}
+    </span>
+  );
+}
+
+function Button({ children, className = "", ...props }) {
+  return (
+    <button
+      {...props}
+      className={[
+        "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition",
+        className,
+      ].join(" ")}
+    >
+      {children}
+    </button>
+  );
+}
+
 function QuestionField({ q, value, onChange }) {
   const help = q.help ? <p className="mt-1 text-xs text-neutral-500">{q.help}</p> : null;
 
   if (q.type === "bool") {
     return (
-      <div className="flex items-start gap-3 rounded-xl border border-neutral-200 bg-white p-3">
+      <div className="flex items-start gap-3 rounded-2xl border border-neutral-200 bg-white p-4">
         <input
           type="checkbox"
           className="mt-1 h-4 w-4 accent-orange-500"
@@ -122,7 +149,7 @@ function QuestionField({ q, value, onChange }) {
           {q.required ? " *" : ""}
         </div>
         <textarea
-          className="mt-2 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+          className="mt-2 w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
           rows={4}
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value)}
@@ -141,7 +168,7 @@ function QuestionField({ q, value, onChange }) {
         </div>
         <input
           type="number"
-          className="mt-2 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+          className="mt-2 w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value === "" ? null : Number(e.target.value))}
         />
@@ -159,7 +186,7 @@ function QuestionField({ q, value, onChange }) {
           {q.required ? " *" : ""}
         </div>
         <select
-          className="mt-2 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+          className="mt-2 w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
           value={value ?? ""}
           onChange={(e) => onChange(e.target.value || null)}
         >
@@ -179,7 +206,7 @@ function QuestionField({ q, value, onChange }) {
     const opts = normalizeOptions(q.options);
     const arr = Array.isArray(value) ? value : [];
     return (
-      <div className="rounded-xl border border-neutral-200 bg-white p-3">
+      <div className="rounded-2xl border border-neutral-200 bg-white p-4">
         <div className="text-sm font-semibold text-neutral-900">
           {q.label}
           {q.required ? " *" : ""}
@@ -189,7 +216,7 @@ function QuestionField({ q, value, onChange }) {
           {opts.map((o) => {
             const checked = arr.includes(o.value);
             return (
-              <label key={o.value} className="flex items-start gap-3 rounded-lg border border-neutral-200 px-3 py-2">
+              <label key={o.value} className="flex items-start gap-3 rounded-xl border border-neutral-200 px-3 py-2">
                 <input
                   type="checkbox"
                   className="mt-1 h-4 w-4 accent-orange-500"
@@ -222,7 +249,7 @@ export default function ReglementAssistant() {
   const [course, setCourse] = useState(null);
 
   const [questions, setQuestions] = useState([]);
-  // ✅ commun à tous les formats : answers.global uniquement
+  // ✅ commun à tous les formats
   const [answers, setAnswers] = useState({ global: {}, meta: { version: 1 } });
 
   const [reglementId, setReglementId] = useState(null);
@@ -247,11 +274,9 @@ export default function ReglementAssistant() {
         setLoading(true);
         setLoadError("");
 
-        // course
         const { data: c, error: cErr } = await supabase.from("courses").select("*").eq("id", courseId).single();
         if (cErr) throw new Error(cErr.message);
 
-        // questions
         const { data: q, error: qErr } = await supabase
           .from("reglement_questions")
           .select("*")
@@ -260,23 +285,21 @@ export default function ReglementAssistant() {
 
         if (qErr) throw new Error(qErr.message);
 
-        // existing reglement (draft/published)
-        const { data: reg, error: rErr } = await supabase
-          .from("reglements")
-          .select("*")
-          .eq("course_id", courseId)
-          .maybeSingle();
-
+        const { data: reg, error: rErr } = await supabase.from("reglements").select("*").eq("course_id", courseId).maybeSingle();
         if (rErr) throw new Error(rErr.message);
 
         setCourse(c || null);
-        setQuestions(q || []);
+
+        // ✅ On ignore totalement les questions format.*
+        const cleanedQuestions = (q || []).filter(
+          (it) => !(typeof it?.key === "string" && it.key.startsWith("format."))
+        );
+        setQuestions(cleanedQuestions);
 
         if (reg) {
           setReglementId(reg.id);
           setStatus(reg.status || "draft");
 
-          // ✅ on normalise : on ne garde QUE global/meta
           const incoming = reg.answers || {};
           const normalized = {
             global: incoming.global || {},
@@ -307,8 +330,9 @@ export default function ReglementAssistant() {
   const questionsBySection = useMemo(() => {
     const map = new Map();
     (questions || []).forEach((q) => {
-      if (!map.has(q.section)) map.set(q.section, []);
-      map.get(q.section).push(q);
+      const sec = q.section || "Général";
+      if (!map.has(sec)) map.set(sec, []);
+      map.get(sec).push(q);
     });
     return Array.from(map.entries());
   }, [questions]);
@@ -356,7 +380,7 @@ export default function ReglementAssistant() {
       } finally {
         setSavingDraft(false);
       }
-    }, 800);
+    }, 650);
 
     return () => {
       if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
@@ -379,6 +403,7 @@ export default function ReglementAssistant() {
 
       if (data?.reglement?.id) setReglementId(data.reglement.id);
       if (data?.reglement?.status) setStatus(data.reglement.status);
+      setLastSavedAt(new Date());
     } catch (e) {
       alert(`Impossible de générer le règlement : ${String(e?.message || e)}`);
     } finally {
@@ -496,19 +521,32 @@ export default function ReglementAssistant() {
   }
 
   function resetText() {
-    if (!confirm("Reset (placeholder) : cette action ne change rien pour l’instant.")) return;
-    setGeneratedMd((prev) => prev); // no-op
+    if (!confirm("Réinitialiser le texte affiché à la dernière version générée (si elle existe en base) ?")) return;
+    // Ultra simple: on relit en base et on remet edited_md || generated_md
+    (async () => {
+      try {
+        const { data: reg, error } = await supabase
+          .from("reglements")
+          .select("generated_md,edited_md")
+          .eq("course_id", courseId)
+          .maybeSingle();
+        if (error) throw new Error(error.message);
+        setGeneratedMd(reg?.edited_md || reg?.generated_md || "");
+      } catch {
+        // silent
+      }
+    })();
   }
 
   /* ---------------------------------- Render -------------------------------- */
 
   if (loading) {
-    return <div className="mx-auto max-w-5xl px-4 py-10 text-sm text-neutral-600">Chargement…</div>;
+    return <div className="mx-auto max-w-6xl px-4 py-10 text-sm text-neutral-600">Chargement…</div>;
   }
 
   if (loadError) {
     return (
-      <div className="mx-auto max-w-5xl px-4 py-10">
+      <div className="mx-auto max-w-6xl px-4 py-10">
         <div className="rounded-2xl border border-red-200 bg-red-50 p-5 text-sm text-red-900">
           <div className="flex items-center gap-2 font-bold">
             <AlertTriangle className="h-4 w-4" />
@@ -521,212 +559,222 @@ export default function ReglementAssistant() {
   }
 
   return (
-    <div className="mx-auto max-w-5xl px-4 py-10">
-      {/* Header */}
-      <div className="rounded-2xl border border-neutral-200 bg-white p-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="mx-auto max-w-6xl px-4 py-10">
+      {/* Top bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <Link
+          to={`/modifier-course/${courseId}`}
+          className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Retour
+        </Link>
+
+        <div className="flex items-center gap-2">
+          <Pill tone={status === "published" ? "green" : "neutral"}>
+            {status === "published" ? <CheckCircle2 className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
+            {status === "published" ? "Publié" : "Brouillon"}
+          </Pill>
+
+          {savingDraft ? (
+            <Pill tone="amber">
+              <span className="h-2 w-2 rounded-full bg-orange-500" />
+              Autosave…
+            </Pill>
+          ) : lastSavedAt ? (
+            <span className="text-xs text-neutral-500">
+              Dernière sauvegarde : {lastSavedAt.toLocaleTimeString("fr-FR")}
+            </span>
+          ) : null}
+
+          {reglementId ? <span className="text-xs text-neutral-400">• id: {reglementId}</span> : null}
+        </div>
+      </div>
+
+      {/* Header card */}
+      <div className="mt-4 rounded-3xl border border-neutral-200 bg-white p-6">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
-            <div className="text-xl font-black text-neutral-900">Assistant règlement</div>
+            <div className="text-2xl font-black text-neutral-900">Assistant règlement</div>
             <p className="mt-1 text-sm text-neutral-600">
-              Réponds aux questions → génère un règlement → édite → publie → exporte.
+              Réponds aux questions, puis génère le texte. Le règlement est <b>commun à tous les formats</b>.
             </p>
 
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
-              <span
-                className={[
-                  "inline-flex items-center gap-2 rounded-full px-3 py-1 font-semibold",
-                  status === "published" ? "bg-green-50 text-green-800" : "bg-neutral-100 text-neutral-700",
-                ].join(" ")}
-              >
-                {status === "published" ? <CheckCircle2 className="h-4 w-4" /> : <FileText className="h-4 w-4" />}
-                {status === "published" ? "Publié" : "Brouillon"}
-              </span>
-
-              <span className="text-neutral-500">
-                {savingDraft
-                  ? "Enregistrement auto…"
-                  : lastSavedAt
-                  ? `Dernière sauvegarde : ${lastSavedAt.toLocaleTimeString("fr-FR")}`
-                  : ""}
-              </span>
-
-              {reglementId ? <span className="text-neutral-400">• id: {reglementId}</span> : null}
+            <div className="mt-4 rounded-2xl bg-neutral-50 p-4 text-sm">
+              <div className="font-semibold text-neutral-900">{course?.nom || "Course"}</div>
+              <div className="text-neutral-700">
+                {course?.lieu ? `${course.lieu} • ` : ""}
+                {formatDateFR(course?.date)}
+              </div>
+              <div className="mt-2 text-xs text-neutral-500">
+                Les questions dont la clé commence par <code>format.</code> sont ignorées.
+              </div>
             </div>
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <button
+            <Button
               onClick={onGenerate}
               disabled={generating}
-              className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-60"
+              className="bg-neutral-900 text-white hover:bg-black disabled:opacity-60"
             >
               <Wand2 className="h-4 w-4" />
               {generating ? "Génération…" : "Générer"}
-            </button>
+            </Button>
 
-            <button
+            <Button
               onClick={onSaveText}
               disabled={savingText}
-              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50 disabled:opacity-60"
+              className="border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50 disabled:opacity-60"
             >
               <Save className="h-4 w-4" />
               {savingText ? "Enregistrement…" : "Enregistrer texte"}
-            </button>
+            </Button>
 
-            <button
+            <Button
               onClick={onPublish}
               disabled={publishing}
-              className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-4 py-2 text-sm font-semibold text-white hover:bg-orange-700 disabled:opacity-60"
+              className="bg-orange-600 text-white hover:bg-orange-700 disabled:opacity-60"
             >
               <Globe className="h-4 w-4" />
               {publishing ? "Publication…" : "Publier"}
-            </button>
-          </div>
-        </div>
-
-        <div className="mt-4 rounded-xl bg-neutral-50 p-3 text-sm">
-          <div className="font-semibold text-neutral-900">{course?.nom || "Course"}</div>
-          <div className="text-neutral-700">
-            {course?.lieu ? `${course.lieu} • ` : ""}
-            {formatDateFR(course?.date)}
-          </div>
-          <div className="mt-2 text-xs text-neutral-500">
-            Le règlement est <b>commun à tous les formats</b>. Les questions avec une clé <code>format.*</code> sont ignorées.
+            </Button>
           </div>
         </div>
       </div>
 
-      {/* Global questions */}
-      <div className="mt-6 space-y-6">
-        {questionsBySection.map(([section, qs]) => {
-          // ✅ On ignore totalement les questions format.*
-          const visible = (qs || [])
-            .filter((q) => !(typeof q.key === "string" && q.key.startsWith("format.")))
-            .filter((q) => shouldShowQuestion(q, answers));
+      {/* Main grid */}
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-12">
+        {/* Questions */}
+        <div className="lg:col-span-5">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-6">
+            <div className="text-lg font-black text-neutral-900">Questions</div>
+            <p className="mt-1 text-sm text-neutral-600">
+              Les réponses sont sauvegardées automatiquement (brouillon).
+            </p>
 
-          if (visible.length === 0) return null;
+            <div className="mt-5 space-y-6">
+              {questionsBySection.map(([section, qs]) => {
+                const visible = (qs || []).filter((q) => shouldShowQuestion(q, answers));
+                if (visible.length === 0) return null;
 
-          return (
-            <div key={section} className="rounded-2xl border border-neutral-200 bg-white p-5">
-              <div className="text-lg font-black text-neutral-900">{section}</div>
-              <div className="mt-4 grid gap-4">
-                {visible.map((q) => (
-                  <QuestionField
-                    key={q.key}
-                    q={q}
-                    value={answers?.global?.[q.key]}
-                    onChange={(val) => setGlobalAnswer(q.key, val)}
-                  />
-                ))}
+                return (
+                  <div key={section}>
+                    <div className="text-sm font-extrabold text-neutral-900">{section}</div>
+                    <div className="mt-3 grid gap-3">
+                      {visible.map((q) => (
+                        <QuestionField
+                          key={q.key}
+                          q={q}
+                          value={answers?.global?.[q.key]}
+                          onChange={(val) => setGlobalAnswer(q.key, val)}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
+        {/* Editor */}
+        <div className="lg:col-span-7">
+          <div className="rounded-3xl border border-neutral-200 bg-white p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <div className="text-lg font-black text-neutral-900">Texte du règlement</div>
+                <div className="mt-1 text-sm text-neutral-600">
+                  Génère puis ajuste. Sauvegarde avec “Enregistrer texte” (colonne <code>edited_md</code>).
+                </div>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  onClick={copyToClipboard}
+                  className="border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
+                  title="Copier le texte"
+                >
+                  <ClipboardCopy className="h-4 w-4" />
+                  Copier
+                </Button>
+
+                <Button
+                  onClick={exportMarkdown}
+                  className="border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
+                  title="Télécharger en .md"
+                >
+                  <Download className="h-4 w-4" />
+                  Export .md
+                </Button>
+
+                <Button
+                  onClick={exportAnswersJSON}
+                  className="border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
+                  title="Télécharger les réponses"
+                >
+                  <Download className="h-4 w-4" />
+                  Export réponses
+                </Button>
+
+                <Button
+                  onClick={printText}
+                  className="border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
+                  title="Imprimer"
+                >
+                  <Printer className="h-4 w-4" />
+                  Imprimer
+                </Button>
+
+                <Button
+                  onClick={resetText}
+                  className="border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50"
+                  title="Recharger la dernière version base"
+                >
+                  <RefreshCcw className="h-4 w-4" />
+                  Reset
+                </Button>
               </div>
             </div>
-          );
-        })}
-      </div>
 
-      {/* Editor + Export */}
-      <div className="mt-8 rounded-2xl border border-neutral-200 bg-white p-5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <div className="text-lg font-black text-neutral-900">Texte du règlement</div>
-            <div className="mt-1 text-sm text-neutral-600">
-              Génère puis ajuste. Le texte ci-dessous sera enregistré dans <code>reglements.edited_md</code>.
+            <textarea
+              className="mt-4 w-full rounded-2xl border border-neutral-200 bg-white px-3 py-3 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+              rows={24}
+              value={generatedMd}
+              onChange={(e) => setGeneratedMd(e.target.value)}
+              placeholder="Clique sur “Générer”, puis ajuste ici."
+            />
+
+            <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-500">
+              <div className="inline-flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${savingDraft ? "bg-orange-500" : "bg-neutral-300"}`} />
+                {savingDraft ? "Autosave en cours…" : "Autosave actif (réponses)."}
+              </div>
+
+              <div>
+                {status === "published" ? (
+                  <span className="inline-flex items-center gap-2 text-emerald-700">
+                    <CheckCircle2 className="h-4 w-4" />
+                    Publié
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-2">
+                    <FileText className="h-4 w-4" />
+                    Brouillon
+                  </span>
+                )}
+              </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <button
-              onClick={copyToClipboard}
-              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              title="Copier le texte"
-            >
-              <ClipboardCopy className="h-4 w-4" />
-              Copier
-            </button>
-
-            <button
-              onClick={exportMarkdown}
-              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              title="Télécharger en .md"
-            >
-              <Download className="h-4 w-4" />
-              Export .md
-            </button>
-
-            <button
-              onClick={exportAnswersJSON}
-              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              title="Télécharger les réponses en JSON"
-            >
-              <Download className="h-4 w-4" />
-              Export réponses
-            </button>
-
-            <button
-              onClick={printText}
-              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              title="Imprimer"
-            >
-              <Printer className="h-4 w-4" />
-              Imprimer
-            </button>
-
-            <button
-              onClick={resetText}
-              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              title="Reset (placeholder)"
-            >
-              <RefreshCcw className="h-4 w-4" />
-              Reset
-            </button>
-          </div>
-        </div>
-
-        <textarea
-          className="mt-4 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-          rows={20}
-          value={generatedMd}
-          onChange={(e) => setGeneratedMd(e.target.value)}
-          placeholder="Clique sur “Générer”, puis ajuste ici."
-        />
-
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3 text-xs text-neutral-500">
-          <div>
-            {savingDraft ? (
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-orange-500" />
-                Autosave en cours…
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-2">
-                <span className="h-2 w-2 rounded-full bg-neutral-300" />
-                Autosave actif (réponses).
-              </span>
-            )}
-          </div>
-
-          <div>
-            {status === "published" ? (
-              <span className="inline-flex items-center gap-2 text-green-700">
-                <CheckCircle2 className="h-4 w-4" />
-                Publié
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-2">
-                <FileText className="h-4 w-4" />
-                Brouillon
-              </span>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* Debug */}
-      <div className="mt-8 rounded-2xl border border-neutral-200 bg-white p-5">
-        <div className="text-sm font-bold text-neutral-900">Debug</div>
-        <pre className="mt-2 overflow-auto rounded-xl bg-neutral-50 p-3 text-xs text-neutral-800">
+          {/* Debug (collapsible-ish simple) */}
+          <div className="mt-6 rounded-3xl border border-neutral-200 bg-white p-6">
+            <div className="text-sm font-extrabold text-neutral-900">Debug</div>
+            <pre className="mt-3 overflow-auto rounded-2xl bg-neutral-50 p-4 text-xs text-neutral-800">
 {JSON.stringify({ status, answers }, null, 2)}
-        </pre>
+            </pre>
+          </div>
+        </div>
       </div>
     </div>
   );
