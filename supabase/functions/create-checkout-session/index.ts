@@ -1,6 +1,4 @@
 // supabase/functions/create-checkout-session/index.ts
-// Edge Function (Supabase / Deno)
-
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -22,7 +20,6 @@ function corsHeaders() {
   const h = new Headers();
   h.set("Access-Control-Allow-Origin", "*");
   h.set("Access-Control-Allow-Methods", "POST, OPTIONS");
-  // Autoriser les en-têtes que supabase-js envoie depuis le navigateur
   h.set("Access-Control-Allow-Headers", "authorization, content-type, apikey, x-client-info");
   h.set("Access-Control-Max-Age", "86400");
   h.set("content-type", "application/json; charset=utf-8");
@@ -32,7 +29,6 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: corsHeaders() });
 
 /* ----------------------------- Helpers --------------------------- */
-
 function normMode(raw?: string): "individual" | "team" | "relay" {
   const m = (raw || "").toLowerCase();
   if (!raw) return "individual";
@@ -51,7 +47,6 @@ function toTeamCategory(cat?: string | null): "open" | "male" | "female" | "mixe
   return "open";
 }
 
-// ➜ Par défaut on redirige vers /merci (ta page récap) avec session_id
 function ensureSuccessUrl(u?: string) {
   if (!u || u.trim() === "") return `${BASE_URL}/merci?session_id={CHECKOUT_SESSION_ID}`;
   if (u.includes("{CHECKOUT_SESSION_ID}")) return u;
@@ -63,8 +58,49 @@ function ensureCancelUrl(u?: string) {
   return u;
 }
 
-/* ------------------------------- Zod ----------------------------- */
+function centsToEur(cents: number | null | undefined) {
+  if (typeof cents !== "number") return null;
+  return Math.round(cents) / 100;
+}
 
+/** UPSERT paiements robuste (idempotent, logs d’erreur) */
+async function upsertPaiement(params: {
+  stripe_session_id: string;
+  type: "individuel" | "groupe";
+  inscription_ids: string[];
+  total_cents: number;
+  devise?: string | null;
+  trace_id?: string | null;
+}) {
+  const payload: any = {
+    stripe_session_id: params.stripe_session_id,
+    status: "pending",
+    devise: params.devise || "eur",
+    type: params.type,
+    inscription_ids: params.inscription_ids,
+    total_amount_cents: params.total_cents,
+    amount_total: params.total_cents,
+    amount_subtotal: params.total_cents,
+    montant_total: centsToEur(params.total_cents),
+    trace_id: params.trace_id || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from("paiements")
+    .upsert(payload, { onConflict: "stripe_session_id" })
+    .select("id")
+    .single();
+
+  if (error) {
+    console.error("PAIEMENTS_UPSERT_ERROR", { payload }, error);
+    throw new Error(`paiements upsert échoué: ${error.message}`);
+  }
+  console.log("PAIEMENTS_UPSERT_OK", data?.id);
+  return data?.id as string;
+}
+
+/* ------------------------------- Zod ----------------------------- */
 const OptionSchema = z.object({
   option_id: z.string().uuid(),
   quantity: z.coerce.number().int().positive(),
@@ -75,19 +111,18 @@ const MemberSchema = z.object({
   nom: z.string().min(1),
   prenom: z.string().min(1),
   genre: z.string().optional(),
-  date_naissance: z.string().optional(), // YYYY-MM-DD toléré en string
+  date_naissance: z.string().optional(),
   numero_licence: z.string().optional(),
-  // accepte "" -> undefined
   email: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().email().optional()
+    z.string().email().optional(),
   ),
 }).strip();
 
 const TeamSchemaLoose = z.object({
   team_name: z.string().min(1),
   team_size: z.coerce.number().int().positive(),
-  category: z.string().nullable().optional(), // front: masculine|feminine|mixte...
+  category: z.string().nullable().optional(),
   members: z.array(MemberSchema).min(1),
 }).strip();
 
@@ -95,22 +130,22 @@ const BodyIndividualSchema = z.object({
   inscription_id: z.string().uuid(),
   email: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().email().optional()
+    z.string().email().optional(),
   ),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
-  options_total_eur: z.number().optional(), // non utilisé ici (on relit la table)
+  options_total_eur: z.number().optional(),
   trace_id: z.string().optional(),
 }).strip();
 
 const BodyGroupRelayBase = z.object({
-  mode: z.string(), // FR/EN
+  mode: z.string(),
   format_id: z.string().uuid(),
   course_id: z.string().uuid().optional(),
   user_id: z.string().uuid().optional(),
   email: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().email().optional()
+    z.string().email().optional(),
   ),
   successUrl: z.string().url().optional(),
   cancelUrl: z.string().url().optional(),
@@ -129,7 +164,6 @@ const BodyGroupRelaySchema = z.union([
 ]);
 
 /* ------------------------------ Handler -------------------------- */
-
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders() });
   if (req.method !== "POST") return json({ error: "method_not_allowed" }, 405);
@@ -142,7 +176,6 @@ serve(async (req) => {
     if (tryInd.success) {
       const { inscription_id, email, successUrl, cancelUrl, trace_id } = tryInd.data;
 
-      // Inscription + format
       const { data: insc, error: ie } = await supabase
         .from("inscriptions")
         .select("id, format_id, email, nombre_repas")
@@ -158,15 +191,15 @@ serve(async (req) => {
       if (fe || !format) throw new Error("format introuvable");
 
       const formatPriceCents = Math.round((Number(format.prix) || 0) * 100);
-      const repasUnitCents   = Math.round((Number(format.prix_repas) || 0) * 100);
-      const repasQty         = Math.max(0, Number(insc.nombre_repas || 0));
+      const repasUnitCents = Math.round((Number(format.prix_repas) || 0) * 100);
+      const repasQty = Math.max(0, Number(insc.nombre_repas || 0));
 
-      // Options pending existantes (persistées côté front)
-      const { data: opts } = await supabase
+      const { data: opts, error: oe } = await supabase
         .from("inscriptions_options")
         .select("option_id, quantity, prix_unitaire_cents")
         .eq("inscription_id", insc.id)
         .eq("status", "pending");
+      if (oe) console.error("OPTIONS_LOOKUP_ERROR", oe);
 
       const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [
         {
@@ -178,6 +211,7 @@ serve(async (req) => {
           },
         },
       ];
+
       if (repasQty > 0 && repasUnitCents > 0) {
         items.push({
           quantity: repasQty,
@@ -188,6 +222,7 @@ serve(async (req) => {
           },
         });
       }
+
       for (const o of opts ?? []) {
         if (!o?.prix_unitaire_cents || !o?.quantity) continue;
         items.push({
@@ -201,10 +236,11 @@ serve(async (req) => {
       }
 
       const payerEmail = email || insc.email || undefined;
+
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: items,
-        customer_email: payerEmail, // pré-rempli
+        customer_email: payerEmail,
         payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
         success_url: ensureSuccessUrl(successUrl),
         cancel_url: ensureCancelUrl(cancelUrl),
@@ -216,18 +252,25 @@ serve(async (req) => {
         },
       });
 
-      const total = items.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
-      await supabase.from("paiements").insert({
+      const total = items.reduce(
+        (s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1),
+        0,
+      );
+
+      // ✅ CRUCIAL : créer/mettre à jour la ligne paiements quoi qu’il arrive
+      await upsertPaiement({
         stripe_session_id: session.id,
-        status: "pending",
-        total_amount_cents: total,
+        type: "individuel",
         inscription_ids: [insc.id],
+        total_cents: total,
+        devise: session.currency || "eur",
+        trace_id: trace_id || null,
       });
 
       return json({ url: session.url }, 200);
     }
 
-    /* ---------------------- B) GROUPE / RELAIS (vraies DB) ---------------------- */
+    /* ---------------------- B) GROUPE / RELAIS ---------------------- */
     const tryGrp = BodyGroupRelaySchema.safeParse(body);
     if (!tryGrp.success) {
       console.error("ZOD_GROUP_FAIL:", JSON.stringify(tryGrp.error.issues, null, 2));
@@ -235,19 +278,17 @@ serve(async (req) => {
     }
 
     const payload = tryGrp.data as any;
-    const mode = normMode(payload.mode); // 'team' ou 'relay'
+    const mode = normMode(payload.mode); // team|relay
 
-    // Normaliser en tableau de teams
     const teams = Array.isArray(payload.teams)
       ? payload.teams
       : [{
           team_name: payload.team_name,
           team_size: Number(payload.team_size),
-          category: payload.category ?? null, // masculine|feminine|mixte...
+          category: payload.category ?? null,
           members: payload.members ?? [],
         }];
 
-    // Récup format / tarifs
     const { data: format, error: fe2 } = await supabase
       .from("formats")
       .select("id, nom, prix, prix_equipe")
@@ -256,27 +297,26 @@ serve(async (req) => {
     if (fe2 || !format) throw new Error("format introuvable");
 
     const formatPriceCents = Math.round((Number(format.prix) || 0) * 100);
-    const teamFeeCents     = Math.round((Number(format.prix_equipe) || 0) * 100);
+    const teamFeeCents = Math.round((Number(format.prix_equipe) || 0) * 100);
 
     const allInscriptionIds: string[] = [];
-    const createdGroupIds: string[]   = [];
+    const createdGroupIds: string[] = [];
     const items: Stripe.Checkout.SessionCreateParams.LineItem[] = [];
 
     for (const t of teams) {
       const teamName = String(t.team_name || "").trim();
       const teamSize = Math.max(1, Number(t.team_size || 0));
-      const members  = Array.isArray(t.members) ? t.members : [];
+      const members = Array.isArray(t.members) ? t.members : [];
 
-      // Insert GROUPE selon ton schéma
       const groupPayload = {
-        format_id: payload.format_id,              // NOT NULL
+        format_id: payload.format_id,
         nom_groupe: teamName,
-        team_size: teamSize,                       // NOT NULL
-        statut: "en_attente",                      // CHECK (en_attente|paye|annule)
+        team_size: teamSize,
+        statut: "en_attente",
         team_name: teamName,
         team_name_public: teamName,
-        category: t.category ?? null,              // libre
-        team_category: toTeamCategory(t.category), // CHECK (male|female|mixed|open|masters)
+        category: t.category ?? null,
+        team_category: toTeamCategory(t.category),
         members_count: teamSize,
         capitaine_user_id: payload.user_id ?? null,
       };
@@ -293,7 +333,6 @@ serve(async (req) => {
       }
       createdGroupIds.push(g.id);
 
-      // Frais d’équipe si définis
       if (teamFeeCents > 0) {
         items.push({
           quantity: 1,
@@ -305,11 +344,10 @@ serve(async (req) => {
         });
       }
 
-      // Inscriptions MEMBRES (statut 'en attente', coureur_id=null pour éviter défaut FK)
       const rows = members.map((m: any) => ({
         course_id: payload.course_id ?? null,
         format_id: payload.format_id,
-        coureur_id: null, // ⚠️ éviter gen_random_uuid() par défaut -> FK auth.users
+        coureur_id: null,
         nom: m.nom,
         prenom: m.prenom,
         email: m.email ?? null,
@@ -325,6 +363,7 @@ serve(async (req) => {
         .from("inscriptions")
         .insert(rows)
         .select("id, prenom, nom");
+
       if (ie2 || !inscs) {
         console.error("INSCRIPTIONS_INSERT_ERROR", { rows, ie2 });
         return json({ error: "payload invalide", details: "insertion inscriptions échouée" }, 400);
@@ -333,7 +372,6 @@ serve(async (req) => {
       const ids = inscs.map((r: any) => r.id);
       allInscriptionIds.push(...ids);
 
-      // Lignes Stripe par membre (inscription de base)
       for (const r of inscs) {
         items.push({
           quantity: 1,
@@ -346,14 +384,13 @@ serve(async (req) => {
       }
     }
 
-    // ---------- OPTIONS : une seule fois pour toute la commande ----------
     const orderOptions = payload.selected_options ?? [];
     if (orderOptions.length > 0 && allInscriptionIds.length > 0) {
-      const anchorInscriptionId = allInscriptionIds[0]; // rattacher à la 1ère inscription
+      const anchorInscriptionId = allInscriptionIds[0];
       const optionsRows: any[] = [];
 
       for (const o of orderOptions) {
-        const qty  = Math.max(1, Number(o.quantity || 1));
+        const qty = Math.max(1, Number(o.quantity || 1));
         const unit = Math.max(0, Number(o.prix_unitaire_cents || 0));
 
         optionsRows.push({
@@ -381,46 +418,43 @@ serve(async (req) => {
       }
     }
 
-    // ---------- Stripe Checkout ----------
     const payerEmail = payload.email || undefined;
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: items,
-      customer_email: payerEmail, // pré-rempli
-      payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined, // reçu Stripe
+      customer_email: payerEmail,
+      payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
       success_url: ensureSuccessUrl(payload.successUrl),
       cancel_url: ensureCancelUrl(payload.cancelUrl),
       metadata: {
         mode,
         format_id: payload.format_id,
-        groups: createdGroupIds.join(","), // exploité côté finalize-payment
+        groups: createdGroupIds.join(","),
       },
     });
 
     const total = items.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
-    const { data: pay, error: pe } = await supabase
-      .from("paiements")
-      .insert({
-        stripe_session_id: session.id,
-        status: "pending",
-        total_amount_cents: total,
-        inscription_ids: allInscriptionIds,
-      })
-      .select("id")
-      .single();
 
-    if (!pe && pay?.id && createdGroupIds.length > 0) {
+    // ✅ CRUCIAL : créer/mettre à jour la ligne paiements
+    const paiementId = await upsertPaiement({
+      stripe_session_id: session.id,
+      type: "groupe",
+      inscription_ids: allInscriptionIds,
+      total_cents: total,
+      devise: session.currency || "eur",
+      trace_id: null,
+    });
+
+    if (paiementId && createdGroupIds.length > 0) {
       const { error: upg } = await supabase
         .from("inscriptions_groupes")
-        .update({ paiement_id: pay.id })
+        .update({ paiement_id: paiementId })
         .in("id", createdGroupIds);
       if (upg) console.error("GROUPS_UPDATE_PAYMENT_ERROR", upg);
-    } else if (pe) {
-      console.error("PAIEMENTS_INSERT_ERROR", pe);
     }
 
     return json({ url: session.url }, 200);
-  } catch (e) {
+  } catch (e: any) {
     console.error("CREATE_CHECKOUT_SESSION_FATAL:", e);
     return json({ error: "payload invalide", details: String(e?.message ?? e) }, 400);
   }
