@@ -1,23 +1,120 @@
 // src/pages/MonProfilOrganisateur.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate, useLocation, Link } from "react-router-dom";
+import {
+  BadgeCheck,
+  Building2,
+  CreditCard,
+  FileText,
+  ExternalLink,
+  ArrowRight,
+  RefreshCw,
+  Wallet,
+} from "lucide-react";
 
 const CONDITIONS_VERSION = "2025-08-17";
+const COMPTA_PATH = "/organisateur/compta";
+
+/* ---------- Utils ---------- */
+function cleanStr(v) {
+  const s = (v ?? "").toString().trim();
+  return s.length ? s : "";
+}
+function normalizeIban(s) {
+  return cleanStr(s).replace(/\s+/g, "").toUpperCase();
+}
+function looksLikeIban(s) {
+  const v = normalizeIban(s);
+  if (!v) return true; // optional
+  if (v.length < 15 || v.length > 34) return false;
+  if (!/^[A-Z]{2}[0-9A-Z]+$/.test(v)) return false;
+  return true;
+}
+function looksLikeBic(s) {
+  const v = cleanStr(s).replace(/\s+/g, "").toUpperCase();
+  if (!v) return true; // optional
+  return /^[A-Z0-9]{8}([A-Z0-9]{3})?$/.test(v);
+}
+
+/* ---------- UI helpers ---------- */
+function Field({ label, hint, children }) {
+  return (
+    <label className="block">
+      <span className="text-xs font-semibold text-neutral-600">{label}</span>
+      {hint ? <div className="mt-1 text-xs text-neutral-500">{hint}</div> : null}
+      <div className="mt-2">{children}</div>
+    </label>
+  );
+}
+function Input(props) {
+  return (
+    <input
+      {...props}
+      className={[
+        "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none",
+        "focus:ring-2 focus:ring-orange-300",
+        props.className || "",
+      ].join(" ")}
+    />
+  );
+}
+function TextArea(props) {
+  return (
+    <textarea
+      {...props}
+      rows={props.rows ?? 3}
+      className={[
+        "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none",
+        "focus:ring-2 focus:ring-orange-300",
+        props.className || "",
+      ].join(" ")}
+    />
+  );
+}
+function Pill({ ok, children }) {
+  return (
+    <span
+      className={[
+        "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold",
+        ok
+          ? "bg-emerald-50 text-emerald-800 border border-emerald-200"
+          : "bg-red-50 text-red-800 border border-red-200",
+      ].join(" ")}
+    >
+      {ok ? <BadgeCheck className="h-4 w-4" /> : null}
+      {children}
+    </span>
+  );
+}
 
 export default function MonProfilOrganisateur() {
   const navigate = useNavigate();
   const { search } = useLocation();
-  const [user, setUser] = useState(null);
 
+  const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [profil, setProfil] = useState(null);
 
+  // Base orga
   const [organisationNom, setOrganisationNom] = useState("");
   const [siteWeb, setSiteWeb] = useState("");
   const [telephone, setTelephone] = useState("");
 
+  // ✅ Infos facturation / reversements (nouveaux champs)
+  const [titulaireCompte, setTitulaireCompte] = useState("");
+  const [emailFacturation, setEmailFacturation] = useState("");
+  const [iban, setIban] = useState("");
+  const [bic, setBic] = useState("");
+  const [siret, setSiret] = useState("");
+  const [tvaIntra, setTvaIntra] = useState("");
+  const [adresseFact, setAdresseFact] = useState("");
+  const [cpFact, setCpFact] = useState("");
+  const [villeFact, setVilleFact] = useState("");
+  const [paysFact, setPaysFact] = useState("France");
+
+  // Stripe
   const [stripeStatus, setStripeStatus] = useState({
     has_account: false,
     charges_enabled: false,
@@ -26,6 +123,8 @@ export default function MonProfilOrganisateur() {
     requirements_due: [],
   });
   const [checkingStripe, setCheckingStripe] = useState(false);
+
+  // Conditions
   const [cgvAccepted, setCgvAccepted] = useState(false);
 
   useEffect(() => {
@@ -38,24 +137,44 @@ export default function MonProfilOrganisateur() {
     (async () => {
       try {
         const { data: s } = await supabase.auth.getSession();
-        if (!s?.session?.user) { navigate("/login"); return; }
-        setUser(s.session.user);
+        const u = s?.session?.user;
+        if (!u) {
+          navigate("/login");
+          return;
+        }
+        setUser(u);
 
         const { data, error } = await supabase
           .from("profils_utilisateurs")
           .select(`
             user_id, email, organisation_nom, site_web, telephone,
             stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, stripe_details_submitted, stripe_requirements_due,
-            conditions_acceptees, conditions_acceptees_at, conditions_version
+            conditions_acceptees, conditions_acceptees_at, conditions_version,
+            orga_titulaire_compte, orga_email_facturation, orga_iban, orga_bic, orga_siret, orga_tva_intra,
+            orga_adresse_facturation, orga_code_postal, orga_ville, orga_pays
           `)
-          .eq("user_id", s.session.user.id)
+          .eq("user_id", u.id)
           .maybeSingle();
+
         if (error) throw error;
 
-        setProfil(data);
+        setProfil(data || null);
+
         setOrganisationNom(data?.organisation_nom || "");
         setSiteWeb(data?.site_web || "");
         setTelephone(data?.telephone || "");
+
+        setTitulaireCompte(data?.orga_titulaire_compte || "");
+        setEmailFacturation(data?.orga_email_facturation || data?.email || "");
+        setIban(data?.orga_iban || "");
+        setBic(data?.orga_bic || "");
+        setSiret(data?.orga_siret || "");
+        setTvaIntra(data?.orga_tva_intra || "");
+        setAdresseFact(data?.orga_adresse_facturation || "");
+        setCpFact(data?.orga_code_postal || "");
+        setVilleFact(data?.orga_ville || "");
+        setPaysFact(data?.orga_pays || "France");
+
         setCgvAccepted(Boolean(data?.conditions_acceptees));
 
         setStripeStatus({
@@ -63,7 +182,9 @@ export default function MonProfilOrganisateur() {
           charges_enabled: Boolean(data?.stripe_charges_enabled),
           payouts_enabled: Boolean(data?.stripe_payouts_enabled),
           details_submitted: Boolean(data?.stripe_details_submitted),
-          requirements_due: Array.isArray(data?.stripe_requirements_due) ? data?.stripe_requirements_due : [],
+          requirements_due: Array.isArray(data?.stripe_requirements_due)
+            ? data?.stripe_requirements_due
+            : [],
         });
       } catch (e) {
         setErr(e?.message ?? String(e));
@@ -73,19 +194,54 @@ export default function MonProfilOrganisateur() {
     })();
   }, [navigate]);
 
+  const stripeReady = useMemo(() => {
+    if (!stripeStatus.has_account) return false;
+    return !!stripeStatus.charges_enabled && !!stripeStatus.payouts_enabled;
+  }, [stripeStatus]);
+
   async function handleSave() {
     try {
-      if (!cgvAccepted) { alert("Vous devez accepter les conditions pour continuer."); return; }
+      if (!cgvAccepted) {
+        alert("Vous devez accepter les conditions pour continuer.");
+        return;
+      }
+      if (!looksLikeIban(iban)) {
+        alert("IBAN invalide (format).");
+        return;
+      }
+      if (!looksLikeBic(bic)) {
+        alert("BIC invalide (format).");
+        return;
+      }
+
       const payload = {
-        organisation_nom: organisationNom || null,
-        site_web: siteWeb || null,
-        telephone: telephone || null,
+        organisation_nom: cleanStr(organisationNom) || null,
+        site_web: cleanStr(siteWeb) || null,
+        telephone: cleanStr(telephone) || null,
+
+        orga_titulaire_compte: cleanStr(titulaireCompte) || null,
+        orga_email_facturation: cleanStr(emailFacturation) || null,
+        orga_iban: normalizeIban(iban) || null,
+        orga_bic: cleanStr(bic).replace(/\s+/g, "").toUpperCase() || null,
+        orga_siret: cleanStr(siret) || null,
+        orga_tva_intra: cleanStr(tvaIntra) || null,
+        orga_adresse_facturation: cleanStr(adresseFact) || null,
+        orga_code_postal: cleanStr(cpFact) || null,
+        orga_ville: cleanStr(villeFact) || null,
+        orga_pays: cleanStr(paysFact) || null,
+
         conditions_acceptees: true,
         conditions_acceptees_at: new Date().toISOString(),
         conditions_version: CONDITIONS_VERSION,
       };
-      const { error } = await supabase.from("profils_utilisateurs").update(payload).eq("user_id", user.id);
+
+      const { error } = await supabase
+        .from("profils_utilisateurs")
+        .update(payload)
+        .eq("user_id", user.id);
+
       if (error) throw error;
+
       alert("Profil sauvegardé ✅");
     } catch (e) {
       alert("Erreur: " + (e?.message ?? String(e)));
@@ -140,21 +296,74 @@ export default function MonProfilOrganisateur() {
             </span>
           </h1>
           <p className="mt-2 text-neutral-600 text-base">
-            Gérez vos informations, configurez Stripe et validez les conditions pour pouvoir publier vos épreuves.
+            Gérez vos informations, configurez Stripe et suivez votre comptabilité.
           </p>
         </div>
       </section>
 
       <div className="mx-auto max-w-3xl px-4 py-8 space-y-8">
-        {/* Bandeau explicatif */}
+        {err && (
+          <div className="rounded-xl border border-yellow-300 bg-yellow-50 p-4 text-sm text-yellow-900">
+            Erreur : {err}
+          </div>
+        )}
+
+        {/* Bandeau */}
         <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
           <b>💳 Compte Stripe requis :</b> Pour encaisser les inscriptions et recevoir vos reversements,
-          vous devez configurer votre compte Stripe Express. Sans cela, les paiements seront bloqués.
+          vous devez configurer Stripe Express. Sans cela, les paiements seront bloqués.
         </div>
+
+        {/* ✅ Bloc Comptabilité */}
+        <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold flex items-center gap-2">
+                <Wallet className="h-5 w-5 text-neutral-700" />
+                Comptabilité
+              </h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                Consultez vos encaissements, frais Stripe, commission Tickrace, remboursements, et imprimez votre relevé.
+              </p>
+              <div className="mt-3">
+                <Pill ok={stripeReady}>
+                  {stripeReady ? "Stripe prêt (encaissements + reversements)" : "Stripe incomplet (vérifiez la configuration)"}
+                </Pill>
+              </div>
+            </div>
+
+            <Link
+              to={COMPTA_PATH}
+              className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 text-white px-4 py-2 text-sm font-semibold hover:bg-neutral-800"
+            >
+              Accéder à ma compta
+              <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+
+          <div className="mt-4 grid gap-3 sm:grid-cols-3 text-xs text-neutral-600">
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+              <div className="font-semibold text-neutral-800">Relevé imprimable</div>
+              <div className="mt-1">Période + lignes + totaux.</div>
+            </div>
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+              <div className="font-semibold text-neutral-800">Export CSV</div>
+              <div className="mt-1">Pour ton comptable / Excel.</div>
+            </div>
+            <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3">
+              <div className="font-semibold text-neutral-800">Traçabilité</div>
+              <div className="mt-1">Paiements, ajustements, remboursements.</div>
+            </div>
+          </div>
+        </section>
 
         {/* Bloc Stripe */}
         <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
-          <h2 className="text-lg font-semibold mb-3">Paiements & compte Stripe</h2>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <CreditCard className="h-5 w-5 text-neutral-700" />
+            Paiements & compte Stripe
+          </h2>
+
           <div className="text-sm mb-4 space-y-1">
             <div>
               Statut :{" "}
@@ -164,17 +373,21 @@ export default function MonProfilOrganisateur() {
                 <span className="text-red-700 font-medium">Non configuré ❌</span>
               )}
             </div>
+
             {stripeStatus.has_account && (
               <>
                 <div>Charges activées : {stripeStatus.charges_enabled ? "Oui ✅" : "Non ❌"}</div>
                 <div>Payouts activés : {stripeStatus.payouts_enabled ? "Oui ✅" : "Non ❌"}</div>
                 <div>Dossier soumis : {stripeStatus.details_submitted ? "Oui ✅" : "Non ❌"}</div>
+
                 {stripeStatus.requirements_due?.length > 0 && (
                   <div className="mt-2">
                     <div className="font-medium">Éléments à compléter :</div>
                     <ul className="list-disc ml-6">
                       {stripeStatus.requirements_due.map((k, i) => (
-                        <li key={i}><code>{k}</code></li>
+                        <li key={i}>
+                          <code>{k}</code>
+                        </li>
                       ))}
                     </ul>
                   </div>
@@ -186,33 +399,114 @@ export default function MonProfilOrganisateur() {
           <div className="flex flex-wrap gap-3">
             <button
               onClick={startStripeOnboarding}
-              className="px-4 py-2 rounded-xl bg-black text-white text-sm font-semibold hover:bg-neutral-800"
+              className="px-4 py-2 rounded-xl bg-black text-white text-sm font-semibold hover:bg-neutral-800 inline-flex items-center gap-2"
             >
               {stripeStatus.has_account ? "Continuer la configuration Stripe" : "Configurer mon compte Stripe"}
+              <ExternalLink className="h-4 w-4 opacity-80" />
             </button>
+
             <button
               onClick={refreshStripeStatus}
               disabled={checkingStripe}
-              className="px-4 py-2 rounded-xl border text-sm font-medium hover:bg-neutral-50 disabled:opacity-50"
+              className="px-4 py-2 rounded-xl border text-sm font-medium hover:bg-neutral-50 disabled:opacity-50 inline-flex items-center gap-2"
             >
+              <RefreshCw className={["h-4 w-4", checkingStripe ? "animate-spin" : ""].join(" ")} />
               {checkingStripe ? "Vérification…" : "Vérifier le statut"}
             </button>
           </div>
         </section>
 
-        {/* Formulaire profil */}
+        {/* Profil orga */}
         <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
-          <h2 className="text-lg font-semibold mb-3">Informations organisateur</h2>
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <Building2 className="h-5 w-5 text-neutral-700" />
+            Informations organisateur
+          </h2>
           <div className="grid gap-4">
             <Field label="Nom de l’organisation">
-              <Input value={organisationNom} onChange={e => setOrganisationNom(e.target.value)} placeholder="Ex. Association Les Trails du Sud" />
+              <Input
+                value={organisationNom}
+                onChange={(e) => setOrganisationNom(e.target.value)}
+                placeholder="Ex. Association Les Trails du Sud"
+              />
             </Field>
             <Field label="Site web">
-              <Input value={siteWeb} onChange={e => setSiteWeb(e.target.value)} placeholder="https://…" />
+              <Input value={siteWeb} onChange={(e) => setSiteWeb(e.target.value)} placeholder="https://…" />
             </Field>
             <Field label="Téléphone">
-              <Input value={telephone} onChange={e => setTelephone(e.target.value)} placeholder="06 12 34 56 78" />
+              <Input value={telephone} onChange={(e) => setTelephone(e.target.value)} placeholder="06 12 34 56 78" />
             </Field>
+          </div>
+        </section>
+
+        {/* ✅ Facturation & reversements */}
+        <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
+          <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+            <FileText className="h-5 w-5 text-neutral-700" />
+            Facturation & reversements
+          </h2>
+
+          <div className="grid gap-4 md:grid-cols-2">
+            <Field label="Titulaire du compte" hint="Optionnel — affichage dans les exports compta.">
+              <Input
+                value={titulaireCompte}
+                onChange={(e) => setTitulaireCompte(e.target.value)}
+                placeholder="Ex. Association Les Trails du Sud"
+              />
+            </Field>
+
+            <Field label="Email de facturation" hint="Optionnel — pour recevoir les relevés / factures.">
+              <Input
+                value={emailFacturation}
+                onChange={(e) => setEmailFacturation(e.target.value)}
+                placeholder="compta@organisation.fr"
+              />
+            </Field>
+
+            <Field label="IBAN" hint="Optionnel — stocké pour tes exports.">
+              <Input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="FR76 XXXX ...." />
+              {!looksLikeIban(iban) ? <div className="mt-2 text-xs text-red-600">IBAN invalide (format).</div> : null}
+            </Field>
+
+            <Field label="BIC" hint="Optionnel — 8 ou 11 caractères.">
+              <Input value={bic} onChange={(e) => setBic(e.target.value)} placeholder="AGRIFRPPXXX" />
+              {!looksLikeBic(bic) ? <div className="mt-2 text-xs text-red-600">BIC invalide (format).</div> : null}
+            </Field>
+
+            <Field label="SIRET" hint="Optionnel — pour des factures/relevés plus propres.">
+              <Input value={siret} onChange={(e) => setSiret(e.target.value)} placeholder="123 456 789 00012" />
+            </Field>
+
+            <Field label="TVA intracommunautaire" hint="Optionnel (si assujetti).">
+              <Input value={tvaIntra} onChange={(e) => setTvaIntra(e.target.value)} placeholder="FRXX123456789" />
+            </Field>
+
+            <div className="md:col-span-2">
+              <Field label="Adresse de facturation" hint="Optionnel — utilisé dans les exports / impressions.">
+                <TextArea
+                  value={adresseFact}
+                  onChange={(e) => setAdresseFact(e.target.value)}
+                  placeholder="N° et rue"
+                />
+              </Field>
+            </div>
+
+            <Field label="Code postal">
+              <Input value={cpFact} onChange={(e) => setCpFact(e.target.value)} placeholder="12000" />
+            </Field>
+
+            <Field label="Ville">
+              <Input value={villeFact} onChange={(e) => setVilleFact(e.target.value)} placeholder="Rodez" />
+            </Field>
+
+            <Field label="Pays">
+              <Input value={paysFact} onChange={(e) => setPaysFact(e.target.value)} placeholder="France" />
+            </Field>
+          </div>
+
+          <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-700">
+            💡 <b>Note :</b> ces informations facilitent la génération de relevés et l’export comptable.
+            Les reversements réels restent gérés par Stripe Express.
           </div>
         </section>
 
@@ -222,10 +516,23 @@ export default function MonProfilOrganisateur() {
           <p className="text-sm text-neutral-700 mb-3">
             Avant d’enregistrer votre profil, vous devez accepter nos documents :
           </p>
+
           <ul className="list-disc ml-6 mb-4 text-sm text-neutral-700">
-            <li><a className="underline text-orange-600" href="/legal/cgv-organisateurs" target="_blank" rel="noreferrer">CGV Organisateurs</a></li>
-            <li><a className="underline text-orange-600" href="/legal/remboursements" target="_blank" rel="noreferrer">Politique de remboursement</a></li>
-            <li><a className="underline text-orange-600" href="/legal/charte-organisateur" target="_blank" rel="noreferrer">Charte anti-fraude</a></li>
+            <li>
+              <a className="underline text-orange-600" href="/legal/cgv-organisateurs" target="_blank" rel="noreferrer">
+                CGV Organisateurs
+              </a>
+            </li>
+            <li>
+              <a className="underline text-orange-600" href="/legal/remboursements" target="_blank" rel="noreferrer">
+                Politique de remboursement
+              </a>
+            </li>
+            <li>
+              <a className="underline text-orange-600" href="/legal/charte-organisateur" target="_blank" rel="noreferrer">
+                Charte anti-fraude
+              </a>
+            </li>
           </ul>
 
           <label className="flex items-start gap-2 text-sm">
@@ -245,8 +552,8 @@ export default function MonProfilOrganisateur() {
           </label>
         </section>
 
-        {/* Sauvegarde */}
-        <div className="flex">
+        {/* Actions */}
+        <div className="flex flex-wrap items-center gap-3">
           <button
             onClick={handleSave}
             className="px-5 py-3 rounded-xl bg-emerald-600 text-white font-semibold hover:bg-emerald-700 disabled:opacity-50"
@@ -254,27 +561,16 @@ export default function MonProfilOrganisateur() {
           >
             Sauvegarder le profil
           </button>
+
+          <Link
+            to={COMPTA_PATH}
+            className="px-5 py-3 rounded-xl border border-neutral-200 bg-white font-semibold hover:bg-neutral-50 inline-flex items-center gap-2"
+          >
+            Voir ma compta
+            <ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
       </div>
     </div>
-  );
-}
-
-/* ---------- UI helpers ---------- */
-function Field({ label, children }) {
-  return (
-    <label className="block">
-      <span className="text-xs font-semibold text-neutral-600">{label}</span>
-      <div className="mt-1">{children}</div>
-    </label>
-  );
-}
-
-function Input(props) {
-  return (
-    <input
-      {...props}
-      className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-    />
   );
 }

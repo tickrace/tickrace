@@ -64,6 +64,7 @@ import ClassementArrivees from "./pages/ClassementArrivees";
 // imports (dans App.jsx)
 import ReglementAssistant from "./pages/ReglementAssistant";
 import ChecklistAssistant from "./pages/ChecklistAssistant";
+import Compta from "./pages/organisateur/Compta";
 
 function AppContent() {
   const { currentRole } = useUser();
@@ -167,7 +168,14 @@ function AppContent() {
     </ProtectedRoute>
   }
 />
-
+<Route
+  path="/organisateur/compta"
+  element={
+    <ProtectedRoute>
+      <Compta />
+    </ProtectedRoute>
+  }
+/>
 
 
 
