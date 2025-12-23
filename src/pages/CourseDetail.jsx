@@ -152,45 +152,44 @@ export default function CourseDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, session?.user?.id]);
 
-  // ✅ Charger le règlement seulement quand on ouvre l’onglet (et seulement si pas de PDF sur le format)
-  useEffect(() => {
-    if (tab !== "reglement") return;
-    if (selectedFormat?.reglement_pdf_url) return;
-    if (reglementText || reglementLoading) return;
+ // ✅ Charger le règlement unique seulement quand on ouvre l’onglet
+useEffect(() => {
+  if (tab !== "reglement") return;
+  if (reglementText || reglementLoading) return;
 
-    const fetchReglement = async () => {
-      setReglementLoading(true);
-      setReglementError("");
+  const fetchReglement = async () => {
+    setReglementLoading(true);
+    setReglementError("");
 
-      try {
-        const { data, error } = await supabase
-          .from("reglements")
-          .select("id, status, generated_md, published_md, updated_at")
-          .eq("course_id", id)
-          .order("updated_at", { ascending: false })
-          .limit(1)
-          .maybeSingle();
+    try {
+      const { data, error } = await supabase
+        .from("reglements")
+        .select("id, status, generated_md, edited_md, published_md, updated_at")
+        .eq("course_id", id)
+        .order("updated_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
 
-        if (error) {
-          console.error(error);
-          setReglementError("Règlement indisponible pour le moment.");
-          setReglementLoading(false);
-          return;
-        }
-
-        const md = (data?.published_md || data?.generated_md || "").trim();
-        setReglementText(md);
-      } catch (e) {
-        console.error(e);
+      if (error) {
+        console.error(error);
         setReglementError("Règlement indisponible pour le moment.");
-      } finally {
-        setReglementLoading(false);
+        return;
       }
-    };
 
-    fetchReglement();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tab, id]); // volontairement minimal
+      const md = (data?.published_md || data?.edited_md || data?.generated_md || "").trim();
+      setReglementText(md);
+    } catch (e) {
+      console.error(e);
+      setReglementError("Règlement indisponible pour le moment.");
+    } finally {
+      setReglementLoading(false);
+    }
+  };
+
+  fetchReglement();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+}, [tab, id]); // volontairement minimal
+
 
   // Agrégats généraux
   const aggregates = useMemo(() => {
@@ -644,28 +643,35 @@ export default function CourseDetail() {
 
             {/* ✅ NOUVEL ONGLET : Règlement */}
             {tab === "reglement" && (
-              <section className="mt-6 space-y-4">
-                {formats.length > 0 && (
-                  <div className="flex flex-wrap items-center gap-2">
-                    <label className="text-sm text-neutral-700">Choisir un format :</label>
-                    <select
-                      value={selectedFormatId || ""}
-                      onChange={(e) => {
-                        setSelectedFormatId(e.target.value);
-                        // reset fallback markdown (si on change de format et qu'il n'a pas de PDF)
-                        setReglementText("");
-                        setReglementError("");
-                      }}
-                      className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
-                    >
-                      {formats.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.nom} {f.date ? `— ${fmtDate(f.date)}` : ""}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                )}
+  <section className="mt-6 space-y-4">
+    {reglementLoading ? (
+      <div className="rounded-2xl border bg-white shadow-sm p-5 text-neutral-600 inline-flex items-center gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" />
+        Chargement du règlement…
+      </div>
+    ) : reglementError ? (
+      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
+        {reglementError}
+      </div>
+    ) : reglementText ? (
+      <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
+        <div className="p-4 border-b border-neutral-200 flex items-center gap-2 font-semibold text-neutral-900">
+          <FileText className="w-4 h-4" />
+          Règlement de l’épreuve
+        </div>
+
+        <div className="p-5">
+          <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">
+            {reglementText}
+          </pre>
+        </div>
+      </div>
+    ) : (
+      <EmptyBox text="Le règlement n’est pas encore disponible." />
+    )}
+  </section>
+)}
+
 
                 {/* PDF prioritaire si présent */}
                 {selectedFormat?.reglement_pdf_url ? (
