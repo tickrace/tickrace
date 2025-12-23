@@ -3,6 +3,8 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
+import { ClipboardList } from "lucide-react";
+
 import {
   Copy,
   Check,
@@ -458,6 +460,14 @@ export default function MonEspaceOrganisateur() {
   <FileText size={16} />
   Règlement
 </Link>
+<Link
+  to={`/organisateur/checklist/${course.id}`}
+  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-white text-sm font-semibold hover:bg-black"
+>
+  <ClipboardList size={16} />
+  Checklist
+</Link>
+
 
 
 

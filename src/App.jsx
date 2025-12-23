@@ -63,6 +63,7 @@ import MonInscriptionEquipe from "./pages/MonInscriptionEquipe";
 import ClassementArrivees from "./pages/ClassementArrivees";
 // imports (dans App.jsx)
 import ReglementAssistant from "./pages/ReglementAssistant";
+import ChecklistAssistant from "./pages/ChecklistAssistant";
 
 function AppContent() {
   const { currentRole } = useUser();
@@ -158,6 +159,15 @@ function AppContent() {
     </ProtectedRoute>
   }
 />
+<Route
+  path="/organisateur/checklist/:courseId"
+  element={
+    <ProtectedRoute>
+      <ChecklistAssistant />
+    </ProtectedRoute>
+  }
+/>
+
 
 
 
