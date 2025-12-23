@@ -3,7 +3,6 @@ import Chat from "../components/Chat";
 import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import LiveResultsPublic from "../components/LiveResultsPublic";
-
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import {
@@ -20,8 +19,10 @@ import {
 
 const GPXViewer = lazy(() => import("../components/GPXViewer"));
 
-/* ===== Helpers de dates et téléchargements ===== */
+/* --------------------------------- Helpers -------------------------------- */
+
 const parseDate = (d) => (d ? new Date(d) : null);
+
 const fmtDate = (d) =>
   d
     ? new Intl.DateTimeFormat("fr-FR", {
@@ -32,23 +33,33 @@ const fmtDate = (d) =>
       }).format(typeof d === "string" ? new Date(d) : d)
     : "";
 
-const downloadFile = (url, filename = "parcours.gpx") => {
-  try {
-    const a = document.createElement("a");
-    a.href = url;
-    a.setAttribute("download", filename);
-    a.setAttribute("rel", "noopener");
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  } catch {
-    window.open(url, "_blank", "noopener");
+function formatRange(min, max, unit = "") {
+  if (min == null && max == null) return "—";
+  if (min != null && max != null) {
+    if (min === max) return `${Math.round(min)}${unit}`;
+    return `${Math.round(min)}–${Math.round(max)}${unit}`;
   }
-};
+  if (min != null) return `≥ ${Math.round(min)}${unit}`;
+  return `≤ ${Math.round(max)}${unit}`;
+}
 
-/* ===== Page ===== */
+function numOrDash(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : "—";
+}
+
+function asList(text) {
+  if (!text) return [];
+  return String(text)
+    .split(/\r?\n|[;,]/g)
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+/* ---------------------------------- Page ---------------------------------- */
+
 export default function CourseDetail() {
-  const { id } = useParams();
+  const { id: courseId } = useParams();
   const [searchParams] = useSearchParams();
   const { session } = useUser();
 
@@ -61,137 +72,193 @@ export default function CourseDetail() {
   const [tab, setTab] = useState("aperçu"); // "aperçu" | "formats" | "parcours" | "infos" | "reglement" | "resultats"
   const [selectedFormatId, setSelectedFormatId] = useState(null);
 
-  const [mapFull, setMapFull] = useState(false); // plein écran GPX (réservé)
-  const [copied, setCopied] = useState(false); // toast copie lien
+  const [copied, setCopied] = useState(false);
 
-  // ✅ Règlement (fallback markdown depuis table reglements)
+  // ✅ Règlement unique (course_id) depuis table reglements
   const [reglementText, setReglementText] = useState("");
   const [reglementLoading, setReglementLoading] = useState(false);
   const [reglementError, setReglementError] = useState("");
 
   const BASE = import.meta.env?.VITE_PUBLIC_BASE_URL || window.location.origin;
 
+  /* ------------------------------ Fetch course ------------------------------ */
+
   useEffect(() => {
+    let cancelled = false;
+
     const fetchAll = async () => {
-      setLoading(true);
-      setError(null);
-
-      // 1) Course
-      const { data: c, error: e1 } = await supabase
-        .from("courses")
-        .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
-        .eq("id", id)
-        .maybeSingle();
-
-      if (e1 || !c) {
-        console.error("Erreur course:", e1);
-        setError("Épreuve introuvable.");
-        setLoading(false);
-        return;
-      }
-
-      const isOwner = !!(session?.user?.id && c.organisateur_id === session.user.id);
-      if (!c.en_ligne && !isOwner) {
-        setCourse(c);
-        setError("Cette épreuve est hors-ligne.");
-        setLoading(false);
-        return;
-      }
-
-      setCourse(c);
-
-      // 2) Formats
-      const { data: fmts, error: e2 } = await supabase
-        .from("formats")
-        .select(
-          "id, nom, type_epreuve, date, heure_depart, prix, distance_km, denivele_dplus, denivele_dmoins, adresse_depart, adresse_arrivee, dotation, presentation_parcours, image_url, gpx_url, nb_max_coureurs, stock_repas, ravitaillements, remise_dossards, reglement_pdf_url, age_minimum, hebergements, prix_repas"
-        )
-        .eq("course_id", id)
-        .order("date", { ascending: true });
-
-      if (e2) {
-        console.error(e2);
-        setFormats([]);
-      } else {
-        setFormats(fmts || []);
-        // Pré-sélection via ?format=...
-        const wanted = searchParams.get("format");
-        if (!selectedFormatId && (fmts || []).length) {
-          setSelectedFormatId(
-            wanted && (fmts || []).some((f) => f.id === wanted) ? wanted : fmts[0].id
-          );
-        }
-      }
-
-      // 3) Inscriptions → comptage (peut être bloqué par RLS)
       try {
-        const fids = (fmts || []).map((f) => f.id);
-        if (fids.length) {
-          const { data: insc, error: e3 } = await supabase.from("inscriptions").select("format_id").in("format_id", fids);
+        setLoading(true);
+        setError(null);
 
-          if (e3) {
-            setCountsByFormat(null);
-          } else {
-            const counts = {};
-            (insc || []).forEach((i) => {
-              counts[i.format_id] = (counts[i.format_id] || 0) + 1;
-            });
-            setCountsByFormat(counts);
+        // 1) Course
+        const { data: c, error: e1 } = await supabase
+          .from("courses")
+          .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
+          .eq("id", courseId)
+          .maybeSingle();
+
+        if (e1 || !c) {
+          if (!cancelled) {
+            setError("Épreuve introuvable.");
+            setLoading(false);
           }
-        } else {
-          setCountsByFormat({});
+          return;
         }
-      } catch {
-        setCountsByFormat(null);
-      }
 
-      setLoading(false);
+        const isOwner = !!(session?.user?.id && c.organisateur_id === session.user.id);
+        if (!c.en_ligne && !isOwner) {
+          if (!cancelled) {
+            setCourse(c);
+            setError("Cette épreuve est hors-ligne.");
+            setLoading(false);
+          }
+          return;
+        }
+
+        if (!cancelled) setCourse(c);
+
+        // 2) Formats
+        const { data: fmts, error: e2 } = await supabase
+          .from("formats")
+          .select(
+            [
+              "id",
+              "nom",
+              "type_epreuve",
+              "date",
+              "heure_depart",
+              "prix",
+              "distance_km",
+              "denivele_dplus",
+              "denivele_dmoins",
+              "adresse_depart",
+              "adresse_arrivee",
+              "dotation",
+              "presentation_parcours",
+              "image_url",
+              "gpx_url",
+              "nb_max_coureurs",
+              "stock_repas",
+              "ravitaillements",
+              "remise_dossards",
+              "reglement_pdf_url",
+              "age_minimum",
+              "hebergements",
+              "prix_repas",
+            ].join(",")
+          )
+          .eq("course_id", courseId)
+          .order("date", { ascending: true });
+
+        const list = e2 ? [] : fmts || [];
+        if (!cancelled) setFormats(list);
+
+        // Pré-sélection via ?format=... (utilisée pour Parcours/Infos)
+        const wanted = searchParams.get("format");
+        if (!cancelled) {
+          if (!selectedFormatId && list.length) {
+            setSelectedFormatId(wanted && list.some((f) => f.id === wanted) ? wanted : list[0].id);
+          } else if (selectedFormatId && list.length && !list.some((f) => f.id === selectedFormatId)) {
+            setSelectedFormatId(list[0].id);
+          }
+        }
+
+        // 3) Comptage inscriptions (peut être bloqué par RLS)
+        try {
+          const fids = list.map((f) => f.id);
+          if (!fids.length) {
+            if (!cancelled) setCountsByFormat({});
+          } else {
+            const { data: insc, error: e3 } = await supabase
+              .from("inscriptions")
+              .select("format_id")
+              .in("format_id", fids);
+
+            if (e3) {
+              if (!cancelled) setCountsByFormat(null);
+            } else {
+              const counts = {};
+              (insc || []).forEach((i) => {
+                counts[i.format_id] = (counts[i.format_id] || 0) + 1;
+              });
+              if (!cancelled) setCountsByFormat(counts);
+            }
+          }
+        } catch {
+          if (!cancelled) setCountsByFormat(null);
+        }
+
+        if (!cancelled) setLoading(false);
+      } catch (e) {
+        if (!cancelled) {
+          setError("Une erreur est survenue.");
+          setLoading(false);
+        }
+        console.error(e);
+      }
     };
 
     fetchAll();
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, session?.user?.id]);
+  }, [courseId, session?.user?.id]);
 
- // ✅ Charger le règlement unique seulement quand on ouvre l’onglet
-useEffect(() => {
-  if (tab !== "reglement") return;
-  if (reglementText || reglementLoading) return;
+  /* ------------------------ Fetch reglement on demand ------------------------ */
 
-  const fetchReglement = async () => {
-    setReglementLoading(true);
-    setReglementError("");
+  useEffect(() => {
+    if (tab !== "reglement") return;
+    if (reglementLoading) return;
+    if (reglementText || reglementError) return;
 
-    try {
-      const { data, error } = await supabase
-        .from("reglements")
-        .select("id, status, generated_md, edited_md, published_md, updated_at")
-        .eq("course_id", id)
-        .order("updated_at", { ascending: false })
-        .limit(1)
-        .maybeSingle();
+    let cancelled = false;
 
-      if (error) {
-        console.error(error);
-        setReglementError("Règlement indisponible pour le moment.");
-        return;
+    const fetchReglement = async () => {
+      setReglementLoading(true);
+      setReglementError("");
+
+      try {
+        const { data, error } = await supabase
+          .from("reglements")
+          .select("id, status, edited_md, published_md, generated_md, updated_at")
+          .eq("course_id", courseId)
+          .order("updated_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (error) {
+          console.error(error);
+          if (!cancelled) setReglementError("Règlement indisponible pour le moment.");
+          return;
+        }
+
+        const md = String(data?.published_md || data?.edited_md || data?.generated_md || "").trim();
+        if (!cancelled) setReglementText(md);
+      } catch (e) {
+        console.error(e);
+        if (!cancelled) setReglementError("Règlement indisponible pour le moment.");
+      } finally {
+        if (!cancelled) setReglementLoading(false);
       }
+    };
 
-      const md = (data?.published_md || data?.edited_md || data?.generated_md || "").trim();
-      setReglementText(md);
-    } catch (e) {
-      console.error(e);
-      setReglementError("Règlement indisponible pour le moment.");
-    } finally {
-      setReglementLoading(false);
-    }
-  };
+    fetchReglement();
+    return () => {
+      cancelled = true;
+    };
+  }, [tab, courseId, reglementLoading, reglementText, reglementError]);
 
-  fetchReglement();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-}, [tab, id]); // volontairement minimal
+  /* --------------------------------- Derived -------------------------------- */
 
+  const selectedFormat = useMemo(
+    () => formats.find((f) => f.id === selectedFormatId) || null,
+    [formats, selectedFormatId]
+  );
 
-  // Agrégats généraux
+  const hasAnyGPX = useMemo(() => formats.some((f) => !!f.gpx_url), [formats]);
+
   const aggregates = useMemo(() => {
     const fList = formats || [];
     const now = new Date();
@@ -230,21 +297,23 @@ useEffect(() => {
       ? (new Date().getTime() - new Date(course.created_at).getTime()) / 86400000 < 14
       : false;
 
-    return {
-      next_date,
-      min_prix,
-      min_dist,
-      max_dist,
-      min_dplus,
-      max_dplus,
-      has_repas,
-      is_full,
-      is_new,
-    };
+    return { next_date, min_prix, min_dist, max_dist, min_dplus, max_dplus, has_repas, is_full, is_new };
   }, [formats, countsByFormat, course?.created_at]);
 
-  const selectedFormat = formats.find((f) => f.id === selectedFormatId) || null;
-  const hasAnyGPX = useMemo(() => (formats || []).some((f) => !!f.gpx_url), [formats]);
+  const shareUrl = course?.id ? `${BASE}/courses/${course.id}` : BASE;
+  const soon =
+    aggregates.next_date &&
+    (parseDate(aggregates.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
+
+  async function copyShare(url) {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  }
+
+  /* ---------------------------------- States -------------------------------- */
 
   if (loading) {
     return (
@@ -271,22 +340,11 @@ useEffect(() => {
     );
   }
 
-  const shareUrl = `${BASE}/courses/${course.id}`;
-  const soon =
-    aggregates.next_date &&
-    (parseDate(aggregates.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
-
-  async function copyShare(url) {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {}
-  }
+  /* ---------------------------------- Render -------------------------------- */
 
   return (
     <div className="mx-auto max-w-7xl">
-      {/* TOAST de copie lien */}
+      {/* TOAST copie lien */}
       {copied && (
         <div className="fixed bottom-4 right-4 z-[70] rounded-full bg-black text-white text-sm px-3 py-2 shadow">
           Lien copié ✨
@@ -296,11 +354,7 @@ useEffect(() => {
       {/* HERO */}
       <div className="relative h-[260px] sm:h-[360px] md:h-[420px] w-full overflow-hidden">
         {course.image_url ? (
-          <img
-            src={course.image_url}
-            alt={`Image de ${course.nom}`}
-            className="h-full w-full object-cover"
-          />
+          <img src={course.image_url} alt={`Image de ${course.nom}`} className="h-full w-full object-cover" />
         ) : (
           <div className="h-full w-full bg-neutral-200 flex items-center justify-center text-neutral-500">
             <Mountain className="w-10 h-10" />
@@ -320,20 +374,21 @@ useEffect(() => {
         {/* Titre & CTA */}
         <div className="absolute bottom-4 left-4 right-4">
           <div className="max-w-7xl mx-auto px-2 sm:px-4">
-            <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">
-              {course.nom}
-            </h1>
+            <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">{course.nom}</h1>
+
             <div className="mt-2 flex flex-wrap items-center gap-3 text-white/90">
               <span className="inline-flex items-center gap-1">
                 <MapPin className="w-4 h-4" />
                 {course.lieu} ({course.departement})
               </span>
+
               {aggregates.next_date && (
                 <span className="inline-flex items-center gap-1">
                   <CalendarDays className="w-4 h-4" />
                   {fmtDate(aggregates.next_date)}
                 </span>
               )}
+
               {aggregates.min_prix != null && (
                 <span className="inline-flex items-center gap-1">
                   💶 À partir de <strong>{aggregates.min_prix.toFixed(2)} €</strong>
@@ -349,7 +404,6 @@ useEffect(() => {
                 S’inscrire <ArrowRight className="w-4 h-4" />
               </Link>
 
-              {/* Devenir bénévole */}
               <Link
                 to={`/benevoles/${course.id}`}
                 className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-3 py-2 text-white text-sm font-semibold hover:bg-white/25"
@@ -409,33 +463,16 @@ useEffect(() => {
             {tab === "aperçu" && (
               <section className="mt-6 space-y-4">
                 {course.presentation ? (
-                  <p className="text-neutral-800 leading-relaxed whitespace-pre-line">
-                    {course.presentation}
-                  </p>
+                  <p className="text-neutral-800 leading-relaxed whitespace-pre-line">{course.presentation}</p>
                 ) : (
-                  <p className="text-neutral-500">
-                    La présentation de l’épreuve sera bientôt disponible.
-                  </p>
+                  <p className="text-neutral-500">La présentation de l’épreuve sera bientôt disponible.</p>
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Fact
-                    title="Distance"
-                    value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")}
-                  />
-                  <Fact
-                    title="D+"
-                    value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")}
-                  />
-                  <Fact
-                    title="Prochaine date"
-                    value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"}
-                  />
-                  <Fact
-                    title="Repas"
-                    value={aggregates.has_repas ? "Disponible" : "—"}
-                    Icon={UtensilsCrossed}
-                  />
+                  <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
+                  <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
+                  <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
+                  <Fact title="Repas" value={aggregates.has_repas ? "Disponible" : "—"} Icon={UtensilsCrossed} />
                 </div>
               </section>
             )}
@@ -456,7 +493,6 @@ useEffect(() => {
                   <EmptyBox text="Les parcours seront publiés bientôt." />
                 ) : (
                   <>
-                    {/* Sélecteur de format pour afficher le GPX de ce format */}
                     <div className="flex flex-wrap items-center gap-2">
                       <label className="text-sm text-neutral-700">Choisir un format :</label>
                       <select
@@ -504,7 +540,6 @@ useEffect(() => {
                   <EmptyBox text="Infos à venir." />
                 ) : (
                   <>
-                    {/* Sélecteur du format affiché */}
                     <div className="flex flex-wrap items-center gap-2">
                       <label className="text-sm text-neutral-700">Choisir un format :</label>
                       <select
@@ -520,9 +555,7 @@ useEffect(() => {
                       </select>
                     </div>
 
-                    {/* GRID INFO PRATIQUES */}
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                      {/* Carte logistique */}
                       <SectionCard title="Logistique" subtitle="Infos clés du jour J">
                         <InfoItem icon="calendar" label="Date">
                           {selectedFormat?.date ? fmtDate(selectedFormat.date) : "—"}
@@ -537,13 +570,10 @@ useEffect(() => {
                           <MapLink address={selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee} />
                         </InfoItem>
                         <InfoItem icon="shield" label="Âge minimum">
-                          {Number.isFinite(Number(selectedFormat?.age_minimum))
-                            ? `${selectedFormat.age_minimum} ans`
-                            : "—"}
+                          {Number.isFinite(Number(selectedFormat?.age_minimum)) ? `${selectedFormat.age_minimum} ans` : "—"}
                         </InfoItem>
                       </SectionCard>
 
-                      {/* Carte course & tarifs */}
                       <SectionCard title="Course & tarifs" subtitle="Résumé du format">
                         <div className="mb-2">
                           <Chips
@@ -556,15 +586,11 @@ useEffect(() => {
                           />
                         </div>
                         <InfoItem icon="euro" label="Prix">
-                          {Number.isFinite(Number(selectedFormat?.prix))
-                            ? `${Number(selectedFormat.prix).toFixed(2)} €`
-                            : "—"}
+                          {Number.isFinite(Number(selectedFormat?.prix)) ? `${Number(selectedFormat.prix).toFixed(2)} €` : "—"}
                         </InfoItem>
                         {Number(selectedFormat?.stock_repas) > 0 && (
                           <InfoItem icon="meal" label="Repas">
-                            {selectedFormat?.prix_repas != null
-                              ? `${Number(selectedFormat.prix_repas).toFixed(2)} €`
-                              : "Disponible"}
+                            {selectedFormat?.prix_repas != null ? `${Number(selectedFormat.prix_repas).toFixed(2)} €` : "Disponible"}
                           </InfoItem>
                         )}
                         <InfoItem icon="trophy" label="Dotation">
@@ -572,7 +598,6 @@ useEffect(() => {
                         </InfoItem>
                       </SectionCard>
 
-                      {/* Carte ravitos & dossards */}
                       <SectionCard title="Ravitaillements & dossards" subtitle="Ce qu’il faut savoir">
                         {asList(selectedFormat?.ravitaillements).length > 0 ? (
                           <div className="mb-3">
@@ -594,9 +619,8 @@ useEffect(() => {
                         </InfoItem>
                       </SectionCard>
 
-                      {/* Carte règlement & hébergements */}
                       <SectionCard title="Règlement & hébergements" subtitle="Documentation & pratique">
-                        <InfoItem icon="file" label="Règlement">
+                        <InfoItem icon="file" label="Règlement (PDF du format)">
                           {selectedFormat?.reglement_pdf_url ? (
                             <a
                               href={selectedFormat.reglement_pdf_url}
@@ -627,7 +651,6 @@ useEffect(() => {
                         )}
                       </SectionCard>
 
-                      {/* Carte présentation / texte libre (plein largeur) */}
                       <div className="xl:col-span-2">
                         <SectionCard title="Présentation du parcours" subtitle="Description de l’organisateur">
                           <div className="text-sm text-neutral-800 whitespace-pre-line">
@@ -641,86 +664,35 @@ useEffect(() => {
               </section>
             )}
 
-            {/* ✅ NOUVEL ONGLET : Règlement */}
+            {/* ✅ Règlement UNIQUE (sans formats) */}
             {tab === "reglement" && (
-  <section className="mt-6 space-y-4">
-    {reglementLoading ? (
-      <div className="rounded-2xl border bg-white shadow-sm p-5 text-neutral-600 inline-flex items-center gap-2">
-        <Loader2 className="w-4 h-4 animate-spin" />
-        Chargement du règlement…
-      </div>
-    ) : reglementError ? (
-      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
-        {reglementError}
-      </div>
-    ) : reglementText ? (
-      <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-        <div className="p-4 border-b border-neutral-200 flex items-center gap-2 font-semibold text-neutral-900">
-          <FileText className="w-4 h-4" />
-          Règlement de l’épreuve
-        </div>
-
-        <div className="p-5">
-          <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">
-            {reglementText}
-          </pre>
-        </div>
-      </div>
-    ) : (
-      <EmptyBox text="Le règlement n’est pas encore disponible." />
-    )}
-  </section>
-)}
-
-
-                {/* PDF prioritaire si présent */}
-                {selectedFormat?.reglement_pdf_url ? (
+              <section className="mt-6 space-y-4">
+                {reglementLoading ? (
+                  <div className="rounded-2xl border bg-white shadow-sm p-5 text-neutral-600 inline-flex items-center gap-2">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    Chargement du règlement…
+                  </div>
+                ) : reglementError ? (
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
+                    {reglementError}
+                  </div>
+                ) : reglementText ? (
                   <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
                     <div className="p-4 border-b border-neutral-200 flex items-center justify-between gap-3">
                       <div className="inline-flex items-center gap-2 font-semibold text-neutral-900">
                         <FileText className="w-4 h-4" />
-                        Règlement (PDF)
+                        Règlement (texte)
                       </div>
-                      <a
-                        href={selectedFormat.reglement_pdf_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                      >
-                        Télécharger
-                      </a>
+                      <div className="text-xs text-neutral-500">Document unique pour l’épreuve</div>
                     </div>
-
-                    <iframe
-                      title="Règlement PDF"
-                      src={selectedFormat.reglement_pdf_url}
-                      className="w-full h-[80vh]"
-                    />
+                    <div className="p-5">
+                      <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">
+                        {reglementText}
+                      </pre>
+                    </div>
                   </div>
                 ) : (
-                  <>
-                    {reglementLoading ? (
-                      <div className="rounded-2xl border bg-white shadow-sm p-5 text-neutral-600 inline-flex items-center gap-2">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        Chargement du règlement…
-                      </div>
-                    ) : reglementError ? (
-                      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
-                        {reglementError}
-                      </div>
-                    ) : reglementText ? (
-                      <div className="rounded-2xl border bg-white shadow-sm p-5">
-                        <div className="text-sm text-neutral-500 mb-3">
-                          Version texte (générée) — vous pouvez aussi publier un PDF depuis l’espace organisateur.
-                        </div>
-                        <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">
-                          {reglementText}
-                        </pre>
-                      </div>
-                    ) : (
-                      <EmptyBox text="Le règlement n’est pas encore disponible." />
-                    )}
-                  </>
+                  <EmptyBox text="Le règlement n’est pas encore disponible." />
                 )}
               </section>
             )}
@@ -736,31 +708,26 @@ useEffect(() => {
               <div className="rounded-2xl border bg-white shadow-sm">
                 <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                   <h2 className="text-lg font-semibold">Discuter sous l’épreuve</h2>
-                  <a
-                    href="#discussion"
-                    className="text-sm text-neutral-500 hover:text-neutral-800"
-                    title="Lien direct"
-                  >
+                  <a href="#discussion" className="text-sm text-neutral-500 hover:text-neutral-800" title="Lien direct">
                     #discussion
                   </a>
                 </div>
                 <div className="p-5">
                   {course && <Chat courseId={course.id} organisateurId={course.organisateur_id} />}
-
                   <p className="text-neutral-600 text-sm mt-3">
-                    Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour poser une question à
-                    l’assistant.
+                    Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour poser une question à l’assistant.
                   </p>
                 </div>
               </div>
             </section>
           </div>
 
-          {/* Sidebar sticky */}
+          {/* Sidebar */}
           <div className="lg:col-span-4">
             <div className="lg:sticky lg:top-6 space-y-4">
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">S’inscrire</h3>
+
                 {formats.length === 0 ? (
                   <p className="text-sm text-neutral-600 mt-2">Les formats seront publiés bientôt.</p>
                 ) : (
@@ -776,6 +743,7 @@ useEffect(() => {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="font-medium">{f.nom}</div>
+
                               <div className="text-xs text-neutral-600 mt-0.5 flex flex-wrap gap-2">
                                 {f.date && (
                                   <span className="inline-flex items-center gap-1">
@@ -785,9 +753,7 @@ useEffect(() => {
                                   </span>
                                 )}
                                 {Number.isFinite(Number(f.distance_km)) && <span>{Number(f.distance_km)} km</span>}
-                                {Number.isFinite(Number(f.denivele_dplus)) && (
-                                  <span>{Number(f.denivele_dplus)} m D+</span>
-                                )}
+                                {Number.isFinite(Number(f.denivele_dplus)) && <span>{Number(f.denivele_dplus)} m D+</span>}
                               </div>
 
                               <div className="mt-1 text-sm text-neutral-800">
@@ -804,9 +770,7 @@ useEffect(() => {
                                 <div className="mt-1 text-xs text-neutral-600">
                                   Places : {inscrit} / {max}{" "}
                                   {remaining !== null && remaining <= 10 && !full && (
-                                    <span className="ml-1 text-amber-700 font-medium">
-                                      ({remaining} restantes)
-                                    </span>
+                                    <span className="ml-1 text-amber-700 font-medium">({remaining} restantes)</span>
                                   )}
                                 </div>
                               )}
@@ -840,7 +804,6 @@ useEffect(() => {
                 )}
               </div>
 
-              {/* Faits rapides */}
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Faits rapides</h3>
                 <div className="mt-3 grid grid-cols-2 gap-3">
@@ -851,7 +814,6 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Partage */}
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Partager</h3>
                 <div className="mt-3 flex items-center gap-3">
@@ -862,11 +824,10 @@ useEffect(() => {
                     <Share2 className="w-4 h-4" />
                     Copier le lien
                   </button>
+
                   <div className="ml-auto">
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
-                        shareUrl
-                      )}`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(shareUrl)}`}
                       alt="QR de partage"
                       className="rounded-md border"
                       width={120}
@@ -877,12 +838,9 @@ useEffect(() => {
                 </div>
               </div>
 
-              {/* Bénévoles */}
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Bénévoles</h3>
-                <p className="mt-2 text-sm text-neutral-600">
-                  Un peu de temps libre ? Donnez un coup de main à l’organisation.
-                </p>
+                <p className="mt-2 text-sm text-neutral-600">Un peu de temps libre ? Donnez un coup de main à l’organisation.</p>
                 <Link
                   to={`/benevoles/${course.id}`}
                   className="mt-3 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
@@ -891,7 +849,6 @@ useEffect(() => {
                 </Link>
               </div>
 
-              {/* Alerte hors-ligne pour l'organisateur */}
               {!course.en_ligne && course.organisateur_id === session?.user?.id && (
                 <div className="rounded-2xl border bg-amber-50 text-amber-900 shadow-sm p-4">
                   <div className="flex items-center gap-2">
@@ -912,7 +869,6 @@ useEffect(() => {
           </div>
         </div>
 
-        {/* Message d’erreur éventuel */}
         {error && (
           <div className="mt-8 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
             <div className="flex items-center gap-2">
@@ -926,7 +882,7 @@ useEffect(() => {
   );
 }
 
-/* ===== Sous-composants & utilitaires UI ===== */
+/* ------------------------------ UI subcomponents ------------------------------ */
 
 function Badge({ text, color = "gray" }) {
   const bg = {
@@ -936,6 +892,7 @@ function Badge({ text, color = "gray" }) {
     blue: "bg-blue-100/90 text-blue-800",
     gray: "bg-neutral-200/90 text-neutral-800",
   }[color];
+
   return <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${bg}`}>{text}</span>;
 }
 
@@ -949,16 +906,6 @@ function Fact({ title, value, Icon }) {
   );
 }
 
-function formatRange(min, max, unit = "") {
-  if (min == null && max == null) return "—";
-  if (min != null && max != null) {
-    if (min === max) return `${Math.round(min)}${unit}`;
-    return `${Math.round(min)}–${Math.round(max)}${unit}`;
-  }
-  if (min != null) return `≥ ${Math.round(min)}${unit}`;
-  return `≤ ${Math.round(max)}${unit}`;
-}
-
 function EmptyBox({ text }) {
   return (
     <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">
@@ -969,6 +916,7 @@ function EmptyBox({ text }) {
 
 function FormatsTable({ courseId, formats, countsByFormat }) {
   if (!formats?.length) return null;
+
   return (
     <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
       <table className="min-w-full text-sm">
@@ -1006,9 +954,7 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
                     <>
                       {inscrit} / {max}{" "}
                       {remaining !== null && remaining <= 10 && !full && (
-                        <span className="ml-1 text-amber-700 font-medium">
-                          ({remaining} restantes)
-                        </span>
+                        <span className="ml-1 text-amber-700 font-medium">({remaining} restantes)</span>
                       )}
                     </>
                   ) : (
@@ -1041,16 +987,12 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
   );
 }
 
-function numOrDash(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : "—";
-}
-
-/* ===== Détails format (onglet Infos) ===== */
+/* ----- Infos cards helpers ----- */
 
 function Chips({ items }) {
   const list = (items || []).filter(Boolean);
   if (!list.length) return null;
+
   return (
     <div className="flex flex-wrap gap-2">
       {list.map((it, i) => (
@@ -1063,15 +1005,6 @@ function Chips({ items }) {
       ))}
     </div>
   );
-}
-
-function asList(text) {
-  if (!text) return [];
-  // accepte séparateurs \n, ; ou ,
-  return String(text)
-    .split(/\r?\n|[;,]/g)
-    .map((s) => s.trim())
-    .filter(Boolean);
 }
 
 function SectionCard({ title, subtitle, children }) {
@@ -1108,20 +1041,20 @@ function InfoIcon({ name, className }) {
       return <MapPin className={className} />;
     case "finish":
       return <MapPin className={className} />;
+    case "meal":
+      return <UtensilsCrossed className={className} />;
+    case "file":
+      return <FileText className={className} />;
     case "shield":
       return <ShieldIcon className={className} />;
     case "euro":
       return <EuroIcon className={className} />;
-    case "meal":
-      return <UtensilsCrossed className={className} />;
     case "trophy":
       return <TrophyIcon className={className} />;
     case "bottle":
       return <BottleIcon className={className} />;
     case "id":
       return <IdIcon className={className} />;
-    case "file":
-      return <FileIcon className={className} />;
     case "bed":
       return <BedIcon className={className} />;
     default:
@@ -1129,7 +1062,7 @@ function InfoIcon({ name, className }) {
   }
 }
 
-// Icônes minimalistes en SVG inline (pour éviter d’ajouter d’autres imports)
+/* Minimal inline SVG icons */
 function ShieldIcon(props) {
   return (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
@@ -1169,14 +1102,6 @@ function IdIcon(props) {
       <rect x="3" y="4" width="18" height="16" rx="2" />
       <circle cx="9" cy="10" r="2" />
       <path d="M13 14h5M13 10h5M7 14h4" />
-    </svg>
-  );
-}
-function FileIcon(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" {...props}>
-      <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-      <path d="M14 2v6h6" />
     </svg>
   );
 }
