@@ -3,17 +3,25 @@ import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../supabase";
 import { RefreshCw, Loader2 } from "lucide-react";
 
+/* ----------------------------- utils ----------------------------- */
 function cents(n) {
-  return Number.isFinite(n) ? n : 0;
+  const v = Number(n);
+  return Number.isFinite(v) ? v : 0;
 }
 function eur(c) {
   return (c / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
+function fmtDateTime(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  return d.toLocaleString("fr-FR");
+}
 
+/* ----------------------------- page ------------------------------ */
 export default function Payouts() {
   // Filtres
   const [filters, setFilters] = useState({
-    search: "", // course / format / email
+    search: "", // course / format / email / charge
     statut: "", // status paiement
     course_id: "",
     date_from: "",
@@ -36,7 +44,7 @@ export default function Payouts() {
   const [syncing, setSyncing] = useState({}); // { [paiementId]: true }
   const [syncAllBusy, setSyncAllBusy] = useState(false);
 
-  // Garde d'accès rapide (facultatif si AdminRoute déjà en place)
+  // Gate admin
   const [gate, setGate] = useState("loading");
   const [gateMsg, setGateMsg] = useState("");
 
@@ -49,16 +57,19 @@ export default function Payouts() {
         setGateMsg("Connectez-vous.");
         return false;
       }
+
       const { data: isA } = await supabase
         .from("admins")
         .select("user_id")
         .eq("user_id", user.id)
         .maybeSingle();
+
       if (!isA) {
         setGate("forbidden");
         setGateMsg("Accès réservé aux administrateurs.");
         return false;
       }
+
       setGate("ok");
       return true;
     } catch (e) {
@@ -68,7 +79,6 @@ export default function Payouts() {
     }
   }
 
-  // Listes déroulantes
   useEffect(() => {
     (async () => {
       const { data } = await supabase.from("courses").select("id, nom").order("nom");
@@ -79,6 +89,7 @@ export default function Payouts() {
   async function load() {
     setLoading(true);
     setErr(null);
+
     try {
       const ok = await checkAdmin();
       if (!ok) {
@@ -111,6 +122,7 @@ export default function Payouts() {
 
       const { data, error } = await q;
       if (error) throw error;
+
       setRows(data || []);
     } catch (e) {
       setErr(e?.message ?? String(e));
@@ -121,71 +133,80 @@ export default function Payouts() {
 
   useEffect(() => {
     load();
-    /* eslint-disable-next-line */
+    // eslint-disable-next-line
   }, []);
   useEffect(() => {
     load();
-    /* eslint-disable-next-line */
+    // eslint-disable-next-line
   }, [JSON.stringify(filters)]);
 
-  // Enrichissement côté UI (proposition de commission plateforme / acompte)
-  const computed = useMemo(
-    () =>
-      rows.map((p) => {
-        const gross = cents(p.amount_total_cents);
-        // IMPORTANT: dans ta vue tu as "fee_total_cents" (sinon adapte ici)
-        const stripe = cents(p.fee_total_cents);
-        const already = cents(p.transferred_total_cents);
-        const currentPlat = cents(p.platform_fee_cents);
-        const remaining = cents(p.net_remaining_cents);
+  /* ------------------------- computed rows ------------------------- */
+  const computed = useMemo(() => {
+    return (rows || []).map((p) => {
+      const gross = cents(p.amount_total_cents);
+      const stripe = cents(p.fee_total_cents);
+      const already = cents(p.transferred_total_cents);
 
-        const desiredPlatformFee = Math.round((platformPct / 100) * gross);
-        const depositNow = Math.max(
-          0,
-          Math.min(remaining, Math.round((depositPct / 100) * remaining)),
-        );
+      // Ce que la DB a déjà comme commission plateforme (historique)
+      const currentPlat = cents(p.platform_fee_cents);
 
-        return {
-          ...p,
-          gross,
-          stripe,
-          already,
-          currentPlat,
-          desiredPlatformFee,
-          remaining,
-          depositNow,
-        };
-      }),
-    [rows, platformPct, depositPct],
-  );
+      // Commission souhaitée (slider)
+      const desiredPlatformFee = Math.round((platformPct / 100) * gross);
+
+      // ✅ Nouvelle colonne “Net final” (après frais Stripe + Tickrace)
+      const netFinal = Math.max(0, gross - stripe - desiredPlatformFee);
+
+      // Net restant basé sur netFinal (plus cohérent quand tu modifies le %)
+      const remaining = Math.max(0, netFinal - already);
+
+      // Acompte proposé sur le net restant
+      const depositNow = Math.max(0, Math.min(remaining, Math.round((depositPct / 100) * remaining)));
+
+      return {
+        ...p,
+        gross,
+        stripe,
+        already,
+        currentPlat,
+        desiredPlatformFee,
+        netFinal,
+        remaining,
+        depositNow,
+      };
+    });
+  }, [rows, platformPct, depositPct]);
 
   const totals = useMemo(() => {
     const sel = computed.filter((r) => selected[r.id]);
     const count = sel.length;
+
     const gross = sel.reduce((a, r) => a + r.gross, 0);
     const stripe = sel.reduce((a, r) => a + r.stripe, 0);
     const curPlat = sel.reduce((a, r) => a + r.currentPlat, 0);
     const newPlat = sel.reduce((a, r) => a + r.desiredPlatformFee, 0);
+    const netFinal = sel.reduce((a, r) => a + r.netFinal, 0);
     const remaining = sel.reduce((a, r) => a + r.remaining, 0);
     const deposit = sel.reduce((a, r) => a + r.depositNow, 0);
-    return { count, gross, stripe, curPlat, newPlat, remaining, deposit };
+
+    return { count, gross, stripe, curPlat, newPlat, netFinal, remaining, deposit };
   }, [computed, selected]);
 
+  /* ------------------------- actions ------------------------- */
   async function savePlatformFees() {
     const sel = computed.filter((r) => selected[r.id]);
     if (sel.length === 0) {
       alert("Sélection vide");
       return;
     }
+
     setBusy(true);
     try {
       const res = await Promise.all(
-        sel.map((r) =>
-          supabase.from("paiements").update({ platform_fee_amount: r.desiredPlatformFee }).eq("id", r.id),
-        ),
+        sel.map((r) => supabase.from("paiements").update({ platform_fee_amount: r.desiredPlatformFee }).eq("id", r.id)),
       );
-      const err = res.find((x) => x.error)?.error;
-      if (err) throw new Error(err.message);
+      const anyErr = res.find((x) => x.error)?.error;
+      if (anyErr) throw new Error(anyErr.message);
+
       await load();
       alert(`Commission plateforme mise à jour sur ${sel.length} paiement(s).`);
     } catch (e) {
@@ -196,7 +217,6 @@ export default function Payouts() {
   }
 
   async function transfer(mode) {
-    // On conserve l’Edge Function release-funds (appel côté client)
     const sel = computed.filter((r) => selected[r.id]);
     if (sel.length === 0) {
       alert("Sélection vide");
@@ -210,49 +230,50 @@ export default function Payouts() {
     if (auth?.session?.access_token) headers["Authorization"] = `Bearer ${auth.session.access_token}`;
 
     setBusy(true);
-    let ok = 0,
-      ko = 0;
+
+    let ok = 0;
+    let ko = 0;
+
     for (const r of sel) {
       const amount = mode === "full" ? r.remaining : r.depositNow;
       if (amount <= 0) continue;
+
       try {
         const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/release-funds`;
+        // eslint-disable-next-line no-await-in-loop
         const res = await fetch(url, {
           method: "POST",
           headers,
           body: JSON.stringify({ paiement_id: r.id, amount_eur: amount / 100 }),
         });
+
         if (!res.ok) {
           const j = await res.json().catch(() => ({}));
           throw new Error(j?.error || res.statusText);
         }
+
         ok++;
       } catch {
         ko++;
       }
     }
+
     setBusy(false);
     await load();
     alert(`Transferts terminés: ${ok} OK, ${ko} échec(s).`);
   }
 
-  // --- Sync Stripe fees (un paiement)
   async function syncStripeFees(paiementId) {
     if (!paiementId) return;
+
     setSyncing((m) => ({ ...m, [paiementId]: true }));
     try {
-      const { data, error } = await supabase.functions.invoke("sync-stripe-fees", {
+      const { error } = await supabase.functions.invoke("sync-stripe-fees", {
         body: { paiement_id: paiementId },
       });
       if (error) throw error;
 
-      // Recharge la liste (simple & sûr)
       await load();
-
-      // Optionnel: feedback rapide
-      if (data?.fee_total != null) {
-        // ok
-      }
     } catch (e) {
       alert("Sync frais Stripe impossible: " + (e?.message ?? String(e)));
     } finally {
@@ -264,7 +285,6 @@ export default function Payouts() {
     }
   }
 
-  // --- Sync Stripe fees (sélection)
   async function syncStripeFeesForSelection() {
     const sel = computed.filter((r) => selected[r.id]);
     if (sel.length === 0) {
@@ -272,16 +292,16 @@ export default function Payouts() {
       return;
     }
 
-    // On ne sync que ceux qui n'ont pas de frais
-    const todo = sel.filter((r) => !cents(r.fee_total_cents));
+    const todo = sel.filter((r) => cents(r.fee_total_cents) === 0);
     if (todo.length === 0) {
       alert("Tous les paiements sélectionnés ont déjà des frais Stripe.");
       return;
     }
 
     setSyncAllBusy(true);
-    let ok = 0,
-      ko = 0;
+
+    let ok = 0;
+    let ko = 0;
 
     for (const r of todo) {
       try {
@@ -301,12 +321,18 @@ export default function Payouts() {
     alert(`Sync frais Stripe: ${ok} OK, ${ko} échec(s).`);
   }
 
+  /* ---------------------------- render ---------------------------- */
   if (gate === "loading") return <div className="p-6">Chargement de l’espace admin…</div>;
   if (gate === "forbidden") return <div className="p-6 text-red-600">403 — {gateMsg}</div>;
 
   return (
     <div className="p-4 space-y-4">
-      <h1 className="text-xl font-semibold">Admin — Paiements</h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-xl font-semibold">Admin — Paiements</h1>
+        <button className="border rounded px-3 py-1" onClick={load} disabled={loading}>
+          Actualiser
+        </button>
+      </div>
 
       {err && (
         <div className="p-3 border border-yellow-300 bg-yellow-50 text-yellow-800 rounded">
@@ -332,6 +358,9 @@ export default function Payouts() {
           <option value="pending">pending</option>
           <option value="failed">failed</option>
           <option value="refunded">refunded</option>
+          <option value="paye">paye</option>
+          <option value="rembourse">rembourse</option>
+          <option value="partiellement_rembourse">partiellement_rembourse</option>
         </select>
         <select
           className="border rounded px-2 py-1"
@@ -365,15 +394,15 @@ export default function Payouts() {
             Réinitialiser
           </button>
           <button className="border rounded px-3 py-1" onClick={load}>
-            Actualiser
+            Appliquer
           </button>
         </div>
       </div>
 
       {/* Réglages & actions */}
       <div className="flex flex-wrap items-center gap-3">
-        <label>
-          % Tickrace (sur brut) : {platformPct}%
+        <label className="flex items-center gap-2">
+          <span>% Tickrace (sur brut)</span>
           <input
             type="number"
             min={0}
@@ -381,15 +410,16 @@ export default function Payouts() {
             step={0.1}
             value={platformPct}
             onChange={(e) => setPlatformPct(Number(e.target.value))}
-            className="ml-2 border rounded px-2 py-1 w-24"
+            className="border rounded px-2 py-1 w-24"
           />
         </label>
+
         <button onClick={savePlatformFees} disabled={busy} className="border rounded px-3 py-1">
           Enregistrer ce % sur la sélection
         </button>
 
-        <label className="ml-4">
-          % acompte sur net restant : {depositPct}%
+        <label className="flex items-center gap-2 ml-2">
+          <span>% acompte sur net restant</span>
           <input
             type="number"
             min={0}
@@ -397,7 +427,7 @@ export default function Payouts() {
             step={1}
             value={depositPct}
             onChange={(e) => setDepositPct(Number(e.target.value))}
-            className="ml-2 border rounded px-2 py-1 w-24"
+            className="border rounded px-2 py-1 w-24"
           />
         </label>
 
@@ -442,7 +472,8 @@ export default function Payouts() {
               <th className="px-3 py-2 text-left">Compte connecté</th>
               <th className="px-3 py-2 text-right">Brut</th>
               <th className="px-3 py-2 text-right">Frais Stripe</th>
-              <th className="px-3 py-2 text-right">Plateforme (actuelle → nouvelle)</th>
+              <th className="px-3 py-2 text-right">Tickrace (actuelle → nouvelle)</th>
+              <th className="px-3 py-2 text-right">Net final</th>
               <th className="px-3 py-2 text-right">Déjà versé</th>
               <th className="px-3 py-2 text-right">Net restant</th>
               <th className="px-3 py-2 text-right">Acompte (prévu)</th>
@@ -450,16 +481,17 @@ export default function Payouts() {
               <th className="px-3 py-2 text-left">Actions</th>
             </tr>
           </thead>
+
           <tbody>
             {loading ? (
               <tr>
-                <td colSpan={13} className="px-3 py-4 text-gray-500">
+                <td colSpan={14} className="px-3 py-4 text-gray-500">
                   Chargement…
                 </td>
               </tr>
             ) : computed.length === 0 ? (
               <tr>
-                <td colSpan={13} className="px-3 py-6 text-gray-500">
+                <td colSpan={14} className="px-3 py-6 text-gray-500">
                   Aucun paiement
                 </td>
               </tr>
@@ -477,7 +509,9 @@ export default function Payouts() {
                         onChange={(e) => setSelected((s) => ({ ...s, [r.id]: e.target.checked }))}
                       />
                     </td>
-                    <td className="px-3 py-2">{new Date(r.created_at).toLocaleString("fr-FR")}</td>
+
+                    <td className="px-3 py-2">{fmtDateTime(r.created_at)}</td>
+
                     <td className="px-3 py-2">
                       <div className="font-medium">{r.course_nom ?? "-"}</div>
                       <div className="text-gray-500">
@@ -485,25 +519,33 @@ export default function Payouts() {
                         {r.format_date ? `— ${new Date(r.format_date).toLocaleDateString("fr-FR")}` : ""}
                       </div>
                     </td>
+
                     <td className="px-3 py-2">
                       <div className="font-medium">
                         {r.coureur_prenom} {r.coureur_nom}
                       </div>
                       <div className="text-gray-500">{r.coureur_email}</div>
                     </td>
+
                     <td className="px-3 py-2 font-mono">{r.destination_account_id ?? "-"}</td>
+
                     <td className="px-3 py-2 text-right">{eur(r.gross)}</td>
                     <td className="px-3 py-2 text-right">{eur(r.stripe)}</td>
+
                     <td className="px-3 py-2 text-right">
                       <div className="flex flex-col items-end">
                         <span className="text-gray-500 line-through">{eur(r.currentPlat)}</span>
                         <span className="font-semibold">{eur(r.desiredPlatformFee)}</span>
                       </div>
                     </td>
+
+                    <td className="px-3 py-2 text-right font-semibold">{eur(r.netFinal)}</td>
                     <td className="px-3 py-2 text-right">{eur(r.already)}</td>
                     <td className="px-3 py-2 text-right font-semibold">{eur(r.remaining)}</td>
                     <td className="px-3 py-2 text-right">{eur(r.depositNow)}</td>
+
                     <td className="px-3 py-2 font-mono">{r.charge_id ?? "-"}</td>
+
                     <td className="px-3 py-2">
                       <button
                         onClick={() => syncStripeFees(r.id)}
@@ -518,7 +560,11 @@ export default function Payouts() {
                             : "Récupérer charge + balance transaction + frais Stripe"
                         }
                       >
-                        {isSyncing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                        {isSyncing ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RefreshCw className="h-3.5 w-3.5" />
+                        )}
                         Sync frais
                       </button>
                     </td>
@@ -540,10 +586,13 @@ export default function Payouts() {
           Stripe : <b>{eur(totals.stripe)}</b>
         </span>
         <span>
-          Plateforme actuelle : <b>{eur(totals.curPlat)}</b>
+          Tickrace actuel : <b>{eur(totals.curPlat)}</b>
         </span>
         <span>
-          Plateforme nouvelle : <b>{eur(totals.newPlat)}</b>
+          Tickrace nouveau : <b>{eur(totals.newPlat)}</b>
+        </span>
+        <span>
+          Net final : <b>{eur(totals.netFinal)}</b>
         </span>
         <span>
           Net restant : <b>{eur(totals.remaining)}</b>
