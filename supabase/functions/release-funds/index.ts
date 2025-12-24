@@ -4,22 +4,23 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 import Stripe from "https://esm.sh/stripe@16.6.0?target=deno";
+import { z } from "https://esm.sh/zod@3.23.8";
 
 /* ------------------------------ ENV ------------------------------ */
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 
-const ALLOWLIST = ["https://www.tickrace.com", "http://localhost:5173", "http://127.0.0.1:5173"];
-
-/* --------------------------- Clients ----------------------------- */
+const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
 const supabaseSR = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
-const stripe = new Stripe(STRIPE_SECRET_KEY, {
-  apiVersion: "2024-04-10",
-  httpClient: Stripe.createFetchHttpClient(),
-});
 
-/* ------------------------------ CORS ----------------------------- */
+/* ------------------------------ CORS ------------------------------ */
+const ALLOWLIST = [
+  "https://www.tickrace.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
+
 function cors(origin: string | null) {
   const o = origin && ALLOWLIST.includes(origin) ? origin : ALLOWLIST[0];
   return {
@@ -31,12 +32,12 @@ function cors(origin: string | null) {
     "Content-Type": "application/json; charset=utf-8",
   };
 }
-function json(body: any, status: number, headers: Record<string, string>) {
+
+function ok(body: any, headers: Record<string, string>, status = 200) {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-/* ----------------------------- Utils ----------------------------- */
-// ✅ parse "8,92" ou "8.92" ou 8.92
+/* ------------------------------ Utils ------------------------------ */
 function normEuro(val: unknown): number {
   if (typeof val === "number") return val;
   if (typeof val !== "string") return NaN;
@@ -49,191 +50,224 @@ function cents(n: any) {
   return Number.isFinite(v) ? v : 0;
 }
 
-/* -------------------------- Admin guard -------------------------- */
+/* ------------------------------ Auth admin ------------------------------ */
 async function requireAdmin(req: Request) {
   const auth = req.headers.get("Authorization") || req.headers.get("authorization") || "";
   const jwt = auth.startsWith("Bearer ") ? auth.slice(7) : null;
-  if (!jwt) return { ok: false, code: 401 as const, msg: "Unauthorized" };
+  if (!jwt) return { ok: false as const, code: 401 as const };
 
-  const { data, error } = await supabaseSR.auth.getUser(jwt);
-  const user = data?.user;
-  if (error || !user?.id) return { ok: false, code: 401 as const, msg: "Unauthorized" };
+  const { data: u, error: uErr } = await supabaseSR.auth.getUser(jwt);
+  if (uErr || !u?.user?.id) return { ok: false as const, code: 401 as const };
 
-  const { data: adminRow, error: adminErr } = await supabaseSR
+  const { data: adminRow, error: aErr } = await supabaseSR
     .from("admins")
     .select("user_id")
-    .eq("user_id", user.id)
+    .eq("user_id", u.user.id)
     .maybeSingle();
 
-  if (adminErr) {
-    console.error("ADMINS_CHECK_ERROR", adminErr);
-    return { ok: false, code: 500 as const, msg: "Admin check error" };
+  if (aErr) {
+    console.error("admins check error:", aErr);
+    return { ok: false as const, code: 500 as const };
   }
-  if (!adminRow) return { ok: false, code: 403 as const, msg: "Forbidden" };
+  if (!adminRow) return { ok: false as const, code: 403 as const };
 
-  return { ok: true as const, user };
+  return { ok: true as const, user: u.user };
 }
 
-/* ------------------------------ Main ----------------------------- */
+/* ------------------------------ Body ------------------------------ */
+const Body = z
+  .object({
+    paiement_id: z.string().uuid().optional(),
+    inscription_id: z.string().uuid().optional(),
+    amount_eur: z.union([z.number(), z.string()]).optional(), // si absent => full
+  })
+  .strip();
+
 serve(async (req) => {
   const headers = cors(req.headers.get("origin"));
   if (req.method === "OPTIONS") return new Response("ok", { headers });
-  if (req.method !== "POST") return json({ error: "Method not allowed" }, 405, headers);
+  if (req.method !== "POST") return ok({ error: "Method not allowed" }, headers, 405);
 
   const adm = await requireAdmin(req);
-  if (!adm.ok) return json({ error: adm.msg }, adm.code, headers);
+  if (!adm.ok) {
+    const msg =
+      adm.code === 401 ? "Unauthorized" : adm.code === 403 ? "Forbidden" : "Admin check error";
+    return ok({ error: msg }, headers, adm.code);
+  }
 
   try {
-    const body = await req.json().catch(() => ({}));
-    const paiement_id = body?.paiement_id as string | undefined;
-    const inscription_id = body?.inscription_id as string | undefined;
-    const amount_eur = body?.amount_eur;
+    const body = Body.parse(await req.json().catch(() => ({})));
+    const { paiement_id, inscription_id, amount_eur } = body || {};
 
     if (!paiement_id && !inscription_id) {
-      return json({ error: "paiement_id ou inscription_id requis" }, 400, headers);
+      return ok({ error: "paiement_id ou inscription_id requis" }, headers, 400);
     }
 
-    // ---- Load paiement (support ancienne colonne inscription_id ET nouvelle inscription_ids[])
-    let payQuery = supabaseSR.from("paiements").select(`
+    // 1) Charger paiement (nouvelle table)
+    let q = supabaseSR.from("paiements").select(`
       id,
       devise,
-      trace_id,
+      destination_account_id,
       charge_id,
       stripe_charge_id,
-      destination_account_id,
+      stripe_payment_intent_id,
+      stripe_payment_intent,
+      stripe_session_id,
+      trace_id,
+      inscription_ids,
       transferred_total_cents,
       last_transfer_at,
       reversement_effectue,
-      refunded_total_cents,
-      fee_total,
-      fee_total_cents,
-      platform_fee_amount,
-      platform_fee_cents,
       total_amount_cents,
       amount_total,
-      amount_total_cents
+      platform_fee_amount,
+      fee_total,
+      refunded_total_cents
     `).limit(1);
 
     if (paiement_id) {
-      payQuery = payQuery.eq("id", paiement_id);
-    } else if (inscription_id) {
-      // nouvelle structure : inscription_ids uuid[]
-      // (si jamais tu as encore une colonne inscription_id, tu peux aussi ajouter un OR côté SQL plus tard)
-      payQuery = payQuery.contains("inscription_ids", [inscription_id]);
+      q = q.eq("id", paiement_id);
+    } else {
+      // inscription_ids contient inscription_id
+      q = q.contains("inscription_ids", [inscription_id]);
     }
 
-    const { data: p, error: pe } = await payQuery.maybeSingle();
+    const { data: p, error: pe } = await q.order("created_at", { ascending: false }).maybeSingle();
+
     if (pe) {
-      console.error("PAIEMENT_LOOKUP_ERROR", pe);
-      return json({ error: "paiement lookup error", details: pe.message }, 500, headers);
+      console.error("paiement lookup error:", pe);
+      return ok({ error: "paiement lookup error", details: pe.message }, headers, 500);
     }
-    if (!p) return json({ error: "paiement introuvable" }, 404, headers);
+    if (!p) return ok({ error: "paiement introuvable" }, headers, 404);
 
-    const chargeId = (p.stripe_charge_id || p.charge_id) as string | null;
-    const destination = p.destination_account_id as string | null;
+    const destination = p.destination_account_id;
+    const chargeId = p.charge_id || p.stripe_charge_id;
 
     if (!destination || !chargeId) {
-      return json({ error: "destination_account_id / charge_id manquants sur le paiement" }, 400, headers);
+      return ok({ error: "destination_account_id / charge_id manquant" }, headers, 400);
     }
 
-    const currency = (p.devise || "eur") as any;
-
-    // ---- Calcul net transférable
-    // total brut
+    // 2) Calcul du max transférable (net restant)
     const gross =
       cents(p.total_amount_cents) ||
-      cents(p.amount_total_cents) ||
-      Math.round(cents(p.amount_total) * 100);
+      cents(p.amount_total) ||
+      0;
 
-    // frais stripe (stockés en cents)
-    const stripeFee = cents(p.fee_total_cents) || cents(p.fee_total);
-
-    // commission Tickrace (stockée en cents)
-    const platformFee = cents(p.platform_fee_cents) || cents(p.platform_fee_amount);
-
-    // remboursements déjà constatés (si tu l’as)
+    const platformFee = cents(p.platform_fee_amount);
+    const stripeFee = cents(p.fee_total);
     const refunded = cents(p.refunded_total_cents);
-
-    // déjà versé
     const already = cents(p.transferred_total_cents);
 
-    // net max transférable = gross - stripe - tickrace - refunded - already
-    const maxNet = Math.max(0, gross - stripeFee - platformFee - refunded - already);
+    const netTotal = Math.max(0, gross - platformFee - stripeFee - refunded);
+    const maxNet = Math.max(0, netTotal - already);
 
-    const eur = normEuro(amount_eur);
-    if (!Number.isFinite(eur) || eur <= 0) {
-      return json({ error: "amount_eur invalide" }, 400, headers);
+    // 3) Montant demandé (si absent => full)
+    let toTransfer = maxNet;
+    if (typeof amount_eur !== "undefined") {
+      const eur = normEuro(amount_eur);
+      if (!Number.isFinite(eur) || eur <= 0) {
+        return ok({ error: "amount_eur invalide" }, headers, 400);
+      }
+      const requested = Math.round(eur * 100);
+      toTransfer = Math.min(requested, maxNet);
     }
 
-    const requested = Math.round(eur * 100);
-    const toTransfer = Math.min(requested, maxNet);
-    if (toTransfer <= 0) return json({ error: "rien à transférer (net restant = 0)" }, 400, headers);
+    if (toTransfer <= 0) {
+      return ok(
+        {
+          error: "rien_a_transferer",
+          gross,
+          platformFee,
+          stripeFee,
+          refunded,
+          already,
+          netTotal,
+          maxNet,
+        },
+        headers,
+        400,
+      );
+    }
 
-    // ---- Stripe transfer
+    // 4) Stripe transfer
     const tr = await stripe.transfers.create({
       amount: toTransfer,
-      currency,
+      currency: (p.devise || "eur") as any,
       destination,
-      // transfert “depuis” la charge (séparate charges & transfers)
       source_transaction: chargeId,
       transfer_group: p.trace_id ? `grp_${p.trace_id}` : undefined,
-      metadata: {
-        paiement_id: String(p.id),
-        mode: "manual_release_funds",
-      },
     });
 
-    // ---- Historique transferts (ancienne table) + update paiement
-    // (si ta table s’appelle autrement, adapte juste ici)
-    const { error: te } = await supabaseSR.from("paiement_transferts").insert({
+    // 5) Historique transfert (si table existe)
+    const insertRes = await supabaseSR.from("paiement_transferts").insert({
       paiement_id: p.id,
       amount_cents: toTransfer,
       transfer_id: tr.id,
-      status: tr?.reversed ? "reversed" : "succeeded",
+      status: tr.status || "succeeded",
       created_at: new Date().toISOString(),
     });
-    if (te) console.error("PAIEMENT_TRANSFERTS_INSERT_ERROR", te);
+    if (insertRes.error) {
+      // on log mais on ne bloque pas (certaines instances n’ont pas la table)
+      console.error("paiement_transferts insert error:", insertRes.error);
+    }
 
     const newTotal = already + toTransfer;
-    const netFinal = Math.max(0, gross - stripeFee - platformFee - refunded);
-    const fullyPaid = newTotal >= netFinal;
+    const reversement_effectue = newTotal >= netTotal;
 
-    const { error: ue } = await supabaseSR
-      .from("paiements")
-      .update({
-        transferred_total_cents: newTotal,
-        last_transfer_at: new Date().toISOString(),
-        reversement_effectue: fullyPaid,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", p.id);
+    const up = await supabaseSR.from("paiements").update({
+      transferred_total_cents: newTotal,
+      last_transfer_at: new Date().toISOString(),
+      reversement_effectue,
+      updated_at: new Date().toISOString(),
+    }).eq("id", p.id);
 
-    if (ue) console.error("PAIEMENTS_UPDATE_ERROR", ue);
+    if (up.error) {
+      console.error("paiements update error:", up.error);
+      // transfert Stripe déjà fait => on renvoie quand même ok + warning
+      return ok(
+        {
+          ok: true,
+          warning: "transfer_ok_but_db_update_failed",
+          details: up.error.message,
+          paiement_id: p.id,
+          transfer_id: tr.id,
+          amount_cents: toTransfer,
+          net_total_cents: netTotal,
+          remaining_after_cents: Math.max(0, netTotal - newTotal),
+        },
+        headers,
+        200,
+      );
+    }
 
-    return json(
+    return ok(
       {
         ok: true,
         paiement_id: p.id,
         transfer_id: tr.id,
         amount_cents: toTransfer,
-        currency,
-        max_net_remaining_cents: maxNet,
-        net_final_cents: netFinal,
+        gross_cents: gross,
+        platform_fee_cents: platformFee,
+        stripe_fee_cents: stripeFee,
+        refunded_cents: refunded,
+        already_cents: already,
+        net_total_cents: netTotal,
         transferred_total_cents: newTotal,
-        reversement_effectue: fullyPaid,
+        remaining_after_cents: Math.max(0, netTotal - newTotal),
+        reversement_effectue,
       },
-      200,
       headers,
+      200,
     );
   } catch (e: any) {
-    console.error("RELEASE_FUNDS_FATAL", e?.raw?.message || e?.message || e);
-    return json(
+    console.error("release-funds error:", e?.raw?.message || e?.message || e);
+    return ok(
       {
         error: e?.raw?.message || e?.message || "Erreur serveur",
         stripe: e?.raw ?? null,
       },
-      500,
       headers,
+      500,
     );
   }
 });
