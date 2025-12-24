@@ -1,15 +1,17 @@
-// supabase/functions/stripe-webhook/index.ts
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 
+/* ------------------------------ ENV ------------------------------ */
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 const SEND_INSCRIPTION_EMAIL_URL = Deno.env.get("SEND_INSCRIPTION_EMAIL_URL") || "";
 
+/* --------------------------- Clients ----------------------------- */
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+/* ------------------------------ CORS ----------------------------- */
 function cors(h = new Headers()) {
   h.set("Access-Control-Allow-Origin", "*");
   h.set("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -19,6 +21,7 @@ function cors(h = new Headers()) {
 }
 
 const STRIPE_API = "https://api.stripe.com/v1";
+const SYNC_STRIPE_FEES_FN = "sync-stripe-fees";
 
 async function stripeGet(path: string) {
   const resp = await fetch(`${STRIPE_API}${path}`, {
@@ -44,7 +47,7 @@ async function stripeGet(path: string) {
   return parsed;
 }
 
-// Appel de l'Edge Function send-inscription-email
+/* -------------------------- Email helper ------------------------- */
 async function callSendInscriptionEmail(inscriptionId: string) {
   if (!SEND_INSCRIPTION_EMAIL_URL) {
     console.warn("SEND_INSCRIPTION_EMAIL_URL non défini, email non envoyé pour", inscriptionId);
@@ -68,12 +71,12 @@ async function callSendInscriptionEmail(inscriptionId: string) {
   }
 }
 
-/** Refund handler (object = Refund) */
+/* -------------------------- Refund handler ------------------------ */
 async function processRefund(refund: any) {
   const refundId = refund?.id as string; // re_...
   const piId = (refund?.payment_intent as string | null) ?? null;
   const amount = Number(refund?.amount || 0); // cents
-  const status = (refund?.status as string) || "unknown"; // succeeded/pending/failed...
+  const status = (refund?.status as string) || "unknown";
 
   console.log("PROCESS_REFUND", refundId, "pi", piId, "amount", amount, "status", status);
 
@@ -161,10 +164,7 @@ async function processRefund(refund: any) {
   };
 
   if (existing?.id) {
-    const { error: upErr } = await supabase
-      .from("remboursements")
-      .update(payload)
-      .eq("id", existing.id);
+    const { error: upErr } = await supabase.from("remboursements").update(payload).eq("id", existing.id);
     if (upErr) console.error("REFUND_REMBOURSEMENT_UPDATE_ERROR", upErr);
     else console.log("REFUND_REMBOURSEMENT_UPDATE_OK", existing.id);
   } else {
@@ -174,11 +174,56 @@ async function processRefund(refund: any) {
   }
 }
 
+/* ------------------ CALL sync-stripe-fees (NO SECRET) ------------------ */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+async function callSyncStripeFees(params: {
+  stripe_payment_intent_id?: string | null;
+  stripe_session_id?: string | null;
+  paiement_id?: string | null;
+  sync_options?: boolean;
+}) {
+  const url = `${SUPABASE_URL}/functions/v1/${SYNC_STRIPE_FEES_FN}`;
+
+  const resp = await fetch(url, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      // ✅ pas de secret custom : on utilise le service role (server-to-server)
+      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    },
+    body: JSON.stringify({
+      paiement_id: params.paiement_id ?? undefined,
+      stripe_session_id: params.stripe_session_id ?? undefined,
+      stripe_payment_intent_id: params.stripe_payment_intent_id ?? undefined,
+      sync_options: params.sync_options ?? true,
+    }),
+  });
+
+  const txt = await resp.text();
+  let data: any = null;
+  try { data = JSON.parse(txt); } catch {}
+
+  if (!resp.ok) {
+    console.error("CALL_SYNC_STRIPE_FEES_FAILED", resp.status, txt);
+    return { ok: false, status: resp.status, data };
+  }
+
+  console.log("CALL_SYNC_STRIPE_FEES_OK", {
+    paiement_id: data?.paiement_id,
+    fee_total: data?.fee_total,
+    synced_options: data?.synced_options_count,
+  });
+
+  return { ok: true, data };
+}
+
+/* ------------------------------ Handler -------------------------- */
 serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v7 (NO SDK)");
+  console.log("STRIPE-WEBHOOK v8 (CALL sync-stripe-fees - no custom secret)");
 
   let event: any;
   try {
@@ -218,10 +263,7 @@ serve(async (req) => {
           .filter(Boolean);
 
         if (groupIds.length) {
-          const inscs = await supabase
-            .from("inscriptions")
-            .select("id")
-            .in("member_of_group_id", groupIds);
+          const inscs = await supabase.from("inscriptions").select("id").in("member_of_group_id", groupIds);
 
           if (!inscs.error && inscs.data) {
             inscriptionIds = inscs.data.map((r: any) => r.id);
@@ -271,17 +313,14 @@ serve(async (req) => {
         if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
         else console.log("INSCRIPTIONS_UPDATE_OK", finalInscriptionIds.length);
 
-        const u2 = await supabase.from("inscriptions_options").update({ status: "confirmed" }).in("inscription_id", finalInscriptionIds);
+        const u2 = await supabase
+          .from("inscriptions_options")
+          .update({ status: "confirmed" })
+          .in("inscription_id", finalInscriptionIds);
         if (u2.error) console.error("OPTIONS_CONFIRM_ERROR", u2.error);
 
-        const grpIdsRes = await supabase
-          .from("inscriptions")
-          .select("member_of_group_id")
-          .in("id", finalInscriptionIds);
-
-        const grpIdsUnique = [
-          ...new Set((grpIdsRes.data || []).map((r: any) => r.member_of_group_id).filter(Boolean)),
-        ];
+        const grpIdsRes = await supabase.from("inscriptions").select("member_of_group_id").in("id", finalInscriptionIds);
+        const grpIdsUnique = [...new Set((grpIdsRes.data || []).map((r: any) => r.member_of_group_id).filter(Boolean))];
 
         if (grpIdsUnique.length) {
           const u3 = await supabase.from("inscriptions_groupes").update({ statut: "paye" }).in("id", grpIdsUnique);
@@ -289,62 +328,52 @@ serve(async (req) => {
         }
 
         for (const insId of finalInscriptionIds) {
-          try {
-            await callSendInscriptionEmail(insId);
-          } catch (err) {
+          try { await callSendInscriptionEmail(insId); } catch (err) {
             console.error("CALL_SEND_INSCRIPTION_EMAIL_ERROR", insId, err);
           }
         }
       }
+
+      // ✅ Déclenche sync-stripe-fees (fees + options) : 2 tentatives (balance tx parfois en retard)
+      if (paymentIntentId) {
+        await callSyncStripeFees({
+          stripe_payment_intent_id: paymentIntentId,
+          stripe_session_id: sessionId,
+          paiement_id: upd.data?.id ?? null,
+          sync_options: true,
+        });
+
+        await sleep(1200);
+
+        await callSyncStripeFees({
+          stripe_payment_intent_id: paymentIntentId,
+          stripe_session_id: sessionId,
+          paiement_id: upd.data?.id ?? null,
+          sync_options: true,
+        });
+      }
     }
 
     /* ====================================================================== */
-    /* 2) charge.succeeded → fee_total + receipt_url + charge_id              */
+    /* 2) charge.succeeded → fallback déclenchement sync-stripe-fees           */
     /* ====================================================================== */
     if (event.type === "charge.succeeded") {
       const ch = event.data.object as any;
-
-      const chargeId = (ch?.id as string) ?? null;
-      const receiptUrl = (ch?.receipt_url as string | null) ?? null;
-      const balanceTxId = typeof ch?.balance_transaction === "string" ? ch.balance_transaction : null;
       const paymentIntentId = typeof ch?.payment_intent === "string" ? ch.payment_intent : null;
 
-      console.log("CHARGE_SUCCEEDED", chargeId, "pi", paymentIntentId, "bt", balanceTxId);
-
-      let feeTotal: number | null = null; // cents
-      if (balanceTxId) {
-        try {
-          const bt = await stripeGet(`/balance_transactions/${balanceTxId}`);
-          feeTotal = typeof bt?.fee === "number" ? bt.fee : null;
-        } catch (e) {
-          console.error("BALANCE_TX_FETCH_ERROR", e);
-        }
-      }
+      console.log("CHARGE_SUCCEEDED", ch?.id, "pi", paymentIntentId);
 
       if (paymentIntentId) {
-        const upd = await supabase
-          .from("paiements")
-          .update({
-            stripe_payment_intent_id: paymentIntentId,
-            stripe_payment_intent: paymentIntentId,
-            stripe_charge_id: chargeId,
-            charge_id: chargeId,
-            receipt_url: receiptUrl,
-            balance_transaction_id: balanceTxId,
-            fee_total: feeTotal,
-            updated_at: new Date().toISOString(),
-          })
-          .or(`stripe_payment_intent_id.eq.${paymentIntentId},stripe_payment_intent.eq.${paymentIntentId}`);
-
-        if (upd.error) console.error("PAYMENT_UPDATE_ERROR_CHARGE", upd.error);
-        else console.log("PAYMENT_UPDATE_OK_CHARGE", paymentIntentId, "fee_total", feeTotal);
+        await callSyncStripeFees({ stripe_payment_intent_id: paymentIntentId, sync_options: true });
+        await sleep(1200);
+        await callSyncStripeFees({ stripe_payment_intent_id: paymentIntentId, sync_options: true });
       } else {
-        console.warn("CHARGE_WITHOUT_PI", chargeId);
+        console.warn("CHARGE_WITHOUT_PI", ch?.id);
       }
     }
 
     /* ====================================================================== */
-    /* 3) Refunds propres                                                     */
+    /* 3) Refunds                                                             */
     /* ====================================================================== */
     if (event.type === "refund.created" || event.type === "refund.updated") {
       await processRefund(event.data.object);

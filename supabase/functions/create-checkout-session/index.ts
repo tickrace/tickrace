@@ -1,4 +1,3 @@
-// supabase/functions/create-checkout-session/index.ts
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -63,7 +62,7 @@ function centsToEur(cents: number | null | undefined) {
   return Math.round(cents) / 100;
 }
 
-/** UPSERT paiements robuste (idempotent, logs d’erreur) */
+/** UPSERT paiements robuste (idempotent) */
 async function upsertPaiement(params: {
   stripe_session_id: string;
   type: "individuel" | "groupe";
@@ -207,7 +206,14 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: formatPriceCents,
-            product_data: { name: `Inscription — ${format.nom}` },
+            product_data: {
+              name: `Inscription — ${format.nom}`,
+              metadata: {
+                kind: "inscription",
+                format_id: String(insc.format_id || ""),
+                inscription_id: String(insc.id || ""),
+              },
+            },
           },
         },
       ];
@@ -218,11 +224,15 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: repasUnitCents,
-            product_data: { name: "Repas" },
+            product_data: {
+              name: "Repas",
+              metadata: { kind: "repas" },
+            },
           },
         });
       }
 
+      // ✅ OPTIONS marquées (fiable pour sync Stripe)
       for (const o of opts ?? []) {
         if (!o?.prix_unitaire_cents || !o?.quantity) continue;
         items.push({
@@ -230,7 +240,13 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: o.prix_unitaire_cents,
-            product_data: { name: `Option — ${o.option_id}` },
+            product_data: {
+              name: `Option`,
+              metadata: {
+                kind: "option",
+                option_id: String(o.option_id),
+              },
+            },
           },
         });
       }
@@ -257,7 +273,6 @@ serve(async (req) => {
         0,
       );
 
-      // ✅ CRUCIAL : créer/mettre à jour la ligne paiements quoi qu’il arrive
       await upsertPaiement({
         stripe_session_id: session.id,
         type: "individuel",
@@ -278,7 +293,7 @@ serve(async (req) => {
     }
 
     const payload = tryGrp.data as any;
-    const mode = normMode(payload.mode); // team|relay
+    const mode = normMode(payload.mode);
 
     const teams = Array.isArray(payload.teams)
       ? payload.teams
@@ -339,7 +354,10 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: teamFeeCents,
-            product_data: { name: `Frais d’équipe — ${teamName}` },
+            product_data: {
+              name: `Frais d’équipe — ${teamName}`,
+              metadata: { kind: "team_fee" },
+            },
           },
         });
       }
@@ -378,12 +396,20 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: formatPriceCents,
-            product_data: { name: `Inscription — ${format.nom} — ${r.prenom ?? ""} ${r.nom ?? ""}`.trim() },
+            product_data: {
+              name: `Inscription — ${format.nom} — ${r.prenom ?? ""} ${r.nom ?? ""}`.trim(),
+              metadata: {
+                kind: "inscription",
+                format_id: String(payload.format_id),
+                inscription_id: String(r.id),
+              },
+            },
           },
         });
       }
     }
 
+    // Options (ancrées sur la première inscription du paiement)
     const orderOptions = payload.selected_options ?? [];
     if (orderOptions.length > 0 && allInscriptionIds.length > 0) {
       const anchorInscriptionId = allInscriptionIds[0];
@@ -406,7 +432,13 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: unit,
-            product_data: { name: `Option — ${o.option_id}` },
+            product_data: {
+              name: `Option`,
+              metadata: {
+                kind: "option",
+                option_id: String(o.option_id),
+              },
+            },
           },
         });
       }
@@ -435,7 +467,6 @@ serve(async (req) => {
 
     const total = items.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
 
-    // ✅ CRUCIAL : créer/mettre à jour la ligne paiements
     const paiementId = await upsertPaiement({
       stripe_session_id: session.id,
       type: "groupe",

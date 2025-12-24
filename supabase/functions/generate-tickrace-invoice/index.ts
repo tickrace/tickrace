@@ -1,14 +1,26 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
-import { PDFDocument, StandardFonts } from "https://esm.sh/pdf-lib@1.17.1";
+import { PDFDocument, StandardFonts, rgb } from "https://esm.sh/pdf-lib@1.17.1";
 import { z } from "https://esm.sh/zod@3.23.8";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
 const FACTURES_BUCKET = Deno.env.get("FACTURES_BUCKET") || "factures";
-const DEFAULT_VAT_BP = Number(Deno.env.get("TICKRACE_DEFAULT_VAT_BP") || "0"); // ex 2000 pour 20%
+const DEFAULT_VAT_BP = Number(Deno.env.get("TICKRACE_DEFAULT_VAT_BP") || "0");
+
+// --- LEGAL / BRAND
+const LEGAL_NAME = Deno.env.get("TICKRACE_LEGAL_NAME") || "TickRace";
+const LEGAL_ADDRESS = Deno.env.get("TICKRACE_LEGAL_ADDRESS") || "";
+const LEGAL_SIRET = Deno.env.get("TICKRACE_LEGAL_SIRET") || "";
+const LEGAL_VAT = Deno.env.get("TICKRACE_LEGAL_VAT") || "";
+const LEGAL_EMAIL = Deno.env.get("TICKRACE_LEGAL_EMAIL") || "support@tickrace.com";
+const LEGAL_WEBSITE = Deno.env.get("TICKRACE_LEGAL_WEBSITE") || "https://www.tickrace.com";
+
+// Logo : priorité Storage bucket/path, sinon URL
+const LOGO_BUCKET = Deno.env.get("TICKRACE_LOGO_BUCKET") || "";
+const LOGO_PATH = Deno.env.get("TICKRACE_LOGO_PATH") || "";
+const LOGO_URL = Deno.env.get("TICKRACE_LOGO_URL") || "";
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -23,18 +35,89 @@ const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: cors() });
 
 const Body = z.object({
-  period_from: z.string().min(10), // YYYY-MM-DD
-  period_to: z.string().min(10),   // YYYY-MM-DD
-  vat_bp: z.number().int().min(0).max(10000).optional(),
+  period_from: z.string().min(10),
+  period_to: z.string().min(10),
+  vat_bp: z.coerce.number().int().min(0).max(10000).optional(),
 }).strip();
 
+// WinAnsi-safe
+function pdfSafe(input: unknown) {
+  return String(input ?? "")
+    .replaceAll("→", "->")
+    .replaceAll("—", "-")
+    .replaceAll("–", "-")
+    .replaceAll("\u00A0", " ")
+    .replaceAll("\u202F", " ")
+    .replaceAll("“", '"')
+    .replaceAll("”", '"')
+    .replaceAll("’", "'")
+    .replaceAll("…", "...");
+}
+
+// Money sans toLocaleString (évite \u202F)
 function eur(cents: number) {
-  return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+  const v = Number(cents || 0) / 100;
+  const sign = v < 0 ? "-" : "";
+  const abs = Math.abs(v);
+  const fixed = abs.toFixed(2);
+  const [intPart, decPart] = fixed.split(".");
+  const grouped = intPart.replace(/\B(?=(\d{3})+(?!\d))/g, " ");
+  return `${sign}${grouped},${decPart} €`;
+}
+
+function todayFR() {
+  const d = new Date();
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
+}
+
+async function loadLogoBytes(): Promise<Uint8Array | null> {
+  try {
+    // A) Storage bucket/path
+    if (LOGO_BUCKET && LOGO_PATH) {
+      const dl = await supabase.storage.from(LOGO_BUCKET).download(LOGO_PATH);
+      if (dl.error) {
+        console.warn("LOGO_DOWNLOAD_ERROR", dl.error);
+      } else {
+        const ab = await dl.data.arrayBuffer();
+        return new Uint8Array(ab);
+      }
+    }
+
+    // B) URL publique
+    if (LOGO_URL) {
+      const r = await fetch(LOGO_URL);
+      if (!r.ok) {
+        console.warn("LOGO_FETCH_NOT_OK", r.status);
+        return null;
+      }
+      const ab = await r.arrayBuffer();
+      return new Uint8Array(ab);
+    }
+
+    return null;
+  } catch (e) {
+    console.warn("LOGO_LOAD_FATAL", e);
+    return null;
+  }
+}
+
+function looksLikePng(bytes: Uint8Array) {
+  // PNG signature: 89 50 4E 47 0D 0A 1A 0A
+  return bytes?.length > 8 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4E &&
+    bytes[3] === 0x47;
 }
 
 async function buildPdf(params: {
   invoice_no: string;
   org_name: string;
+  org_email?: string | null;
+  org_phone?: string | null;
   period_from: string;
   period_to: string;
   subtotal_cents: number;
@@ -48,38 +131,198 @@ async function buildPdf(params: {
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  let y = 800;
-  const left = 50;
+  const W = page.getWidth();
+  const H = page.getHeight();
+  const M = 48;
+  const contentW = W - M * 2;
 
-  const draw = (txt: string, size = 11, isBold = false) => {
-    page.drawText(txt, { x: left, y, size, font: isBold ? bold : font });
-    y -= size + 6;
+  const safe = (s: unknown) => pdfSafe(s);
+
+  const drawText = (
+    txt: unknown,
+    x: number,
+    y: number,
+    size = 11,
+    isBold = false,
+    color = rgb(0, 0, 0),
+  ) => {
+    page.drawText(safe(txt), { x, y, size, font: isBold ? bold : font, color });
   };
 
-  draw("TickRace", 20, true);
-  draw("Facture de commission plateforme", 12, true);
-  y -= 8;
+  const textWidth = (txt: unknown, size = 11, isBold = false) => {
+    const f = isBold ? bold : font;
+    return f.widthOfTextAtSize(safe(txt), size);
+  };
 
-  draw(`Facture : ${params.invoice_no}`, 12, true);
-  draw(`Organisateur : ${params.org_name || "—"}`);
-  draw(`Période : ${params.period_from} → ${params.period_to}`);
-  y -= 10;
+  const drawRight = (
+    txt: unknown,
+    xRight: number,
+    y: number,
+    size = 11,
+    isBold = false,
+    color = rgb(0, 0, 0),
+  ) => {
+    const w = textWidth(txt, size, isBold);
+    drawText(txt, xRight - w, y, size, isBold, color);
+  };
 
-  draw("Détail (commission TickRace)", 12, true);
-  y -= 4;
+  const hr = (y: number, thickness = 1, color = rgb(0.86, 0.86, 0.86)) => {
+    page.drawLine({ start: { x: M, y }, end: { x: W - M, y }, thickness, color });
+  };
 
-  for (const l of params.lines) {
-    draw(`• ${l.label} — ${eur(l.amount_cents)}`, 11, false);
-    if (y < 120) break; // simple garde-fou
+  const box = (
+    x: number,
+    y: number,
+    w: number,
+    h: number,
+    fill = rgb(0.975, 0.975, 0.975),
+    border = rgb(0.90, 0.90, 0.90),
+  ) => {
+    page.drawRectangle({ x, y, width: w, height: h, color: fill, borderColor: border, borderWidth: 1 });
+  };
+
+  // ---------- Header (logo + titre) ----------
+  const top = H - M;
+
+  // Logo
+  const logoBytes = await loadLogoBytes();
+  let headerLeftX = M;
+  if (logoBytes) {
+    try {
+      const img = looksLikePng(logoBytes) ? await doc.embedPng(logoBytes) : await doc.embedJpg(logoBytes);
+      const maxH = 38;
+      const scale = maxH / img.height;
+      const w = img.width * scale;
+      const h = img.height * scale;
+
+      page.drawImage(img, { x: M, y: top - h + 6, width: w, height: h });
+      headerLeftX = M + w + 12;
+    } catch (e) {
+      console.warn("LOGO_EMBED_ERROR", e);
+    }
   }
 
-  y -= 12;
-  draw(`Sous-total : ${eur(params.subtotal_cents)}`, 12, true);
-  draw(`TVA : ${(params.vat_bp / 100).toFixed(2)}%  — ${eur(params.vat_cents)}`, 12, true);
-  draw(`Total : ${eur(params.total_cents)}`, 14, true);
+  drawText(LEGAL_NAME, headerLeftX, top - 8, 18, true);
+  drawText("Facture - Commission plateforme", headerLeftX, top - 28, 11, true, rgb(0.15, 0.15, 0.15));
 
-  const bytes = await doc.save();
-  return bytes;
+  // Infos facture à droite
+  const infoX = W - M;
+  drawRight(`Facture : ${params.invoice_no}`, infoX, top - 10, 12, true);
+  drawRight(`Date : ${todayFR()}`, infoX, top - 28, 10, false, rgb(0.25, 0.25, 0.25));
+  drawRight(`Periode : ${params.period_from} - ${params.period_to}`, infoX, top - 44, 10, false, rgb(0.25, 0.25, 0.25));
+
+  hr(top - 58);
+
+  // ---------- Parties blocks ----------
+  const blockYTop = top - 78;
+  const blockH = 110;
+  const gap = 14;
+  const blockW = (contentW - gap) / 2;
+
+  // Emetteur
+  box(M, blockYTop - blockH, blockW, blockH);
+  drawText("Emetteur", M + 12, blockYTop - 18, 10, true, rgb(0.25, 0.25, 0.25));
+  drawText(LEGAL_NAME, M + 12, blockYTop - 38, 12, true);
+
+  let ey = blockYTop - 56;
+  if (LEGAL_ADDRESS) { drawText(LEGAL_ADDRESS, M + 12, ey, 9, false, rgb(0.25, 0.25, 0.25)); ey -= 14; }
+  if (LEGAL_SIRET)   { drawText(`SIRET : ${LEGAL_SIRET}`, M + 12, ey, 9, false, rgb(0.25, 0.25, 0.25)); ey -= 14; }
+  if (LEGAL_VAT)     { drawText(`TVA : ${LEGAL_VAT}`, M + 12, ey, 9, false, rgb(0.25, 0.25, 0.25)); ey -= 14; }
+  drawText(`Email : ${LEGAL_EMAIL}`, M + 12, ey, 9, false, rgb(0.25, 0.25, 0.25));
+
+  // Client
+  const clientX = M + blockW + gap;
+  box(clientX, blockYTop - blockH, blockW, blockH);
+  drawText("Client", clientX + 12, blockYTop - 18, 10, true, rgb(0.25, 0.25, 0.25));
+  drawText(params.org_name || "-", clientX + 12, blockYTop - 38, 12, true);
+
+  let cy = blockYTop - 56;
+  drawText("Organisateur", clientX + 12, cy, 9, false, rgb(0.25, 0.25, 0.25));
+  cy -= 14;
+  if (params.org_email) { drawText(`Email : ${params.org_email}`, clientX + 12, cy, 9, false, rgb(0.25, 0.25, 0.25)); cy -= 14; }
+  if (params.org_phone) { drawText(`Tel : ${params.org_phone}`, clientX + 12, cy, 9, false, rgb(0.25, 0.25, 0.25)); cy -= 14; }
+
+  // ---------- Table ----------
+  let y = blockYTop - blockH - 28;
+
+  drawText("Designation", M, y, 11, true);
+  drawRight("Montant", W - M, y, 11, true);
+  hr(y - 8);
+
+  y -= 28;
+
+  const rowH = 18;
+  const maxRows = 18;
+
+  const lines = params.lines?.length
+    ? params.lines
+    : [{ label: "Commission TickRace", amount_cents: params.subtotal_cents }];
+
+  let count = 0;
+  for (const l of lines) {
+    if (count >= maxRows) break;
+
+    if (count % 2 === 0) {
+      page.drawRectangle({
+        x: M,
+        y: y - 4,
+        width: contentW,
+        height: rowH,
+        color: rgb(0.985, 0.985, 0.985),
+      });
+    }
+
+    drawText(l.label || "-", M, y, 10, false, rgb(0.10, 0.10, 0.10));
+    drawRight(eur(Number(l.amount_cents || 0)), W - M, y, 10, true, rgb(0.10, 0.10, 0.10));
+
+    y -= rowH;
+    count++;
+  }
+
+  hr(y + 8);
+
+  // ---------- Totaux ----------
+  y -= 18;
+
+  const totalsXRight = W - M;
+  const labelXRight = totalsXRight - 130;
+
+  const tLabel = (t: string, yy: number) => drawRight(t, labelXRight, yy, 11, false, rgb(0.25, 0.25, 0.25));
+  const tVal = (t: string, yy: number, bolded = true) => drawRight(t, totalsXRight, yy, 11, bolded);
+
+  tLabel("Sous-total", y);
+  tVal(eur(params.subtotal_cents), y);
+
+  y -= 18;
+  tLabel(`TVA (${(params.vat_bp / 100).toFixed(2)}%)`, y);
+  tVal(eur(params.vat_cents), y);
+
+  y -= 20;
+  page.drawRectangle({
+    x: totalsXRight - 220,
+    y: y - 6,
+    width: 220,
+    height: 24,
+    color: rgb(0.95, 0.95, 0.95),
+    borderColor: rgb(0.90, 0.90, 0.90),
+    borderWidth: 1,
+  });
+  drawRight("TOTAL", labelXRight, y, 12, true);
+  drawRight(eur(params.total_cents), totalsXRight, y, 12, true);
+
+  // ---------- Footer ----------
+  const footerY = M - 6;
+  hr(footerY + 18, 1, rgb(0.90, 0.90, 0.90));
+
+  const footer1 = `${LEGAL_NAME} - ${LEGAL_WEBSITE}`;
+  const footer2 = `Support : ${LEGAL_EMAIL}`;
+  const footer3 = `Document genere automatiquement.`;
+
+  drawText(footer1, M, footerY + 8, 9, false, rgb(0.35, 0.35, 0.35));
+  drawText(footer2, M, footerY - 4, 9, false, rgb(0.35, 0.35, 0.35));
+  drawText(footer3, M, footerY - 16, 9, false, rgb(0.35, 0.35, 0.35));
+
+  return await doc.save();
 }
 
 serve(async (req) => {
@@ -96,23 +339,25 @@ serve(async (req) => {
     const periodTo = body.period_to;
     const vatBp = typeof body.vat_bp === "number" ? body.vat_bp : DEFAULT_VAT_BP;
 
-    // Qui appelle ?
+    // caller
     const jwt = authHeader.replace("Bearer ", "");
     const { data: u, error: uErr } = await supabase.auth.getUser(jwt);
     if (uErr || !u?.user?.id) return json({ error: "unauthorized" }, 401);
     const organisateurId = u.user.id;
 
-    // Profil (nom)
-    const { data: prof } = await supabase
+    // Profil orga (nom + contact)
+    const { data: prof, error: pErr } = await supabase
       .from("profils_utilisateurs")
-      .select("organisation_nom, structure")
+      .select("organisation_nom, structure, email, telephone")
       .eq("user_id", organisateurId)
       .maybeSingle();
+    if (pErr) throw pErr;
 
     const orgName = (prof?.organisation_nom || prof?.structure || "").toString();
+    const orgEmail = prof?.email ?? null;
+    const orgPhone = prof?.telephone ?? null;
 
-    // Ledger -> commission TickRace sur période (on somme tickrace_fee_cents)
-    // Période inclusif sur occurred_at
+    // Ledger -> somme tickrace_fee_cents sur période
     const { data: led, error: ledErr } = await supabase
       .from("organisateur_ledger")
       .select("course_id, tickrace_fee_cents, occurred_at")
@@ -120,7 +365,6 @@ serve(async (req) => {
       .eq("status", "confirmed")
       .gte("occurred_at", `${periodFrom}T00:00:00+00`)
       .lte("occurred_at", `${periodTo}T23:59:59+00`);
-
     if (ledErr) throw ledErr;
 
     const byCourse = new Map<string, number>();
@@ -132,7 +376,7 @@ serve(async (req) => {
     }
 
     const courseIds = [...byCourse.keys()].filter((x) => x !== "unknown");
-    let coursesMap = new Map<string, string>();
+    const coursesMap = new Map<string, string>();
     if (courseIds.length) {
       const { data: cs } = await supabase.from("courses").select("id, nom").in("id", courseIds);
       for (const c of cs || []) coursesMap.set(c.id, c.nom || c.id);
@@ -142,7 +386,7 @@ serve(async (req) => {
       .filter(([, amount]) => amount !== 0)
       .map(([courseId, amount]) => ({
         course_id: courseId === "unknown" ? null : courseId,
-        label: courseId === "unknown" ? "—" : (coursesMap.get(courseId) || courseId),
+        label: courseId === "unknown" ? "-" : (coursesMap.get(courseId) || courseId),
         amount_cents: amount,
       }))
       .sort((a, b) => b.amount_cents - a.amount_cents);
@@ -151,17 +395,17 @@ serve(async (req) => {
     const vat = Math.round(subtotal * (vatBp / 10000));
     const total = subtotal + vat;
 
-    // Numéro facture (RPC)
     const { data: invoiceNo, error: noErr } = await supabase.rpc("next_tickrace_invoice_no", {
       p_organisateur_id: organisateurId,
       p_date: periodFrom,
     });
     if (noErr) throw noErr;
 
-    // Génère PDF
     const pdfBytes = await buildPdf({
-      invoice_no: invoiceNo,
-      org_name: orgName,
+      invoice_no: String(invoiceNo),
+      org_name: orgName || "-",
+      org_email: orgEmail,
+      org_phone: orgPhone,
       period_from: periodFrom,
       period_to: periodTo,
       subtotal_cents: subtotal,
@@ -171,15 +415,19 @@ serve(async (req) => {
       lines: lines.map((l) => ({ label: l.label, amount_cents: l.amount_cents })),
     });
 
-    // Upload (bucket privé conseillé)
     const pdfPath = `${organisateurId}/${invoiceNo}.pdf`;
     const up = await supabase.storage
       .from(FACTURES_BUCKET)
       .upload(pdfPath, new Blob([pdfBytes], { type: "application/pdf" }), { upsert: true });
 
-    if (up.error) throw up.error;
+    if (up.error) {
+      const msg = String(up.error?.message || up.error);
+      if (msg.includes("Bucket not found")) {
+        throw new Error(`Bucket Storage introuvable: ${FACTURES_BUCKET}. Cree-le ou change FACTURES_BUCKET.`);
+      }
+      throw up.error;
+    }
 
-    // Insert facture
     const { data: inv, error: invErr } = await supabase
       .from("factures_tickrace")
       .insert({
