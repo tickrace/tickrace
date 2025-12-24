@@ -68,6 +68,11 @@ export default function Compta() {
   const [from, setFrom] = useState(isoDate(firstDayOfMonth()));
   const [to, setTo] = useState(isoDate(lastDayOfMonth()));
 
+  // Options (DB: inscriptions_options + options_catalogue)
+  const [optionsLoading, setOptionsLoading] = useState(false);
+  const [optionsErr, setOptionsErr] = useState("");
+  const [optionsRows, setOptionsRows] = useState([]);
+
   // Factures
   const [vatBp, setVatBp] = useState(0); // 2000 = 20.00%
   const [busyInvoice, setBusyInvoice] = useState(false);
@@ -75,17 +80,24 @@ export default function Compta() {
   const [busyDownload, setBusyDownload] = useState({});
   const [invoiceModal, setInvoiceModal] = useState({ open: false, invoice: null });
 
+  async function requireAuth() {
+    const { data: auth } = await supabase.auth.getSession();
+    if (!auth?.session?.user) throw new Error("Connecte-toi pour accéder à la compta.");
+    return auth.session.user;
+  }
+
   async function loadLedger() {
     setErr("");
     setLoading(true);
     try {
-      const { data: auth } = await supabase.auth.getSession();
-      if (!auth?.session?.user) throw new Error("Connecte-toi pour accéder à la compta.");
+      await requireAuth();
 
       // ✅ on lit la VUE (avec course_nom)
       const { data, error } = await supabase
         .from("organisateur_ledger_v")
-        .select("id, occurred_at, source_event, label, course_nom, gross_cents, tickrace_fee_cents, stripe_fee_cents, net_org_cents")
+        .select(
+          "id, occurred_at, source_event, label, course_nom, gross_cents, tickrace_fee_cents, stripe_fee_cents, net_org_cents",
+        )
         .gte("occurred_at", `${from}T00:00:00+00`)
         .lte("occurred_at", `${to}T23:59:59+00`)
         .order("occurred_at", { ascending: false })
@@ -100,11 +112,92 @@ export default function Compta() {
     }
   }
 
+  async function loadOptionsSummary() {
+    setOptionsErr("");
+    setOptionsLoading(true);
+    try {
+      const user = await requireAuth();
+
+      // 1) courses de l’orga
+      const { data: cs, error: ce } = await supabase.from("courses").select("id").eq("organisateur_id", user.id);
+      if (ce) throw ce;
+      const courseIds = (cs || []).map((c) => c.id).filter(Boolean);
+
+      if (courseIds.length === 0) {
+        setOptionsRows([]);
+        return;
+      }
+
+      // 2) inscriptions de la période (filtre simple par created_at)
+      const { data: ins, error: ie } = await supabase
+        .from("inscriptions")
+        .select("id")
+        .in("course_id", courseIds)
+        .gte("created_at", `${from}T00:00:00+00`)
+        .lte("created_at", `${to}T23:59:59+00`)
+        .limit(5000);
+
+      if (ie) throw ie;
+      const insIds = (ins || []).map((r) => r.id).filter(Boolean);
+
+      if (insIds.length === 0) {
+        setOptionsRows([]);
+        return;
+      }
+
+      // 3) options confirmées (sans jamais dépendre de Stripe)
+      const { data: opts, error: oe } = await supabase
+        .from("inscriptions_options")
+        .select("option_id, quantity, prix_unitaire_cents, status, options_catalogue(label, price_cents)")
+        .in("inscription_id", insIds)
+        .eq("status", "confirmed")
+        .limit(5000);
+
+      if (oe) throw oe;
+
+      // 4) agrégation
+      const map = new Map(); // option_id -> agg
+      for (const r of opts || []) {
+        const optionId = String(r.option_id || "").toLowerCase();
+        if (!optionId) continue;
+
+        const qty = Math.max(0, Number(r.quantity || 0));
+        const unit = Math.max(0, Number(r.prix_unitaire_cents ?? 0));
+        const label = r?.options_catalogue?.label || optionId;
+
+        const key = optionId;
+        const prev = map.get(key) || {
+          option_id: optionId,
+          label,
+          qty: 0,
+          unit_cents: unit,
+          total_cents: 0,
+        };
+
+        prev.qty += qty;
+        // on garde le dernier unit_cents vu (utile si prix a changé, mais on prend celui réellement payé)
+        prev.unit_cents = unit;
+        prev.total_cents += qty * unit;
+        map.set(key, prev);
+      }
+
+      const rows = Array.from(map.values())
+        .filter((x) => x.qty > 0)
+        .sort((a, b) => b.total_cents - a.total_cents);
+
+      setOptionsRows(rows);
+    } catch (e) {
+      setOptionsErr(e?.message ?? String(e));
+      setOptionsRows([]);
+    } finally {
+      setOptionsLoading(false);
+    }
+  }
+
   async function loadInvoices() {
     setErr("");
     try {
-      const { data: auth } = await supabase.auth.getSession();
-      if (!auth?.session?.user) return;
+      await requireAuth();
 
       const { data, error } = await supabase
         .from("factures_tickrace")
@@ -123,14 +216,21 @@ export default function Compta() {
     (async () => {
       await loadLedger();
       await loadInvoices();
+      await loadOptionsSummary();
     })();
     // eslint-disable-next-line
   }, []);
 
   useEffect(() => {
     loadLedger();
+    if (tab === "releve") loadOptionsSummary();
     // eslint-disable-next-line
   }, [from, to]);
+
+  useEffect(() => {
+    if (tab === "releve") loadOptionsSummary();
+    // eslint-disable-next-line
+  }, [tab]);
 
   const totals = useMemo(() => {
     const gross = ledger.reduce((s, r) => s + Number(r.gross_cents || 0), 0);
@@ -139,6 +239,12 @@ export default function Compta() {
     const net = ledger.reduce((s, r) => s + Number(r.net_org_cents || 0), 0);
     return { gross, tick, stripe, net };
   }, [ledger]);
+
+  const optionsTotals = useMemo(() => {
+    const qty = optionsRows.reduce((s, r) => s + Number(r.qty || 0), 0);
+    const total = optionsRows.reduce((s, r) => s + Number(r.total_cents || 0), 0);
+    return { qty, total };
+  }, [optionsRows]);
 
   async function generateInvoice() {
     setErr("");
@@ -197,21 +303,21 @@ export default function Compta() {
             <h1 className="text-2xl font-black tracking-tight">
               Comptabilité <span className="text-orange-600">Organisateur</span>
             </h1>
-            <p className="text-sm text-neutral-600">
-              Relevé en temps réel + factures TickRace (commission plateforme).
-            </p>
+            <p className="text-sm text-neutral-600">Relevé en temps réel + factures TickRace (commission plateforme).</p>
           </div>
 
           <div className="flex gap-2">
-            <TabBtn active={tab === "releve"} onClick={() => setTab("releve")}>Relevé</TabBtn>
-            <TabBtn active={tab === "facture"} onClick={() => setTab("facture")}>Facture TickRace</TabBtn>
+            <TabBtn active={tab === "releve"} onClick={() => setTab("releve")}>
+              Relevé
+            </TabBtn>
+            <TabBtn active={tab === "facture"} onClick={() => setTab("facture")}>
+              Facture TickRace
+            </TabBtn>
           </div>
         </div>
 
         {err ? (
-          <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
-            {err}
-          </div>
+          <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">{err}</div>
         ) : null}
 
         {/* Filtres période */}
@@ -238,7 +344,11 @@ export default function Compta() {
               </label>
 
               <button
-                onClick={async () => { await loadLedger(); await loadInvoices(); }}
+                onClick={async () => {
+                  await loadLedger();
+                  await loadInvoices();
+                  await loadOptionsSummary();
+                }}
                 className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50"
               >
                 Actualiser
@@ -247,10 +357,18 @@ export default function Compta() {
 
             {tab === "releve" ? (
               <div className="text-sm text-neutral-700 flex flex-wrap gap-4">
-                <span>Brut: <b>{eurFromCents(totals.gross)}</b></span>
-                <span>TickRace: <b>{eurFromCents(totals.tick)}</b></span>
-                <span>Stripe: <b>{eurFromCents(totals.stripe)}</b></span>
-                <span>Net orga: <b>{eurFromCents(totals.net)}</b></span>
+                <span>
+                  Brut: <b>{eurFromCents(totals.gross)}</b>
+                </span>
+                <span>
+                  TickRace: <b>{eurFromCents(totals.tick)}</b>
+                </span>
+                <span>
+                  Stripe: <b>{eurFromCents(totals.stripe)}</b>
+                </span>
+                <span>
+                  Net orga: <b>{eurFromCents(totals.net)}</b>
+                </span>
               </div>
             ) : (
               <div className="flex items-end gap-3">
@@ -280,43 +398,132 @@ export default function Compta() {
 
         {/* Onglet Relevé */}
         {tab === "releve" && (
-          <div className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 overflow-auto">
-            <table className="min-w-full text-sm">
-              <thead className="bg-neutral-50">
-                <tr>
-                  <th className="px-4 py-3 text-left">Date</th>
-                  <th className="px-4 py-3 text-left">Course</th>
-                  <th className="px-4 py-3 text-left">Mouvement</th>
-                  <th className="px-4 py-3 text-right">Brut</th>
-                  <th className="px-4 py-3 text-right">TickRace</th>
-                  <th className="px-4 py-3 text-right">Stripe</th>
-                  <th className="px-4 py-3 text-right">Net orga</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr><td colSpan={7} className="px-4 py-6 text-neutral-500">Chargement…</td></tr>
-                ) : ledger.length === 0 ? (
-                  <tr><td colSpan={7} className="px-4 py-8 text-neutral-500">Aucun mouvement sur la période.</td></tr>
-                ) : ledger.map((r) => (
-                  <tr key={r.id} className="border-t">
-                    <td className="px-4 py-3">{new Date(r.occurred_at).toLocaleString("fr-FR")}</td>
-                    <td className="px-4 py-3">
-                      <div className="font-medium">{r.course_nom || "—"}</div>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="font-semibold">{humanEvent(r.source_event)}</div>
-                      {r.label ? <div className="text-xs text-neutral-500">{r.label}</div> : null}
-                    </td>
-                    <td className="px-4 py-3 text-right">{eurFromCents(r.gross_cents)}</td>
-                    <td className="px-4 py-3 text-right">{eurFromCents(r.tickrace_fee_cents)}</td>
-                    <td className="px-4 py-3 text-right">{eurFromCents(r.stripe_fee_cents)}</td>
-                    <td className="px-4 py-3 text-right font-semibold">{eurFromCents(r.net_org_cents)}</td>
+          <>
+            {/* Options vendues (DB) */}
+            <div className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">Options vendues</h2>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Labels venant de <code className="text-xs">options_catalogue</code> (jamais Stripe). Période filtrée
+                    sur les inscriptions.
+                  </p>
+                </div>
+                <button
+                  onClick={loadOptionsSummary}
+                  className="rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold hover:bg-neutral-50"
+                  disabled={optionsLoading}
+                >
+                  {optionsLoading ? "Chargement…" : "Actualiser"}
+                </button>
+              </div>
+
+              {optionsErr ? (
+                <div className="mt-3 rounded-xl border border-yellow-200 bg-yellow-50 p-3 text-sm text-yellow-900">
+                  {optionsErr}
+                </div>
+              ) : null}
+
+              <div className="mt-4 rounded-xl border border-neutral-200 overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-neutral-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Option</th>
+                      <th className="px-3 py-2 text-right">Prix unitaire</th>
+                      <th className="px-3 py-2 text-right">Qté</th>
+                      <th className="px-3 py-2 text-right">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {optionsLoading ? (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-neutral-500">
+                          Chargement…
+                        </td>
+                      </tr>
+                    ) : optionsRows.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-neutral-500">
+                          Aucune option vendue sur la période.
+                        </td>
+                      </tr>
+                    ) : (
+                      optionsRows.map((r) => (
+                        <tr key={r.option_id} className="border-t">
+                          <td className="px-3 py-2">
+                            <div className="font-medium">{r.label}</div>
+                            <div className="text-xs text-neutral-500 font-mono">{r.option_id}</div>
+                          </td>
+                          <td className="px-3 py-2 text-right">{eurFromCents(r.unit_cents)}</td>
+                          <td className="px-3 py-2 text-right font-semibold">{r.qty}</td>
+                          <td className="px-3 py-2 text-right font-semibold">{eurFromCents(r.total_cents)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                  {optionsRows.length > 0 && !optionsLoading ? (
+                    <tfoot className="bg-neutral-50 border-t">
+                      <tr>
+                        <td className="px-3 py-2 text-left font-semibold">Total</td>
+                        <td className="px-3 py-2" />
+                        <td className="px-3 py-2 text-right font-semibold">{optionsTotals.qty}</td>
+                        <td className="px-3 py-2 text-right font-semibold">{eurFromCents(optionsTotals.total)}</td>
+                      </tr>
+                    </tfoot>
+                  ) : null}
+                </table>
+              </div>
+            </div>
+
+            {/* Relevé ledger */}
+            <div className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 overflow-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-neutral-50">
+                  <tr>
+                    <th className="px-4 py-3 text-left">Date</th>
+                    <th className="px-4 py-3 text-left">Course</th>
+                    <th className="px-4 py-3 text-left">Mouvement</th>
+                    <th className="px-4 py-3 text-right">Brut</th>
+                    <th className="px-4 py-3 text-right">TickRace</th>
+                    <th className="px-4 py-3 text-right">Stripe</th>
+                    <th className="px-4 py-3 text-right">Net orga</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-6 text-neutral-500">
+                        Chargement…
+                      </td>
+                    </tr>
+                  ) : ledger.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-8 text-neutral-500">
+                        Aucun mouvement sur la période.
+                      </td>
+                    </tr>
+                  ) : (
+                    ledger.map((r) => (
+                      <tr key={r.id} className="border-t">
+                        <td className="px-4 py-3">{new Date(r.occurred_at).toLocaleString("fr-FR")}</td>
+                        <td className="px-4 py-3">
+                          <div className="font-medium">{r.course_nom || "—"}</div>
+                        </td>
+                        <td className="px-4 py-3">
+                          <div className="font-semibold">{humanEvent(r.source_event)}</div>
+                          {r.label ? <div className="text-xs text-neutral-500">{r.label}</div> : null}
+                        </td>
+                        <td className="px-4 py-3 text-right">{eurFromCents(r.gross_cents)}</td>
+                        <td className="px-4 py-3 text-right">{eurFromCents(r.tickrace_fee_cents)}</td>
+                        <td className="px-4 py-3 text-right">{eurFromCents(r.stripe_fee_cents)}</td>
+                        <td className="px-4 py-3 text-right font-semibold">{eurFromCents(r.net_org_cents)}</td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
 
         {/* Onglet Facture */}
@@ -325,9 +532,7 @@ export default function Compta() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Factures TickRace</h2>
-                <p className="mt-1 text-sm text-neutral-600">
-                  Basées sur la commission TickRace (ledger) et figées (snapshot).
-                </p>
+                <p className="mt-1 text-sm text-neutral-600">Basées sur la commission TickRace (ledger) et figées (snapshot).</p>
               </div>
               <button
                 onClick={loadInvoices}
@@ -351,33 +556,39 @@ export default function Compta() {
                 </thead>
                 <tbody>
                   {invoices.length === 0 ? (
-                    <tr><td colSpan={6} className="px-3 py-6 text-neutral-500">Aucune facture.</td></tr>
-                  ) : invoices.map((f) => (
-                    <tr key={f.id} className="border-t">
-                      <td className="px-3 py-2 font-mono text-xs">{f.invoice_no}</td>
-                      <td className="px-3 py-2 text-xs text-neutral-700">
-                        {String(f.period_from)} → {String(f.period_to)}
-                      </td>
-                      <td className="px-3 py-2 text-right">{eurFromCents(f.subtotal_cents)}</td>
-                      <td className="px-3 py-2 text-right">{eurFromCents(f.vat_cents)}</td>
-                      <td className="px-3 py-2 text-right font-semibold">{eurFromCents(f.total_cents)}</td>
-                      <td className="px-3 py-2 text-right whitespace-nowrap">
-                        <button
-                          onClick={() => setInvoiceModal({ open: true, invoice: f })}
-                          className="mr-2 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50"
-                        >
-                          Détail
-                        </button>
-                        <button
-                          onClick={() => downloadInvoice(f.id)}
-                          disabled={!!busyDownload[f.id]}
-                          className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 disabled:opacity-50"
-                        >
-                          {busyDownload[f.id] ? "Préparation…" : "PDF"}
-                        </button>
+                    <tr>
+                      <td colSpan={6} className="px-3 py-6 text-neutral-500">
+                        Aucune facture.
                       </td>
                     </tr>
-                  ))}
+                  ) : (
+                    invoices.map((f) => (
+                      <tr key={f.id} className="border-t">
+                        <td className="px-3 py-2 font-mono text-xs">{f.invoice_no}</td>
+                        <td className="px-3 py-2 text-xs text-neutral-700">
+                          {String(f.period_from)} → {String(f.period_to)}
+                        </td>
+                        <td className="px-3 py-2 text-right">{eurFromCents(f.subtotal_cents)}</td>
+                        <td className="px-3 py-2 text-right">{eurFromCents(f.vat_cents)}</td>
+                        <td className="px-3 py-2 text-right font-semibold">{eurFromCents(f.total_cents)}</td>
+                        <td className="px-3 py-2 text-right whitespace-nowrap">
+                          <button
+                            onClick={() => setInvoiceModal({ open: true, invoice: f })}
+                            className="mr-2 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50"
+                          >
+                            Détail
+                          </button>
+                          <button
+                            onClick={() => downloadInvoice(f.id)}
+                            disabled={!!busyDownload[f.id]}
+                            className="rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold hover:bg-neutral-50 disabled:opacity-50"
+                          >
+                            {busyDownload[f.id] ? "Préparation…" : "PDF"}
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -392,10 +603,19 @@ export default function Compta() {
           {!invoiceModal.invoice ? null : (
             <div className="space-y-4">
               <div className="text-sm text-neutral-700">
-                <div><b>Période :</b> {String(invoiceModal.invoice.period_from)} → {String(invoiceModal.invoice.period_to)}</div>
-                <div><b>Sous-total :</b> {eurFromCents(invoiceModal.invoice.subtotal_cents)}</div>
-                <div><b>TVA :</b> {(Number(invoiceModal.invoice.vat_rate_bp || 0) / 100).toFixed(2)}% — {eurFromCents(invoiceModal.invoice.vat_cents)}</div>
-                <div><b>Total :</b> {eurFromCents(invoiceModal.invoice.total_cents)}</div>
+                <div>
+                  <b>Période :</b> {String(invoiceModal.invoice.period_from)} → {String(invoiceModal.invoice.period_to)}
+                </div>
+                <div>
+                  <b>Sous-total :</b> {eurFromCents(invoiceModal.invoice.subtotal_cents)}
+                </div>
+                <div>
+                  <b>TVA :</b> {(Number(invoiceModal.invoice.vat_rate_bp || 0) / 100).toFixed(2)}% —{" "}
+                  {eurFromCents(invoiceModal.invoice.vat_cents)}
+                </div>
+                <div>
+                  <b>Total :</b> {eurFromCents(invoiceModal.invoice.total_cents)}
+                </div>
               </div>
 
               <div className="rounded-xl border border-neutral-200 overflow-auto">
@@ -408,13 +628,19 @@ export default function Compta() {
                   </thead>
                   <tbody>
                     {invoiceLines.length === 0 ? (
-                      <tr><td colSpan={2} className="px-3 py-6 text-neutral-500">Aucune ligne.</td></tr>
-                    ) : invoiceLines.map((l, i) => (
-                      <tr key={i} className="border-t">
-                        <td className="px-3 py-2">{l.label}</td>
-                        <td className="px-3 py-2 text-right font-semibold">{eurFromCents(l.amount)}</td>
+                      <tr>
+                        <td colSpan={2} className="px-3 py-6 text-neutral-500">
+                          Aucune ligne.
+                        </td>
                       </tr>
-                    ))}
+                    ) : (
+                      invoiceLines.map((l, i) => (
+                        <tr key={i} className="border-t">
+                          <td className="px-3 py-2">{l.label}</td>
+                          <td className="px-3 py-2 text-right font-semibold">{eurFromCents(l.amount)}</td>
+                        </tr>
+                      ))
+                    )}
                   </tbody>
                 </table>
               </div>
