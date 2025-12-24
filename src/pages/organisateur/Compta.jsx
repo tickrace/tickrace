@@ -25,6 +25,10 @@ function humanEvent(e) {
   return m || "—";
 }
 
+function isTransferEvent(e) {
+  return String(e || "").toLowerCase().includes("transfer");
+}
+
 const TabBtn = ({ active, children, onClick }) => (
   <button
     onClick={onClick}
@@ -165,8 +169,7 @@ export default function Compta() {
         const unit = Math.max(0, Number(r.prix_unitaire_cents ?? 0));
         const label = r?.options_catalogue?.label || optionId;
 
-        const key = optionId;
-        const prev = map.get(key) || {
+        const prev = map.get(optionId) || {
           option_id: optionId,
           label,
           qty: 0,
@@ -175,10 +178,9 @@ export default function Compta() {
         };
 
         prev.qty += qty;
-        // on garde le dernier unit_cents vu (utile si prix a changé, mais on prend celui réellement payé)
-        prev.unit_cents = unit;
+        prev.unit_cents = unit; // on garde le prix réellement payé
         prev.total_cents += qty * unit;
-        map.set(key, prev);
+        map.set(optionId, prev);
       }
 
       const rows = Array.from(map.values())
@@ -201,7 +203,9 @@ export default function Compta() {
 
       const { data, error } = await supabase
         .from("factures_tickrace")
-        .select("id, invoice_no, status, period_from, period_to, subtotal_cents, vat_rate_bp, vat_cents, total_cents, created_at, lines")
+        .select(
+          "id, invoice_no, status, period_from, period_to, subtotal_cents, vat_rate_bp, vat_cents, total_cents, created_at, lines",
+        )
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -239,6 +243,21 @@ export default function Compta() {
     const net = ledger.reduce((s, r) => s + Number(r.net_org_cents || 0), 0);
     return { gross, tick, stripe, net };
   }, [ledger]);
+
+  // Reversements (depuis le ledger : source_event contient "transfer")
+  const transfers = useMemo(() => ledger.filter((r) => isTransferEvent(r.source_event)), [ledger]);
+
+  const transferStats = useMemo(() => {
+    const transferNet = transfers.reduce((s, r) => s + Number(r.net_org_cents || 0), 0); // souvent négatif (sortie)
+    const alreadyPaid = transferNet < 0 ? -transferNet : transferNet;
+
+    const generatedNet = ledger
+      .filter((r) => !isTransferEvent(r.source_event))
+      .reduce((s, r) => s + Number(r.net_org_cents || 0), 0);
+
+    const due = generatedNet + transferNet; // ce qui reste dû à l’orga sur la période
+    return { generatedNet, transferNet, alreadyPaid, due, count: transfers.length };
+  }, [ledger, transfers]);
 
   const optionsTotals = useMemo(() => {
     const qty = optionsRows.reduce((s, r) => s + Number(r.qty || 0), 0);
@@ -303,7 +322,7 @@ export default function Compta() {
             <h1 className="text-2xl font-black tracking-tight">
               Comptabilité <span className="text-orange-600">Organisateur</span>
             </h1>
-            <p className="text-sm text-neutral-600">Relevé en temps réel + factures TickRace (commission plateforme).</p>
+            <p className="text-sm text-neutral-600">Relevé en temps réel + reversements + factures TickRace.</p>
           </div>
 
           <div className="flex gap-2">
@@ -367,7 +386,16 @@ export default function Compta() {
                   Stripe: <b>{eurFromCents(totals.stripe)}</b>
                 </span>
                 <span>
-                  Net orga: <b>{eurFromCents(totals.net)}</b>
+                  Net (période): <b>{eurFromCents(totals.net)}</b>
+                </span>
+                <span>
+                  Déjà versé: <b>{eurFromCents(transferStats.alreadyPaid)}</b>
+                </span>
+                <span>
+                  Solde à venir:{" "}
+                  <b className={transferStats.due < 0 ? "text-red-600" : "text-emerald-700"}>
+                    {eurFromCents(transferStats.due)}
+                  </b>
                 </span>
               </div>
             ) : (
@@ -399,6 +427,94 @@ export default function Compta() {
         {/* Onglet Relevé */}
         {tab === "releve" && (
           <>
+            {/* Reversements */}
+            <div className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h2 className="text-lg font-semibold">Reversements</h2>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Historique des reversements effectués (mouvements <b>transfer</b>) + solde restant dû sur la période.
+                  </p>
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-neutral-500">Solde à venir</div>
+                  <div
+                    className={[
+                      "text-lg font-black",
+                      transferStats.due < 0 ? "text-red-600" : "text-emerald-700",
+                    ].join(" ")}
+                  >
+                    {eurFromCents(transferStats.due)}
+                  </div>
+                </div>
+              </div>
+
+              <div className="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <div className="rounded-2xl border border-neutral-200 p-4">
+                  <div className="text-xs text-neutral-500">Net généré (hors reversements)</div>
+                  <div className="mt-1 text-xl font-black">{eurFromCents(transferStats.generatedNet)}</div>
+                </div>
+                <div className="rounded-2xl border border-neutral-200 p-4">
+                  <div className="text-xs text-neutral-500">Déjà versé (période)</div>
+                  <div className="mt-1 text-xl font-black">{eurFromCents(transferStats.alreadyPaid)}</div>
+                </div>
+                <div className="rounded-2xl border border-neutral-200 p-4">
+                  <div className="text-xs text-neutral-500">Nb reversements</div>
+                  <div className="mt-1 text-xl font-black">{transferStats.count}</div>
+                </div>
+              </div>
+
+              <div className="mt-4 rounded-xl border border-neutral-200 overflow-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-neutral-50">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Date</th>
+                      <th className="px-3 py-2 text-left">Course</th>
+                      <th className="px-3 py-2 text-left">Détail</th>
+                      <th className="px-3 py-2 text-right">Montant</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {loading ? (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-neutral-500">
+                          Chargement…
+                        </td>
+                      </tr>
+                    ) : transfers.length === 0 ? (
+                      <tr>
+                        <td colSpan={4} className="px-3 py-6 text-neutral-500">
+                          Aucun reversement sur la période.
+                        </td>
+                      </tr>
+                    ) : (
+                      transfers.map((r) => {
+                        const amt = Number(r.net_org_cents || 0);
+                        const shown = amt < 0 ? -amt : amt; // on affiche en positif
+                        return (
+                          <tr key={r.id} className="border-t">
+                            <td className="px-3 py-2">{new Date(r.occurred_at).toLocaleString("fr-FR")}</td>
+                            <td className="px-3 py-2">
+                              <div className="font-medium">{r.course_nom || "—"}</div>
+                            </td>
+                            <td className="px-3 py-2">
+                              <div className="font-semibold">{humanEvent(r.source_event)}</div>
+                              {r.label ? <div className="text-xs text-neutral-500">{r.label}</div> : null}
+                            </td>
+                            <td className="px-3 py-2 text-right font-semibold">{eurFromCents(shown)}</td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-3 text-xs text-neutral-500">
+                Note : le <b>solde à venir</b> ici est le restant dû sur la période sélectionnée (net généré − reversements).
+              </div>
+            </div>
+
             {/* Options vendues (DB) */}
             <div className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
               <div className="flex items-start justify-between gap-3">
@@ -532,7 +648,9 @@ export default function Compta() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Factures TickRace</h2>
-                <p className="mt-1 text-sm text-neutral-600">Basées sur la commission TickRace (ledger) et figées (snapshot).</p>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Basées sur la commission TickRace (ledger) et figées (snapshot).
+                </p>
               </div>
               <button
                 onClick={loadInvoices}
