@@ -10,6 +10,11 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
 
+// ✅ Resend (optionnel)
+const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
+const RESEND_FROM = Deno.env.get("RESEND_FROM") || "TickRace <support@tickrace.com>";
+const TICKRACE_BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com";
+
 /* --------------------------- Clients ----------------------------- */
 const supabaseSR = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
@@ -38,6 +43,11 @@ function normEuro(val: unknown): number {
   const s = val.replace(/\s/g, "").replace(",", ".");
   const n = Number(s);
   return Number.isFinite(n) ? n : NaN;
+}
+
+function eurFromCents(c: number) {
+  const v = Number(c || 0) / 100;
+  return v.toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
 }
 
 /* --------------------------- Admin gate -------------------------- */
@@ -102,6 +112,7 @@ async function hydrateOrgaCourseAndDestination(p: any): Promise<{
     .select("course_id, format_id")
     .eq("id", insId)
     .maybeSingle();
+
   if (insErr) {
     console.error("HYDRATE_INS_ERROR", insErr);
     return { destination: existingDest, courseId: null, organisateurId: null };
@@ -123,6 +134,7 @@ async function hydrateOrgaCourseAndDestination(p: any): Promise<{
     .select("organisateur_id")
     .eq("id", courseId)
     .maybeSingle();
+
   if (cErr) {
     console.error("HYDRATE_COURSE_ERROR", cErr);
     return { destination: existingDest, courseId, organisateurId: null };
@@ -216,26 +228,279 @@ function computeGrossCents(p: any): number {
   return 0;
 }
 
-/* ------------------ Alignement reversements/ledger ------------------ */
-async function writeManualReversementAndLedger(params: {
+/* -------------------------- Resend (final) ------------------------ */
+async function resendSendEmail(payload: { to: string; subject: string; text: string; html?: string }) {
+  if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY manquant");
+
+  const resp = await fetch("https://api.resend.com/emails", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${RESEND_API_KEY}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: RESEND_FROM,
+      to: [payload.to],
+      subject: payload.subject,
+      text: payload.text,
+      html: payload.html,
+    }),
+  });
+
+  const out = await resp.json().catch(() => ({}));
+  if (!resp.ok) {
+    console.error("RESEND_ERROR", resp.status, out);
+    throw new Error((out as any)?.message || "Resend send failed");
+  }
+  return out;
+}
+
+async function getOrganisateurEmailAndName(organisateur_id: string) {
+  const { data: prof, error } = await supabaseSR
+    .from("profils_utilisateurs")
+    .select("email, orga_email_facturation, organisation_nom, prenom, nom")
+    .eq("user_id", organisateur_id)
+    .maybeSingle();
+  if (error) throw error;
+
+  const to = (prof as any)?.orga_email_facturation || (prof as any)?.email || null;
+
+  const orgName =
+    (prof as any)?.organisation_nom ||
+    [((prof as any)?.prenom || "").trim(), ((prof as any)?.nom || "").trim()].filter(Boolean).join(" ") ||
+    "Organisateur";
+
+  return { to, orgName };
+}
+
+async function getCourseName(course_id: string | null) {
+  if (!course_id) return "—";
+  const { data, error } = await supabaseSR.from("courses").select("nom").eq("id", course_id).maybeSingle();
+  if (error) throw error;
+  return (data as any)?.nom || "—";
+}
+
+async function sendFinalPayoutEmailOnce(params: {
+  organisateur_id: string;
+  course_id: string | null;
+  reversement_id: string;
+  tranche: number; // 2
+  amount_cents: number;
+  stripe_transfer_id: string;
+  paiement_id: string;
+}) {
+  if (!RESEND_API_KEY) return { skipped: true, reason: "missing_resend_key" };
+
+  const lockKey = `reversements:${params.reversement_id}:payout_email_final`;
+
+  const { error: lockErr } = await supabaseSR.from("organisateur_ledger").insert({
+    organisateur_id: params.organisateur_id,
+    course_id: params.course_id,
+    source_table: "organisateur_reversements",
+    source_id: params.reversement_id,
+    source_event: "payout_email_final",
+    source_key: lockKey,
+    occurred_at: new Date().toISOString(),
+    gross_cents: 0,
+    tickrace_fee_cents: 0,
+    stripe_fee_cents: 0,
+    net_org_cents: 0,
+    currency: "eur",
+    status: "pending",
+    label: `Email reversement final (tranche ${params.tranche})`,
+    metadata: {
+      paiement_id: params.paiement_id,
+      transfer_id: params.stripe_transfer_id,
+      tranche: params.tranche,
+      amount_cents: params.amount_cents,
+      email_status: "pending",
+    },
+  });
+
+  if (lockErr) {
+    const code = (lockErr as any)?.code || "";
+    if (code === "23505") return { skipped: true, reason: "already_sent" };
+    console.error("EMAIL_LOCK_INSERT_ERROR", lockErr);
+    return { skipped: true, reason: "lock_insert_failed" };
+  }
+
+  const { to, orgName } = await getOrganisateurEmailAndName(params.organisateur_id);
+  if (!to) {
+    await supabaseSR
+      .from("organisateur_ledger")
+      .update({ status: "void", metadata: { email_status: "failed", error: "no_recipient_email" } })
+      .eq("source_key", lockKey);
+    return { skipped: true, reason: "no_recipient_email" };
+  }
+
+  const courseName = await getCourseName(params.course_id);
+  const amountTxt = eurFromCents(params.amount_cents);
+  const comptaUrl = `${TICKRACE_BASE_URL}/organisateur/compta`;
+
+  const subject = `TickRace — Reversement final effectué (${amountTxt})`;
+
+  const text = [
+    `Bonjour ${orgName},`,
+    "",
+    `Votre reversement final TickRace a bien été effectué sur votre compte Stripe.`,
+    "",
+    `Détails :`,
+    `- Course : ${courseName}`,
+    `- Tranche : ${params.tranche}`,
+    `- Montant : ${amountTxt}`,
+    `- Transfer Stripe : ${params.stripe_transfer_id}`,
+    "",
+    `Consulter vos reversements : ${comptaUrl}`,
+    "",
+    `Besoin d’aide ? support@tickrace.com`,
+    `— TickRace`,
+  ].join("\n");
+
+  const safe = (v: any) => String(v ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const html = `<!doctype html><html><body style="margin:0;padding:24px;background:#f5f5f5;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;">
+    <div style="max-width:640px;margin:0 auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:18px;">
+      <div style="font-weight:900;font-size:18px;color:#111827;">Reversement final effectué ✅</div>
+      <div style="margin-top:8px;color:#6b7280;">Bonjour <b>${safe(orgName)}</b>, votre reversement final a bien été envoyé vers votre compte Stripe.</div>
+      <div style="margin-top:14px;padding:14px;border-radius:14px;background:#fff7ed;border:1px solid #fed7aa;">
+        <div style="color:#6b7280;font-size:12px;">Montant versé</div>
+        <div style="font-size:26px;font-weight:900;color:#111827;margin-top:4px;">${safe(amountTxt)}</div>
+      </div>
+      <div style="margin-top:14px;color:#111827;font-size:13px;line-height:1.5;">
+        <div><b>Course</b> : ${safe(courseName)}</div>
+        <div><b>Tranche</b> : ${safe(String(params.tranche))}</div>
+        <div><b>Transfer Stripe</b> : <code>${safe(params.stripe_transfer_id)}</code></div>
+      </div>
+      <a href="${safe(comptaUrl)}" target="_blank" rel="noopener noreferrer"
+         style="display:inline-block;margin-top:14px;background:#f97316;color:#fff;text-decoration:none;padding:12px 16px;border-radius:12px;font-weight:800;">
+        Voir ma compta organisateur
+      </a>
+      <div style="margin-top:12px;color:#6b7280;font-size:12px;">Besoin d’aide ? <a href="mailto:support@tickrace.com" style="color:#f97316;font-weight:800;text-decoration:none;">support@tickrace.com</a></div>
+    </div>
+  </body></html>`;
+
+  try {
+    const out = await resendSendEmail({ to, subject, text, html });
+
+    await supabaseSR
+      .from("organisateur_ledger")
+      .update({
+        status: "confirmed",
+        metadata: {
+          paiement_id: params.paiement_id,
+          transfer_id: params.stripe_transfer_id,
+          tranche: params.tranche,
+          amount_cents: params.amount_cents,
+          email_status: "sent",
+          resend_id: (out as any)?.id || null,
+          sent_to: to,
+          sent_at: new Date().toISOString(),
+        },
+      })
+      .eq("source_key", lockKey);
+
+    return { ok: true };
+  } catch (e: any) {
+    await supabaseSR
+      .from("organisateur_ledger")
+      .update({ status: "void", metadata: { email_status: "failed", error: String(e?.message ?? e) } })
+      .eq("source_key", lockKey);
+    return { ok: false };
+  }
+}
+
+/* ------------------ Reversement row lock + ledger write ------------------ */
+async function lockOrCreateReversement(params: {
   organisateur_id: string;
   course_id: string;
   paiement_id: string;
-  amount_cents: number;
-  stripe_transfer_id: string;
+  tranche: 1 | 2;
 }) {
   const nowIso = new Date().toISOString();
 
-  // reversement manuel tranche=0 (multi-rows autorisées, et stripe_transfer_id unique)
-  const { data: rev, error: revErr } = await supabaseSR
+  // 1) get or create scheduled row (unique paiement_id+tranche)
+  const { data: existing, error: exErr } = await supabaseSR
     .from("organisateur_reversements")
-    .insert({
-      organisateur_id: params.organisateur_id,
-      course_id: params.course_id,
-      paiement_id: params.paiement_id,
-      tranche: 0,
-      due_at: nowIso,
-      currency: "eur",
+    .select("id, status")
+    .eq("paiement_id", params.paiement_id)
+    .eq("tranche", params.tranche)
+    .maybeSingle();
+  if (exErr) throw exErr;
+
+  let reversementId: string | null = (existing as any)?.id ?? null;
+
+  if (!reversementId) {
+    const { data: created, error: crErr } = await supabaseSR
+      .from("organisateur_reversements")
+      .insert({
+        organisateur_id: params.organisateur_id,
+        course_id: params.course_id,
+        paiement_id: params.paiement_id,
+        tranche: params.tranche,
+        due_at: nowIso,
+        currency: "eur",
+        status: "scheduled",
+        created_at: nowIso,
+        updated_at: nowIso,
+      })
+      .select("id, status")
+      .maybeSingle();
+
+    if (crErr) {
+      const code = (crErr as any)?.code || "";
+      if (code !== "23505") throw crErr;
+      const { data: again } = await supabaseSR
+        .from("organisateur_reversements")
+        .select("id, status")
+        .eq("paiement_id", params.paiement_id)
+        .eq("tranche", params.tranche)
+        .maybeSingle();
+      reversementId = (again as any)?.id ?? null;
+    } else {
+      reversementId = (created as any)?.id ?? null;
+    }
+  }
+
+  if (!reversementId) throw new Error("reversement_id introuvable");
+
+  // 2) lock -> processing (pas si déjà paid)
+  const { data: locked, error: lockErr } = await supabaseSR
+    .from("organisateur_reversements")
+    .update({ status: "processing", updated_at: nowIso, error: null })
+    .eq("id", reversementId)
+    .in("status", ["scheduled", "failed", "blocked", "skipped", "canceled"])
+    .select("id, status")
+    .maybeSingle();
+
+  if (lockErr) throw lockErr;
+  if (!locked?.id) {
+    const { data: cur } = await supabaseSR
+      .from("organisateur_reversements")
+      .select("status")
+      .eq("id", reversementId)
+      .maybeSingle();
+    const st = (cur as any)?.status || "unknown";
+    if (st === "paid") throw new Error("Reversement déjà payé (no double payout)");
+    throw new Error(`Impossible de locker le reversement (status=${st})`);
+  }
+
+  return { reversement_id: reversementId };
+}
+
+async function writeReversementPaidAndLedger(params: {
+  reversement_id: string;
+  organisateur_id: string;
+  course_id: string;
+  paiement_id: string;
+  tranche: 1 | 2;
+  amount_cents: number;
+  stripe_transfer_id: string;
+  label: string;
+}) {
+  const nowIso = new Date().toISOString();
+
+  await supabaseSR
+    .from("organisateur_reversements")
+    .update({
       status: "paid",
       amount_cents: params.amount_cents,
       stripe_transfer_id: params.stripe_transfer_id,
@@ -243,35 +508,15 @@ async function writeManualReversementAndLedger(params: {
       updated_at: nowIso,
       error: null,
     })
-    .select("id")
-    .maybeSingle();
-
-  if (revErr) {
-    // si déjà inséré (unique stripe_transfer_id) => on relit et on continue
-    const code = (revErr as any)?.code || "";
-    if (code === "23505") {
-      const { data: ex } = await supabaseSR
-        .from("organisateur_reversements")
-        .select("id")
-        .eq("stripe_transfer_id", params.stripe_transfer_id)
-        .maybeSingle();
-      const revId = (ex as any)?.id ?? null;
-      if (!revId) throw new Error("reversement existant introuvable après conflit stripe_transfer_id");
-      return { reversement_id: revId, ledger: "skipped_existing_reversement" };
-    }
-    throw revErr;
-  }
-
-  const reversementId = (rev as any)?.id as string | undefined;
-  if (!reversementId) throw new Error("reversement_id manquant après insert");
+    .eq("id", params.reversement_id);
 
   // ledger idempotent via source_key unique
-  const sourceKey = `reversements:${reversementId}:transfer_created:${params.stripe_transfer_id}`;
+  const sourceKey = `reversements:${params.reversement_id}:transfer_created:${params.stripe_transfer_id}`;
   const { error: ledErr } = await supabaseSR.from("organisateur_ledger").insert({
     organisateur_id: params.organisateur_id,
     course_id: params.course_id,
     source_table: "organisateur_reversements",
-    source_id: reversementId,
+    source_id: params.reversement_id,
     source_event: "transfer_created",
     source_key: sourceKey,
     occurred_at: nowIso,
@@ -281,16 +526,14 @@ async function writeManualReversementAndLedger(params: {
     net_org_cents: -params.amount_cents,
     currency: "eur",
     status: "confirmed",
-    label: "Reversement manuel (admin)",
-    metadata: { paiement_id: params.paiement_id, transfer_id: params.stripe_transfer_id, tranche: 0 },
+    label: params.label,
+    metadata: { paiement_id: params.paiement_id, transfer_id: params.stripe_transfer_id, tranche: params.tranche },
   });
 
   if (ledErr) {
     const code = (ledErr as any)?.code || "";
     if (code !== "23505") throw ledErr;
   }
-
-  return { reversement_id: reversementId, ledger: "inserted" };
 }
 
 /* ------------------------------ Main ----------------------------- */
@@ -307,8 +550,14 @@ serve(async (req) => {
 
   try {
     const body = await req.json().catch(() => ({}));
-    const { paiement_id, inscription_id, amount_eur } = body || {};
-    if (!paiement_id && !inscription_id) return ok({ error: "paiement_id ou inscription_id requis" }, headers, 400);
+    const { paiement_id, inscription_id, amount_eur, tranche } = body || {};
+
+    if (!paiement_id && !inscription_id) {
+      return ok({ error: "paiement_id ou inscription_id requis" }, headers, 400);
+    }
+
+    const trancheN = Number(tranche || 2);
+    if (![1, 2].includes(trancheN)) return ok({ error: "tranche doit être 1 ou 2" }, headers, 400);
 
     const { data: p, error: pe } = await supabaseSR
       .from("paiements")
@@ -378,6 +627,15 @@ serve(async (req) => {
     if (!Number.isFinite(eurVal) || eurVal <= 0) return ok({ error: "amount_eur invalide" }, headers, 400);
     const requested = Math.round(eurVal * 100);
 
+    // 🔒 lock reversement (tranche 1/2)
+    const lock = await lockOrCreateReversement({
+      organisateur_id: organisateurId,
+      course_id: courseId,
+      paiement_id: String((p as any).id),
+      tranche: trancheN as 1 | 2,
+    });
+    const reversementId = lock.reversement_id;
+
     // cap "Stripe/charge math" (ton ancien calcul)
     const alreadyStripe = Number((p as any).transferred_total_cents || 0);
     const gross = computeGrossCents(p);
@@ -388,26 +646,61 @@ serve(async (req) => {
     // cap "ledger" (aligné run-reversements)
     const netTotal = await computeNetTotalForPaiement((p as any).id);
     const alreadyPaid = await computeAlreadyPaidForPaiement((p as any).id);
-    const remainingLedger = Math.max(0, netTotal - alreadyPaid);
+
+    // cible par tranche (même règle que run-reversements)
+    const tranche1Target = Math.floor(netTotal * 0.5);
+    const target = trancheN === 1 ? tranche1Target : netTotal;
+
+    // reste autorisé pour cette tranche, en tenant compte de déjàPaid global
+    const remainingForTarget = Math.max(0, target - alreadyPaid);
 
     // cap final blindé
-    const toTransfer = Math.min(requested, maxNetFromPaiements, remainingLedger);
-    if (toTransfer <= 0) return ok({ error: "rien à transférer (cap atteint)" }, headers, 400);
+    const toTransfer = Math.min(requested, maxNetFromPaiements, remainingForTarget);
 
-    // Stripe transfer (admin)
-    const tr = await stripe.transfers.create({
-      amount: toTransfer,
-      currency: (((p as any).devise || "eur") as any),
-      destination,
-      source_transaction: chargeId,
-      transfer_group: (p as any).trace_id ? `grp_${String((p as any).trace_id)}` : undefined,
-      metadata: {
-        paiement_id: String((p as any).id),
-        course_id: String(courseId),
-        organisateur_id: String(organisateurId),
-        mode: "admin_release_funds",
+    if (toTransfer <= 0) {
+      await supabaseSR
+        .from("organisateur_reversements")
+        .update({
+          status: "skipped",
+          amount_cents: 0,
+          executed_at: new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+          error: "cap atteint / rien à transférer",
+        })
+        .eq("id", reversementId);
+
+      return ok(
+        {
+          error: "rien à transférer (cap atteint)",
+          reversement_id: reversementId,
+          caps: { requested, maxNetFromPaiements, remainingForTarget },
+        },
+        headers,
+        400,
+      );
+    }
+
+    // Stripe transfer (idempotent par reversementId)
+    const tr = await stripe.transfers.create(
+      {
+        amount: toTransfer,
+        currency: (((p as any).devise || "eur") as any),
+        destination,
+        source_transaction: chargeId,
+        transfer_group: (p as any).trace_id ? `grp_${String((p as any).trace_id)}` : undefined,
+        metadata: {
+          paiement_id: String((p as any).id),
+          course_id: String(courseId),
+          organisateur_id: String(organisateurId),
+          tranche: String(trancheN),
+          mode: "admin_release_funds",
+        },
+        description: `TickRace reversement (admin) tranche ${trancheN}`,
       },
-    });
+      { idempotencyKey: `tickrace_release_funds_${reversementId}` },
+    );
+
+    if (!tr?.id) throw new Error("Stripe transfer sans id");
 
     // log paiement_transferts
     await supabaseSR.from("paiement_transferts").insert({
@@ -429,24 +722,44 @@ serve(async (req) => {
       })
       .eq("id", (p as any).id);
 
-    // ✅ Alignement Option 1 : reversements + ledger
-    const aligned = await writeManualReversementAndLedger({
+    // ✅ reversements + ledger (aligné Compta)
+    await writeReversementPaidAndLedger({
+      reversement_id: reversementId,
       organisateur_id: organisateurId,
       course_id: courseId,
       paiement_id: String((p as any).id),
+      tranche: trancheN as 1 | 2,
       amount_cents: toTransfer,
       stripe_transfer_id: tr.id,
+      label: `Reversement admin — tranche ${trancheN}`,
     });
+
+    // ✅ Email : tranche 1 => PAS d'email (digest hebdo), tranche 2 => email final immédiat
+    if (trancheN === 2) {
+      try {
+        await sendFinalPayoutEmailOnce({
+          organisateur_id: organisateurId,
+          course_id: courseId,
+          reversement_id: reversementId,
+          tranche: 2,
+          amount_cents: toTransfer,
+          stripe_transfer_id: tr.id,
+          paiement_id: String((p as any).id),
+        });
+      } catch (e: any) {
+        console.warn("FINAL_EMAIL_NON_BLOCKING", e?.message ?? e);
+      }
+    }
 
     return ok(
       {
         ok: true,
         paiement_id: (p as any).id,
+        reversement_id: reversementId,
         transfer_id: tr.id,
         amount_cents: toTransfer,
-        caps: { maxNetFromPaiements, remainingLedger, requested },
-        reversement_id: aligned.reversement_id,
-        ledger: aligned.ledger,
+        tranche: trancheN,
+        caps: { requested, maxNetFromPaiements, remainingForTarget },
       },
       headers,
       200,
