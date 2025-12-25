@@ -26,7 +26,7 @@ export default function BenevoleInscription() {
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [done, setDone] = useState(false);
-  const [info, setInfo] = useState(""); // message non bloquant (déjà inscrit, etc.)
+  const [info, setInfo] = useState("");
   const [error, setError] = useState("");
 
   const [form, setForm] = useState({
@@ -88,17 +88,25 @@ export default function BenevoleInscription() {
         throw new Error("Champs requis manquants.");
       }
 
-      // ✅ IMPORTANT : inscription publique -> passe par Edge Function (Service Role)
+      // ✅ Supabase Edge Functions exigent souvent Authorization.
+      // - si user connecté -> access_token
+      // - sinon -> anon key en Bearer (suffit pour appeler la function)
+      const { data: sess } = await supabase.auth.getSession();
+      const accessToken = sess?.session?.access_token;
+      const bearer = accessToken || import.meta.env.VITE_SUPABASE_ANON_KEY;
+
       const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/volunteer-signup`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${bearer}`,
+        },
         body: JSON.stringify(payload),
       });
 
       const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) throw new Error(json?.error || "Erreur inconnue");
 
-      // On affiche un petit message d'info si besoin (non bloquant)
       setInfo("Votre inscription est enregistrée. L’organisation pourra vous inviter vers l’espace bénévole.");
       setDone(true);
     } catch (err) {
