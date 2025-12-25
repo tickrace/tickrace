@@ -54,6 +54,7 @@ import CoursePartenaires from "./pages/CoursePartenaires";
 // Bénévoles
 import BenevoleInscription from "./pages/BenevoleInscription";
 import ListeBenevoles from "./pages/ListeBenevoles";
+import EspaceBenevole from "./pages/EspaceBenevole";
 
 // Paiements
 import Merci from "./pages/Merci";
@@ -115,7 +116,7 @@ function AppContent() {
           <Route path="/formats" element={<ListeFormats />} />
           <Route path="/fonctionnalites" element={<Fonctionnalites />} />
           <Route path="/contact" element={<Contact />} />
-
+<Route path="/benevole/:courseId" element={<EspaceBenevole />} />
           {/* Help */}
           <Route path="/help/creer-une-course" element={<CreerUneCourse />} />
           <Route path="/help" element={<Navigate to="/help/creer-une-course" replace />} />
