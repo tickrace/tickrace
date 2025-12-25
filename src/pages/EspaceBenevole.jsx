@@ -1,17 +1,15 @@
 // src/pages/EspaceBenevole.jsx
-// ✅ Version ultra clean (branchée Supabase) — layout 2 colonnes (desktop) + stack (mobile)
+// ✅ Version ultra clean (Supabase) — layout 2 colonnes (desktop) + stack (mobile)
 // - Auth (magic link / OTP fallback)
 // - Liaison benevole.user_id auto au 1er login
 // - Affichage "Ma mission" + actions (confirmer / refuser / check-in)
 // - Planning équipe (couverture par poste)
 // - Chat équipe en temps réel (Realtime) + envoi + scroll
 // - Export calendrier (ICS) pour tes missions
+// - ✅ FIX: pas de courses.date -> on affiche une "prochaine date" via formats.date (si dispo)
 //
 // Pré-requis tables : benevoles, benevoles_postes, benevoles_creneaux, benevoles_affectations, benevoles_chat_messages
 // Pré-requis RLS : le bénévole doit pouvoir SELECT postes/creneaux/affectations/chat pour sa course
-//
-// ⚠️ Si tu n'as pas encore les policies de lecture "bénévole de la course",
-// tu verras des erreurs RLS sur planning/chat -> on ajustera ensuite.
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
@@ -83,12 +81,14 @@ const Line = () => <div className="h-px w-full bg-neutral-200" />;
 const fmtDate = (d) => {
   if (!d) return "—";
   const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return "—";
   return new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(date);
 };
 
 const fmtTime = (d) => {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
+  if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("fr-FR", { timeStyle: "short" }).format(date);
 };
 
@@ -97,7 +97,6 @@ const safe = (s) => (s || "").toString().trim();
 /* ----------------------------- ICS Export ----------------------------- */
 
 function toICSDateUTC(date) {
-  // Convertit en YYYYMMDDTHHMMSSZ
   const d = new Date(date);
   const pad = (n) => String(n).padStart(2, "0");
   return (
@@ -182,14 +181,14 @@ export default function EspaceBenevole() {
   const [sessionUser, setSessionUser] = useState(null);
 
   const [course, setCourse] = useState(null);
+  const [nextDate, setNextDate] = useState(null); // ✅ prochaine date via formats.date
   const [benevole, setBenevole] = useState(null);
 
   const [postes, setPostes] = useState([]);
-  const [planningStats, setPlanningStats] = useState([]); // computed
-  const [myMissions, setMyMissions] = useState([]); // affectations join poste/creneau
+  const [planningStats, setPlanningStats] = useState([]);
+  const [myMissions, setMyMissions] = useState([]);
 
   const [infoBlock, setInfoBlock] = useState({
-    // Optionnel : si tu ajoutes ces champs à courses plus tard, on les branchera :
     rendez_vous_lieu: null,
     rendez_vous_heure: null,
     consignes_url: null,
@@ -202,7 +201,6 @@ export default function EspaceBenevole() {
 
   const [err, setErr] = useState("");
 
-  // Chat "pré-rempli" shortcut
   const chatRef = useRef(null);
 
   const statusChip = useMemo(() => {
@@ -237,7 +235,9 @@ export default function EspaceBenevole() {
 
   const contactMailTo = useMemo(() => {
     const email = infoBlock.contact_email || "support@tickrace.com";
-    const subject = encodeURIComponent(`Bénévole — ${course?.nom || "Course"} — ${benevole?.prenom || ""} ${benevole?.nom || ""}`);
+    const subject = encodeURIComponent(
+      `Bénévole — ${course?.nom || "Course"} — ${benevole?.prenom || ""} ${benevole?.nom || ""}`
+    );
     const body = encodeURIComponent(
       `Bonjour,\n\nJe suis bénévole sur ${course?.nom || "la course"}.\n\nMa demande : \n\nMerci !`
     );
@@ -255,21 +255,38 @@ export default function EspaceBenevole() {
       const user = sess?.session?.user || null;
       setSessionUser(user);
 
-      // 1) Course (public)
+      // 1) Course (public) ✅ FIX: pas de date ici
       const { data: c, error: cErr } = await supabase
         .from("courses")
-        .select("id, nom, date, lieu")
+        .select("id, nom, lieu, image_url")
         .eq("id", courseId)
         .maybeSingle();
 
       if (cErr || !c) throw cErr || new Error("Course introuvable.");
       setCourse(c);
 
-      // (Optionnel) si tu ajoutes des champs plus tard dans courses : rendez_vous, consignes_url, etc.
-      // -> on gardera infoBlock tel quel pour l’instant.
+      // 1bis) Prochaine date via formats.date (si dispo)
+      // ⚠️ Si ton champ n'est pas "date", remplace-le ici (ex: start_at / date_depart)
+      const { data: f, error: fErr } = await supabase
+        .from("formats")
+        .select("id, date")
+        .eq("course_id", courseId);
+
+      if (!fErr && f?.length) {
+        const now = Date.now();
+        const dates = f
+          .map((x) => (x?.date ? new Date(x.date).getTime() : null))
+          .filter((t) => Number.isFinite(t));
+
+        const future = dates.filter((t) => t >= now).sort((a, b) => a - b);
+        const past = dates.filter((t) => t < now).sort((a, b) => b - a);
+        const chosen = future[0] ?? past[0] ?? null;
+        setNextDate(chosen ? new Date(chosen).toISOString() : null);
+      } else {
+        setNextDate(null);
+      }
 
       if (!user) {
-        // Pas connecté : on stop ici, on affichera le bloc OTP
         setLoading(false);
         return;
       }
@@ -297,7 +314,6 @@ export default function EspaceBenevole() {
           .eq("id", b.id);
 
         if (upErr) {
-          // On continue quand même, mais le RLS peut bloquer ensuite
           console.warn("Unable to attach user_id:", upErr);
         } else {
           b.user_id = user.id;
@@ -306,7 +322,7 @@ export default function EspaceBenevole() {
       }
       setBenevole(b);
 
-      // 4) Postes (pour planning équipe)
+      // 4) Postes (planning équipe)
       const { data: p, error: pErr } = await supabase
         .from("benevoles_postes")
         .select("id, course_id, titre, lieu, description, capacite, ordre")
@@ -324,7 +340,6 @@ export default function EspaceBenevole() {
 
       if (aAllErr) throw aAllErr;
 
-      // On compte comme "occupé" : assigned/confirmed/checked_in
       const isFilled = (st) => ["assigned", "confirmed", "checked_in"].includes(st);
 
       const countByPoste = new Map();
@@ -380,7 +395,6 @@ export default function EspaceBenevole() {
     refreshAll();
 
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      // Quand le magic link se finalise, on refresh
       refreshAll();
     });
 
@@ -395,17 +409,14 @@ export default function EspaceBenevole() {
     setBusyAction(true);
     setErr("");
 
-    // Optimistic
     setMyMissions((prev) => prev.map((m) => (m.id === affId ? { ...m, status } : m)));
 
     const { error } = await supabase.from("benevoles_affectations").update({ status }).eq("id", affId);
 
     if (error) {
-      // Rollback (re-fetch)
       await refreshAll();
       setErr("Impossible de mettre à jour le statut. Réessaie.");
     } else {
-      // refresh planning stats
       await refreshAll();
     }
 
@@ -461,7 +472,7 @@ export default function EspaceBenevole() {
     );
   }
 
-  // Not logged in -> OTP block (fallback)
+  // Not logged in -> OTP block
   if (!sessionUser) {
     return (
       <div className="min-h-screen bg-neutral-50">
@@ -473,7 +484,7 @@ export default function EspaceBenevole() {
                 {course?.nom ? (
                   <>
                     <span className="font-semibold">{course.nom}</span> · {course?.lieu || "—"} ·{" "}
-                    {course?.date ? fmtDate(course.date) : "—"}
+                    {nextDate ? fmtDate(nextDate) : "—"}
                   </>
                 ) : (
                   "Course"
@@ -505,11 +516,7 @@ export default function EspaceBenevole() {
                   placeholder="ton@email.com"
                   className="flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
                 />
-                <Btn
-                  variant="dark"
-                  disabled={authSending || !safe(authEmail).includes("@")}
-                  onClick={requestMagicLink}
-                >
+                <Btn variant="dark" disabled={authSending || !safe(authEmail).includes("@")} onClick={requestMagicLink}>
                   {authSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                   Envoyer
                 </Btn>
@@ -588,7 +595,7 @@ export default function EspaceBenevole() {
               </div>
               <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-600">
                 <span className="inline-flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4" /> {course?.date ? fmtDate(course.date) : "—"}
+                  <CalendarDays className="h-4 w-4" /> {nextDate ? fmtDate(nextDate) : "—"}
                 </span>
                 <span className="inline-flex items-center gap-2">
                   <MapPin className="h-4 w-4" /> {course?.lieu || "—"}
@@ -652,7 +659,15 @@ export default function EspaceBenevole() {
                   <UserCheck className="h-5 w-5" />
                   <h2 className="text-lg font-extrabold">Ma mission</h2>
                 </div>
-                <Pill tone={myMissions.length ? (["confirmed", "checked_in"].includes(myMissions[0]?.status) ? "green" : "orange") : "gray"}>
+                <Pill
+                  tone={
+                    myMissions.length
+                      ? ["confirmed", "checked_in"].includes(myMissions[0]?.status)
+                        ? "green"
+                        : "orange"
+                      : "gray"
+                  }
+                >
                   {myMissions.length === 0
                     ? "En attente"
                     : myMissions[0]?.status === "checked_in"
@@ -713,9 +728,7 @@ export default function EspaceBenevole() {
                             {poste?.description ? (
                               <p className="mt-3 text-sm text-neutral-700">{poste.description}</p>
                             ) : (
-                              <p className="mt-3 text-sm text-neutral-700">
-                                Consignes à venir. Utilise le chat si tu as une question.
-                              </p>
+                              <p className="mt-3 text-sm text-neutral-700">Consignes à venir. Utilise le chat si tu as une question.</p>
                             )}
                           </div>
 
@@ -753,40 +766,34 @@ export default function EspaceBenevole() {
                                   variant="light"
                                   className="min-w-[150px]"
                                   onClick={() => {
-                                    chatRef.current?.focusAndPrefill?.(
-                                      `@orga J’ai une question sur "${poste?.titre || "ma mission"}" : `
-                                    );
+                                    chatRef.current?.focusAndPrefill?.(`@orga J’ai une question sur "${poste?.titre || "ma mission"}" : `);
                                   }}
                                 >
                                   <MessageCircle className="h-4 w-4" /> Prévenir
                                 </Btn>
                               </>
                             ) : m.status === "checked_in" ? (
-                              <>
-                                <Btn
-                                  variant="dark"
-                                  className="min-w-[150px]"
-                                  onClick={() => {
-                                    chatRef.current?.focusAndPrefill?.(
-                                      `✅ Je suis en poste "${poste?.titre || "mission"}". Besoin de quelque chose ? `
-                                    );
-                                  }}
-                                >
-                                  <MessageCircle className="h-4 w-4" /> Message
-                                </Btn>
-                              </>
+                              <Btn
+                                variant="dark"
+                                className="min-w-[150px]"
+                                onClick={() => {
+                                  chatRef.current?.focusAndPrefill?.(
+                                    `✅ Je suis en poste "${poste?.titre || "mission"}". Besoin de quelque chose ? `
+                                  );
+                                }}
+                              >
+                                <MessageCircle className="h-4 w-4" /> Message
+                              </Btn>
                             ) : (
-                              <>
-                                <Btn
-                                  variant="light"
-                                  className="min-w-[150px]"
-                                  onClick={() => {
-                                    chatRef.current?.focusAndPrefill?.("Je suis finalement dispo, je peux aider. ");
-                                  }}
-                                >
-                                  <MessageCircle className="h-4 w-4" /> Recontacter
-                                </Btn>
-                              </>
+                              <Btn
+                                variant="light"
+                                className="min-w-[150px]"
+                                onClick={() => {
+                                  chatRef.current?.focusAndPrefill?.("Je suis finalement dispo, je peux aider. ");
+                                }}
+                              >
+                                <MessageCircle className="h-4 w-4" /> Recontacter
+                              </Btn>
                             )}
                           </div>
                         </div>
@@ -809,9 +816,7 @@ export default function EspaceBenevole() {
 
               <div className="mt-4 space-y-3">
                 {planningStats.length === 0 ? (
-                  <div className="text-sm text-neutral-600">
-                    Aucun poste n’est configuré pour le moment.
-                  </div>
+                  <div className="text-sm text-neutral-600">Aucun poste n’est configuré pour le moment.</div>
                 ) : (
                   planningStats.map((p) => {
                     const ratio = p.need > 0 ? Math.min(100, Math.round((p.filled / p.need) * 100)) : 0;
@@ -916,11 +921,7 @@ export default function EspaceBenevole() {
               </div>
 
               <div className="mt-4">
-                <BenevolesChat
-                  ref={chatRef}
-                  courseId={courseId}
-                  me={{ id: sessionUser?.id, prenom: benevole?.prenom, nom: benevole?.nom }}
-                />
+                <BenevolesChat ref={chatRef} courseId={courseId} me={{ id: sessionUser?.id, prenom: benevole?.prenom, nom: benevole?.nom }} />
                 <p className="mt-2 text-xs text-neutral-500">
                   Astuce : utilise le chat pour signaler un retard, une urgence, ou un manque de matériel.
                 </p>
@@ -941,7 +942,6 @@ export default function EspaceBenevole() {
                   onClick={() => {
                     const first = myMissions?.[0];
                     if (!first) return;
-                    // Si déjà check-in, ne rien faire
                     if (first.status === "checked_in") return;
                     updateMissionStatus(first.id, "checked_in");
                   }}
@@ -949,11 +949,7 @@ export default function EspaceBenevole() {
                   <UserCheck className="h-4 w-4" /> Je suis arrivé
                 </Btn>
 
-                <Btn
-                  variant="light"
-                  className="w-full"
-                  onClick={() => chatRef.current?.focusAndPrefill?.("Je signale un souci : ")}
-                >
+                <Btn variant="light" className="w-full" onClick={() => chatRef.current?.focusAndPrefill?.("Je signale un souci : ")}>
                   <AlertTriangle className="h-4 w-4" /> Signaler un souci
                 </Btn>
 
@@ -982,13 +978,6 @@ export default function EspaceBenevole() {
 }
 
 /* ----------------------------- Chat Component ----------------------------- */
-/**
- * Chat temps réel (Supabase Realtime).
- * - Charge les N derniers messages
- * - Subscribe INSERT sur la table
- * - Envoi message (optimistic)
- * - Expose ref.focusAndPrefill(text)
- */
 
 const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, ref) {
   const [loading, setLoading] = useState(true);
@@ -999,7 +988,6 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
   const listRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Roster optionnel (si RLS permet de lire les bénévoles de la course)
   const [nameByUserId, setNameByUserId] = useState({});
 
   const scrollBottom = (behavior = "smooth") => {
@@ -1026,10 +1014,7 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
     setLoading(true);
     try {
       // roster (best effort)
-      const rosterRes = await supabase
-        .from("benevoles")
-        .select("user_id, prenom, nom")
-        .eq("course_id", courseId);
+      const rosterRes = await supabase.from("benevoles").select("user_id, prenom, nom").eq("course_id", courseId);
 
       if (!rosterRes.error && rosterRes.data) {
         const map = {};
@@ -1060,7 +1045,6 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
   useEffect(() => {
     loadInitial();
 
-    // Realtime INSERT
     const channel = supabase
       .channel(`benevoles_chat_${courseId}`)
       .on(
@@ -1076,7 +1060,6 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
           if (!row?.id) return;
 
           setMessages((prev) => {
-            // anti-dup (optimistic)
             if (prev.some((m) => m.id === row.id)) return prev;
             return [...prev, row];
           });
@@ -1100,7 +1083,6 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
     setSending(true);
     setText("");
 
-    // optimistic row (local)
     const optimisticId = crypto.randomUUID();
     const optimistic = {
       id: optimisticId,
@@ -1120,7 +1102,6 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
     });
 
     if (error) {
-      // rollback
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId));
       alert("Impossible d’envoyer le message.");
     }
@@ -1130,10 +1111,7 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
 
   return (
     <div className="space-y-3">
-      <div
-        ref={listRef}
-        className="h-[420px] overflow-auto rounded-2xl border border-neutral-200 bg-white p-3"
-      >
+      <div ref={listRef} className="h-[420px] overflow-auto rounded-2xl border border-neutral-200 bg-white p-3">
         {loading ? (
           <div className="flex items-center gap-2 text-neutral-600">
             <Loader2 className="h-4 w-4 animate-spin" /> Chargement du chat…
@@ -1154,9 +1132,7 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
                     <div
                       className={[
                         "mt-1 rounded-2xl border px-3 py-2 text-sm whitespace-pre-wrap",
-                        isMe
-                          ? "border-neutral-900 bg-neutral-900 text-white"
-                          : "border-neutral-200 bg-neutral-50 text-neutral-900",
+                        isMe ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-neutral-50 text-neutral-900",
                       ].join(" ")}
                     >
                       {m.message}
