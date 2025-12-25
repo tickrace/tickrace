@@ -56,9 +56,7 @@ export default function Fonctionnalites() {
                   onClick={() => setTab(t.key)}
                   className={cn(
                     "px-4 py-2 rounded-lg text-sm font-semibold",
-                    tab === t.key
-                      ? "bg-black text-white"
-                      : "text-gray-800 hover:bg-gray-50"
+                    tab === t.key ? "bg-black text-white" : "text-gray-800 hover:bg-gray-50"
                   )}
                 >
                   {t.label}
@@ -172,10 +170,13 @@ function Organisateurs() {
           title="Paiements & reversements"
           bullets={[
             "Stripe Express intégré, sans configuration complexe",
-            "95% des inscriptions reversés automatiquement à J+1",
+            "Reversements automatiques en 2 temps : acompte (50%) à partir de J+7, puis solde à partir de J+2 après la course",
             "Suivi des paiements reçus, en attente et à venir",
           ]}
         />
+        <p className="mt-3 text-xs text-neutral-500">
+          Délais indicatifs : le traitement peut varier selon Stripe, les contrôles et les banques.
+        </p>
         <div className="mt-6">
           <Link
             to="/organisateur/mon-espace"

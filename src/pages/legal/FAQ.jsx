@@ -146,10 +146,13 @@ const FAQ_ITEMS = [
     icon: CreditCard,
     q: "Comment fonctionnent les reversements côté organisateur ?",
     a: [
-      "Les reversements sont automatisés selon les modalités techniques de la plateforme et du prestataire de paiement.",
-      "Les montants reversés correspondent aux sommes encaissées, déduction faite des commissions applicables.",
+      "Les reversements sont automatisés en 2 temps : un acompte puis un solde.",
+      "Acompte : 50 % du net organisateur à partir de J+7 après chaque paiement encaissé.",
+      "Solde : le reste à partir de J+2 après la date de l’épreuve.",
+      "Le net organisateur correspond aux sommes encaissées, déduction faite des commissions applicables et des frais de paiement.",
+      "Délais indicatifs : le traitement peut varier selon Stripe, les contrôles et les banques.",
     ],
-    tags: ["reversement", "stripe express"],
+    tags: ["reversement", "stripe", "acompte", "solde", "j+7", "j+2"],
   },
   {
     id: "p3",
@@ -370,11 +373,7 @@ export default function FAQ() {
       if (activeCat !== "all" && it.cat !== activeCat) return false;
       if (!q) return true;
 
-      const hay = [
-        it.q,
-        ...(Array.isArray(it.a) ? it.a : [it.a]),
-        ...(it.tags || []),
-      ]
+      const hay = [it.q, ...(Array.isArray(it.a) ? it.a : [it.a]), ...(it.tags || [])]
         .join(" ")
         .toLowerCase();
 
@@ -411,9 +410,7 @@ export default function FAQ() {
 
             <div className="space-y-2">
               <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">Foire aux questions</h1>
-              <p className="max-w-3xl text-sm text-neutral-600">
-                Recherche + filtres + accordéon (version stable).
-              </p>
+              <p className="max-w-3xl text-sm text-neutral-600">Recherche + filtres + accordéon (version stable).</p>
             </div>
 
             {/* Search */}
@@ -469,9 +466,7 @@ export default function FAQ() {
           {filtered.length === 0 ? (
             <div className="rounded-2xl border border-neutral-200 bg-white p-6 text-sm text-neutral-700">
               <p className="font-semibold text-neutral-900">Aucun résultat</p>
-              <p className="mt-1">
-                Essaie un autre mot-clé (ex : “annulation”, “Stripe”, “chrono”, “t-shirt”…).
-              </p>
+              <p className="mt-1">Essaie un autre mot-clé (ex : “annulation”, “Stripe”, “chrono”, “t-shirt”…).</p>
             </div>
           ) : (
             filtered.map((item) => (

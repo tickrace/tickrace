@@ -226,7 +226,7 @@ export default function Home() {
 
               <p className="text-neutral-600 max-w-xl">
                 TickRace centralise la création d’épreuves, l’inscription coureurs, le chat
-                communautaire, la gestion des bénévoles et les reversements automatiques.
+                communautaire, la gestion des bénévoles et les reversements automatiques (en 2 temps).
               </p>
 
               <div className="flex flex-wrap gap-3 pt-1">
@@ -245,11 +245,16 @@ export default function Home() {
                 <Badge>
                   <Star className="h-3.5 w-3.5" /> 5% frais plateforme organisateur
                 </Badge>
-                <Badge>Reversements automatiques à J+1</Badge>
+                <Badge>Reversements automatiques en 2 temps</Badge>
                 <Badge>Annulation en ligne par le coureur</Badge>
                 <Badge>
                   <MessageCircle className="h-3.5 w-3.5" /> Chat épreuves avec IA
                 </Badge>
+              </div>
+
+              <div className="text-[11px] text-neutral-500">
+                Reversements : acompte (50%) à partir de J+7 après paiement, puis solde à partir de J+2 après la course.
+                Délais indicatifs selon Stripe, contrôles et banques.
               </div>
             </motion.div>
 
@@ -426,7 +431,7 @@ export default function Home() {
                   <span className="h-2 w-2 rounded-full bg-orange-500" /> Multi-formats & quotas par format
                 </li>
                 <li className="flex items-center gap-2">
-                  <span className="h-2 w-2 rounded-full bg-orange-500" /> Paiements Stripe & reversements
+                  <span className="h-2 w-2 rounded-full bg-orange-500" /> Paiements Stripe & reversements en 2 temps
                 </li>
                 <li className="flex items-center gap-2">
                   <span className="h-2 w-2 rounded-full bg-orange-500" /> Annulation en ligne (crédit / remboursement)
@@ -448,7 +453,7 @@ export default function Home() {
               </div>
               <div className="mt-5 flex flex-wrap gap-2">
                 <Badge>5% Tickrace</Badge>
-                <Badge>Reversement J+1</Badge>
+                <Badge>Acompte J+7 • solde J+2</Badge>
               </div>
             </Card>
 
@@ -498,8 +503,8 @@ export default function Home() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-semibold">@IA</div>
                       <div className="text-sm text-neutral-700">
-                        Oui : points d’eau + ravitos principaux (selon la fiche et le règlement). Si tu veux, ping
-                        l’orga pour le détail.
+                        Oui : points d’eau + ravitos principaux (selon la fiche et le règlement). Si tu veux, ping l’orga
+                        pour le détail.
                       </div>
                       <div className="text-[11px] text-neutral-400 mt-0.5">À l’instant</div>
                     </div>
@@ -537,13 +542,15 @@ export default function Home() {
             {/* Simulateur */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Simulateur de gains organisateur</h3>
-              <p className="mt-2 text-sm text-neutral-600">Estimation rapide : 5% Tickrace + frais de paiement estimés (Stripe).</p>
+              <p className="mt-2 text-sm text-neutral-600">
+                Estimation rapide : 5% Tickrace + frais de paiement estimés (Stripe).
+              </p>
 
               <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
                 <div className="text-xs font-semibold text-neutral-500">Net organisateur (estimation)</div>
                 <div className="mt-1 text-2xl font-black">{fmtEUR(sim.netOrganisateur)}</div>
                 <div className="mt-1 text-xs text-neutral-500">
-                  ~ {fmtEUR(sim.netParInscrit)} / inscrit • reversements automatiques à J+1
+                  ~ {fmtEUR(sim.netParInscrit)} / inscrit • reversements automatiques (J+7 / J+2)
                 </div>
 
                 <div className="mt-4 grid grid-cols-1 gap-3">

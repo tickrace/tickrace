@@ -1,3 +1,4 @@
+// supabase/functions/create-checkout-session/index.ts
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -62,7 +63,58 @@ function centsToEur(cents: number | null | undefined) {
   return Math.round(cents) / 100;
 }
 
-/** UPSERT paiements robuste (idempotent) */
+function isUuid(v: any) {
+  return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
+}
+
+/**
+ * ✅ Résout le compte Stripe connecté de l’organisateur
+ * - course_id -> courses.organisateur_id -> profils_utilisateurs.stripe_account_id
+ * - si course_id absent : format_id -> formats.course_id
+ */
+async function resolveDestinationAccountId(params: { course_id?: string | null; format_id?: string | null }) {
+  let courseId = params.course_id ?? null;
+
+  if (!courseId && params.format_id) {
+    const { data: f, error: fe } = await supabase
+      .from("formats")
+      .select("course_id")
+      .eq("id", params.format_id)
+      .maybeSingle();
+    if (fe) console.error("DEST_ACCOUNT_FORMAT_LOOKUP_ERROR", fe);
+    courseId = (f as any)?.course_id ?? null;
+  }
+
+  if (!courseId) return null;
+
+  const { data: c, error: ce } = await supabase
+    .from("courses")
+    .select("organisateur_id")
+    .eq("id", courseId)
+    .maybeSingle();
+  if (ce) {
+    console.error("DEST_ACCOUNT_COURSE_LOOKUP_ERROR", ce);
+    return null;
+  }
+
+  const orgaId = (c as any)?.organisateur_id ?? null;
+  if (!orgaId) return null;
+
+  const { data: p, error: pe } = await supabase
+    .from("profils_utilisateurs")
+    .select("stripe_account_id")
+    .eq("user_id", orgaId)
+    .maybeSingle();
+  if (pe) {
+    console.error("DEST_ACCOUNT_PROFILE_LOOKUP_ERROR", pe);
+    return null;
+  }
+
+  const acct = (p as any)?.stripe_account_id ?? null;
+  return typeof acct === "string" && acct.startsWith("acct_") ? acct : null;
+}
+
+/** UPSERT paiements robuste (idempotent, sans écraser destination_account_id si inconnu) */
 async function upsertPaiement(params: {
   stripe_session_id: string;
   type: "individuel" | "groupe";
@@ -70,6 +122,7 @@ async function upsertPaiement(params: {
   total_cents: number;
   devise?: string | null;
   trace_id?: string | null;
+  destination_account_id?: string | null;
 }) {
   const payload: any = {
     stripe_session_id: params.stripe_session_id,
@@ -81,9 +134,14 @@ async function upsertPaiement(params: {
     amount_total: params.total_cents,
     amount_subtotal: params.total_cents,
     montant_total: centsToEur(params.total_cents),
-    trace_id: params.trace_id || null,
+    trace_id: isUuid(params.trace_id) ? params.trace_id : null,
     updated_at: new Date().toISOString(),
   };
+
+  // ✅ ne pas écraser avec null
+  if (params.destination_account_id && params.destination_account_id.startsWith("acct_")) {
+    payload.destination_account_id = params.destination_account_id;
+  }
 
   const { data, error } = await supabase
     .from("paiements")
@@ -177,7 +235,7 @@ serve(async (req) => {
 
       const { data: insc, error: ie } = await supabase
         .from("inscriptions")
-        .select("id, format_id, email, nombre_repas")
+        .select("id, course_id, format_id, email, nombre_repas")
         .eq("id", inscription_id)
         .single();
       if (ie || !insc) throw new Error("inscription introuvable");
@@ -188,6 +246,11 @@ serve(async (req) => {
         .eq("id", insc.format_id)
         .single();
       if (fe || !format) throw new Error("format introuvable");
+
+      const destination_account_id = await resolveDestinationAccountId({
+        course_id: (insc as any).course_id ?? null,
+        format_id: (insc as any).format_id ?? null,
+      });
 
       const formatPriceCents = Math.round((Number(format.prix) || 0) * 100);
       const repasUnitCents = Math.round((Number(format.prix_repas) || 0) * 100);
@@ -224,15 +287,12 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: repasUnitCents,
-            product_data: {
-              name: "Repas",
-              metadata: { kind: "repas" },
-            },
+            product_data: { name: "Repas", metadata: { kind: "repas" } },
           },
         });
       }
 
-      // ✅ OPTIONS marquées (fiable pour sync Stripe)
+      // ✅ OPTIONS via metadata (sync Stripe fiable)
       for (const o of opts ?? []) {
         if (!o?.prix_unitaire_cents || !o?.quantity) continue;
         items.push({
@@ -241,11 +301,8 @@ serve(async (req) => {
             currency: "eur",
             unit_amount: o.prix_unitaire_cents,
             product_data: {
-              name: `Option`,
-              metadata: {
-                kind: "option",
-                option_id: String(o.option_id),
-              },
+              name: "Option",
+              metadata: { kind: "option", option_id: String(o.option_id) },
             },
           },
         });
@@ -268,10 +325,7 @@ serve(async (req) => {
         },
       });
 
-      const total = items.reduce(
-        (s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1),
-        0,
-      );
+      const total = items.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
 
       await upsertPaiement({
         stripe_session_id: session.id,
@@ -280,6 +334,7 @@ serve(async (req) => {
         total_cents: total,
         devise: session.currency || "eur",
         trace_id: trace_id || null,
+        destination_account_id,
       });
 
       return json({ url: session.url }, 200);
@@ -306,10 +361,15 @@ serve(async (req) => {
 
     const { data: format, error: fe2 } = await supabase
       .from("formats")
-      .select("id, nom, prix, prix_equipe")
+      .select("id, nom, prix, prix_equipe, course_id")
       .eq("id", payload.format_id)
       .single();
     if (fe2 || !format) throw new Error("format introuvable");
+
+    const destination_account_id = await resolveDestinationAccountId({
+      course_id: payload.course_id ?? (format as any)?.course_id ?? null,
+      format_id: payload.format_id,
+    });
 
     const formatPriceCents = Math.round((Number(format.prix) || 0) * 100);
     const teamFeeCents = Math.round((Number(format.prix_equipe) || 0) * 100);
@@ -354,16 +414,13 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: teamFeeCents,
-            product_data: {
-              name: `Frais d’équipe — ${teamName}`,
-              metadata: { kind: "team_fee" },
-            },
+            product_data: { name: `Frais d’équipe — ${teamName}`, metadata: { kind: "team_fee" } },
           },
         });
       }
 
       const rows = members.map((m: any) => ({
-        course_id: payload.course_id ?? null,
+        course_id: payload.course_id ?? (format as any)?.course_id ?? null,
         format_id: payload.format_id,
         coureur_id: null,
         nom: m.nom,
@@ -398,18 +455,14 @@ serve(async (req) => {
             unit_amount: formatPriceCents,
             product_data: {
               name: `Inscription — ${format.nom} — ${r.prenom ?? ""} ${r.nom ?? ""}`.trim(),
-              metadata: {
-                kind: "inscription",
-                format_id: String(payload.format_id),
-                inscription_id: String(r.id),
-              },
+              metadata: { kind: "inscription", format_id: String(payload.format_id), inscription_id: String(r.id) },
             },
           },
         });
       }
     }
 
-    // Options (ancrées sur la première inscription du paiement)
+    // Options ancrées sur la première inscription
     const orderOptions = payload.selected_options ?? [];
     if (orderOptions.length > 0 && allInscriptionIds.length > 0) {
       const anchorInscriptionId = allInscriptionIds[0];
@@ -432,13 +485,7 @@ serve(async (req) => {
           price_data: {
             currency: "eur",
             unit_amount: unit,
-            product_data: {
-              name: `Option`,
-              metadata: {
-                kind: "option",
-                option_id: String(o.option_id),
-              },
-            },
+            product_data: { name: "Option", metadata: { kind: "option", option_id: String(o.option_id) } },
           },
         });
       }
@@ -474,6 +521,7 @@ serve(async (req) => {
       total_cents: total,
       devise: session.currency || "eur",
       trace_id: null,
+      destination_account_id,
     });
 
     if (paiementId && createdGroupIds.length > 0) {

@@ -16,9 +16,7 @@ const Section = ({ id, title, icon: Icon, children }) => (
         </div>
         <div>
           <h2 className="text-lg font-semibold text-neutral-900">{title}</h2>
-          <p className="text-sm text-neutral-600">
-            Conditions Générales de Vente – Organisateurs (Tickrace V1)
-          </p>
+          <p className="text-sm text-neutral-600">Conditions Générales de Vente – Organisateurs (Tickrace V1)</p>
         </div>
       </div>
       <div className="px-5 py-4 text-sm leading-6 text-neutral-800">{children}</div>
@@ -38,9 +36,8 @@ const AnchorLink = ({ href, children }) => (
 
 export default function CGVOrganisateurs() {
   const lastUpdate = useMemo(() => {
-    // tu peux remplacer par une date fixe si tu préfères
-    const d = new Date();
-    return d.toLocaleDateString("fr-FR", { year: "numeric", month: "long", day: "2-digit" });
+    // Date fixe recommandée pour un document légal (à modifier si besoin)
+    return "25 décembre 2025";
   }, []);
 
   return (
@@ -97,8 +94,8 @@ export default function CGVOrganisateurs() {
           <Section id="presentation" title="1. Présentation de Tickrace" icon={Info}>
             <p>
               Tickrace est une plateforme en ligne permettant la gestion administrative et financière d’événements
-              sportifs, notamment : création et publication d’événements, gestion des inscriptions et options, encaissement
-              des paiements des participants, et mise en relation avec des prestataires tiers.
+              sportifs, notamment : création et publication d’événements, gestion des inscriptions et options,
+              encaissement des paiements des participants, et mise en relation avec des prestataires tiers.
             </p>
             <p className="mt-3">
               Tickrace agit <strong>exclusivement</strong> en qualité de plateforme technique et d’intermédiaire de
@@ -115,8 +112,8 @@ export default function CGVOrganisateurs() {
 
           <Section id="responsabilites" title="3. Création et responsabilité de l’événement" icon={Handshake}>
             <p>
-              L’organisateur est seul responsable : des informations publiées, de la conformité réglementaire (autorisations,
-              assurances, sécurité), et du bon déroulement de l’événement.
+              L’organisateur est seul responsable : des informations publiées, de la conformité réglementaire
+              (autorisations, assurances, sécurité), et du bon déroulement de l’événement.
             </p>
             <p className="mt-3">
               Tickrace fournit uniquement un <strong>outil logiciel</strong> de gestion et ne saurait être tenue responsable
@@ -127,12 +124,17 @@ export default function CGVOrganisateurs() {
           <Section id="tarifs-inscriptions" title="4. Tarification – Inscriptions" icon={CreditCard}>
             <p>
               Pour chaque inscription effectuée via la plateforme, Tickrace perçoit une <strong>commission de 5 %</strong>{" "}
-              sur le montant de l’inscription. Cette commission inclut les frais de plateforme et les frais techniques de
-              paiement.
+              sur le montant de l’inscription.
             </p>
             <p className="mt-3">
-              Le solde, soit <strong>95 %</strong>, est destiné à l’organisateur selon les modalités prévues à l’article 8.
-              Les prix affichés aux participants sont <strong>TTC</strong>.
+              Les paiements sont traités via un prestataire de paiement sécurisé (ex. Stripe). Des{" "}
+              <strong>frais de paiement</strong> (variables selon le moyen de paiement, la réglementation et la zone
+              géographique) peuvent s’appliquer et sont pris en compte dans le calcul du montant reversé à l’organisateur.
+            </p>
+            <p className="mt-3">
+              Le “net organisateur” correspond aux sommes encaissées <strong>déduction faite</strong> de la commission
+              Tickrace et des frais de paiement applicables, ainsi que des éventuels remboursements, annulations, litiges et
+              rétrofacturations. Les prix affichés aux participants sont <strong>TTC</strong>.
             </p>
           </Section>
 
@@ -140,6 +142,10 @@ export default function CGVOrganisateurs() {
             <p>
               L’organisateur peut proposer des options payantes (repas, t-shirt, tombola, goodies, etc.). Tickrace perçoit
               une <strong>commission de 5 %</strong> sur le montant de chaque option. Le solde est reversé à l’organisateur.
+            </p>
+            <p className="mt-3">
+              Les frais de paiement liés à l’encaissement des options peuvent également être pris en compte dans le calcul
+              du net organisateur.
             </p>
             <p className="mt-3">
               Tickrace n’intervient pas dans la fourniture matérielle de ces options, qui relève exclusivement de la
@@ -169,16 +175,50 @@ export default function CGVOrganisateurs() {
               Les paiements des participants sont encaissés via un prestataire de paiement sécurisé (ex. Stripe). Tickrace
               agit en tant qu’intermédiaire de paiement conformément à la réglementation applicable.
             </p>
+            <p className="mt-3">
+              Pour recevoir les reversements, l’organisateur doit disposer d’un <strong>compte Stripe connecté</strong> et
+              fournir les informations nécessaires (identité, coordonnées, conformité). À défaut, les reversements peuvent
+              être temporairement <strong>bloqués</strong> jusqu’à régularisation.
+            </p>
           </Section>
 
           <Section id="reversements" title="8. Reversements à l’organisateur" icon={CreditCard}>
             <p>
-              Les reversements sont effectués automatiquement selon les modalités techniques de la plateforme. Les montants
-              reversés correspondent aux sommes encaissées <strong>déduction faite</strong> des commissions Tickrace
-              applicables.
+              Les reversements sont effectués automatiquement via le prestataire de paiement (ex. Stripe) sur le compte
+              connecté de l’organisateur, sous réserve de l’éligibilité du compte (vérifications, activation des versements,
+              absence de restriction).
             </p>
+
             <p className="mt-3">
-              Les délais de reversement peuvent varier selon les contraintes du prestataire de paiement.
+              <strong>Calendrier (2 tranches) :</strong>
+            </p>
+            <ul className="mt-2 list-disc pl-5 space-y-1">
+              <li>
+                <strong>Tranche 1 (acompte)</strong> : <strong>50 %</strong> du net organisateur,{" "}
+                <strong>à partir de J+7</strong> après chaque paiement encaissé.
+              </li>
+              <li>
+                <strong>Tranche 2 (solde)</strong> : le <strong>complément</strong> du net organisateur,{" "}
+                <strong>à partir de J+2</strong> après la date de l’épreuve.
+              </li>
+            </ul>
+
+            <p className="mt-3">
+              Les montants reversés correspondent aux sommes encaissées <strong>déduction faite</strong> (i) des commissions
+              Tickrace applicables, (ii) des frais de paiement, et (iii) des éventuels remboursements, annulations, litiges
+              et rétrofacturations.
+            </p>
+
+            <p className="mt-3">
+              <strong>Délais indicatifs.</strong> Les délais de reversement peuvent varier selon le prestataire de paiement,
+              les contrôles (KYC/AML), les banques et les jours non ouvrés. Tickrace ne garantit pas un crédit instantané sur
+              le compte bancaire de l’organisateur.
+            </p>
+
+            <p className="mt-3">
+              <strong>Blocage / ajustements.</strong> En cas de restriction du compte, d’informations manquantes, de
+              suspicion de fraude, de litige ou de rétrofacturation, les reversements peuvent être temporairement suspendus
+              et/ou ajustés jusqu’à résolution.
             </p>
           </Section>
 
@@ -224,9 +264,9 @@ export default function CGVOrganisateurs() {
 
           <Section id="responsa-tickrace" title="10. Responsabilité de Tickrace" icon={Shield}>
             <p>
-              Tickrace est tenue à une obligation de moyens. Tickrace ne saurait être tenue responsable de l’annulation ou du
-              report d’un événement, d’un accident survenu lors de l’événement, d’un litige entre participant et organisateur,
-              ou d’une défaillance d’un prestataire tiers.
+              Tickrace est tenue à une obligation de moyens. Tickrace ne saurait être tenue responsable de l’annulation ou
+              du report d’un événement, d’un accident survenu lors de l’événement, d’un litige entre participant et
+              organisateur, ou d’une défaillance d’un prestataire tiers.
             </p>
           </Section>
 

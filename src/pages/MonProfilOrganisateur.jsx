@@ -21,21 +21,6 @@ function cleanStr(v) {
   const s = (v ?? "").toString().trim();
   return s.length ? s : "";
 }
-function normalizeIban(s) {
-  return cleanStr(s).replace(/\s+/g, "").toUpperCase();
-}
-function looksLikeIban(s) {
-  const v = normalizeIban(s);
-  if (!v) return true; // optional
-  if (v.length < 15 || v.length > 34) return false;
-  if (!/^[A-Z]{2}[0-9A-Z]+$/.test(v)) return false;
-  return true;
-}
-function looksLikeBic(s) {
-  const v = cleanStr(s).replace(/\s+/g, "").toUpperCase();
-  if (!v) return true; // optional
-  return /^[A-Z0-9]{8}([A-Z0-9]{3})?$/.test(v);
-}
 
 /* ---------- UI helpers ---------- */
 function Field({ label, hint, children }) {
@@ -102,11 +87,9 @@ export default function MonProfilOrganisateur() {
   const [siteWeb, setSiteWeb] = useState("");
   const [telephone, setTelephone] = useState("");
 
-  // ✅ Infos facturation / reversements (nouveaux champs)
+  // ✅ Infos facturation (SANS IBAN/BIC)
   const [titulaireCompte, setTitulaireCompte] = useState("");
   const [emailFacturation, setEmailFacturation] = useState("");
-  const [iban, setIban] = useState("");
-  const [bic, setBic] = useState("");
   const [siret, setSiret] = useState("");
   const [tvaIntra, setTvaIntra] = useState("");
   const [adresseFact, setAdresseFact] = useState("");
@@ -150,7 +133,7 @@ export default function MonProfilOrganisateur() {
             user_id, email, organisation_nom, site_web, telephone,
             stripe_account_id, stripe_charges_enabled, stripe_payouts_enabled, stripe_details_submitted, stripe_requirements_due,
             conditions_acceptees, conditions_acceptees_at, conditions_version,
-            orga_titulaire_compte, orga_email_facturation, orga_iban, orga_bic, orga_siret, orga_tva_intra,
+            orga_titulaire_compte, orga_email_facturation, orga_siret, orga_tva_intra,
             orga_adresse_facturation, orga_code_postal, orga_ville, orga_pays
           `)
           .eq("user_id", u.id)
@@ -166,8 +149,6 @@ export default function MonProfilOrganisateur() {
 
         setTitulaireCompte(data?.orga_titulaire_compte || "");
         setEmailFacturation(data?.orga_email_facturation || data?.email || "");
-        setIban(data?.orga_iban || "");
-        setBic(data?.orga_bic || "");
         setSiret(data?.orga_siret || "");
         setTvaIntra(data?.orga_tva_intra || "");
         setAdresseFact(data?.orga_adresse_facturation || "");
@@ -205,14 +186,6 @@ export default function MonProfilOrganisateur() {
         alert("Vous devez accepter les conditions pour continuer.");
         return;
       }
-      if (!looksLikeIban(iban)) {
-        alert("IBAN invalide (format).");
-        return;
-      }
-      if (!looksLikeBic(bic)) {
-        alert("BIC invalide (format).");
-        return;
-      }
 
       const payload = {
         organisation_nom: cleanStr(organisationNom) || null,
@@ -221,8 +194,6 @@ export default function MonProfilOrganisateur() {
 
         orga_titulaire_compte: cleanStr(titulaireCompte) || null,
         orga_email_facturation: cleanStr(emailFacturation) || null,
-        orga_iban: normalizeIban(iban) || null,
-        orga_bic: cleanStr(bic).replace(/\s+/g, "").toUpperCase() || null,
         orga_siret: cleanStr(siret) || null,
         orga_tva_intra: cleanStr(tvaIntra) || null,
         orga_adresse_facturation: cleanStr(adresseFact) || null,
@@ -308,10 +279,26 @@ export default function MonProfilOrganisateur() {
           </div>
         )}
 
-        {/* Bandeau */}
-        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
-          <b>💳 Compte Stripe requis :</b> Pour encaisser les inscriptions et recevoir vos reversements,
-          vous devez configurer Stripe Express. Sans cela, les paiements seront bloqués.
+        {/* ✅ Bandeau Stripe + Politique reversement */}
+        <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900 space-y-2">
+          <div>
+            <b>💳 Compte Stripe requis :</b> pour encaisser les inscriptions et recevoir vos reversements, vous devez
+            configurer <b>Stripe Express</b>. Sans Stripe, les paiements sont bloqués.
+          </div>
+          <div>
+            <b>📤 Politique de reversement Tickrace :</b> votre net organisateur est versé en <b>2 temps</b> :
+            <ul className="list-disc ml-6 mt-1">
+              <li>
+                <b>Acompte :</b> 50% du net, <b>à partir de J+7 après chaque paiement</b>
+              </li>
+              <li>
+                <b>Solde :</b> le reste, <b>à partir de J+2 après le jour de la course</b>
+              </li>
+            </ul>
+            <div className="mt-1 text-[12px] text-blue-900/80">
+              Délais indicatifs : peuvent varier selon Stripe, contrôles, banques et jours ouvrés.
+            </div>
+          </div>
         </div>
 
         {/* ✅ Bloc Comptabilité */}
@@ -439,15 +426,15 @@ export default function MonProfilOrganisateur() {
           </div>
         </section>
 
-        {/* ✅ Facturation & reversements */}
+        {/* ✅ Facturation (sans IBAN/BIC) + rappel Stripe */}
         <section className="rounded-2xl bg-white shadow ring-1 ring-neutral-200 p-5">
           <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
             <FileText className="h-5 w-5 text-neutral-700" />
-            Facturation & reversements
+            Facturation (pour vos exports)
           </h2>
 
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="Titulaire du compte" hint="Optionnel — affichage dans les exports compta.">
+            <Field label="Titulaire / Nom légal" hint="Optionnel — affichage dans les exports compta.">
               <Input
                 value={titulaireCompte}
                 onChange={(e) => setTitulaireCompte(e.target.value)}
@@ -461,16 +448,6 @@ export default function MonProfilOrganisateur() {
                 onChange={(e) => setEmailFacturation(e.target.value)}
                 placeholder="compta@organisation.fr"
               />
-            </Field>
-
-            <Field label="IBAN" hint="Optionnel — stocké pour tes exports.">
-              <Input value={iban} onChange={(e) => setIban(e.target.value)} placeholder="FR76 XXXX ...." />
-              {!looksLikeIban(iban) ? <div className="mt-2 text-xs text-red-600">IBAN invalide (format).</div> : null}
-            </Field>
-
-            <Field label="BIC" hint="Optionnel — 8 ou 11 caractères.">
-              <Input value={bic} onChange={(e) => setBic(e.target.value)} placeholder="AGRIFRPPXXX" />
-              {!looksLikeBic(bic) ? <div className="mt-2 text-xs text-red-600">BIC invalide (format).</div> : null}
             </Field>
 
             <Field label="SIRET" hint="Optionnel — pour des factures/relevés plus propres.">
@@ -504,9 +481,16 @@ export default function MonProfilOrganisateur() {
             </Field>
           </div>
 
-          <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-700">
-            💡 <b>Note :</b> ces informations facilitent la génération de relevés et l’export comptable.
-            Les reversements réels restent gérés par Stripe Express.
+          <div className="mt-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4 text-sm text-neutral-700 space-y-1">
+            <div>
+              💡 <b>IBAN/BIC supprimés :</b> les reversements ne passent pas par un virement manuel Tickrace.
+            </div>
+            <div>
+              ✅ <b>Vos reversements sont gérés par Stripe Express</b> (KYC + compte bancaire côté Stripe).
+            </div>
+            <div className="text-[12px] text-neutral-600">
+              Pensez à finaliser Stripe pour activer <b>encaissements</b> et <b>payouts</b>.
+            </div>
           </div>
         </section>
 

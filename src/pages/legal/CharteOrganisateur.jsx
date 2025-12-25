@@ -39,9 +39,8 @@ const Pill = ({ children }) => (
 
 export default function CharteOrganisateur() {
   const lastUpdate = useMemo(() => {
-    // tu peux remplacer par une date fixe si tu veux figer la charte
-    const d = new Date();
-    return d.toLocaleDateString("fr-FR", { year: "numeric", month: "2-digit", day: "2-digit" });
+    // Date fixe recommandée pour une charte (à modifier si besoin)
+    return "25/12/2025";
   }, []);
 
   return (
@@ -114,8 +113,8 @@ export default function CharteOrganisateur() {
             <ul className="list-disc pl-5 space-y-2">
               <li>Interdiction d’usurper l’identité d’un autre organisateur ou d’une course existante.</li>
               <li>
-                Tickrace peut demander des justificatifs supplémentaires et <strong>geler les fonds</strong> en cas de
-                suspicion (ex. incohérences, signalements, activité anormale).
+                Tickrace peut demander des justificatifs supplémentaires et <strong>geler temporairement des fonds</strong>{" "}
+                en cas de suspicion (ex. incohérences, signalements, activité anormale), le temps des vérifications.
               </li>
               <li>
                 En cas de fraude avérée, Tickrace peut annuler des ventes, rembourser les participants, résilier l’accès,
@@ -124,10 +123,19 @@ export default function CharteOrganisateur() {
             </ul>
           </Card>
 
-          <Card icon={CreditCard} title="4. Paiements">
+          <Card icon={CreditCard} title="4. Paiements & reversements (Stripe)">
             <ul className="list-disc pl-5 space-y-2">
-              <li>Activer et maintenir un compte Stripe Express valide (KYC, coordonnées, justificatifs).</li>
-              <li>Respecter les procédures de remboursement et les délais de réponse (≤ 72h) lorsqu’une action est requise.</li>
+              <li>
+                Activer et maintenir un compte Stripe Express valide (vérifications d’identité, coordonnées, justificatifs).
+              </li>
+              <li>
+                Les reversements sont automatisés selon les règles de la plateforme : acompte puis solde (voir CGV
+                Organisateurs).
+              </li>
+              <li>
+                En cas d’action requise (litige, justificatifs, vérification), l’organisateur s’engage à répondre dans des
+                délais raisonnables pour éviter des blocages.
+              </li>
             </ul>
           </Card>
 
@@ -143,8 +151,8 @@ export default function CharteOrganisateur() {
 
           <Card icon={Gavel} title="6. Sanctions">
             <p>
-              Tout manquement grave à cette charte peut entraîner : gel des fonds, suppression d’événement, résiliation
-              d’accès, et actions légales.
+              Tout manquement grave à cette charte peut entraîner : gel temporaire des fonds, suppression d’événement,
+              résiliation d’accès, et actions légales.
             </p>
           </Card>
 
