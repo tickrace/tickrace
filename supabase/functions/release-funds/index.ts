@@ -278,7 +278,7 @@ async function writeManualReversementAndLedger(params: {
     gross_cents: 0,
     tickrace_fee_cents: 0,
     stripe_fee_cents: 0,
-    net_org_cents: params.amount_cents,
+    net_org_cents: -params.amount_cents,
     currency: "eur",
     status: "confirmed",
     label: "Reversement manuel (admin)",

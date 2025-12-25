@@ -451,7 +451,7 @@ serve(async (req) => {
           gross_cents: 0,
           tickrace_fee_cents: 0,
           stripe_fee_cents: 0,
-          net_org_cents: amount,
+          net_org_cents: -amount,
           currency: "eur",
           status: "confirmed",
           label: `Reversement tranche ${r.tranche}`,
