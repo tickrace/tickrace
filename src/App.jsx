@@ -48,7 +48,8 @@ import ClassementArrivees from "./pages/ClassementArrivees";
 import Compta from "./pages/organisateur/Compta";
 
 // ✅ NOUVEAU : Partenaires / Sponsors (page organisateur)
-import OrganisateurPartenaires from "./pages/OrganisateurPartenaires";
+import CoursePartenaires from "./pages/CoursePartenaires";
+
 
 // Bénévoles
 import BenevoleInscription from "./pages/BenevoleInscription";
@@ -309,13 +310,13 @@ function AppContent() {
 
           {/* ✅ NOUVEAU : Partenaires / Sponsors */}
           <Route
-            path="/organisateur/partenaires/:courseId"
-            element={
-              <ProtectedRoute>
-                <OrganisateurPartenaires />
-              </ProtectedRoute>
-            }
-          />
+  path="/organisateur/partenaires/:courseId"
+  element={
+    <ProtectedRoute>
+      <CoursePartenaires />
+    </ProtectedRoute>
+  }
+/>
 
           {/* Bénévoles (organisateur) */}
           <Route
