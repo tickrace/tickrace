@@ -1,12 +1,10 @@
 // src/pages/MonEspaceOrganisateur.jsx
 import React, { useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
-import { ClipboardList } from "lucide-react";
 
 import {
-  Copy,
   Check,
   Pencil,
   Eye,
@@ -17,12 +15,38 @@ import {
   Lock,
   Link2,
   Timer,
+  ClipboardList,
+  Handshake,
+  MoreHorizontal,
 } from "lucide-react";
-
 
 function eur(cents) {
   if (!Number.isFinite(cents)) cents = 0;
   return (cents / 100).toLocaleString("fr-FR", { style: "currency", currency: "EUR" });
+}
+
+/* --- UI helpers --- */
+function Btn({ as = "button", className = "", variant = "outline", children, ...props }) {
+  const base =
+    "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold transition focus:outline-none focus:ring-2 focus:ring-orange-300";
+  const variants = {
+    primary: "bg-orange-500 text-white hover:brightness-110",
+    dark: "bg-neutral-900 text-white hover:brightness-110",
+    success: "bg-emerald-600 text-white hover:bg-emerald-700",
+    danger: "bg-rose-600 text-white hover:bg-rose-700",
+    outline: "border border-neutral-200 bg-white text-neutral-900 hover:bg-neutral-50",
+    outlineOrange: "border border-orange-200 bg-white text-orange-700 hover:bg-orange-50",
+    outlineIndigo: "border border-indigo-200 bg-white text-indigo-700 hover:bg-indigo-50",
+    outlineGreen: "border border-emerald-200 bg-white text-emerald-700 hover:bg-emerald-50",
+    subtle: "bg-neutral-100 text-neutral-800 hover:bg-neutral-200",
+  };
+
+  const Comp = as;
+  return (
+    <Comp className={[base, variants[variant] || variants.outline, className].join(" ")} {...props}>
+      {children}
+    </Comp>
+  );
 }
 
 export default function MonEspaceOrganisateur() {
@@ -32,7 +56,6 @@ export default function MonEspaceOrganisateur() {
   const [inscriptionsParFormat, setInscriptionsParFormat] = useState({});
   const [optionsParFormat, setOptionsParFormat] = useState({}); // { format_id: [{option_id,label,qty,total_cents}] }
   const [loading, setLoading] = useState(false);
-  const navigate = useNavigate();
 
   useEffect(() => {
     if (session) fetchCoursesAndFormats();
@@ -155,7 +178,6 @@ export default function MonEspaceOrganisateur() {
         qty: v.qty,
         total_cents: v.total_cents,
       }));
-      // Trier par total desc, ne pas noyer l’UI
       rows.sort((a, b) => b.total_cents - a.total_cents);
       finalPerFormat[formatId] = rows;
     });
@@ -165,9 +187,7 @@ export default function MonEspaceOrganisateur() {
   };
 
   const handleDelete = async (id) => {
-    const confirm = window.confirm(
-      "Supprimer définitivement cette épreuve ? Cette action est irréversible."
-    );
+    const confirm = window.confirm("Supprimer définitivement cette épreuve ? Cette action est irréversible.");
     if (!confirm) return;
 
     const { error } = await supabase.from("courses").delete().eq("id", id);
@@ -185,30 +205,18 @@ export default function MonEspaceOrganisateur() {
 
   const togglePublication = async (course) => {
     const newState = !course.en_ligne;
-    const { error } = await supabase
-      .from("courses")
-      .update({ en_ligne: newState })
-      .eq("id", course.id);
+    const { error } = await supabase.from("courses").update({ en_ligne: newState }).eq("id", course.id);
 
     if (error) {
       console.error(error);
       return alert("Impossible de changer l’état de publication.");
     }
 
-    setCourses((prev) =>
-      prev.map((c) => (c.id === course.id ? { ...c, en_ligne: newState } : c))
-    );
+    setCourses((prev) => prev.map((c) => (c.id === course.id ? { ...c, en_ligne: newState } : c)));
   };
 
   const handleDuplicate = async (course) => {
-    const {
-      id,
-      created_at,
-      updated_at,
-      formats,
-      slug,
-      ...fieldsToCopy
-    } = course;
+    const { id, created_at, updated_at, formats, slug, ...fieldsToCopy } = course;
 
     const payload = {
       ...fieldsToCopy,
@@ -217,21 +225,14 @@ export default function MonEspaceOrganisateur() {
       organisateur_id: session?.user?.id || fieldsToCopy.organisateur_id,
     };
 
-    const { data: duplicatedCourse, error: courseError } = await supabase
-      .from("courses")
-      .insert(payload)
-      .select()
-      .single();
+    const { data: duplicatedCourse, error: courseError } = await supabase.from("courses").insert(payload).select().single();
 
     if (courseError) {
       console.error(courseError);
       return alert("Erreur duplication épreuve");
     }
 
-    const { data: srcFormats, error: formatsError } = await supabase
-      .from("formats")
-      .select("*")
-      .eq("course_id", id);
+    const { data: srcFormats, error: formatsError } = await supabase.from("formats").select("*").eq("course_id", id);
 
     if (formatsError) {
       console.error(formatsError);
@@ -239,22 +240,16 @@ export default function MonEspaceOrganisateur() {
     }
 
     if (srcFormats && srcFormats.length > 0) {
-      const cleanedFormats = srcFormats.map(
-        ({ id, created_at, updated_at, course_id, ...f }) => ({
-          ...f,
-          course_id: duplicatedCourse.id,
-        })
-      );
+      const cleanedFormats = srcFormats.map(({ id, created_at, updated_at, course_id, ...f }) => ({
+        ...f,
+        course_id: duplicatedCourse.id,
+      }));
 
-      const { error: insertFormatsError } = await supabase
-        .from("formats")
-        .insert(cleanedFormats);
+      const { error: insertFormatsError } = await supabase.from("formats").insert(cleanedFormats);
 
       if (insertFormatsError) {
         console.error("Erreur insertion formats :", insertFormatsError);
-        alert(
-          "Épreuve copiée, mais les formats n'ont pas pu être dupliqués (voir console)."
-        );
+        alert("Épreuve copiée, mais les formats n'ont pas pu être dupliqués (voir console).");
       }
     }
 
@@ -272,9 +267,7 @@ export default function MonEspaceOrganisateur() {
               <span className="text-orange-600">Tick</span>Race
             </span>
           </h1>
-          <p className="mt-2 text-neutral-600 text-base">
-            Créez, gérez et publiez vos épreuves en quelques minutes.
-          </p>
+          <p className="mt-2 text-neutral-600 text-base">Créez, gérez et publiez vos épreuves en quelques minutes.</p>
 
           <div className="mt-5 flex justify-center gap-3">
             <Link
@@ -297,9 +290,7 @@ export default function MonEspaceOrganisateur() {
       <div className="mx-auto max-w-7xl px-4 py-8">
         <div className="mb-4 flex items-center justify-between">
           <div className="text-sm text-neutral-600">
-            {loading
-              ? "Chargement…"
-              : `${courses.length} épreuve${courses.length > 1 ? "s" : ""} au total`}
+            {loading ? "Chargement…" : `${courses.length} épreuve${courses.length > 1 ? "s" : ""} au total`}
           </div>
         </div>
 
@@ -315,37 +306,127 @@ export default function MonEspaceOrganisateur() {
                 {/* Header card */}
                 <div className="p-4 sm:p-5 border-b border-neutral-200 flex items-start justify-between gap-4">
                   <div className="min-w-0">
-                    <h2 className="text-lg sm:text-xl font-bold truncate">
-                      {course.nom}
-                    </h2>
+                    <h2 className="text-lg sm:text-xl font-bold truncate">{course.nom}</h2>
                     <div className="mt-1 text-sm text-neutral-600">
                       {course.lieu} ({course.departement})
                     </div>
                   </div>
 
-                  {/* Badge état publication */}
-                  <span
-                    className={[
-                      "shrink-0 text-xs px-2.5 py-1 rounded-full ring-1",
-                      course.en_ligne
-                        ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
-                        : "bg-neutral-50 text-neutral-700 ring-neutral-200",
-                    ].join(" ")}
-                    title={course.en_ligne ? "Publiée" : "Hors-ligne"}
-                  >
-                    {course.en_ligne ? "🟢 Publiée" : "🔒 Hors-ligne"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    {/* Badge état publication */}
+                    <span
+                      className={[
+                        "shrink-0 text-xs px-2.5 py-1 rounded-full ring-1",
+                        course.en_ligne ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-neutral-50 text-neutral-700 ring-neutral-200",
+                      ].join(" ")}
+                      title={course.en_ligne ? "Publiée" : "Hors-ligne"}
+                    >
+                      {course.en_ligne ? "🟢 Publiée" : "🔒 Hors-ligne"}
+                    </span>
+
+                    {/* Toggle publication (action clé) */}
+                    <Btn
+                      onClick={() => togglePublication(course)}
+                      variant={course.en_ligne ? "dark" : "primary"}
+                      title={course.en_ligne ? "Mettre hors-ligne" : "Publier"}
+                      className="whitespace-nowrap"
+                    >
+                      {course.en_ligne ? <Lock size={16} /> : <Globe size={16} />}
+                      {course.en_ligne ? "Hors-ligne" : "Publier"}
+                    </Btn>
+                  </div>
                 </div>
 
                 {/* Body card */}
                 <div className="p-4 sm:p-5">
-                  {course.presentation && (
-                    <p className="text-neutral-700 mb-4">{course.presentation}</p>
-                  )}
+                  {course.presentation && <p className="text-neutral-700 mb-4">{course.presentation}</p>}
+
+                  {/* Actions (plus lisibles) */}
+                  <div className="mb-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      {/* Primaires */}
+                      <Btn as={Link} to={`/modifier-course/${course.id}`} variant="primary">
+                        <Pencil size={16} />
+                        Modifier
+                      </Btn>
+
+                      <Btn as={Link} to={`/courses/${course.id}`} variant="dark">
+                        <Eye size={16} />
+                        Voir la page
+                      </Btn>
+
+                      {/* Secondaires (outline) */}
+                      <Btn as={Link} to={`/organisateur/classement/${course.id}`} variant="outlineGreen" title="Classement live">
+                        <Timer size={16} />
+                        Live
+                      </Btn>
+
+                      <Btn as={Link} to={`/organisateur/reglement/${course.id}`} variant="outlineOrange" title="Règlement (assistant)">
+                        <FileText size={16} />
+                        Règlement
+                      </Btn>
+
+                      {/* ✅ NOUVEAU : Partenaires / Sponsors */}
+                      <Btn as={Link} to={`/organisateur/partenaires/${course.id}`} variant="outlineIndigo" title="Partenaires & sponsors">
+                        <Handshake size={16} />
+                        Partenaires
+                      </Btn>
+
+                      <Btn as={Link} to={`/organisateur/checklist/${course.id}`} variant="outline" title="Checklist organisateur">
+                        <ClipboardList size={16} />
+                        Checklist
+                      </Btn>
+
+                      {/* Menu "Plus" (désencombre) */}
+                      <details className="relative">
+                        <summary className="list-none">
+                          <Btn variant="subtle" className="cursor-pointer">
+                            <MoreHorizontal size={16} />
+                            Plus
+                          </Btn>
+                        </summary>
+
+                        <div className="absolute right-0 mt-2 z-20 w-56 rounded-2xl border bg-white shadow-lg p-2">
+                          <button
+                            type="button"
+                            onClick={() => handleCopy(course.id)}
+                            className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold hover:bg-neutral-50"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              {copiedId === course.id ? <Check size={16} /> : <Link2 size={16} />}
+                              {copiedId === course.id ? "Lien copié" : "Copier le lien"}
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDuplicate(course)}
+                            className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold hover:bg-neutral-50"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <FilePlus size={16} />
+                              Dupliquer
+                            </span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => handleDelete(course.id)}
+                            className="w-full flex items-center justify-between rounded-xl px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-50"
+                          >
+                            <span className="inline-flex items-center gap-2">
+                              <Trash2 size={16} />
+                              Supprimer
+                            </span>
+                          </button>
+                        </div>
+                      </details>
+                    </div>
+                  </div>
 
                   {/* Formats + indicateurs */}
                   {course.formats && course.formats.length > 0 && (
-                    <div className="space-y-2 mb-4">
+                    <div className="space-y-2">
                       {course.formats.map((f) => {
                         const inscrits = inscriptionsParFormat[f.id] || 0;
                         const max = f.nb_max_coureurs;
@@ -365,7 +446,7 @@ export default function MonEspaceOrganisateur() {
                               👥 Inscriptions : {inscrits} {max ? `/ ${max}` : ""}
                             </div>
 
-                            {/* Options payantes (confirmées/non annulées) */}
+                            {/* Options payantes */}
                             <div className="mt-2">
                               <div className="text-neutral-700 font-medium">🧾 Options payantes</div>
                               {opts.length === 0 ? (
@@ -383,9 +464,7 @@ export default function MonEspaceOrganisateur() {
                                     ))}
                                   </ul>
                                   {opts.length > 3 && (
-                                    <div className="text-xs text-neutral-600 mt-1">
-                                      + {opts.length - 3} autre(s) option(s)…
-                                    </div>
+                                    <div className="text-xs text-neutral-600 mt-1">+ {opts.length - 3} autre(s) option(s)…</div>
                                   )}
                                   <div className="mt-1 text-sm">
                                     Total options : <b>{eur(totalOptionsCents)}</b>
@@ -394,22 +473,22 @@ export default function MonEspaceOrganisateur() {
                               )}
                             </div>
 
-                            {/* Liens rapides */}
+                            {/* Liens rapides (niveau format) */}
                             <div className="mt-3 flex flex-wrap gap-2">
                               <Link
-                                to={`/organisateur/inscriptions/${course.id}?formatId=${encodeURIComponent(
-                                  f.id
-                                )}`}
+                                to={`/organisateur/inscriptions/${course.id}?formatId=${encodeURIComponent(f.id)}`}
                                 className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-1.5 text-white text-xs font-semibold hover:brightness-110"
                               >
                                 👥 Voir les inscrits
                               </Link>
+
                               <Link
                                 to={`/organisateur/benevoles`}
                                 className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-50"
                               >
                                 🤝 Voir les bénévoles
                               </Link>
+
                               <Link
                                 to={`/inscription/${course.id}`}
                                 className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-900 hover:bg-neutral-50"
@@ -423,94 +502,6 @@ export default function MonEspaceOrganisateur() {
                       })}
                     </div>
                   )}
-
-                  {/* Actions */}
-                  <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-                    {/* Groupe gauche */}
-                    <div className="flex flex-wrap items-center gap-2">
-                      <Link
-                        to={`/modifier-course/${course.id}`}
-                        className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
-                      >
-                        <Pencil size={16} />
-                        Modifier
-                      </Link>
-
-                      <Link
-                        to={`/courses/${course.id}`}
-                        className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
-                      >
-                        <Eye size={16} />
-                        Voir la page
-                      </Link>
-
-                      {/* NOUVEAU : bouton Classement live */}
-                      <Link
-                        to={`/organisateur/classement/${course.id}`}
-                        className="inline-flex items-center gap-2 rounded-xl bg-emerald-600 px-3 py-2 text-white text-sm font-semibold hover:bg-emerald-700"
-                      >
-                        <Timer size={16} />
-                        Classement live
-                      </Link>
-                      {/* NOUVEAU : bouton Règlement (assistant) */}
-<Link
-  to={`/organisateur/reglement/${course.id}`}
-  className="inline-flex items-center gap-2 rounded-xl bg-orange-600 px-3 py-2 text-white text-sm font-semibold hover:bg-orange-700"
->
-  <FileText size={16} />
-  Règlement
-</Link>
-<Link
-  to={`/organisateur/checklist/${course.id}`}
-  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-white text-sm font-semibold hover:bg-black"
->
-  <ClipboardList size={16} />
-  Checklist
-</Link>
-
-
-
-
-                      <button
-                        onClick={() => handleDuplicate(course)}
-                        className="inline-flex items-center gap-2 rounded-xl bg-amber-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
-                      >
-                        <FilePlus size={16} />
-                        Dupliquer
-                      </button>
-
-                      <button
-                        onClick={() => handleDelete(course.id)}
-                        className="inline-flex items-center gap-2 rounded-xl bg-rose-600 px-3 py-2 text-white text-sm font-semibold hover:bg-rose-700"
-                      >
-                        <Trash2 size={16} />
-                        Supprimer
-                      </button>
-
-                      <button
-                        onClick={() => handleCopy(course.id)}
-                        className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                      >
-                        {copiedId === course.id ? <Check size={16} /> : <Link2 size={16} />}
-                        {copiedId === course.id ? "Copié" : "Copier le lien"}
-                      </button>
-                    </div>
-
-                    {/* Groupe droite : bouton publication */}
-                    <button
-                      onClick={() => togglePublication(course)}
-                      className={[
-                        "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-white text-sm font-semibold",
-                        course.en_ligne
-                          ? "bg-neutral-800 hover:bg-black"
-                          : "bg-orange-500 hover:brightness-110",
-                      ].join(" ")}
-                      title={course.en_ligne ? "Mettre hors-ligne" : "Publier"}
-                    >
-                      {course.en_ligne ? <Lock size={16} /> : <Globe size={16} />}
-                      {course.en_ligne ? "Mettre hors-ligne" : "Publier"}
-                    </button>
-                  </div>
                 </div>
               </div>
             ))}
@@ -526,9 +517,7 @@ function EmptyStateCTA() {
   return (
     <div className="rounded-2xl border border-dashed border-neutral-300 bg-white p-10 text-center">
       <h3 className="text-lg font-semibold">Aucune épreuve créée</h3>
-      <p className="mt-1 text-neutral-600">
-        Créez votre première épreuve en quelques clics.
-      </p>
+      <p className="mt-1 text-neutral-600">Créez votre première épreuve en quelques clics.</p>
       <Link
         to="/organisateur/nouvelle-course"
         className="mt-4 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"

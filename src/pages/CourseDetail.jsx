@@ -3,6 +3,7 @@ import Chat from "../components/Chat";
 import React, { useEffect, useMemo, useState, Suspense, lazy } from "react";
 import { useParams, useSearchParams, Link } from "react-router-dom";
 import LiveResultsPublic from "../components/LiveResultsPublic";
+import CoursePartnersBanner from "../components/CoursePartnersBanner";
 
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
@@ -622,6 +623,9 @@ export default function CourseDetail() {
                 </div>
               </div>
             </section>
+
+            {/* ✅ Partenaires & Sponsors (bannière) */}
+            <CoursePartnersBanner courseId={course.id} />
           </div>
 
           {/* Sidebar sticky */}

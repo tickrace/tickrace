@@ -13,40 +13,61 @@ import Footer from "./components/Footer";
 import ErrorBoundary from "./components/ErrorBoundary";
 import { Toaster } from "react-hot-toast";
 
+/* ----------------------------- Pages ----------------------------- */
+// Public
 import Home from "./pages/Home";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
 import ListeFormats from "./pages/ListeFormats";
-import InscriptionCourse from "./pages/InscriptionCourse";
-import ProfilCoureur from "./pages/ProfilCoureur";
-import DetailsCoureur from "./pages/DetailsCoureur";
+import Fonctionnalites from "./pages/Fonctionnalites";
+import CreerUneCourse from "./pages/help/CreerUneCourse";
+
+// Auth
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import ResetPassword from "./pages/ResetPassword";
 import ForgotPassword from "./pages/ForgotPassword";
+
+// Parcours utilisateur
+import InscriptionCourse from "./pages/InscriptionCourse";
 import MonInscription from "./pages/MonInscription";
+import MonInscriptionEquipe from "./pages/MonInscriptionEquipe";
 import MesInscriptions from "./pages/MesInscriptions";
-import MonProfilCoureur from "./pages/MonProfilCoureur";
+import ProfilCoureur from "./pages/ProfilCoureur";
+import DetailsCoureur from "./pages/DetailsCoureur";
+import MemberDetails from "./pages/MemberDetails";
+
+// Organisateur
 import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
-import ListeInscriptions from "./pages/ListeInscriptions";
 import UpsertCourse from "./pages/UpsertCourse";
-import Fonctionnalites from "./pages/Fonctionnalites";
+import ListeInscriptions from "./pages/ListeInscriptions";
+import ReglementAssistant from "./pages/ReglementAssistant";
+import ChecklistAssistant from "./pages/ChecklistAssistant";
+import ClassementArrivees from "./pages/ClassementArrivees";
+import Compta from "./pages/organisateur/Compta";
+
+// ✅ NOUVEAU : Partenaires / Sponsors (page organisateur)
+import OrganisateurPartenaires from "./pages/OrganisateurPartenaires";
+
+// Bénévoles
 import BenevoleInscription from "./pages/BenevoleInscription";
 import ListeBenevoles from "./pages/ListeBenevoles";
+
+// Paiements
 import Merci from "./pages/Merci";
 import PaiementAnnule from "./pages/PaiementAnnule";
 
+// Légal
 import CGVOrganisateurs from "./pages/legal/CGVOrganisateurs";
 import CGVCoureurs from "./pages/legal/CGVCoureurs";
 import Remboursements from "./pages/legal/Remboursements";
 import CharteOrganisateur from "./pages/legal/CharteOrganisateur";
 import MentionsLegales from "./pages/legal/MentionsLegales";
 import Confidentialite from "./pages/legal/Confidentialite";
-import CreerUneCourse from "./pages/help/CreerUneCourse";
-
 import FAQ from "./pages/legal/FAQ";
 
+// Admin
 import AdminLayout from "./pages/admin/AdminLayout";
 import AdminDashboard from "./pages/admin/AdminDashboard";
 import AdminCourses from "./pages/admin/AdminCourses";
@@ -57,14 +78,8 @@ import AdminCategories from "./pages/admin/AdminCategories";
 import AdminContact from "./pages/admin/AdminContact";
 import AdminALaUne from "./pages/admin/AdminALaUne";
 
-import MemberDetails from "./pages/MemberDetails";
-import MonInscriptionEquipe from "./pages/MonInscriptionEquipe";
-// En haut du fichier, avec les autres imports de pages
-import ClassementArrivees from "./pages/ClassementArrivees";
-// imports (dans App.jsx)
-import ReglementAssistant from "./pages/ReglementAssistant";
-import ChecklistAssistant from "./pages/ChecklistAssistant";
-import Compta from "./pages/organisateur/Compta";
+// Profils
+import MonProfilCoureur from "./pages/MonProfilCoureur";
 
 function AppContent() {
   const { currentRole } = useUser();
@@ -92,55 +107,52 @@ function AppContent() {
       <Navbar key={`${currentRole}-${mode}`} mode={mode} setMode={setMode} showAdmin={showAdmin} />
       <main className="flex-1">
         <Routes>
-          {/* Public */}
-          <Route path="/contact" element={<Contact />} />
-
+          {/* ============================= PUBLIC ============================= */}
           <Route path="/" element={<Home />} />
-          <Route path="/fonctionnalites" element={<Fonctionnalites />} />
-          <Route path="/help/creer-une-course" element={<CreerUneCourse />} />
-<Route path="/help" element={<Navigate to="/help/creer-une-course" replace />} />
-
-          <Route path="/admin" element={<AdminHome />} />
-
           <Route path="/courses" element={<Courses />} />
           <Route path="/courses/:id" element={<CourseDetail />} />
           <Route path="/formats" element={<ListeFormats />} />
+          <Route path="/fonctionnalites" element={<Fonctionnalites />} />
+          <Route path="/contact" element={<Contact />} />
 
+          {/* Help */}
+          <Route path="/help/creer-une-course" element={<CreerUneCourse />} />
+          <Route path="/help" element={<Navigate to="/help/creer-une-course" replace />} />
+
+          {/* Pages paiement */}
+          <Route path="/merci" element={<Merci />} />
+          <Route path="/paiement-annule" element={<PaiementAnnule />} />
+
+          {/* Bénévoles (public) */}
+          <Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
+
+          {/* ============================== AUTH ============================== */}
           <Route path="/login" element={<Login />} />
           <Route path="/signup" element={<Signup />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
 
-          <Route path="/merci" element={<Merci />} />
-          <Route path="/paiement-annule" element={<PaiementAnnule />} />
-
-          <Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
-          <Route path="/organisateur/benevoles" element={<ListeBenevoles />} />
-
-
-          {/* Légal */}
+          {/* =============================== LEGAL ============================ */}
           <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
           <Route path="/legal/cgv-coureurs" element={<CGVCoureurs />} />
           <Route path="/legal/remboursements" element={<Remboursements />} />
           <Route path="/legal/charte-organisateur" element={<CharteOrganisateur />} />
-<Route path="/legal/mentions-legales" element={<MentionsLegales />} />
-<Route path="/legal/confidentialite" element={<Confidentialite />} />
-<Route path="/legal/faq" element={<FAQ />} />
+          <Route path="/legal/mentions-legales" element={<MentionsLegales />} />
+          <Route path="/legal/confidentialite" element={<Confidentialite />} />
+          <Route path="/legal/faq" element={<FAQ />} />
 
-          
-
-          {/* Protégées */}
+          {/* ============================ PROTEGEES =========================== */}
+          {/* Détails membre équipe */}
           <Route
-  path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx"
-  element={
-    <ProtectedRoute>
-      
-      <MemberDetails />
-    </ProtectedRoute>
-  }
-/>
+            path="/member-details/:courseId/:formatId/:teamIdx/:memberIdx"
+            element={
+              <ProtectedRoute>
+                <MemberDetails />
+              </ProtectedRoute>
+            }
+          />
 
-
+          {/* Tunnel inscription */}
           <Route
             path="/inscription/:courseId"
             element={
@@ -151,34 +163,8 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-          {/* Assistant règlement */}
-<Route
-  path="/organisateur/reglement/:courseId"
-  element={
-    <ProtectedRoute>
-      <ReglementAssistant />
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/organisateur/checklist/:courseId"
-  element={
-    <ProtectedRoute>
-      <ChecklistAssistant />
-    </ProtectedRoute>
-  }
-/>
-<Route
-  path="/organisateur/compta"
-  element={
-    <ProtectedRoute>
-      <Compta />
-    </ProtectedRoute>
-  }
-/>
 
-
-
+          {/* Mon inscription */}
           <Route
             path="/mon-inscription/:id"
             element={
@@ -187,15 +173,16 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
-        <Route
-  path="/mon-inscription-equipe/:groupeId"
-  element={
-    <ProtectedRoute>
-      <MonInscriptionEquipe />
-    </ProtectedRoute>
-  }
-/>
+          <Route
+            path="/mon-inscription-equipe/:groupeId"
+            element={
+              <ProtectedRoute>
+                <MonInscriptionEquipe />
+              </ProtectedRoute>
+            }
+          />
 
+          {/* Mes inscriptions */}
           <Route
             path="/mesinscriptions"
             element={
@@ -204,6 +191,8 @@ function AppContent() {
               </ProtectedRoute>
             }
           />
+
+          {/* Profils */}
           <Route
             path="/monprofilcoureur"
             element={
@@ -221,60 +210,6 @@ function AppContent() {
             }
           />
           <Route
-            path="/organisateur/mon-espace"
-            element={
-              <ProtectedRoute>
-                <MonEspaceOrganisateur />
-              </ProtectedRoute>
-            }
-          />
-          {/* Alias anti-404 */}
-          <Route
-            path="/mon-espace-organisateur"
-            element={
-              <ProtectedRoute>
-                <MonEspaceOrganisateur />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/organisateur/inscriptions/:format_id"
-            element={
-              <ProtectedRoute>
-                <ListeInscriptions />
-              </ProtectedRoute>
-            }
-          />
-
-          {/* Création/édition protégées */}
-          <Route
-            path="/organisateur/creer-course"
-            element={
-              <ProtectedRoute>
-                <UpsertCourse />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/modifier-course/:id"
-            element={
-              <ProtectedRoute>
-                <UpsertCourse />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-  path="/organisateur/classement/:courseId"
-  element={
-    <ProtectedRoute>
-      <ClassementArrivees />
-    </ProtectedRoute>
-  }
-/>
-          {/* Redirection propre depuis ancienne URL */}
-          <Route path="/organisateur/nouvelle-course" element={<Navigate to="/organisateur/creer-course" replace />} />
-
-          <Route
             path="/details-coureur/:id"
             element={
               <ProtectedRoute>
@@ -291,7 +226,109 @@ function AppContent() {
             }
           />
 
-          {/* Admin */}
+          {/* ============================ ORGANISATEUR ======================== */}
+          <Route
+            path="/organisateur/mon-espace"
+            element={
+              <ProtectedRoute>
+                <MonEspaceOrganisateur />
+              </ProtectedRoute>
+            }
+          />
+          {/* Alias anti-404 */}
+          <Route
+            path="/mon-espace-organisateur"
+            element={
+              <ProtectedRoute>
+                <MonEspaceOrganisateur />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/organisateur/inscriptions/:format_id"
+            element={
+              <ProtectedRoute>
+                <ListeInscriptions />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Création/édition */}
+          <Route
+            path="/organisateur/creer-course"
+            element={
+              <ProtectedRoute>
+                <UpsertCourse />
+              </ProtectedRoute>
+            }
+          />
+          <Route path="/organisateur/nouvelle-course" element={<Navigate to="/organisateur/creer-course" replace />} />
+          <Route
+            path="/modifier-course/:id"
+            element={
+              <ProtectedRoute>
+                <UpsertCourse />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Outils organisateur */}
+          <Route
+            path="/organisateur/classement/:courseId"
+            element={
+              <ProtectedRoute>
+                <ClassementArrivees />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organisateur/reglement/:courseId"
+            element={
+              <ProtectedRoute>
+                <ReglementAssistant />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organisateur/checklist/:courseId"
+            element={
+              <ProtectedRoute>
+                <ChecklistAssistant />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/organisateur/compta"
+            element={
+              <ProtectedRoute>
+                <Compta />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ✅ NOUVEAU : Partenaires / Sponsors */}
+          <Route
+            path="/organisateur/partenaires/:courseId"
+            element={
+              <ProtectedRoute>
+                <OrganisateurPartenaires />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* Bénévoles (organisateur) */}
+          <Route
+            path="/organisateur/benevoles"
+            element={
+              <ProtectedRoute>
+                <ListeBenevoles />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* ================================ ADMIN =========================== */}
+          <Route path="/admin" element={<AdminHome />} />
           <Route
             path="/admin/dashboard"
             element={
@@ -303,16 +340,15 @@ function AppContent() {
             }
           />
           <Route
-  path="/admin/contact"
-  element={
-    <AdminRoute>
-      <AdminLayout>
-        <AdminContact />
-      </AdminLayout>
-    </AdminRoute>
-  }
-/>
-
+            path="/admin/contact"
+            element={
+              <AdminRoute>
+                <AdminLayout>
+                  <AdminContact />
+                </AdminLayout>
+              </AdminRoute>
+            }
+          />
           <Route
             path="/admin/courses"
             element={
@@ -343,7 +379,7 @@ function AppContent() {
               </AdminRoute>
             }
           />
-                    <Route
+          <Route
             path="/admin/categories"
             element={
               <AdminRoute>
@@ -353,19 +389,18 @@ function AppContent() {
               </AdminRoute>
             }
           />
-<Route
-  path="/admin/a-la-une"
-  element={
-    <AdminRoute>
-      <AdminLayout>
-        <AdminALaUne />
-      </AdminLayout>
-    </AdminRoute>
-  }
-/>
- 
+          <Route
+            path="/admin/a-la-une"
+            element={
+              <AdminRoute>
+                <AdminLayout>
+                  <AdminALaUne />
+                </AdminLayout>
+              </AdminRoute>
+            }
+          />
 
-          {/* Fallback */}
+          {/* ============================== FALLBACK ========================== */}
           <Route
             path="*"
             element={
