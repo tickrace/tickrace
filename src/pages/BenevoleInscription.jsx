@@ -80,40 +80,30 @@ export default function BenevoleInscription() {
         prenom: safe(form.prenom),
         email: normalizeEmail(form.email),
         telephone: safe(form.telephone),
-        status: "registered",
-        // user_id reste null ici (sera “claim” au 1er login via EspaceBenevole)
+        website: "", // honeypot
       };
 
       if (!payload.email) throw new Error("Email invalide.");
-      if (!payload.nom || !payload.prenom || !payload.telephone) throw new Error("Champs requis manquants.");
-
-      // 1) On tente un upsert (course_id + email unique)
-      // ⚠️ IMPORTANT: ton index unique s'appelle benevoles_course_email_unique (course_id, email)
-      const { data: up, error: upErr } = await supabase
-        .from("benevoles")
-        .upsert(payload, { onConflict: "course_id,email" })
-        .select("id, status, created_at")
-        .maybeSingle();
-
-      if (upErr) {
-        // Si RLS empêche l'insert (souvent le cas), tu peux repasser via Edge Function.
-        throw upErr;
+      if (!payload.nom || !payload.prenom || !payload.telephone) {
+        throw new Error("Champs requis manquants.");
       }
 
-      // Si l'utilisateur était déjà enregistré, on le signale gentiment
-      if (up) {
-        setInfo("Votre inscription est enregistrée. Si vous étiez déjà inscrit, vos infos ont été mises à jour.");
-      }
+      // ✅ IMPORTANT : inscription publique -> passe par Edge Function (Service Role)
+      const res = await fetch(`${import.meta.env.VITE_SUPABASE_URL}/functions/v1/volunteer-signup`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
 
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || !json?.ok) throw new Error(json?.error || "Erreur inconnue");
+
+      // On affiche un petit message d'info si besoin (non bloquant)
+      setInfo("Votre inscription est enregistrée. L’organisation pourra vous inviter vers l’espace bénévole.");
       setDone(true);
     } catch (err) {
       console.error(err);
-
-      // Fallback possible : si tu veux conserver l'Edge Function,
-      // tu peux réactiver ce fallback en cas de RLS:
-      // if (String(err?.message || "").includes("permission")) { ...invoke function... }
-
-      setError(err?.message || "Erreur réseau / permissions.");
+      setError(err?.message || "Erreur réseau.");
     } finally {
       setSending(false);
     }
@@ -188,10 +178,6 @@ export default function BenevoleInscription() {
             <div className="rounded-2xl bg-red-50 border border-red-200 p-3 text-red-700">
               <div className="flex items-center gap-2 font-semibold">
                 <AlertTriangle className="h-4 w-4" /> {error}
-              </div>
-              <div className="mt-1 text-sm text-red-700/90">
-                Si tu as activé des policies strictes, l’inscription publique peut nécessiter une Edge Function
-                (service role) pour écrire dans la table.
               </div>
             </div>
           ) : null}
