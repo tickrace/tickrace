@@ -9,6 +9,12 @@ import {
   Users2,
   Map,
   CreditCard,
+  Trophy,
+  FileText,
+  ListChecks,
+  Handshake,
+  Receipt,
+  BarChart3,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -122,6 +128,16 @@ function Coureurs() {
             "Mentions @IA pour obtenir des réponses instantanées",
           ]}
         />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
+          icon={Trophy}
+          title="Live & résultats"
+          bullets={[
+            "Page Live le jour J : suivi des classements et infos clés en direct",
+            "Résultats officiels consultables sur la page de l’épreuve",
+            "Partage facile (lien, QR code) pour la famille et les amis",
+          ]}
+        />
       </Card>
 
       <Card className="p-6">
@@ -132,6 +148,16 @@ function Coureurs() {
             "Affichage GPX responsive sur web et mobile",
             "Infos départ/arrivée, ravitaillements, dotations",
             "Gestion multi-formats pour une même épreuve",
+          ]}
+        />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
+          icon={FileText}
+          title="Règlement & documents"
+          bullets={[
+            "Règlement unique centralisé sur la page de l’épreuve",
+            "Infos pratiques & documents importants au même endroit",
+            "Moins de scroll, moins d’erreurs, plus clair avant le départ",
           ]}
         />
         <div className="my-5 h-px bg-gray-100" />
@@ -166,6 +192,26 @@ function Organisateurs() {
         />
         <div className="my-5 h-px bg-gray-100" />
         <Row
+          icon={FileText}
+          title="Règlement assisté & documents"
+          bullets={[
+            "Règlement unique : upload + mise à jour simple, sans pages multiples",
+            "Bloc “infos pratiques” clair pour limiter les questions répétitives",
+            "Centralisation des documents (consignes, parcours, barrières horaires, etc.)",
+          ]}
+        />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
+          icon={ListChecks}
+          title="Checklist administrative (zéro oubli)"
+          bullets={[
+            "Checklist pré-course : autorisations, sécurité, assurance, signalétique, bénévoles…",
+            "Suivi des points essentiels (avant / pendant / après course)",
+            "Moins de stress : tout est structuré et retrouvable au même endroit",
+          ]}
+        />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
           icon={CreditCard}
           title="Paiements & reversements"
           bullets={[
@@ -189,6 +235,26 @@ function Organisateurs() {
 
       <Card className="p-6">
         <Row
+          icon={Trophy}
+          title="Live & résultats (jour J)"
+          bullets={[
+            "Page Live publique pour suivre l’épreuve et les classements en temps réel",
+            "Saisie/import des infos course (arrivées, classements, validation)",
+            "Publication des résultats officiels sur la fiche épreuve",
+          ]}
+        />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
+          icon={Handshake}
+          title="Partenaires & sponsors"
+          bullets={[
+            "Ajout de partenaires (logos, lien, description, niveaux de sponsoring)",
+            "Bandeau partenaires sur la page course + section dédiée",
+            "Mise en valeur propre et cohérente avec le branding TickRace",
+          ]}
+        />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
           icon={Users2}
           title="Équipe & bénévoles"
           bullets={[
@@ -209,6 +275,26 @@ function Organisateurs() {
         />
         <div className="my-5 h-px bg-gray-100" />
         <Row
+          icon={BarChart3}
+          title="Compta & suivi financier"
+          bullets={[
+            "Dashboard clair : recettes, frais Stripe, commission TickRace, net organisateur",
+            "Exports compta (CSV) pour votre trésorier / votre comptable",
+            "Traçabilité propre des paiements et reversements (anti double-payout)",
+          ]}
+        />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
+          icon={Receipt}
+          title="Factures & justificatifs"
+          bullets={[
+            "Historique des paiements et des reversements consultable à tout moment",
+            "Justificatifs & documents liés aux transactions centralisés",
+            "Prêt pour une gestion “pro” sans bricolage (et sans fichiers perdus)",
+          ]}
+        />
+        <div className="my-5 h-px bg-gray-100" />
+        <Row
           icon={ShieldCheck}
           title="Moins de stress, plus d’autonomie"
           bullets={[
@@ -217,16 +303,6 @@ function Organisateurs() {
             "Paramètres d’inscription, tarifs et communications gérés en autonomie",
             "Moins de manipulations manuelles, donc moins de risques d’erreur",
             "Support humain pour vous aider lors de votre première édition sur TickRace",
-          ]}
-        />
-        <div className="my-5 h-px bg-gray-100" />
-        <Row
-          icon={Map}
-          title="Parcours & médias"
-          bullets={[
-            "Images par format et GPX par format pour une présentation claire",
-            "Documents règlementaires et infos pratiques centralisés",
-            "Pages publiques optimisées pour le partage et le référencement",
           ]}
         />
       </Card>
