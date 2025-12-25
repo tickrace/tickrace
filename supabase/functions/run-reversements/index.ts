@@ -109,6 +109,7 @@ async function markStatus(id: string, patch: any) {
 /* ---------------------------- Resend ----------------------------- */
 async function resendSendEmail(payload: { to: string; subject: string; text: string; html?: string }) {
   if (!RESEND_API_KEY) throw new Error("RESEND_API_KEY manquant");
+
   const resp = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
@@ -133,7 +134,8 @@ async function resendSendEmail(payload: { to: string; subject: string; text: str
 }
 
 /**
- * Anti-doublon email : lock dans organisateur_ledger via source_key unique.
+ * ✅ Email reversement — version PRO + anti-doublon via source_key unique (ledger)
+ * - Ne bloque jamais le reversement si Resend échoue
  */
 async function sendPayoutEmailOnce(params: {
   organisateur_id: string;
@@ -151,6 +153,7 @@ async function sendPayoutEmailOnce(params: {
 
   const lockKey = `reversements:${params.reversement_id}:payout_email`;
 
+  // 1) lock insert (unique)
   const { error: lockErr } = await supabase.from("organisateur_ledger").insert({
     organisateur_id: params.organisateur_id,
     course_id: params.course_id,
@@ -175,6 +178,7 @@ async function sendPayoutEmailOnce(params: {
     },
   });
 
+  // déjà envoyé / déjà tenté
   if (lockErr) {
     const code = (lockErr as any)?.code || "";
     if (code === "23505") return { skipped: true, reason: "already_sent" };
@@ -182,6 +186,7 @@ async function sendPayoutEmailOnce(params: {
     return { skipped: true, reason: "lock_insert_failed" };
   }
 
+  // 2) récupérer email + infos
   const [{ data: prof }, { data: course }] = await Promise.all([
     supabase
       .from("profils_utilisateurs")
@@ -195,6 +200,7 @@ async function sendPayoutEmailOnce(params: {
 
   const to = (prof as any)?.orga_email_facturation || (prof as any)?.email || null;
 
+  // pas de destinataire : on "void" le lock et on sort
   if (!to) {
     await supabase
       .from("organisateur_ledger")
@@ -223,40 +229,189 @@ async function sendPayoutEmailOnce(params: {
   const amountTxt = eurFromCents(params.amount_cents);
   const comptaUrl = `${TICKRACE_BASE_URL}/organisateur/compta`;
 
-  const subject = `TickRace — Reversement effectué : ${amountTxt}`;
+  const subject = `TickRace — Reversement effectué (${amountTxt})`;
+
+  // ✔ version texte “pro”
   const text = [
     `Bonjour ${orgName},`,
     "",
-    `Un reversement vient d’être effectué sur votre compte Stripe.`,
+    `Votre reversement TickRace a bien été effectué sur votre compte Stripe.`,
     "",
-    `• Course : ${courseName}`,
-    `• Tranche : ${params.tranche}`,
-    `• Montant : ${amountTxt}`,
-    `• Transfer Stripe : ${params.stripe_transfer_id}`,
+    `Détails :`,
+    `- Course : ${courseName}`,
+    `- Tranche : ${params.tranche}`,
+    `- Montant : ${amountTxt}`,
+    `- Transfer Stripe : ${params.stripe_transfer_id}`,
     "",
-    `Historique & solde à venir : ${comptaUrl}`,
+    `Consulter vos reversements : ${comptaUrl}`,
     "",
+    `Besoin d’aide ? support@tickrace.com`,
     `— TickRace`,
   ].join("\n");
 
-  const html = `
-    <div style="font-family: ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial; line-height:1.5">
-      <p>Bonjour <b>${orgName}</b>,</p>
-      <p>Un reversement vient d’être effectué sur votre compte Stripe.</p>
-      <ul>
-        <li><b>Course</b> : ${courseName}</li>
-        <li><b>Tranche</b> : ${params.tranche}</li>
-        <li><b>Montant</b> : ${amountTxt}</li>
-        <li><b>Transfer Stripe</b> : <code>${params.stripe_transfer_id}</code></li>
-      </ul>
-      <p>
-        <a href="${comptaUrl}" target="_blank" rel="noopener noreferrer">
-          Voir l’historique des reversements & le solde à venir
-        </a>
-      </p>
-      <p style="color:#666">— TickRace</p>
+  // ✔ HTML “pro” (header, carte, bouton, footer)
+  const preheader = `Reversement effectué : ${amountTxt} — ${courseName}`;
+  const brand = "TickRace";
+  const accent = "#f97316";
+  const bg = "#f5f5f5";
+  const card = "#ffffff";
+  const textColor = "#111827";
+  const muted = "#6b7280";
+  const border = "#e5e7eb";
+
+  const safe = (v: any) => String(v ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const html = `<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${brand} — Reversement</title>
+  </head>
+  <body style="margin:0;padding:0;background:${bg};">
+    <div style="display:none;max-height:0;overflow:hidden;opacity:0;color:transparent;">
+      ${safe(preheader)}
     </div>
-  `;
+
+    <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background:${bg};padding:24px 0;">
+      <tr>
+        <td align="center" style="padding:0 12px;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="640" style="max-width:640px;width:100%;">
+
+            <!-- Header -->
+            <tr>
+              <td style="padding:0 0 14px 0;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td align="left" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:${textColor};">
+                      <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;">
+                        <span style="color:${accent};">●</span> ${brand}
+                      </div>
+                      <div style="font-size:12px;color:${muted};margin-top:4px;">
+                        Reversement organisateur
+                      </div>
+                    </td>
+                    <td align="right" style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:${muted};font-size:12px;">
+                      ${new Date().toLocaleDateString("fr-FR")}
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Card -->
+            <tr>
+              <td style="background:${card};border:1px solid ${border};border-radius:16px;overflow:hidden;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
+                  <tr>
+                    <td style="padding:18px 18px 8px 18px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:${textColor};">
+                      <div style="font-size:18px;font-weight:800;letter-spacing:-0.02em;">
+                        Reversement effectué ✅
+                      </div>
+                      <div style="margin-top:6px;font-size:14px;color:${muted};">
+                        Bonjour <b>${safe(orgName)}</b>, votre reversement a bien été envoyé vers votre compte Stripe.
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- Amount -->
+                  <tr>
+                    <td style="padding:0 18px 14px 18px;">
+                      <div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:14px;padding:14px;">
+                        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:${muted};font-size:12px;">
+                          Montant versé
+                        </div>
+                        <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:${textColor};font-size:26px;font-weight:900;letter-spacing:-0.02em;margin-top:4px;">
+                          ${safe(amountTxt)}
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- Details -->
+                  <tr>
+                    <td style="padding:0 18px 18px 18px;">
+                      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="border-collapse:separate;border-spacing:0 10px;">
+                        <tr>
+                          <td style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:13px;color:${muted};width:140px;">
+                            Course
+                          </td>
+                          <td style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:13px;color:${textColor};font-weight:600;">
+                            ${safe(courseName)}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:13px;color:${muted};">
+                            Tranche
+                          </td>
+                          <td style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:13px;color:${textColor};font-weight:600;">
+                            ${safe(String(params.tranche))}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:13px;color:${muted};">
+                            Transfer Stripe
+                          </td>
+                          <td style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:12px;color:${textColor};">
+                            ${safe(params.stripe_transfer_id)}
+                          </td>
+                        </tr>
+                        <tr>
+                          <td style="font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:13px;color:${muted};">
+                            Paiement
+                          </td>
+                          <td style="font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,'Liberation Mono','Courier New',monospace;font-size:12px;color:${textColor};">
+                            ${safe(params.paiement_id)}
+                          </td>
+                        </tr>
+                      </table>
+
+                      <!-- Button -->
+                      <table role="presentation" cellpadding="0" cellspacing="0" style="margin-top:8px;">
+                        <tr>
+                          <td align="left">
+                            <a href="${safe(comptaUrl)}"
+                               target="_blank"
+                               rel="noopener noreferrer"
+                               style="display:inline-block;background:${accent};color:#ffffff;text-decoration:none;
+                                      font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;font-size:14px;font-weight:700;
+                                      padding:12px 16px;border-radius:12px;">
+                              Voir ma compta organisateur
+                            </a>
+                          </td>
+                        </tr>
+                      </table>
+
+                      <div style="margin-top:12px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:${muted};font-size:12px;line-height:1.4;">
+                        Si vous ne reconnaissez pas ce reversement, contactez-nous :
+                        <a href="mailto:support@tickrace.com" style="color:${accent};text-decoration:none;font-weight:700;">support@tickrace.com</a>
+                      </div>
+                    </td>
+                  </tr>
+                </table>
+              </td>
+            </tr>
+
+            <!-- Footer -->
+            <tr>
+              <td style="padding:14px 4px 0 4px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;color:${muted};font-size:12px;line-height:1.5;">
+                <div style="text-align:center;">
+                  — ${brand} • <a href="${safe(TICKRACE_BASE_URL)}" style="color:${muted};text-decoration:underline;">${safe(
+    TICKRACE_BASE_URL,
+  )}</a>
+                </div>
+                <div style="text-align:center;margin-top:6px;color:${muted};">
+                  Ceci est un email automatique. Merci de ne pas répondre directement.
+                </div>
+              </td>
+            </tr>
+
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>`;
 
   try {
     const out = await resendSendEmail({ to, subject, text, html });
@@ -439,7 +594,7 @@ serve(async (req) => {
           error: null,
         });
 
-        // 8) ledger (idempotent via source_key unique)
+        // 8) ledger (IMPORTANT: reversement = SORTIE => négatif)
         await supabase.from("organisateur_ledger").insert({
           organisateur_id: r.organisateur_id,
           course_id: r.course_id,
@@ -458,7 +613,7 @@ serve(async (req) => {
           metadata: { transfer_id: transferId, paiement_id: r.paiement_id },
         });
 
-        // 9) email (non bloquant)
+        // 9) email (non bloquant) — version pro
         try {
           await sendPayoutEmailOnce({
             organisateur_id: r.organisateur_id,
