@@ -1,7 +1,13 @@
 // src/components/WaitlistPanel.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
-import { RefreshCcw, Send, AlertCircle, CheckCircle2, Clock } from "lucide-react";
+import {
+  RefreshCcw,
+  Send,
+  AlertCircle,
+  CheckCircle2,
+  Clock,
+} from "lucide-react";
 
 function cls(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -21,7 +27,6 @@ function fmt(iso) {
 }
 
 function StatusPill({ row }) {
-  // consumed_at => invitation consommée
   if (row?.consumed_at) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
@@ -31,7 +36,6 @@ function StatusPill({ row }) {
     );
   }
 
-  // invited_at => invitation envoyée mais pas consommée
   if (row?.invited_at) {
     return (
       <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
@@ -41,7 +45,6 @@ function StatusPill({ row }) {
     );
   }
 
-  // sinon en attente
   return (
     <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
       En attente
@@ -55,7 +58,7 @@ export default function WaitlistPanel({
   formatLabel = "",
   enabled = false,
   quotaAttente = null,
-  onInvited, // callback optionnel (ex: reload inscriptions)
+  onInvited,
 }) {
   const [loading, setLoading] = useState(false);
   const [inviting, setInviting] = useState(false);
@@ -75,7 +78,9 @@ export default function WaitlistPanel({
     try {
       const { data, error: e } = await supabase
         .from("waitlist")
-        .select("id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source")
+        .select(
+          "id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source"
+        )
         .eq("course_id", courseId)
         .eq("format_id", formatId)
         .order("created_at", { ascending: true });
@@ -103,14 +108,20 @@ export default function WaitlistPanel({
     return { total, pending, invited, consumed };
   }, [rows]);
 
+  // ✅ Bouton d’invitation (Edge Function)
   const invite = useCallback(async () => {
     if (!resolved) return alert("Course/format non résolu.");
-    if (!enabled) return alert("La liste d’attente n’est pas activée sur ce format.");
+    if (!enabled)
+      return alert("La liste d’attente n’est pas activée sur ce format.");
 
-    const maxInvites = Number(prompt("Combien d’invitations envoyer ? (ex: 10)", "10") || "0");
+    const maxInvites = Number(
+      prompt("Combien d’invitations envoyer ? (ex: 10)", "10") || "0"
+    );
     if (!maxInvites || maxInvites <= 0) return;
 
-    const expireHours = Number(prompt("Durée de validité (heures) ? (ex: 48)", "48") || "0");
+    const expireHours = Number(
+      prompt("Durée de validité (heures) ? (ex: 48)", "48") || "0"
+    );
     if (!expireHours || expireHours <= 0) return;
 
     setInviting(true);
@@ -122,7 +133,9 @@ export default function WaitlistPanel({
       if (error) throw error;
 
       alert(
-        `Invitations traitées: ${data?.invited ?? 0}\nEnvoyées: ${data?.sent ?? 0}\nÉchecs: ${data?.failed ?? 0}`
+        `Invitations traitées: ${data?.invited ?? 0}\nEnvoyées: ${
+          data?.sent ?? 0
+        }\nÉchecs: ${data?.failed ?? 0}`
       );
 
       await load();
@@ -140,7 +153,9 @@ export default function WaitlistPanel({
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-neutral-800">Liste d’attente</h2>
+            <h2 className="text-sm font-semibold text-neutral-800">
+              Liste d’attente
+            </h2>
 
             {!enabled && (
               <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">
@@ -156,7 +171,11 @@ export default function WaitlistPanel({
           </div>
 
           <div className="mt-1 text-xs text-neutral-500 truncate">
-            {formatLabel ? <span>Format : <b className="text-neutral-700">{formatLabel}</b></span> : null}
+            {formatLabel ? (
+              <span>
+                Format : <b className="text-neutral-700">{formatLabel}</b>
+              </span>
+            ) : null}
             {!resolved ? (
               <span className="ml-2 inline-flex items-center gap-1 text-rose-700">
                 <AlertCircle className="h-3.5 w-3.5" />
@@ -166,10 +185,18 @@ export default function WaitlistPanel({
           </div>
 
           <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-600">
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">Total: <b>{stats.total}</b></span>
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">En attente: <b>{stats.pending}</b></span>
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">Invitées: <b>{stats.invited}</b></span>
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">Consommées: <b>{stats.consumed}</b></span>
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
+              Total: <b>{stats.total}</b>
+            </span>
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
+              En attente: <b>{stats.pending}</b>
+            </span>
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
+              Invitées: <b>{stats.invited}</b>
+            </span>
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
+              Consommées: <b>{stats.consumed}</b>
+            </span>
           </div>
         </div>
 
@@ -179,7 +206,9 @@ export default function WaitlistPanel({
             disabled={loading || !resolved}
             className={cls(
               "inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold",
-              loading || !resolved ? "bg-neutral-100 text-neutral-400 cursor-not-allowed" : "hover:bg-neutral-50"
+              loading || !resolved
+                ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                : "hover:bg-neutral-50"
             )}
             title={!resolved ? "Course/format non résolu" : "Rafraîchir"}
           >
@@ -187,6 +216,7 @@ export default function WaitlistPanel({
             Rafraîchir
           </button>
 
+          {/* ✅ Bouton INVITER */}
           <button
             onClick={invite}
             disabled={inviting || !resolved || !enabled}
@@ -197,7 +227,11 @@ export default function WaitlistPanel({
                 : "bg-neutral-900 text-white hover:bg-black"
             )}
             title={
-              !resolved ? "Course/format non résolu" : !enabled ? "Liste d’attente désactivée" : "Envoyer des invitations"
+              !resolved
+                ? "Course/format non résolu"
+                : !enabled
+                ? "Liste d’attente désactivée"
+                : "Envoyer des invitations"
             }
           >
             <Send className={cls("h-4 w-4", inviting ? "animate-pulse" : "")} />
@@ -216,9 +250,13 @@ export default function WaitlistPanel({
         {loading ? (
           <div className="text-sm text-neutral-500">Chargement…</div>
         ) : !resolved ? (
-          <div className="text-sm text-neutral-500">Sélectionnez un format valide pour afficher la liste d’attente.</div>
+          <div className="text-sm text-neutral-500">
+            Sélectionnez un format valide pour afficher la liste d’attente.
+          </div>
         ) : rows.length === 0 ? (
-          <div className="text-sm text-neutral-500">Aucune personne en liste d’attente pour ce format.</div>
+          <div className="text-sm text-neutral-500">
+            Aucune personne en liste d’attente pour ce format.
+          </div>
         ) : (
           <div className="overflow-x-auto rounded-xl border border-neutral-200">
             <table className="min-w-full text-sm">
@@ -236,17 +274,27 @@ export default function WaitlistPanel({
               <tbody className="divide-y">
                 {rows.map((r) => (
                   <tr key={r.id} className="hover:bg-neutral-50/60">
-                    <td className="px-3 py-2 font-medium text-neutral-900">{r.email}</td>
+                    <td className="px-3 py-2 font-medium text-neutral-900">
+                      {r.email}
+                    </td>
                     <td className="px-3 py-2 text-neutral-700">
                       {(r.prenom || "").trim()} {(r.nom || "").trim()}
                     </td>
-                    <td className="px-3 py-2 text-neutral-700">{fmt(r.created_at)}</td>
+                    <td className="px-3 py-2 text-neutral-700">
+                      {fmt(r.created_at)}
+                    </td>
                     <td className="px-3 py-2">
                       <StatusPill row={r} />
                     </td>
-                    <td className="px-3 py-2 text-neutral-700">{fmt(r.invited_at)}</td>
-                    <td className="px-3 py-2 text-neutral-700">{fmt(r.invite_expires_at)}</td>
-                    <td className="px-3 py-2 text-neutral-500">{r.source || "—"}</td>
+                    <td className="px-3 py-2 text-neutral-700">
+                      {fmt(r.invited_at)}
+                    </td>
+                    <td className="px-3 py-2 text-neutral-700">
+                      {fmt(r.invite_expires_at)}
+                    </td>
+                    <td className="px-3 py-2 text-neutral-500">
+                      {r.source || "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -256,11 +304,11 @@ export default function WaitlistPanel({
 
         {enabled && resolved && (
           <div className="mt-3 text-xs text-neutral-500">
-            Astuce : le bouton “Inviter” prend les personnes <b>non invitées</b> en priorité (selon ta logique côté Edge Function).
+            Astuce : le bouton “Inviter” prend les personnes <b>non invitées</b>{" "}
+            en priorité (selon ta logique côté Edge Function).
           </div>
         )}
       </div>
     </div>
   );
-  
 }
