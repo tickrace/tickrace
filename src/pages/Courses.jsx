@@ -52,6 +52,21 @@ function safeLocalStorageSet(key, value) {
   }
 }
 
+function getWindowStatus(now, openAt, closeAt) {
+  // openAt/closeAt = Date|null
+  if (!openAt && !closeAt) return { key: "unknown", label: "" };
+  if (openAt && now < openAt) return { key: "soon", label: "Bientôt" };
+  if (closeAt && now > closeAt) return { key: "closed", label: "Fermées" };
+  return { key: "open", label: "Ouvertes" };
+}
+
+function formatPlaces(count, max) {
+  const c = Number(count || 0);
+  const m = Number(max || 0);
+  if (!Number.isFinite(m) || m <= 0) return null;
+  return `${c}/${m}`;
+}
+
 /* ----------------------- Buckets filtres ------------------------- */
 const DIST_BUCKETS = [
   { key: "all", label: "Distance (toutes)" },
@@ -184,7 +199,7 @@ export default function Courses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departement, type, dateFrom, dateTo, distKey, dplusKey, sortBy, pageSize, viewMode]);
 
-  // Fetch (courses publiées + formats avec nb_inscrits)
+  // Fetch
   const fetchAll = async () => {
     setLoading(true);
     setErrorMsg("");
@@ -283,7 +298,8 @@ export default function Courses() {
         return d && d >= todayStart;
       });
 
-      const next = (upcoming.length ? upcoming : fList)[0]?.date || null;
+      const nextFormat = (upcoming.length ? upcoming : fList)[0] || null;
+      const next = nextFormat?.date || null;
 
       const minPrix = fList.reduce((min, f) => {
         const p = Number(f.prix);
@@ -315,6 +331,14 @@ export default function Courses() {
         });
       }
 
+      // Badge état inscriptions (basé sur le format "prochain")
+      const openAt = nextFormat?.inscription_ouverture ? parseDate(nextFormat.inscription_ouverture) : null;
+      const closeAt = nextFormat?.inscription_fermeture ? parseDate(nextFormat.inscription_fermeture) : null;
+      const windowStatus = getWindowStatus(now, openAt, closeAt);
+
+      // Mini compteur places (format "prochain")
+      const placesText = nextFormat ? formatPlaces(nextFormat.nb_inscrits, nextFormat.nb_max_coureurs) : null;
+
       const createdAt = parseDate(c.created_at);
       const isNew =
         createdAt ? (new Date().getTime() - createdAt.getTime()) / 86400000 < 14 : false;
@@ -322,6 +346,7 @@ export default function Courses() {
       return {
         ...c,
         formats: fList,
+        next_format: nextFormat,
         next_date: next,
         min_prix: minPrixVal,
         min_dist: minDist,
@@ -331,6 +356,10 @@ export default function Courses() {
         is_full: isFull,
         is_new: isNew,
         has_multiple_formats: fList.length > 1,
+        window_status: windowStatus, // { key, label }
+        places_text: placesText, // "87/120" | null
+        window_open_at: openAt,
+        window_close_at: closeAt,
       };
     });
   }, [courses]);
@@ -339,16 +368,13 @@ export default function Courses() {
   const filtered = useMemo(() => {
     return resume
       .filter((c) => {
-        // Département
         if (departement !== "all" && c.departement !== departement) return false;
 
-        // Type épreuve
         if (type !== "all") {
           const hasType = (c.formats || []).some((f) => f.type_epreuve === type);
           if (!hasType) return false;
         }
 
-        // Dates
         if (dateFrom || dateTo) {
           const nd = parseDate(c.next_date);
           if (!nd) return false;
@@ -356,7 +382,6 @@ export default function Courses() {
           if (dateTo && nd > new Date(dateTo)) return false;
         }
 
-        // Distance
         if (distKey !== "all") {
           if (c.min_dist == null || c.max_dist == null) return false;
           const b = DIST_BUCKETS.find((x) => x.key === distKey);
@@ -366,7 +391,6 @@ export default function Courses() {
           if (!overlaps) return false;
         }
 
-        // D+
         if (dplusKey !== "all") {
           if (c.min_dplus == null || c.max_dplus == null) return false;
           const b = DPLUS_BUCKETS.find((x) => x.key === dplusKey);
@@ -661,6 +685,24 @@ function CourseCard({ course }) {
     course.next_date &&
     (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
 
+  const status = course.window_status?.key || "unknown";
+  const statusLabel = course.window_status?.label || "";
+
+  const statusBadge =
+    status === "open"
+      ? { cls: "bg-emerald-100 text-emerald-700", title: "Inscriptions ouvertes" }
+      : status === "soon"
+      ? {
+          cls: "bg-amber-100 text-amber-700",
+          title: course.window_open_at ? `Ouverture le ${formatDate(course.window_open_at)}` : "Ouverture bientôt",
+        }
+      : status === "closed"
+      ? {
+          cls: "bg-neutral-200 text-neutral-700",
+          title: course.window_close_at ? `Fermeture le ${formatDate(course.window_close_at)}` : "Inscriptions fermées",
+        }
+      : null;
+
   return (
     <div className="group overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow">
       {/* Image */}
@@ -685,22 +727,50 @@ function CourseCard({ course }) {
               Bientôt
             </span>
           )}
+
+          {statusBadge && !course.is_full && (
+            <span
+              className={`rounded-full px-2.5 py-1 text-[11px] font-medium ${statusBadge.cls}`}
+              title={statusBadge.title}
+            >
+              Inscriptions {statusLabel}
+            </span>
+          )}
+
           {course.has_multiple_formats && (
             <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">
               Multi-formats
             </span>
           )}
+
           {course.is_full && (
             <span className="rounded-full bg-rose-100 px-2.5 py-1 text-[11px] font-medium text-rose-700">
               Complet
             </span>
           )}
+
           {course.is_new && (
             <span className="rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-medium text-orange-700">
               Nouveau
             </span>
           )}
         </div>
+
+        {/* Mini compteur places (prochain format) */}
+        {course.places_text && (
+          <div className="absolute right-3 bottom-3">
+            <span
+              className="rounded-full bg-white/90 ring-1 ring-black/5 px-2.5 py-1 text-[11px] font-semibold text-neutral-800"
+              title={
+                course.next_format?.nom
+                  ? `Places (format : ${course.next_format.nom})`
+                  : "Places (format principal)"
+              }
+            >
+              Places : {course.places_text}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Infos */}
