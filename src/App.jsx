@@ -134,6 +134,7 @@ function AppContent() {
           <Route path="/signup" element={<Signup />} />
           <Route path="/reset-password" element={<ResetPassword />} />
           <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
 
           {/* =============================== LEGAL ============================ */}
           <Route path="/legal/cgv-organisateurs" element={<CGVOrganisateurs />} />
