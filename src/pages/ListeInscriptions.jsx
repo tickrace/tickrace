@@ -55,12 +55,6 @@ function StatusBadge({ status }) {
   );
 }
 
-function chunk(arr, size) {
-  const out = [];
-  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
-  return out;
-}
-
 /* -------------------------- Modale Email -------------------------- */
 function EmailModal({ open, onClose, recipients, onSend }) {
   const [subject, setSubject] = useState("");
@@ -131,268 +125,6 @@ function EmailModal({ open, onClose, recipients, onSend }) {
   );
 }
 
-/* ---------------------- Modale Waitlist (Invites) ---------------------- */
-function InviteWaitlistModal({
-  open,
-  onClose,
-  courseId,
-  formatId,
-  formatLabel,
-  onDone,
-}) {
-  const [limit, setLimit] = useState(10);
-  const [validHours, setValidHours] = useState(72);
-  const [loading, setLoading] = useState(false);
-  const [invites, setInvites] = useState([]); // {email, invite_token, invite_expires_at}
-  const [sending, setSending] = useState(false);
-
-  const BASE = window.location.origin;
-
-  useEffect(() => {
-    if (!open) {
-      setLimit(10);
-      setValidHours(72);
-      setLoading(false);
-      setInvites([]);
-      setSending(false);
-    }
-  }, [open]);
-
-  if (!open) return null;
-
-  const invite = async () => {
-    if (!formatId) return alert("Format introuvable.");
-    setLoading(true);
-    try {
-      const { data, error } = await supabase.rpc("invite_waitlist", {
-        p_format_id: formatId,
-        p_limit: Number(limit || 10),
-        p_valid_hours: Number(validHours || 72),
-      });
-      if (error) throw error;
-      setInvites(data || []);
-      if ((data || []).length === 0) {
-        alert("Aucune entrée à inviter (liste vide ou déjà invitée récemment).");
-      }
-      onDone?.();
-    } catch (e) {
-      console.error("INVITE_WAITLIST_ERROR", e);
-      alert("Erreur : impossible d’inviter la liste d’attente.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const copyAllLinks = async () => {
-    const lines = (invites || []).map((x) => {
-      const url = `${BASE}/inscription/${courseId}?format=${formatId}&invite=${x.invite_token}`;
-      return `${x.email};${url}`;
-    });
-    try {
-      await navigator.clipboard.writeText(lines.join("\n"));
-      alert("Copié dans le presse-papiers (email;url).");
-    } catch {
-      alert("Impossible de copier (navigateur).");
-    }
-  };
-
-  // Envoi "simple" via la function existante organiser-send-emails (1 email = 1 invite, personnalisé)
-  const sendEmails = async () => {
-    if (!invites?.length) return alert("Aucune invitation générée.");
-    const subject = `Invitation : une place s'est libérée (${formatLabel || "format"})`;
-    const batches = chunk(invites, 5); // petit throttle
-    setSending(true);
-
-    try {
-      for (const b of batches) {
-        const res = await Promise.allSettled(
-          b.map((x) => {
-            const url = `${BASE}/inscription/${courseId}?format=${formatId}&invite=${x.invite_token}`;
-            const exp = x.invite_expires_at
-              ? new Date(x.invite_expires_at).toLocaleString("fr-FR")
-              : null;
-
-            const html = `
-              <div style="font-family:Arial,sans-serif;line-height:1.5">
-                <p>Bonjour,</p>
-                <p>Une place est disponible. Vous pouvez finaliser votre inscription via ce lien :</p>
-                <p><a href="${url}">${url}</a></p>
-                ${
-                  exp
-                    ? `<p style="color:#666;font-size:12px">Lien valable jusqu’au : <b>${exp}</b></p>`
-                    : ""
-                }
-                <p style="color:#666;font-size:12px">Si vous ne souhaitez plus être sur liste d’attente, ignorez ce message.</p>
-                <p>Sportivement,<br/>Tickrace</p>
-              </div>
-            `;
-
-            return supabase.functions.invoke("organiser-send-emails", {
-              body: { subject, html, to: [x.email] },
-            });
-          })
-        );
-
-        const failures = res.filter(
-          (r) =>
-            r.status === "rejected" ||
-            (r.status === "fulfilled" && r.value?.error)
-        );
-        if (failures.length) {
-          console.warn("WAITLIST_SEND_FAIL", failures);
-          // on continue quand même
-        }
-      }
-
-      alert("Envoi terminé (voir console si certains emails ont échoué).");
-    } catch (e) {
-      console.error("WAITLIST_SEND_ERROR", e);
-      alert("Erreur lors de l’envoi des emails.");
-    } finally {
-      setSending(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
-          <div>
-            <h3 className="text-lg font-semibold">Inviter la liste d’attente</h3>
-            <div className="text-xs text-neutral-600 mt-0.5">
-              Format : <b>{formatLabel || formatId || "—"}</b>
-            </div>
-          </div>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
-            Fermer
-          </button>
-        </div>
-
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div>
-              <label className="block text-sm font-medium">Combien inviter</label>
-              <input
-                type="number"
-                min={1}
-                value={limit}
-                onChange={(e) => setLimit(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-medium">Validité (heures)</label>
-              <input
-                type="number"
-                min={1}
-                value={validHours}
-                onChange={(e) => setValidHours(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              />
-            </div>
-            <div className="flex items-end">
-              <button
-                onClick={invite}
-                disabled={loading || !courseId || !formatId}
-                className={cls(
-                  "w-full rounded-xl px-4 py-2 text-sm font-semibold text-white",
-                  loading || !courseId || !formatId
-                    ? "bg-neutral-400 cursor-not-allowed"
-                    : "bg-neutral-900 hover:bg-black"
-                )}
-              >
-                {loading ? "Invitation…" : "Générer les invitations"}
-              </button>
-            </div>
-          </div>
-
-          {invites.length > 0 && (
-            <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-              <div className="flex flex-wrap items-center justify-between gap-2">
-                <div className="text-sm">
-                  <b>{invites.length}</b> invitation{invites.length > 1 ? "s" : ""} générée
-                  {invites.length > 1 ? "s" : ""}.
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={copyAllLinks}
-                    className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs sm:text-sm hover:bg-neutral-50"
-                  >
-                    Copier email;url
-                  </button>
-                  <button
-                    onClick={sendEmails}
-                    disabled={sending}
-                    className={cls(
-                      "rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-white",
-                      sending ? "bg-neutral-400" : "bg-emerald-600 hover:bg-emerald-500"
-                    )}
-                  >
-                    {sending ? "Envoi…" : "Envoyer les emails"}
-                  </button>
-                </div>
-              </div>
-
-              <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-neutral-200 bg-white">
-                <table className="min-w-full text-xs">
-                  <thead className="bg-neutral-100 text-neutral-600">
-                    <tr>
-                      <th className="px-3 py-2 text-left">Email</th>
-                      <th className="px-3 py-2 text-left">Expiration</th>
-                      <th className="px-3 py-2 text-left">Lien</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {invites.map((x, i) => {
-                      const url = `${BASE}/inscription/${courseId}?format=${formatId}&invite=${x.invite_token}`;
-                      return (
-                        <tr key={`${x.email}-${i}`} className="border-t">
-                          <td className="px-3 py-2">{x.email}</td>
-                          <td className="px-3 py-2">
-                            {x.invite_expires_at
-                              ? new Date(x.invite_expires_at).toLocaleString("fr-FR")
-                              : "—"}
-                          </td>
-                          <td className="px-3 py-2">
-                            <a
-                              href={url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="text-blue-700 underline break-all"
-                            >
-                              Ouvrir
-                            </a>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              <div className="mt-2 text-[11px] text-neutral-500">
-                Astuce : si tu veux du “vrai tracking” (email délivré, cliqué, etc.), on branchera une Edge Function dédiée.
-              </div>
-            </div>
-          )}
-        </div>
-
-        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
-          >
-            Fermer
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------- Modale Ajout Coureur ---------------------- */
 function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
   const [saving, setSaving] = useState(false);
@@ -450,10 +182,12 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
     }
   }, [open]);
   if (!open) return null;
+
   const onChange = (e) => {
     const { name, value, type, checked } = e.target;
     setF((p) => ({ ...p, [name]: type === "checkbox" ? checked : value }));
   };
+
   const save = async () => {
     if (!formatId) {
       alert("Format introuvable.");
@@ -487,6 +221,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
       setSaving(false);
     }
   };
+
   return (
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
@@ -499,6 +234,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
             Fermer
           </button>
         </div>
+
         <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
           <input
             name="nom"
@@ -650,6 +386,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
               Apparaître dans les résultats
             </label>
           </div>
+
           <div className="grid grid-cols-2 gap-3 md:col-span-2">
             <select
               name="statut"
@@ -666,6 +403,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
             </div>
           </div>
         </div>
+
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
           <button
             onClick={onClose}
@@ -706,6 +444,7 @@ function AddTeamModal({
     numero_licence: "",
     email: "",
   });
+
   const [saving, setSaving] = useState(false);
   const [teamName, setTeamName] = useState("Équipe");
   const [size, setSize] = useState(defaultSize || 2);
@@ -730,6 +469,7 @@ function AddTeamModal({
       c[i] = { ...c[i], [k]: v };
       return c;
     });
+
   const applySize = (n) => {
     n = Math.max(1, Number(n || 1));
     setSize(n);
@@ -788,9 +528,7 @@ function AddTeamModal({
         email: m.email?.trim() || null,
         statut: "en_attente",
       }));
-      const { error: ierr } = await supabase
-        .from("inscriptions")
-        .insert(rows);
+      const { error: ierr } = await supabase.from("inscriptions").insert(rows);
       if (ierr) throw ierr;
 
       onCreated?.();
@@ -937,8 +675,15 @@ function AddTeamModal({
 }
 
 /* ---------------------- Modale Export CSV ---------------------- */
-function ExportCsvModal({ open, onClose, rows, columns, filenameBase = "inscriptions" }) {
+function ExportCsvModal({
+  open,
+  onClose,
+  rows,
+  columns,
+  filenameBase = "inscriptions",
+}) {
   if (!open) return null;
+
   const csvEscape = (v) => {
     if (v == null) return "";
     const s = String(v);
@@ -946,14 +691,14 @@ function ExportCsvModal({ open, onClose, rows, columns, filenameBase = "inscript
       return `"${s.replaceAll('"', '""')}"`;
     return s;
   };
+
   const exportCsv = () => {
     const visible = columns.filter((c) => c.visible);
     const header = visible.map((c) => csvEscape(c.label)).join(";");
     const lines = rows.map((r) =>
       visible
         .map((c) => {
-          const v =
-            typeof c.accessor === "function" ? c.accessor(r) : r[c.key];
+          const v = typeof c.accessor === "function" ? c.accessor(r) : r[c.key];
           return csvEscape(v);
         })
         .join(";")
@@ -971,6 +716,7 @@ function ExportCsvModal({ open, onClose, rows, columns, filenameBase = "inscript
     URL.revokeObjectURL(url);
     onClose?.();
   };
+
   return (
     <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
@@ -1032,12 +778,8 @@ export default function ListeInscriptions() {
   const [statut, setStatut] = useState(searchParams.get("statut") || "all");
   const [q, setQ] = useState(searchParams.get("q") || "");
   const debouncedQ = useDebounced(q, 400);
-  const [sortBy, setSortBy] = useState(
-    searchParams.get("sortBy") || "created_at"
-  );
-  const [sortDir, setSortDir] = useState(
-    searchParams.get("sortDir") || "desc"
-  );
+  const [sortBy, setSortBy] = useState(searchParams.get("sortBy") || "created_at");
+  const [sortDir, setSortDir] = useState(searchParams.get("sortDir") || "desc");
 
   const [loading, setLoading] = useState(true);
   const [rows, setRows] = useState([]);
@@ -1060,11 +802,6 @@ export default function ListeInscriptions() {
   const [showAddTeam, setShowAddTeam] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showAssignBib, setShowAssignBib] = useState(false);
-
-  // ✅ Waitlist UI
-  const [showInviteWaitlist, setShowInviteWaitlist] = useState(false);
-  const [waitlistCount, setWaitlistCount] = useState(null); // null=unknown
-  const [waitlistLoading, setWaitlistLoading] = useState(false);
 
   // Fédérations & catégories
   const [federations, setFederations] = useState([]);
@@ -1135,13 +872,11 @@ export default function ListeInscriptions() {
     (async () => {
       const base = supabase
         .from("formats")
-        .select(
-          "id, nom, date, course_id, type_format, team_size, nb_coureurs_min, nb_coureurs_max"
-        )
+        .select("id, nom, date, course_id, type_format, team_size, nb_coureurs_min, nb_coureurs_max")
         .order("date", { ascending: true });
-      const { data, error } = resolvedCourseId
-        ? await base.eq("course_id", resolvedCourseId)
-        : await base;
+
+      const { data, error } = resolvedCourseId ? await base.eq("course_id", resolvedCourseId) : await base;
+
       if (!alive) return;
       if (!error && data) {
         setFormats(data);
@@ -1163,43 +898,10 @@ export default function ListeInscriptions() {
     () => (formatId ? formats.find((f) => f.id === formatId) : null),
     [formats, formatId]
   );
+
   const formatLabel = formatObj
     ? `${formatObj.nom}${formatObj.date ? ` — ${formatObj.date}` : ""}`
     : formatId || "—";
-
-  /* ---------------- Waitlist count (format courant) ---------------- */
-  const loadWaitlistCount = useCallback(async () => {
-    if (!resolvedCourseId || !formatId) {
-      setWaitlistCount(null);
-      return;
-    }
-    setWaitlistLoading(true);
-    try {
-      // On compte les entrées actives (non consommées)
-      const { count, error } = await supabase
-        .from("waitlist")
-        .select("id", { count: "exact", head: true })
-        .eq("course_id", resolvedCourseId)
-        .eq("format_id", formatId)
-        .is("consumed_at", null);
-
-      if (error) {
-        console.warn("WAITLIST_COUNT_ERROR", error);
-        setWaitlistCount(null);
-      } else {
-        setWaitlistCount(count ?? 0);
-      }
-    } catch (e) {
-      console.warn("WAITLIST_COUNT_CATCH", e);
-      setWaitlistCount(null);
-    } finally {
-      setWaitlistLoading(false);
-    }
-  }, [resolvedCourseId, formatId]);
-
-  useEffect(() => {
-    loadWaitlistCount();
-  }, [loadWaitlistCount]);
 
   /* ---------------- Charger la liste des fédérations ---------------- */
   useEffect(() => {
@@ -1237,6 +939,10 @@ export default function ListeInscriptions() {
     { key: "prenom", label: "Prénom", visible: true },
     { key: "dossard", label: "Dossard", visible: true },
     { key: "email", label: "Email", visible: true },
+
+    // ✅ NEW: Options payées (chips dans le tableau, texte dans CSV)
+    { key: "options", label: "Options", visible: false },
+
     { key: "genre", label: "Genre", visible: false },
     { key: "date_naissance", label: "Naissance", visible: false },
     { key: "numero_licence", label: "N° licence/PPS", visible: true },
@@ -1279,10 +985,52 @@ export default function ListeInscriptions() {
       visible: true,
     },
   ]);
+
   const toggleCol = (i, vis) =>
     setColumns((prev) =>
       prev.map((c, idx) => (idx === i ? { ...c, visible: vis } : c))
     );
+
+  /* ---------------------- Helpers Options (UI + CSV) ---------------------- */
+  const optionsToString = useCallback(
+    (r) => {
+      const opts = optionsMap.get(r.id) || [];
+      if (!opts.length) return "";
+      return opts
+        .map((o) => {
+          const label = optionLabelMap.get(o.option_id) || "Option";
+          const qty = o.quantity ?? 1;
+          return `${label} x${qty}`;
+        })
+        .join(" | ");
+    },
+    [optionsMap, optionLabelMap]
+  );
+
+  const renderOptionsChips = useCallback(
+    (r) => {
+      const opts = optionsMap.get(r.id) || [];
+      if (!opts.length) return <span className="text-neutral-400">—</span>;
+      return (
+        <div className="flex flex-wrap gap-1">
+          {opts.map((o, idx) => {
+            const label = optionLabelMap.get(o.option_id) || "Option";
+            const qty = o.quantity ?? 1;
+            return (
+              <span
+                key={`${o.option_id}-${idx}`}
+                className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-700"
+                title={`${label} x${qty}`}
+              >
+                {label} ×{qty}
+              </span>
+            );
+          })}
+        </div>
+      );
+    },
+    [optionsMap, optionLabelMap]
+  );
 
   /* ---------------------- Charger Inscriptions ---------------------- */
   const load = useCallback(async () => {
@@ -1381,22 +1129,22 @@ export default function ListeInscriptions() {
         setGroupMap(m);
       } else setGroupMap(new Map());
 
-      // Options confirmées
+      // Options confirmées (payées)
       const ids = (data || []).map((r) => r.id);
       if (ids.length) {
         const { data: opts } = await supabase
           .from("inscriptions_options")
-          .select(
-            "inscription_id, option_id, quantity, prix_unitaire_cents, status"
-          )
+          .select("inscription_id, option_id, quantity, prix_unitaire_cents, status")
           .in("inscription_id", ids)
           .eq("status", "confirmed");
+
         const m = new Map();
         (opts || []).forEach((o) => {
           if (!m.has(o.inscription_id)) m.set(o.inscription_id, []);
           m.get(o.inscription_id).push(o);
         });
         setOptionsMap(m);
+
         const optionIds = [...new Set((opts || []).map((o) => o.option_id))];
         if (optionIds.length) {
           const { data: defs } = await supabase
@@ -1442,12 +1190,14 @@ export default function ListeInscriptions() {
   // Sélection
   const allChecked =
     pageRows.length > 0 && pageRows.every((r) => selected.has(r.id));
+
   const toggleRow = (id) =>
     setSelected((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
+
   const toggleAll = () =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -1459,8 +1209,7 @@ export default function ListeInscriptions() {
   const recipients = useMemo(() => {
     const emails = new Set();
     rows.forEach((r) => {
-      if (selected.has(r.id) && r.email)
-        emails.add(r.email.trim().toLowerCase());
+      if (selected.has(r.id) && r.email) emails.add(r.email.trim().toLowerCase());
     });
     return Array.from(emails);
   }, [rows, selected]);
@@ -1482,19 +1231,20 @@ export default function ListeInscriptions() {
       alert("Impossible de mettre à jour le statut.");
     }
   };
+
   const updateField = async (row, key, value) => {
     const prev = row[key];
     setRows((rs) =>
       rs.map((r) => (r.id === row.id ? { ...r, [key]: value } : r))
     );
     const payload =
-      key === "dossard" && value !== ""
-        ? { dossard: Number(value) }
-        : { [key]: value === "" ? null : value };
+      key === "dossard" && value !== "" ? { dossard: Number(value) } : { [key]: value === "" ? null : value };
+
     const { error } = await supabase
       .from("inscriptions")
       .update(payload)
       .eq("id", row.id);
+
     if (error) {
       setRows((rs) =>
         rs.map((r) => (r.id === row.id ? { ...r, [key]: prev } : r))
@@ -1505,15 +1255,18 @@ export default function ListeInscriptions() {
 
   // Effacer dossards (sélection ou tout filtré)
   const clearBibNumbers = async (scope = "selected") => {
-    const ids =
-      scope === "selected" ? Array.from(selected) : rows.map((r) => r.id);
-    if (ids.length === 0) return alert("Aucun coureur concerné.");
-    const confirm = window.confirm(
-      `Effacer le dossard de ${ids.length} coureur(s) ?`
+    const ids = scope === "selected" ? Array.from(selected) : rows.map((r) => r.id;
     );
+    if (ids.length === 0) return alert("Aucun coureur concerné.");
+    const confirm = window.confirm(`Effacer le dossard de ${ids.length} coureur(s) ?`);
     if (!confirm) return;
+
     try {
-      const batches = chunk(ids, 500).map((part) =>
+      const chunks = (arr, n) =>
+        Array.from({ length: Math.ceil(arr.length / n) }, (_, i) =>
+          arr.slice(i * n, (i + 1) * n)
+        );
+      const batches = chunks(ids, 500).map((part) =>
         supabase.from("inscriptions").update({ dossard: null }).in("id", part)
       );
       const res = await Promise.allSettled(batches);
@@ -1532,10 +1285,6 @@ export default function ListeInscriptions() {
     }
   };
 
-  const visibleColumns = columns
-    .map((c, i) => ({ ...c, onToggle: (idx, vis) => toggleCol(idx, vis) }))
-    .filter(Boolean);
-
   /* ---------------------- Catégories d'âge : calcul ---------------------- */
   const handleComputeCategories = async () => {
     if (!formatId || rows.length === 0) return;
@@ -1545,11 +1294,7 @@ export default function ListeInscriptions() {
 
     try {
       const [fedRes, catRes] = await Promise.all([
-        supabase
-          .from("federations")
-          .select("*")
-          .eq("code", federationCode)
-          .maybeSingle(),
+        supabase.from("federations").select("*").eq("code", federationCode).maybeSingle(),
         supabase
           .from("federation_categories")
           .select("*")
@@ -1572,17 +1317,10 @@ export default function ListeInscriptions() {
         return;
       }
 
-      const eventDate = formatObj?.date
-        ? new Date(formatObj.date)
-        : new Date();
+      const eventDate = formatObj?.date ? new Date(formatObj.date) : new Date();
 
       const preview = rows.map((ins) => {
-        const sex =
-          ins.genre === "Homme"
-            ? "M"
-            : ins.genre === "Femme"
-            ? "F"
-            : "ALL";
+        const sex = ins.genre === "Homme" ? "M" : ins.genre === "Femme" ? "F" : "ALL";
 
         const cat = computeCategoryForAthlete({
           birthDate: ins.date_naissance,
@@ -1597,9 +1335,7 @@ export default function ListeInscriptions() {
           nom: ins.nom,
           prenom: ins.prenom,
           dossard: ins.dossard,
-          birthYear: ins.date_naissance
-            ? new Date(ins.date_naissance).getFullYear()
-            : null,
+          birthYear: ins.date_naissance ? new Date(ins.date_naissance).getFullYear() : null,
           currentCode: ins.categorie_age_code || null,
           currentLabel: ins.categorie_age_label || null,
           newCode: cat ? cat.code : null,
@@ -1631,11 +1367,7 @@ export default function ListeInscriptions() {
           })
           .eq("id", row.inscriptionId);
         if (error) {
-          console.error(
-            "Erreur update catégorie pour inscription",
-            row.inscriptionId,
-            error
-          );
+          console.error("Erreur update catégorie pour inscription", row.inscriptionId, error);
         }
       }
       await load();
@@ -1650,14 +1382,27 @@ export default function ListeInscriptions() {
   };
 
   const previewChangedCount = useMemo(
-    () =>
-      previewCategories.filter(
-        (p) => p.newCode && p.newCode !== p.currentCode
-      ).length,
+    () => previewCategories.filter((p) => p.newCode && p.newCode !== p.currentCode).length,
     [previewCategories]
   );
 
   const currentFed = federations.find((f) => f.code === federationCode);
+
+  /* ---------------------- Colonnes pour export (accessor + toggle) ---------------------- */
+  const exportColumns = useMemo(() => {
+    return columns.map((c, i) => {
+      if (c.key === "options") {
+        return {
+          ...c,
+          onToggle: (idx, vis) => toggleCol(idx, vis),
+          accessor: (r) => optionsToString(r),
+        };
+      }
+      return { ...c, onToggle: (idx, vis) => toggleCol(idx, vis) };
+    });
+  }, [columns, optionsToString]);
+
+  const visibleColumns = exportColumns;
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -1672,10 +1417,7 @@ export default function ListeInscriptions() {
               ← Retour à la course
             </Link>
           ) : (
-            <Link
-              to="/"
-              className="text-sm text-neutral-500 hover:text-neutral-800"
-            >
+            <Link to="/" className="text-sm text-neutral-500 hover:text-neutral-800">
               ← Accueil
             </Link>
           )}
@@ -1685,18 +1427,6 @@ export default function ListeInscriptions() {
             {formatObj ? formatObj.nom : `Format ${formatId || "?"}`}{" "}
             {formatObj?.date ? `(${formatObj.date})` : ""}
           </p>
-
-          {/* ✅ mini ligne waitlist */}
-          <div className="mt-2 text-xs text-neutral-600">
-            Liste d’attente :{" "}
-            {waitlistLoading ? (
-              <span className="text-neutral-500">chargement…</span>
-            ) : waitlistCount == null ? (
-              <span className="text-neutral-500">—</span>
-            ) : (
-              <b>{waitlistCount}</b>
-            )}
-          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -1711,20 +1441,6 @@ export default function ListeInscriptions() {
             )}
           >
             Email aux sélectionnés ({recipients.length})
-          </button>
-
-          {/* ✅ bouton waitlist */}
-          <button
-            onClick={() => setShowInviteWaitlist(true)}
-            disabled={!resolvedCourseId || !formatId}
-            className={cls(
-              "rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50",
-              (!resolvedCourseId || !formatId) && "opacity-60 cursor-not-allowed"
-            )}
-            title="Inviter des personnes depuis la liste d’attente"
-          >
-            Inviter liste d’attente
-            {typeof waitlistCount === "number" ? ` (${waitlistCount})` : ""}
           </button>
 
           <button
@@ -1751,10 +1467,7 @@ export default function ListeInscriptions() {
           </button>
 
           <button
-            onClick={() => {
-              load();
-              loadWaitlistCount();
-            }}
+            onClick={() => load()}
             className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
           >
             Rafraîchir
@@ -1777,6 +1490,7 @@ export default function ListeInscriptions() {
             <option value="annule">Annulé</option>
           </select>
         </div>
+
         <div className="md:col-span-2">
           <label className="block text-sm font-medium">Recherche</label>
           <input
@@ -1786,6 +1500,7 @@ export default function ListeInscriptions() {
             placeholder="Nom, prénom, email, équipe, licence, ville, dossard…"
           />
         </div>
+
         <div>
           <label className="block text-sm font-medium">Tri</label>
           <div className="mt-1 grid grid-cols-2 gap-2">
@@ -1823,16 +1538,14 @@ export default function ListeInscriptions() {
             </span>
           </div>
           <p className="text-xs text-neutral-500 mb-3">
-            Utilisez ces actions pour attribuer ou effacer les dossards sur le
-            périmètre filtré.
+            Utilisez ces actions pour attribuer ou effacer les dossards sur le périmètre filtré.
           </p>
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setShowAssignBib(true)}
               className="rounded-xl border border-neutral-300 px-4 py-2 text-xs sm:text-sm hover:bg-neutral-50"
             >
-              Attribuer des dossards{" "}
-              {selected.size > 0 ? `(${selected.size})` : ""}
+              Attribuer des dossards {selected.size > 0 ? `(${selected.size})` : ""}
             </button>
 
             <div className="relative inline-flex">
@@ -1860,14 +1573,14 @@ export default function ListeInscriptions() {
             </h2>
             {currentFed && (
               <span className="text-xs text-neutral-500">
-                Saison : début{" "}
-                <b>{currentFed.season_start_month || 1}/</b>
+                Saison : début <b>{currentFed.season_start_month || 1}/</b>
               </span>
             )}
           </div>
+
           <p className="text-xs text-neutral-500 mb-3">
-            Choisissez une fédération pour pré-calculer les catégories d&apos;âge
-            des inscrits du format courant, puis appliquez-les dans la base.
+            Choisissez une fédération pour pré-calculer les catégories d&apos;âge des inscrits du format courant,
+            puis appliquez-les dans la base.
           </p>
 
           <div className="flex flex-wrap items-end gap-3 mb-3">
@@ -1880,9 +1593,7 @@ export default function ListeInscriptions() {
                 onChange={(e) => setFederationCode(e.target.value)}
                 className="rounded-xl border border-neutral-300 px-3 py-2 text-sm bg-white"
               >
-                {federations.length === 0 && (
-                  <option value="FFA">FFA - Athlétisme</option>
-                )}
+                {federations.length === 0 && <option value="FFA">FFA - Athlétisme</option>}
                 {federations.map((fed) => (
                   <option key={fed.code} value={fed.code}>
                     {fed.code} — {fed.name}
@@ -1909,11 +1620,7 @@ export default function ListeInscriptions() {
             <button
               type="button"
               onClick={handleApplyCategories}
-              disabled={
-                categoriesApplying ||
-                previewCategories.length === 0 ||
-                rows.length === 0
-              }
+              disabled={categoriesApplying || previewCategories.length === 0 || rows.length === 0}
               className={cls(
                 "rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold",
                 previewCategories.length === 0
@@ -1924,15 +1631,11 @@ export default function ListeInscriptions() {
             >
               {categoriesApplying
                 ? "Application…"
-                : `Appliquer aux inscrits${
-                    previewChangedCount ? ` (${previewChangedCount} changés)` : ""
-                  }`}
+                : `Appliquer aux inscrits${previewChangedCount ? ` (${previewChangedCount} changés)` : ""}`}
             </button>
           </div>
 
-          {categoriesError && (
-            <div className="mb-2 text-xs text-red-600">{categoriesError}</div>
-          )}
+          {categoriesError && <div className="mb-2 text-xs text-red-600">{categoriesError}</div>}
 
           {previewCategories.length > 0 && (
             <div className="mt-2">
@@ -1943,11 +1646,11 @@ export default function ListeInscriptions() {
                 </span>
                 {previewChangedCount > 0 && (
                   <span className="text-xs font-medium text-emerald-700">
-                    {previewChangedCount} catégorie
-                    {previewChangedCount > 1 ? "s" : ""} modifiée
+                    {previewChangedCount} catégorie{previewChangedCount > 1 ? "s" : ""} modifiée
                   </span>
                 )}
               </div>
+
               <div className="max-h-56 overflow-auto border border-neutral-200 rounded-xl bg-neutral-50">
                 <table className="min-w-full text-[11px]">
                   <thead className="bg-neutral-100 text-neutral-600">
@@ -1961,19 +1664,14 @@ export default function ListeInscriptions() {
                   </thead>
                   <tbody>
                     {previewCategories.map((row) => (
-                      <tr
-                        key={row.inscriptionId}
-                        className="border-t border-neutral-200"
-                      >
+                      <tr key={row.inscriptionId} className="border-t border-neutral-200">
                         <td className="px-2 py-1">{row.dossard || "—"}</td>
                         <td className="px-2 py-1">
                           {row.nom} {row.prenom}
                         </td>
                         <td className="px-2 py-1">{row.birthYear || "—"}</td>
                         <td className="px-2 py-1 text-neutral-500">
-                          {row.currentCode
-                            ? `${row.currentCode} – ${row.currentLabel}`
-                            : "—"}
+                          {row.currentCode ? `${row.currentCode} – ${row.currentLabel}` : "—"}
                         </td>
                         <td className="px-2 py-1 font-medium">
                           {row.newCode ? (
@@ -1987,9 +1685,7 @@ export default function ListeInscriptions() {
                               </span>
                             )
                           ) : (
-                            <span className="text-red-500">
-                              Aucune catégorie
-                            </span>
+                            <span className="text-red-500">Aucune catégorie</span>
                           )}
                         </td>
                       </tr>
@@ -2036,12 +1732,9 @@ export default function ListeInscriptions() {
             <thead>
               <tr className="text-left text-neutral-600">
                 <th className="px-4 py-3 w-10">
-                  <input
-                    type="checkbox"
-                    checked={allChecked}
-                    onChange={toggleAll}
-                  />
+                  <input type="checkbox" checked={allChecked} onChange={toggleAll} />
                 </th>
+
                 {columns
                   .filter((c) => c.visible)
                   .map((c) => (
@@ -2049,9 +1742,7 @@ export default function ListeInscriptions() {
                       key={c.key}
                       className={cls(
                         "px-4 py-3",
-                        ["nom", "statut", "created_at"].includes(c.key)
-                          ? "cursor-pointer"
-                          : ""
+                        ["nom", "statut", "created_at"].includes(c.key) ? "cursor-pointer" : ""
                       )}
                       onClick={() => {
                         if (["nom", "statut", "created_at"].includes(c.key)) {
@@ -2063,9 +1754,11 @@ export default function ListeInscriptions() {
                       {c.label}
                     </th>
                   ))}
+
                 <th className="px-4 py-3">Actions</th>
               </tr>
             </thead>
+
             <tbody className="divide-y">
               {loading ? (
                 [...Array(6)].map((_, i) => (
@@ -2108,30 +1801,28 @@ export default function ListeInscriptions() {
                     {columns
                       .filter((c) => c.visible)
                       .map((c) => {
+                        // ✅ Options (chips)
+                        if (c.key === "options") {
+                          return (
+                            <td key={c.key} className="px-4 py-2 align-top">
+                              {renderOptionsChips(r)}
+                            </td>
+                          );
+                        }
+
                         const content =
-                          typeof c.accessor === "function"
-                            ? c.accessor(r)
-                            : r[c.key];
+                          typeof c.accessor === "function" ? c.accessor(r) : r[c.key];
 
                         // champs éditables inline
                         if (
-                          [
-                            "numero_licence",
-                            "club",
-                            "email",
-                            "telephone",
-                            "team_name",
-                            "dossard",
-                          ].includes(c.key)
+                          ["numero_licence", "club", "email", "telephone", "team_name", "dossard"].includes(c.key)
                         ) {
                           return (
                             <td key={c.key} className="px-4 py-2 align-top">
                               <input
                                 className="w-40 rounded-lg border border-neutral-300 px-2 py-1 text-sm"
                                 value={content ?? ""}
-                                onChange={(e) =>
-                                  updateField(r, c.key, e.target.value)
-                                }
+                                onChange={(e) => updateField(r, c.key, e.target.value)}
                                 placeholder={c.key === "dossard" ? "—" : ""}
                               />
                             </td>
@@ -2149,9 +1840,7 @@ export default function ListeInscriptions() {
                                 <StatusBadge status={r.statut} />
                                 <select
                                   value={v}
-                                  onChange={(e) =>
-                                    updateStatut(r, e.target.value)
-                                  }
+                                  onChange={(e) => updateStatut(r, e.target.value)}
                                   className="rounded-lg border border-neutral-300 px-2 py-1 text-xs"
                                 >
                                   <option value="en_attente">En attente</option>
@@ -2230,8 +1919,7 @@ export default function ListeInscriptions() {
         onClose={() => setShowEmail(false)}
         recipients={recipients}
         onSend={({ subject, html }) => {
-          if (recipients.length === 0)
-            return alert("Aucun destinataire sélectionné.");
+          if (recipients.length === 0) return alert("Aucun destinataire sélectionné.");
           if (!subject?.trim()) return alert("Le sujet est requis.");
           if (!html?.trim()) return alert("Le message est requis.");
           supabase.functions
@@ -2249,15 +1937,6 @@ export default function ListeInscriptions() {
             })
             .catch(() => alert("Erreur d’envoi."));
         }}
-      />
-
-      <InviteWaitlistModal
-        open={showInviteWaitlist}
-        onClose={() => setShowInviteWaitlist(false)}
-        courseId={resolvedCourseId}
-        formatId={formatId}
-        formatLabel={formatLabel}
-        onDone={() => loadWaitlistCount()}
       />
 
       <AddRunnerModal
