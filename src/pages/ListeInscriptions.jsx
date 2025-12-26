@@ -21,6 +21,12 @@ function formatDateTime(iso) {
     minute: "2-digit",
   });
 }
+function formatDate(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return String(iso);
+  return d.toLocaleDateString("fr-FR", { year: "numeric", month: "2-digit", day: "2-digit" });
+}
 function useDebounced(value, delay = 400) {
   const [v, setV] = useState(value);
   useEffect(() => {
@@ -39,11 +45,8 @@ function StatusBadge({ status }) {
     annule: "bg-rose-100 text-rose-800",
     "annulé": "bg-rose-100 text-rose-800",
   };
-  const txt = ["paye", "payé"].includes(s)
-    ? "Payé"
-    : ["annule", "annulé"].includes(s)
-    ? "Annulé"
-    : "En attente";
+  const txt =
+    ["paye", "payé"].includes(s) ? "Payé" : ["annule", "annulé"].includes(s) ? "Annulé" : "En attente";
   return (
     <span
       className={cls(
@@ -73,19 +76,17 @@ function EmailModal({ open, onClose, recipients, onSend }) {
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Envoyer un email</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">
             Fermer
           </button>
         </div>
+
         <div className="p-5 space-y-4">
           <div className="text-xs text-neutral-600">
-            Destinataires : <b>{recipients.length}</b> adresse
-            {recipients.length > 1 ? "s" : ""} unique
+            Destinataires : <b>{recipients.length}</b> adresse{recipients.length > 1 ? "s" : ""} unique
             {recipients.length > 1 ? "s" : ""}
           </div>
+
           <div>
             <label className="text-sm font-medium">Sujet</label>
             <input
@@ -95,6 +96,7 @@ function EmailModal({ open, onClose, recipients, onSend }) {
               placeholder="Sujet de l’email"
             />
           </div>
+
           <div>
             <label className="text-sm font-medium">Message</label>
             <textarea
@@ -105,17 +107,13 @@ function EmailModal({ open, onClose, recipients, onSend }) {
             />
           </div>
         </div>
+
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
-          >
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">
             Annuler
           </button>
           <button
-            onClick={() =>
-              onSend({ subject, html: message.replace(/\n/g, "<br/>") })
-            }
+            onClick={() => onSend({ subject, html: message.replace(/\n/g, "<br/>") })}
             className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
           >
             Envoyer
@@ -153,6 +151,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
     team_name: "",
     dossard: "",
   });
+
   useEffect(() => {
     if (!open) {
       setSaving(false);
@@ -182,6 +181,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
       });
     }
   }, [open]);
+
   if (!open) return null;
 
   const onChange = (e) => {
@@ -190,14 +190,9 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
   };
 
   const save = async () => {
-    if (!formatId) {
-      alert("Format introuvable.");
-      return;
-    }
-    if (!f.nom.trim() || !f.prenom.trim()) {
-      alert("Nom et prénom requis.");
-      return;
-    }
+    if (!formatId) return alert("Format introuvable.");
+    if (!f.nom.trim() || !f.prenom.trim()) return alert("Nom et prénom requis.");
+
     setSaving(true);
     try {
       const payload = {
@@ -210,8 +205,10 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
         team_name: f.team_name?.trim() || null,
         dossard: f.dossard !== "" ? Number(f.dossard) : null,
       };
+
       const { error } = await supabase.from("inscriptions").insert(payload);
       if (error) throw error;
+
       onCreated?.();
       onClose();
       alert("Coureur ajouté.");
@@ -228,22 +225,13 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
       <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Ajouter un coureur</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">
             Fermer
           </button>
         </div>
 
         <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
-          <input
-            name="nom"
-            value={f.nom}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Nom *"
-          />
+          <input name="nom" value={f.nom} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Nom *" />
           <input
             name="prenom"
             value={f.prenom}
@@ -258,25 +246,16 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
             className="rounded-xl border px-3 py-2 md:col-span-2"
             placeholder="Email"
           />
+
           <div className="grid grid-cols-2 gap-3 md:col-span-2">
-            <select
-              name="genre"
-              value={f.genre}
-              onChange={onChange}
-              className="rounded-xl border px-3 py-2"
-            >
+            <select name="genre" value={f.genre} onChange={onChange} className="rounded-xl border px-3 py-2">
               <option value="">Genre</option>
               <option>Homme</option>
               <option>Femme</option>
             </select>
-            <input
-              type="date"
-              name="date_naissance"
-              value={f.date_naissance}
-              onChange={onChange}
-              className="rounded-xl border px-3 py-2"
-            />
+            <input type="date" name="date_naissance" value={f.date_naissance} onChange={onChange} className="rounded-xl border px-3 py-2" />
           </div>
+
           <input
             name="numero_licence"
             value={f.numero_licence}
@@ -284,13 +263,8 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
             className="rounded-xl border px-3 py-2"
             placeholder="N° licence / PPS"
           />
-          <input
-            name="club"
-            value={f.club}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Club"
-          />
+          <input name="club" value={f.club} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Club" />
+
           <input
             name="telephone"
             value={f.telephone}
@@ -298,41 +272,13 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
             className="rounded-xl border px-3 py-2 md:col-span-2"
             placeholder="Téléphone"
           />
-          <input
-            name="adresse"
-            value={f.adresse}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2 md:col-span-2"
-            placeholder="Adresse"
-          />
-          <input
-            name="adresse_complement"
-            value={f.adresse_complement}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Complément"
-          />
-          <input
-            name="code_postal"
-            value={f.code_postal}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Code postal"
-          />
-          <input
-            name="ville"
-            value={f.ville}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Ville"
-          />
-          <input
-            name="pays"
-            value={f.pays}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Pays"
-          />
+
+          <input name="adresse" value={f.adresse} onChange={onChange} className="rounded-xl border px-3 py-2 md:col-span-2" placeholder="Adresse" />
+          <input name="adresse_complement" value={f.adresse_complement} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Complément" />
+          <input name="code_postal" value={f.code_postal} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Code postal" />
+          <input name="ville" value={f.ville} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Ville" />
+          <input name="pays" value={f.pays} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Pays" />
+
           <input
             name="justificatif_type"
             value={f.justificatif_type}
@@ -347,6 +293,7 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
             className="rounded-xl border px-3 py-2"
             placeholder="Identifiant PPS"
           />
+
           <input
             name="contact_urgence_nom"
             value={f.contact_urgence_nom}
@@ -361,40 +308,19 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
             className="rounded-xl border px-3 py-2"
             placeholder="Contact urgence - Téléphone"
           />
-          <input
-            name="team_name"
-            value={f.team_name}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Équipe (si applicable)"
-          />
-          <input
-            name="dossard"
-            value={f.dossard}
-            onChange={onChange}
-            className="rounded-xl border px-3 py-2"
-            placeholder="Dossard (optionnel)"
-          />
+
+          <input name="team_name" value={f.team_name} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Équipe (si applicable)" />
+          <input name="dossard" value={f.dossard} onChange={onChange} className="rounded-xl border px-3 py-2" placeholder="Dossard (optionnel)" />
+
           <div className="flex items-center gap-2 md:col-span-2">
-            <input
-              id="apres"
-              type="checkbox"
-              name="apparaitre_resultats"
-              checked={f.apparaitre_resultats}
-              onChange={onChange}
-            />
+            <input id="apres" type="checkbox" name="apparaitre_resultats" checked={f.apparaitre_resultats} onChange={onChange} />
             <label htmlFor="apres" className="text-sm">
               Apparaître dans les résultats
             </label>
           </div>
 
           <div className="grid grid-cols-2 gap-3 md:col-span-2">
-            <select
-              name="statut"
-              value={f.statut}
-              onChange={onChange}
-              className="rounded-xl border px-3 py-2"
-            >
+            <select name="statut" value={f.statut} onChange={onChange} className="rounded-xl border px-3 py-2">
               <option value="en_attente">En attente</option>
               <option value="paye">Payé</option>
               <option value="annule">Annulé</option>
@@ -406,19 +332,13 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
         </div>
 
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-white"
-          >
+          <button onClick={onClose} className="rounded-xl border px-4 py-2 text-sm hover:bg-white">
             Annuler
           </button>
           <button
             onClick={save}
             disabled={saving}
-            className={cls(
-              "rounded-xl px-4 py-2 text-sm font-semibold text-white",
-              saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"
-            )}
+            className={cls("rounded-xl px-4 py-2 text-sm font-semibold text-white", saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black")}
           >
             {saving ? "Ajout…" : "Ajouter"}
           </button>
@@ -428,268 +348,14 @@ function AddRunnerModal({ open, onClose, onCreated, courseId, formatId }) {
   );
 }
 
-/* ---------------------- Modale Ajout Équipe ---------------------- */
-function AddTeamModal({
-  open,
-  onClose,
-  onCreated,
-  courseId,
-  formatId,
-  defaultSize = 2,
-}) {
-  const emptyMember = () => ({
-    nom: "",
-    prenom: "",
-    genre: "",
-    date_naissance: "",
-    numero_licence: "",
-    email: "",
-  });
-
-  const [saving, setSaving] = useState(false);
-  const [teamName, setTeamName] = useState("Équipe");
-  const [size, setSize] = useState(defaultSize || 2);
-  const [members, setMembers] = useState(
-    Array.from({ length: defaultSize || 2 }, emptyMember)
-  );
-
-  useEffect(() => {
-    if (!open) {
-      setSaving(false);
-      setTeamName("Équipe");
-      setSize(defaultSize || 2);
-      setMembers(Array.from({ length: defaultSize || 2 }, emptyMember));
-    }
-  }, [open, defaultSize]);
-
-  if (!open) return null;
-
-  const setMember = (i, k, v) =>
-    setMembers((prev) => {
-      const c = [...prev];
-      c[i] = { ...c[i], [k]: v };
-      return c;
-    });
-
-  const applySize = (n) => {
-    n = Math.max(1, Number(n || 1));
-    setSize(n);
-    setMembers((prev) => {
-      const arr = [...prev];
-      if (n > arr.length)
-        arr.push(...Array.from({ length: n - arr.length }, emptyMember));
-      else if (n < arr.length) arr.length = n;
-      return arr;
-    });
-  };
-
-  const save = async () => {
-    if (!formatId) return alert("Format introuvable.");
-    if (!teamName.trim()) return alert("Nom d’équipe requis.");
-    if (
-      members.some(
-        (m) =>
-          !m.nom?.trim() ||
-          !m.prenom?.trim() ||
-          !m.genre ||
-          !m.date_naissance ||
-          !m.numero_licence?.trim()
-      )
-    ) {
-      return alert(
-        "Tous les membres doivent avoir nom, prénom, sexe, date de naissance et N° licence/PPS."
-      );
-    }
-    setSaving(true);
-    try {
-      // 1) Groupe
-      const { data: group, error: gerr } = await supabase
-        .from("inscriptions_groupes")
-        .insert({
-          team_name: teamName.trim(),
-          team_category: null,
-          statut: "en_attente",
-          members_count: members.length,
-        })
-        .select("id")
-        .single();
-      if (gerr) throw gerr;
-
-      // 2) Membres
-      const rows = members.map((m) => ({
-        course_id: courseId || null,
-        format_id: formatId,
-        member_of_group_id: group.id,
-        team_name: teamName.trim(),
-        nom: m.nom.trim(),
-        prenom: m.prenom.trim(),
-        genre: m.genre,
-        date_naissance: m.date_naissance,
-        numero_licence: m.numero_licence?.trim(),
-        email: m.email?.trim() || null,
-        statut: "en_attente",
-      }));
-      const { error: ierr } = await supabase.from("inscriptions").insert(rows);
-      if (ierr) throw ierr;
-
-      onCreated?.();
-      onClose();
-      alert("Équipe ajoutée.");
-    } catch (e) {
-      console.error(e);
-      alert("Erreur lors de l’ajout de l’équipe.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-4xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Ajouter une équipe</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
-            Fermer
-          </button>
-        </div>
-
-        <div className="p-5 space-y-4">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-            <input
-              className="rounded-xl border px-3 py-2"
-              value={teamName}
-              onChange={(e) => setTeamName(e.target.value)}
-              placeholder="Nom d’équipe *"
-            />
-            <input
-              type="number"
-              min={1}
-              className="rounded-xl border px-3 py-2"
-              value={size}
-              onChange={(e) => applySize(e.target.value)}
-              placeholder="Taille"
-            />
-            <div className="text-xs text-neutral-600 flex items-center">
-              Format : <b className="ml-1">{formatId || "—"}</b>
-            </div>
-          </div>
-
-          <div className="overflow-x-auto">
-            <table className="min-w-full text-sm">
-              <thead>
-                <tr className="text-left text-neutral-600">
-                  <th className="px-3 py-2">#</th>
-                  <th className="px-3 py-2">Nom *</th>
-                  <th className="px-3 py-2">Prénom *</th>
-                  <th className="px-3 py-2">Sexe *</th>
-                  <th className="px-3 py-2">Date de naissance *</th>
-                  <th className="px-3 py-2">N° licence / PPS *</th>
-                  <th className="px-3 py-2">Email</th>
-                </tr>
-              </thead>
-              <tbody>
-                {members.map((m, i) => (
-                  <tr key={i} className="border-t">
-                    <td className="px-3 py-2">{i + 1}</td>
-                    <td className="px-3 py-2">
-                      <input
-                        className="w-44 rounded-xl border px-2 py-1"
-                        value={m.nom}
-                        onChange={(e) => setMember(i, "nom", e.target.value)}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        className="w-44 rounded-xl border px-2 py-1"
-                        value={m.prenom}
-                        onChange={(e) => setMember(i, "prenom", e.target.value)}
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        className="rounded-xl border px-2 py-1"
-                        value={m.genre}
-                        onChange={(e) => setMember(i, "genre", e.target.value)}
-                      >
-                        <option value="">—</option>
-                        <option>Homme</option>
-                        <option>Femme</option>
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="date"
-                        className="rounded-xl border px-2 py-1"
-                        value={m.date_naissance}
-                        onChange={(e) =>
-                          setMember(i, "date_naissance", e.target.value)
-                        }
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        className="w-52 rounded-xl border px-2 py-1"
-                        value={m.numero_licence}
-                        onChange={(e) =>
-                          setMember(i, "numero_licence", e.target.value)
-                        }
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        className="w-60 rounded-xl border px-2 py-1"
-                        value={m.email}
-                        onChange={(e) => setMember(i, "email", e.target.value)}
-                      />
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border px-4 py-2 text-sm hover:bg-white"
-          >
-            Annuler
-          </button>
-          <button
-            onClick={save}
-            disabled={saving}
-            className={cls(
-              "rounded-xl px-4 py-2 text-sm font-semibold text-white",
-              saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"
-            )}
-          >
-            {saving ? "Ajout…" : "Créer l’équipe"}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /* ---------------------- Modale Export CSV ---------------------- */
-function ExportCsvModal({
-  open,
-  onClose,
-  rows,
-  columns,
-  filenameBase = "inscriptions",
-}) {
+function ExportCsvModal({ open, onClose, rows, columns, filenameBase = "inscriptions" }) {
   if (!open) return null;
 
   const csvEscape = (v) => {
     if (v == null) return "";
     const s = String(v);
-    if (s.includes('"') || s.includes(";") || s.includes("\n"))
-      return `"${s.replaceAll('"', '""')}"`;
+    if (s.includes('"') || s.includes(";") || s.includes("\n")) return `"${s.replaceAll('"', '""')}"`;
     return s;
   };
 
@@ -704,6 +370,7 @@ function ExportCsvModal({
         })
         .join(";")
     );
+
     const csv = [header, ...lines].join("\n");
     const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
     const url = URL.createObjectURL(blob);
@@ -723,42 +390,28 @@ function ExportCsvModal({
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
         <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
           <h3 className="text-lg font-semibold">Exporter en CSV</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-          >
+          <button onClick={onClose} className="text-neutral-500 hover:text-neutral-800 text-sm">
             Fermer
           </button>
         </div>
+
         <div className="p-5">
           <div className="text-sm font-medium mb-2">Colonnes à inclure</div>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
             {columns.map((c, i) => (
-              <label
-                key={c.key}
-                className="inline-flex items-center gap-2 text-sm"
-              >
-                <input
-                  type="checkbox"
-                  checked={c.visible}
-                  onChange={(e) => c.onToggle?.(i, e.target.checked)}
-                />
+              <label key={c.key} className="inline-flex items-center gap-2 text-sm">
+                <input type="checkbox" checked={c.visible} onChange={(e) => c.onToggle?.(i, e.target.checked)} />
                 {c.label}
               </label>
             ))}
           </div>
         </div>
+
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
-          >
+          <button onClick={onClose} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white">
             Annuler
           </button>
-          <button
-            onClick={exportCsv}
-            className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
-          >
+          <button onClick={exportCsv} className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black">
             Exporter
           </button>
         </div>
@@ -790,7 +443,6 @@ export default function ListeInscriptions() {
   const [formatType, setFormatType] = useState("individuel");
   const [defaultTeamSize, setDefaultTeamSize] = useState(2);
 
-  const [groupMap, setGroupMap] = useState(new Map());
   const [optionsMap, setOptionsMap] = useState(new Map());
   const [optionLabelMap, setOptionLabelMap] = useState(new Map());
 
@@ -800,11 +452,10 @@ export default function ListeInscriptions() {
   const [selected, setSelected] = useState(new Set());
   const [showEmail, setShowEmail] = useState(false);
   const [showAddRunner, setShowAddRunner] = useState(false);
-  const [showAddTeam, setShowAddTeam] = useState(false);
   const [showExport, setShowExport] = useState(false);
   const [showAssignBib, setShowAssignBib] = useState(false);
 
-  // Fédérations & catégories
+  // Catégories
   const [federations, setFederations] = useState([]);
   const [federationCode, setFederationCode] = useState("FFA");
   const [previewCategories, setPreviewCategories] = useState([]);
@@ -832,22 +483,18 @@ export default function ListeInscriptions() {
         setResolvedCourseId(null);
         return;
       }
-      const { data: fmtByCourse } = await supabase
-        .from("formats")
-        .select("id")
-        .eq("course_id", routeParam)
-        .limit(1);
+
+      // routeParam est un courseId ?
+      const { data: fmtByCourse } = await supabase.from("formats").select("id").eq("course_id", routeParam).limit(1);
       if (!alive) return;
 
       if (fmtByCourse && fmtByCourse.length > 0) {
         setResolvedCourseId(routeParam);
       } else {
-        const { data: fmt } = await supabase
-          .from("formats")
-          .select("id, course_id")
-          .eq("id", routeParam)
-          .maybeSingle();
+        // sinon routeParam est peut-être un formatId
+        const { data: fmt } = await supabase.from("formats").select("id, course_id").eq("id", routeParam).maybeSingle();
         if (!alive) return;
+
         if (fmt?.course_id) {
           setResolvedCourseId(fmt.course_id);
           if (!initialFormatId) {
@@ -861,21 +508,20 @@ export default function ListeInscriptions() {
         }
       }
     })();
+
     return () => {
       alive = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [routeParam]);
 
-  /* ---------------- Charger Formats (libellé + type) ---------------- */
+  /* ---------------- Charger Formats ---------------- */
   useEffect(() => {
     let alive = true;
     (async () => {
       const base = supabase
         .from("formats")
-.select(
-  "id, nom, date, course_id, type_format, team_size, nb_coureurs_min, nb_coureurs_max, waitlist_enabled, quota_attente"
-)
+        .select("id, nom, date, course_id, type_format, team_size, nb_coureurs_min, nb_coureurs_max, waitlist_enabled, quota_attente")
         .order("date", { ascending: true });
 
       const { data, error } = resolvedCourseId ? await base.eq("course_id", resolvedCourseId) : await base;
@@ -892,34 +538,23 @@ export default function ListeInscriptions() {
         }
       }
     })();
+
     return () => {
       alive = false;
     };
   }, [resolvedCourseId, formatId]);
 
-  const formatObj = useMemo(
-    () => (formatId ? formats.find((f) => f.id === formatId) : null),
-    [formats, formatId]
-  );
+  const formatObj = useMemo(() => (formatId ? formats.find((f) => f.id === formatId) : null), [formats, formatId]);
 
-  const formatLabel = formatObj
-    ? `${formatObj.nom}${formatObj.date ? ` — ${formatObj.date}` : ""}`
-    : formatId || "—";
-
-  /* ---------------- Charger la liste des fédérations ---------------- */
+  /* ---------------- Charger fédérations ---------------- */
   useEffect(() => {
     let alive = true;
     (async () => {
-      const { data, error } = await supabase
-        .from("federations")
-        .select("code, name, season_start_month")
-        .order("code", { ascending: true });
+      const { data, error } = await supabase.from("federations").select("code, name, season_start_month").order("code", { ascending: true });
       if (!alive) return;
       if (!error && data) {
         setFederations(data);
-        if (!federationCode && data.length > 0) {
-          setFederationCode(data[0].code);
-        }
+        if (!federationCode && data.length > 0) setFederationCode(data[0].code);
       }
     })();
     return () => {
@@ -928,73 +563,24 @@ export default function ListeInscriptions() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ------------------------- Colonnes du tableur ------------------------- */
+  /* ------------------------- Colonnes ------------------------- */
   const [columns, setColumns] = useState([
     { key: "id", label: "ID", visible: false },
-    {
-      key: "created_at",
-      label: "Créé le",
-      visible: true,
-      accessor: (r) => formatDateTime(r.created_at),
-    },
+    { key: "created_at", label: "Créé le", visible: true, accessor: (r) => formatDateTime(r.created_at) },
     { key: "statut", label: "Statut", visible: true },
     { key: "nom", label: "Nom", visible: true },
     { key: "prenom", label: "Prénom", visible: true },
     { key: "dossard", label: "Dossard", visible: true },
     { key: "email", label: "Email", visible: true },
-
-    // ✅ NEW: Options payées (chips dans le tableau, texte dans CSV)
     { key: "options", label: "Options", visible: false },
-
-    { key: "genre", label: "Genre", visible: false },
-    { key: "date_naissance", label: "Naissance", visible: false },
     { key: "numero_licence", label: "N° licence/PPS", visible: true },
-    { key: "club", label: "Club", visible: false },
-    { key: "telephone", label: "Téléphone", visible: false },
-    { key: "adresse", label: "Adresse", visible: false },
-    { key: "adresse_complement", label: "Complément", visible: false },
-    { key: "code_postal", label: "Code postal", visible: false },
-    { key: "ville", label: "Ville", visible: false },
-    { key: "pays", label: "Pays", visible: false },
-    {
-      key: "apparaitre_resultats",
-      label: "Résultats (oui/non)",
-      visible: false,
-      accessor: (r) => (r.apparaitre_resultats ? "Oui" : "Non"),
-    },
-    { key: "justificatif_type", label: "Type justificatif", visible: false },
-    { key: "pps_identifier", label: "Identifiant PPS", visible: false },
-    { key: "contact_urgence_nom", label: "Nom contact urgence", visible: false },
-    {
-      key: "contact_urgence_telephone",
-      label: "Tél. contact urgence",
-      visible: false,
-    },
     { key: "team_name", label: "Équipe", visible: true },
-    { key: "member_of_group_id", label: "Groupe ID", visible: false },
-    {
-      key: "federation_code",
-      label: "Fédé catégorie",
-      visible: false,
-    },
-    {
-      key: "categorie_age_code",
-      label: "Catégorie (code)",
-      visible: false,
-    },
-    {
-      key: "categorie_age_label",
-      label: "Catégorie d’âge",
-      visible: true,
-    },
+    { key: "categorie_age_label", label: "Catégorie d’âge", visible: true },
   ]);
 
-  const toggleCol = (i, vis) =>
-    setColumns((prev) =>
-      prev.map((c, idx) => (idx === i ? { ...c, visible: vis } : c))
-    );
+  const toggleCol = (i, vis) => setColumns((prev) => prev.map((c, idx) => (idx === i ? { ...c, visible: vis } : c)));
 
-  /* ---------------------- Helpers Options (UI + CSV) ---------------------- */
+  /* ---------------------- Helpers Options ---------------------- */
   const optionsToString = useCallback(
     (r) => {
       const opts = optionsMap.get(r.id) || [];
@@ -1039,18 +625,9 @@ export default function ListeInscriptions() {
   const load = useCallback(async () => {
     setLoading(true);
     setSelected(new Set());
+
     try {
       if (!formatId) {
-        setRows([]);
-        setTotal(0);
-        setLoading(false);
-        return;
-      }
-      if (
-        resolvedCourseId &&
-        formatObj?.course_id &&
-        formatObj.course_id !== resolvedCourseId
-      ) {
         setRows([]);
         setTotal(0);
         setLoading(false);
@@ -1060,14 +637,14 @@ export default function ListeInscriptions() {
       let query = supabase
         .from("inscriptions")
         .select(
-          "id, created_at, statut, course_id, format_id, member_of_group_id, team_name," +
-            "nom, prenom, email, genre, date_naissance, nationalite, telephone, adresse, adresse_complement, code_postal, ville, pays, apparaitre_resultats, club, justificatif_type, numero_licence, pps_identifier, contact_urgence_nom, contact_urgence_telephone, dossard," +
+          "id, created_at, statut, course_id, format_id, member_of_group_id, team_name, " +
+            "nom, prenom, email, genre, date_naissance, nationalite, telephone, adresse, adresse_complement, code_postal, ville, pays, apparaitre_resultats, club, justificatif_type, numero_licence, pps_identifier, contact_urgence_nom, contact_urgence_telephone, dossard, " +
             "federation_code, categorie_age_code, categorie_age_label",
           { count: "exact" }
-        );
+        )
+        .eq("format_id", formatId);
 
       if (resolvedCourseId) query = query.eq("course_id", resolvedCourseId);
-      query = query.eq("format_id", formatId);
 
       if (statut && statut !== "all") {
         const s = (statut || "").toLowerCase();
@@ -1076,8 +653,7 @@ export default function ListeInscriptions() {
           annule: ["annule", "annulé", "canceled", "cancelled"],
           en_attente: ["en_attente", "en attente", "pending", "attente"],
         };
-        const key =
-          s === "paye" ? "paye" : s === "annule" ? "annule" : "en_attente";
+        const key = s === "paye" ? "paye" : s === "annule" ? "annule" : "en_attente";
         query = query.in("statut", SET[key]);
       }
 
@@ -1096,21 +672,9 @@ export default function ListeInscriptions() {
         );
       }
 
-      if (sortBy === "nom")
-        query = query.order("nom", {
-          ascending: sortDir === "asc",
-          nullsFirst: false,
-        });
-      else if (sortBy === "statut")
-        query = query.order("statut", {
-          ascending: sortDir === "asc",
-          nullsFirst: false,
-        });
-      else
-        query = query.order("created_at", {
-          ascending: sortDir === "asc",
-          nullsFirst: false,
-        });
+      if (sortBy === "nom") query = query.order("nom", { ascending: sortDir === "asc" });
+      else if (sortBy === "statut") query = query.order("statut", { ascending: sortDir === "asc" });
+      else query = query.order("created_at", { ascending: sortDir === "asc" });
 
       const { data, error, count } = await query;
       if (error) throw error;
@@ -1118,21 +682,7 @@ export default function ListeInscriptions() {
       setRows(data || []);
       setTotal(count || (data?.length || 0));
 
-      // Groupes
-      const grpIds = [
-        ...new Set((data || []).map((r) => r.member_of_group_id).filter(Boolean)),
-      ];
-      if (grpIds.length) {
-        const { data: groups } = await supabase
-          .from("inscriptions_groupes")
-          .select("id, team_name, team_category, statut, members_count")
-          .in("id", grpIds);
-        const m = new Map();
-        (groups || []).forEach((g) => m.set(g.id, g));
-        setGroupMap(m);
-      } else setGroupMap(new Map());
-
-      // Options confirmées (payées)
+      // Options confirmées
       const ids = (data || []).map((r) => r.id);
       if (ids.length) {
         const { data: opts } = await supabase
@@ -1150,16 +700,13 @@ export default function ListeInscriptions() {
 
         const optionIds = [...new Set((opts || []).map((o) => o.option_id))];
         if (optionIds.length) {
-          const { data: defs } = await supabase
-            .from("options_catalogue")
-            .select("id, label")
-            .in("id", optionIds);
+          const { data: defs } = await supabase.from("options_catalogue").select("id, label").in("id", optionIds);
           const mm = new Map();
-          (defs || []).forEach((d) =>
-            mm.set(d.id, d.label || `#${String(d.id).slice(0, 8)}`)
-          );
+          (defs || []).forEach((d) => mm.set(d.id, d.label || `#${String(d.id).slice(0, 8)}`));
           setOptionLabelMap(mm);
-        } else setOptionLabelMap(new Map());
+        } else {
+          setOptionLabelMap(new Map());
+        }
       } else {
         setOptionsMap(new Map());
         setOptionLabelMap(new Map());
@@ -1169,7 +716,7 @@ export default function ListeInscriptions() {
     } finally {
       setLoading(false);
     }
-  }, [formatId, resolvedCourseId, formatObj, statut, debouncedQ, sortBy, sortDir]);
+  }, [formatId, resolvedCourseId, statut, debouncedQ, sortBy, sortDir]);
 
   useEffect(() => {
     load();
@@ -1191,16 +738,13 @@ export default function ListeInscriptions() {
   const pageRows = rows.slice(from, to);
 
   // Sélection
-  const allChecked =
-    pageRows.length > 0 && pageRows.every((r) => selected.has(r.id));
-
+  const allChecked = pageRows.length > 0 && pageRows.every((r) => selected.has(r.id));
   const toggleRow = (id) =>
     setSelected((prev) => {
       const next = new Set(prev);
       next.has(id) ? next.delete(id) : next.add(id);
       return next;
     });
-
   const toggleAll = () =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -1217,108 +761,60 @@ export default function ListeInscriptions() {
     return Array.from(emails);
   }, [rows, selected]);
 
-  // Edition inline
   const updateStatut = async (row, newStatut) => {
     const prev = row.statut;
-    setRows((rs) =>
-      rs.map((r) => (r.id === row.id ? { ...r, statut: newStatut } : r))
-    );
-    const { error } = await supabase
-      .from("inscriptions")
-      .update({ statut: newStatut })
-      .eq("id", row.id);
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, statut: newStatut } : r)));
+    const { error } = await supabase.from("inscriptions").update({ statut: newStatut }).eq("id", row.id);
     if (error) {
-      setRows((rs) =>
-        rs.map((r) => (r.id === row.id ? { ...r, statut: prev } : r))
-      );
+      setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, statut: prev } : r)));
       alert("Impossible de mettre à jour le statut.");
     }
   };
 
   const updateField = async (row, key, value) => {
     const prev = row[key];
-    setRows((rs) =>
-      rs.map((r) => (r.id === row.id ? { ...r, [key]: value } : r))
-    );
-    const payload =
-      key === "dossard" && value !== "" ? { dossard: Number(value) } : { [key]: value === "" ? null : value };
+    setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, [key]: value } : r)));
 
-    const { error } = await supabase
-      .from("inscriptions")
-      .update(payload)
-      .eq("id", row.id);
+    const payload =
+      key === "dossard" && value !== ""
+        ? { dossard: Number(value) }
+        : { [key]: value === "" ? null : value };
+
+    const { error } = await supabase.from("inscriptions").update(payload).eq("id", row.id);
 
     if (error) {
-      setRows((rs) =>
-        rs.map((r) => (r.id === row.id ? { ...r, [key]: prev } : r))
-      );
+      setRows((rs) => rs.map((r) => (r.id === row.id ? { ...r, [key]: prev } : r)));
       alert("Sauvegarde impossible.");
     }
   };
 
-  // Effacer dossards (sélection ou tout filtré)
-const clearBibNumbers = async (scope = "selected") => {
-  const ids =
-    scope === "selected" ? Array.from(selected) : rows.map((r) => r.id);
+  const clearBibNumbers = async (scope = "selected") => {
+    const ids = scope === "selected" ? Array.from(selected) : rows.map((r) => r.id);
+    if (ids.length === 0) return alert("Aucun coureur concerné.");
 
-  if (ids.length === 0) return alert("Aucun coureur concerné.");
+    const confirm = window.confirm(`Effacer le dossard de ${ids.length} coureur(s) ?`);
+    if (!confirm) return;
 
-  const confirm = window.confirm(
-    `Effacer le dossard de ${ids.length} coureur(s) ?`
-  );
-  if (!confirm) return;
+    try {
+      const chunks = (arr, n) => Array.from({ length: Math.ceil(arr.length / n) }, (_, i) => arr.slice(i * n, (i + 1) * n));
+      const batches = chunks(ids, 500).map((part) => supabase.from("inscriptions").update({ dossard: null }).in("id", part));
 
-  try {
-    const chunks = (arr, n) =>
-      Array.from({ length: Math.ceil(arr.length / n) }, (_, i) =>
-        arr.slice(i * n, (i + 1) * n)
-      );
+      const res = await Promise.allSettled(batches);
+      const allOk = res.every((r) => r.status === "fulfilled");
 
-    const batches = chunks(ids, 500).map((part) =>
-      supabase.from("inscriptions").update({ dossard: null }).in("id", part)
-    );
+      if (allOk) alert("Dossards effacés.");
+      else {
+        console.warn("Certaines opérations ont échoué:", res);
+        alert("Certains effacements ont échoué (voir console).");
+      }
 
-    const res = await Promise.allSettled(batches);
-    const allOk = res.every((r) => r.status === "fulfilled");
-
-    if (allOk) {
-      alert("Dossards effacés.");
-    } else {
-      console.warn("Certaines opérations ont échoué:", res);
-      alert("Certains effacements ont échoué (voir console).");
+      load();
+    } catch (e) {
+      console.error(e);
+      alert("Erreur lors de l’effacement des dossards.");
     }
-
-    load();
-  } catch (e) {
-    console.error(e);
-    alert("Erreur lors de l’effacement des dossards.");
-  }
-};
-  // ✅ Inviter la liste d’attente
-  const inviteWaitlist = async () => {
-    if (!resolvedCourseId || !formatId) return;
-
-    const maxInvites = Number(
-      prompt("Combien d’invitations envoyer ? (ex: 10)", "10") || "0"
-    );
-    if (!maxInvites || maxInvites <= 0) return;
-
-    const { data, error } = await supabase.functions.invoke("invite-waitlist", {
-      body: { courseId: resolvedCourseId, formatId, maxInvites, expireHours: 48 },
-    });
-
-    if (error) {
-      console.error("invite-waitlist", error);
-      alert("Erreur lors de l’envoi des invitations.");
-      return;
-    }
-
-    alert(
-      `Invitations traitées: ${data?.invited ?? 0} / Envoyées: ${data?.sent ?? 0} / Échecs: ${data?.failed ?? 0}`
-    );
   };
 
-  
   /* ---------------------- Catégories d'âge : calcul ---------------------- */
   const handleComputeCategories = async () => {
     if (!formatId || rows.length === 0) return;
@@ -1389,21 +885,18 @@ const clearBibNumbers = async (scope = "selected") => {
   const handleApplyCategories = async () => {
     if (!previewCategories.length) return;
     setCategoriesApplying(true);
+
     try {
       const withCat = previewCategories.filter((p) => p.newCode);
       for (const row of withCat) {
         const { error } = await supabase
           .from("inscriptions")
-          .update({
-            federation_code: federationCode,
-            categorie_age_code: row.newCode,
-            categorie_age_label: row.newLabel,
-          })
+          .update({ federation_code: federationCode, categorie_age_code: row.newCode, categorie_age_label: row.newLabel })
           .eq("id", row.inscriptionId);
-        if (error) {
-          console.error("Erreur update catégorie pour inscription", row.inscriptionId, error);
-        }
+
+        if (error) console.error("Erreur update catégorie", row.inscriptionId, error);
       }
+
       await load();
       setPreviewCategories([]);
       alert("Catégories d’âge appliquées aux inscrits.");
@@ -1422,15 +915,11 @@ const clearBibNumbers = async (scope = "selected") => {
 
   const currentFed = federations.find((f) => f.code === federationCode);
 
-  /* ---------------------- Colonnes pour export (accessor + toggle) ---------------------- */
+  /* ---------------------- Export columns ---------------------- */
   const exportColumns = useMemo(() => {
     return columns.map((c, i) => {
       if (c.key === "options") {
-        return {
-          ...c,
-          onToggle: (idx, vis) => toggleCol(idx, vis),
-          accessor: (r) => optionsToString(r),
-        };
+        return { ...c, onToggle: (idx, vis) => toggleCol(idx, vis), accessor: (r) => optionsToString(r) };
       }
       return { ...c, onToggle: (idx, vis) => toggleCol(idx, vis) };
     });
@@ -1438,16 +927,18 @@ const clearBibNumbers = async (scope = "selected") => {
 
   const visibleColumns = exportColumns;
 
+  const formatLabel = useMemo(() => {
+    if (!formatObj) return formatId || "";
+    return `${formatObj.nom}${formatObj.date ? ` — ${formatDate(formatObj.date)}` : ""}`;
+  }, [formatObj, formatId]);
+
   return (
     <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-6 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           {resolvedCourseId ? (
-            <Link
-              to={`/courses/${resolvedCourseId}`}
-              className="text-sm text-neutral-500 hover:text-neutral-800"
-            >
+            <Link to={`/courses/${resolvedCourseId}`} className="text-sm text-neutral-500 hover:text-neutral-800">
               ← Retour à la course
             </Link>
           ) : (
@@ -1455,11 +946,12 @@ const clearBibNumbers = async (scope = "selected") => {
               ← Accueil
             </Link>
           )}
+
           <h1 className="text-2xl sm:text-3xl font-bold mt-1">Inscriptions</h1>
+
           <p className="text-neutral-600 mt-1">
-            {total} résultat{total > 1 ? "s" : ""} —{" "}
-            {formatObj ? formatObj.nom : `Format ${formatId || "?"}`}{" "}
-            {formatObj?.date ? `(${formatObj.date})` : ""}
+            {total} résultat{total > 1 ? "s" : ""} — {formatObj ? formatObj.nom : `Format ${formatId || "?"}`}{" "}
+            {formatObj?.date ? `(${formatDate(formatObj.date)})` : ""}
           </p>
         </div>
 
@@ -1469,9 +961,7 @@ const clearBibNumbers = async (scope = "selected") => {
             disabled={recipients.length === 0}
             className={cls(
               "rounded-xl px-4 py-2 text-sm font-semibold",
-              recipients.length === 0
-                ? "bg-neutral-300 text-neutral-600 cursor-not-allowed"
-                : "bg-neutral-900 text-white hover:bg-black"
+              recipients.length === 0 ? "bg-neutral-300 text-neutral-600 cursor-not-allowed" : "bg-neutral-900 text-white hover:bg-black"
             )}
           >
             Email aux sélectionnés ({recipients.length})
@@ -1483,21 +973,6 @@ const clearBibNumbers = async (scope = "selected") => {
           >
             + Ajouter un coureur
           </button>
-          <button
-  onClick={inviteWaitlist}
-  className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
->
-  Inviter liste d’attente
-</button>
-
-          {(formatType === "groupe" || formatType === "relais") && (
-            <button
-              onClick={() => setShowAddTeam(true)}
-              className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
-            >
-              + Ajouter une équipe
-            </button>
-          )}
 
           <button
             onClick={() => setShowExport(true)}
@@ -1506,10 +981,7 @@ const clearBibNumbers = async (scope = "selected") => {
             Export CSV {selected.size > 0 ? `(${selected.size})` : "(tout)"}
           </button>
 
-          <button
-            onClick={() => load()}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
-          >
+          <button onClick={() => load()} className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50">
             Rafraîchir
           </button>
         </div>
@@ -1519,11 +991,7 @@ const clearBibNumbers = async (scope = "selected") => {
       <div className="mb-4 grid grid-cols-1 md:grid-cols-4 gap-3">
         <div>
           <label className="block text-sm font-medium">Statut</label>
-          <select
-            value={statut}
-            onChange={(e) => setStatut(e.target.value)}
-            className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-          >
+          <select value={statut} onChange={(e) => setStatut(e.target.value)} className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2">
             <option value="all">Tous</option>
             <option value="paye">Payé</option>
             <option value="en_attente">En attente</option>
@@ -1544,20 +1012,12 @@ const clearBibNumbers = async (scope = "selected") => {
         <div>
           <label className="block text-sm font-medium">Tri</label>
           <div className="mt-1 grid grid-cols-2 gap-2">
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="rounded-xl border border-neutral-300 px-3 py-2"
-            >
+            <select value={sortBy} onChange={(e) => setSortBy(e.target.value)} className="rounded-xl border border-neutral-300 px-3 py-2">
               <option value="created_at">Date</option>
               <option value="nom">Nom</option>
               <option value="statut">Statut</option>
             </select>
-            <select
-              value={sortDir}
-              onChange={(e) => setSortDir(e.target.value)}
-              className="rounded-xl border border-neutral-300 px-3 py-2"
-            >
+            <select value={sortDir} onChange={(e) => setSortDir(e.target.value)} className="rounded-xl border border-neutral-300 px-3 py-2">
               <option value="desc">Desc</option>
               <option value="asc">Asc</option>
             </select>
@@ -1565,21 +1025,21 @@ const clearBibNumbers = async (scope = "selected") => {
         </div>
       </div>
 
-      {/* Blocs gestion dossards & catégories */}
-      <div className="mb-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-        {/* Bloc Dossards */}
+      {/* Dossards / Waitlist / Catégories */}
+      <div className="mb-4 grid grid-cols-1 lg:grid-cols-3 gap-4">
+        {/* Dossards */}
         <div className="rounded-2xl border border-neutral-200 bg-white p-4">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-neutral-800">
-              Gestion des dossards
-            </h2>
+            <h2 className="text-sm font-semibold text-neutral-800">Gestion des dossards</h2>
             <span className="text-xs text-neutral-500">
               {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
             </span>
           </div>
+
           <p className="text-xs text-neutral-500 mb-3">
-            Utilisez ces actions pour attribuer ou effacer les dossards sur le périmètre filtré.
+            Attribuez / effacez les dossards sur le périmètre filtré.
           </p>
+
           <div className="flex flex-wrap gap-2">
             <button
               onClick={() => setShowAssignBib(true)}
@@ -1593,7 +1053,7 @@ const clearBibNumbers = async (scope = "selected") => {
                 onClick={() => clearBibNumbers("selected")}
                 className="rounded-l-xl border border-neutral-300 px-4 py-2 text-xs sm:text-sm hover:bg-neutral-50"
               >
-                Effacer dossards (sélection)
+                Effacer (sélection)
               </button>
               <button
                 onClick={() => clearBibNumbers("all")}
@@ -1604,22 +1064,23 @@ const clearBibNumbers = async (scope = "selected") => {
             </div>
           </div>
         </div>
-<div className="mb-4">
-  <WaitlistPanel
-    courseId={resolvedCourseId}
-    formatId={formatId}
-    formatLabel={formatObj ? `${formatObj.nom}${formatObj.date ? ` — ${formatObj.date}` : ""}` : ""}
-    enabled={!!formatObj?.waitlist_enabled}
-    quotaAttente={formatObj?.quota_attente ?? null}
-  />
-</div>
 
-        {/* Bloc Catégories d'âge */}
+        {/* Waitlist */}
+        <WaitlistPanel
+          courseId={resolvedCourseId}
+          formatId={formatId}
+          formatLabel={formatLabel}
+          enabled={!!formatObj?.waitlist_enabled}
+          quotaAttente={formatObj?.quota_attente ?? null}
+          onChanged={() => {
+            // si un invite consomme / etc, tu peux rafraîchir d'autres choses ici
+          }}
+        />
+
+        {/* Catégories */}
         <div className="rounded-2xl border border-neutral-200 bg-white p-4">
           <div className="flex items-center justify-between mb-2">
-            <h2 className="text-sm font-semibold text-neutral-800">
-              Catégories d&apos;âge
-            </h2>
+            <h2 className="text-sm font-semibold text-neutral-800">Catégories d&apos;âge</h2>
             {currentFed && (
               <span className="text-xs text-neutral-500">
                 Saison : début <b>{currentFed.season_start_month || 1}/</b>
@@ -1628,15 +1089,12 @@ const clearBibNumbers = async (scope = "selected") => {
           </div>
 
           <p className="text-xs text-neutral-500 mb-3">
-            Choisissez une fédération pour pré-calculer les catégories d&apos;âge des inscrits du format courant,
-            puis appliquez-les dans la base.
+            Pré-calculer puis appliquer les catégories d&apos;âge pour le format courant.
           </p>
 
           <div className="flex flex-wrap items-end gap-3 mb-3">
             <div>
-              <label className="block text-xs font-medium text-neutral-600 mb-1">
-                Fédération
-              </label>
+              <label className="block text-xs font-medium text-neutral-600 mb-1">Fédération</label>
               <select
                 value={federationCode}
                 onChange={(e) => setFederationCode(e.target.value)}
@@ -1657,9 +1115,7 @@ const clearBibNumbers = async (scope = "selected") => {
               disabled={categoriesLoading || rows.length === 0}
               className={cls(
                 "rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold",
-                rows.length === 0
-                  ? "bg-neutral-200 text-neutral-500 cursor-not-allowed"
-                  : "bg-neutral-900 text-white hover:bg-black",
+                rows.length === 0 ? "bg-neutral-200 text-neutral-500 cursor-not-allowed" : "bg-neutral-900 text-white hover:bg-black",
                 categoriesLoading && "opacity-70 cursor-wait"
               )}
             >
@@ -1672,15 +1128,11 @@ const clearBibNumbers = async (scope = "selected") => {
               disabled={categoriesApplying || previewCategories.length === 0 || rows.length === 0}
               className={cls(
                 "rounded-xl px-4 py-2 text-xs sm:text-sm font-semibold",
-                previewCategories.length === 0
-                  ? "bg-neutral-200 text-neutral-500 cursor-not-allowed"
-                  : "bg-emerald-600 text-white hover:bg-emerald-500",
+                previewCategories.length === 0 ? "bg-neutral-200 text-neutral-500 cursor-not-allowed" : "bg-emerald-600 text-white hover:bg-emerald-500",
                 categoriesApplying && "opacity-70 cursor-wait"
               )}
             >
-              {categoriesApplying
-                ? "Application…"
-                : `Appliquer aux inscrits${previewChangedCount ? ` (${previewChangedCount} changés)` : ""}`}
+              {categoriesApplying ? "Application…" : `Appliquer${previewChangedCount ? ` (${previewChangedCount} changés)` : ""}`}
             </button>
           </div>
 
@@ -1689,14 +1141,9 @@ const clearBibNumbers = async (scope = "selected") => {
           {previewCategories.length > 0 && (
             <div className="mt-2">
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs text-neutral-500">
-                  Prévisualisation sur {previewCategories.length} inscrit
-                  {previewCategories.length > 1 ? "s" : ""}.
-                </span>
+                <span className="text-xs text-neutral-500">Prévisualisation sur {previewCategories.length} inscrit(s).</span>
                 {previewChangedCount > 0 && (
-                  <span className="text-xs font-medium text-emerald-700">
-                    {previewChangedCount} catégorie{previewChangedCount > 1 ? "s" : ""} modifiée
-                  </span>
+                  <span className="text-xs font-medium text-emerald-700">{previewChangedCount} modifiée(s)</span>
                 )}
               </div>
 
@@ -1753,12 +1200,7 @@ const clearBibNumbers = async (scope = "selected") => {
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
           {columns.map((c, i) => (
             <label key={c.key} className="inline-flex items-center gap-2 text-sm">
-              <input
-                type="checkbox"
-                checked={c.visible}
-                onChange={(e) => toggleCol(i, e.target.checked)}
-              />{" "}
-              {c.label}
+              <input type="checkbox" checked={c.visible} onChange={(e) => toggleCol(i, e.target.checked)} /> {c.label}
             </label>
           ))}
         </div>
@@ -1771,13 +1213,11 @@ const clearBibNumbers = async (scope = "selected") => {
             <input type="checkbox" checked={allChecked} onChange={toggleAll} />
             Tout sélectionner (page)
           </label>
-          <div className="text-neutral-500">
-            {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
-          </div>
+          <div className="text-neutral-500">{selected.size} sélectionné(s)</div>
         </div>
 
         <div className="overflow-x-auto">
-          <table className="min-w-[1200px] w-full text-sm">
+          <table className="min-w-[1100px] w-full text-sm">
             <thead>
               <tr className="text-left text-neutral-600">
                 <th className="px-4 py-3 w-10">
@@ -1789,10 +1229,7 @@ const clearBibNumbers = async (scope = "selected") => {
                   .map((c) => (
                     <th
                       key={c.key}
-                      className={cls(
-                        "px-4 py-3",
-                        ["nom", "statut", "created_at"].includes(c.key) ? "cursor-pointer" : ""
-                      )}
+                      className={cls("px-4 py-3", ["nom", "statut", "created_at"].includes(c.key) ? "cursor-pointer" : "")}
                       onClick={() => {
                         if (["nom", "statut", "created_at"].includes(c.key)) {
                           setSortBy(c.key);
@@ -1829,10 +1266,7 @@ const clearBibNumbers = async (scope = "selected") => {
                 ))
               ) : rows.length === 0 ? (
                 <tr>
-                  <td
-                    colSpan={columns.filter((c) => c.visible).length + 2}
-                    className="px-4 py-6 text-center text-neutral-600"
-                  >
+                  <td colSpan={columns.filter((c) => c.visible).length + 2} className="px-4 py-6 text-center text-neutral-600">
                     Aucun résultat — ajustez vos filtres.
                   </td>
                 </tr>
@@ -1840,17 +1274,12 @@ const clearBibNumbers = async (scope = "selected") => {
                 pageRows.map((r) => (
                   <tr key={r.id} className="hover:bg-neutral-50/60">
                     <td className="px-4 py-3 align-top">
-                      <input
-                        type="checkbox"
-                        checked={selected.has(r.id)}
-                        onChange={() => toggleRow(r.id)}
-                      />
+                      <input type="checkbox" checked={selected.has(r.id)} onChange={() => toggleRow(r.id)} />
                     </td>
 
                     {columns
                       .filter((c) => c.visible)
                       .map((c) => {
-                        // ✅ Options (chips)
                         if (c.key === "options") {
                           return (
                             <td key={c.key} className="px-4 py-2 align-top">
@@ -1859,13 +1288,9 @@ const clearBibNumbers = async (scope = "selected") => {
                           );
                         }
 
-                        const content =
-                          typeof c.accessor === "function" ? c.accessor(r) : r[c.key];
+                        const content = typeof c.accessor === "function" ? c.accessor(r) : r[c.key];
 
-                        // champs éditables inline
-                        if (
-                          ["numero_licence", "club", "email", "telephone", "team_name", "dossard"].includes(c.key)
-                        ) {
+                        if (["numero_licence", "email", "team_name", "dossard"].includes(c.key)) {
                           return (
                             <td key={c.key} className="px-4 py-2 align-top">
                               <input
@@ -1879,10 +1304,7 @@ const clearBibNumbers = async (scope = "selected") => {
                         }
 
                         if (c.key === "statut") {
-                          const v =
-                            (r.statut || "").toLowerCase() === "en attente"
-                              ? "en_attente"
-                              : r.statut || "";
+                          const v = (r.statut || "").toLowerCase() === "en attente" ? "en_attente" : r.statut || "";
                           return (
                             <td key={c.key} className="px-4 py-2 align-top">
                               <div className="flex items-center gap-2">
@@ -1936,9 +1358,7 @@ const clearBibNumbers = async (scope = "selected") => {
               disabled={page <= 1}
               className={cls(
                 "rounded-lg border px-3 py-1.5",
-                page <= 1
-                  ? "text-neutral-400 border-neutral-200 cursor-not-allowed"
-                  : "hover:bg-neutral-50"
+                page <= 1 ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
               )}
             >
               Précédent
@@ -1951,9 +1371,7 @@ const clearBibNumbers = async (scope = "selected") => {
               disabled={page >= pageCount}
               className={cls(
                 "rounded-lg border px-3 py-1.5",
-                page >= pageCount
-                  ? "text-neutral-400 border-neutral-200 cursor-not-allowed"
-                  : "hover:bg-neutral-50"
+                page >= pageCount ? "text-neutral-400 border-neutral-200 cursor-not-allowed" : "hover:bg-neutral-50"
               )}
             >
               Suivant
@@ -1971,10 +1389,9 @@ const clearBibNumbers = async (scope = "selected") => {
           if (recipients.length === 0) return alert("Aucun destinataire sélectionné.");
           if (!subject?.trim()) return alert("Le sujet est requis.");
           if (!html?.trim()) return alert("Le message est requis.");
+
           supabase.functions
-            .invoke("organiser-send-emails", {
-              body: { subject, html, to: recipients },
-            })
+            .invoke("organiser-send-emails", { body: { subject, html, to: recipients } })
             .then(({ error }) => {
               if (error) {
                 console.error("organiser-send-emails", error);
@@ -1996,15 +1413,6 @@ const clearBibNumbers = async (scope = "selected") => {
         formatId={formatId}
       />
 
-      <AddTeamModal
-        open={showAddTeam}
-        onClose={() => setShowAddTeam(false)}
-        onCreated={() => load()}
-        courseId={resolvedCourseId}
-        formatId={formatId}
-        defaultSize={defaultTeamSize}
-      />
-
       <AssignBibModal
         open={showAssignBib}
         onClose={() => setShowAssignBib(false)}
@@ -2021,10 +1429,7 @@ const clearBibNumbers = async (scope = "selected") => {
         onClose={() => setShowExport(false)}
         rows={selected.size > 0 ? rows.filter((r) => selected.has(r.id)) : rows}
         columns={visibleColumns}
-        filenameBase={`inscriptions-${(formatObj?.nom || "format")
-          .toString()
-          .toLowerCase()
-          .replace(/\s+/g, "-")}`}
+        filenameBase={`inscriptions-${(formatObj?.nom || "format").toString().toLowerCase().replace(/\s+/g, "-")}`}
       />
     </div>
   );
