@@ -1,4 +1,3 @@
-// src/components/WaitlistPanel.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 
@@ -31,12 +30,7 @@ function StatusPill({ row }) {
     : "bg-neutral-100 text-neutral-700";
 
   return (
-    <span
-      className={cls(
-        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
-        style
-      )}
-    >
+    <span className={cls("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", style)}>
       {label}
     </span>
   );
@@ -48,7 +42,7 @@ export default function WaitlistPanel({
   formatLabel = "",
   enabled = true,
   quotaAttente = null,
-  onInvite, // optionnel : callback après invitation
+  onInvited, // optionnel: callback après invitation + reload parent
 }) {
   const [resolvedCourseId, setResolvedCourseId] = useState(courseId || null);
   const [resolvedFormatId, setResolvedFormatId] = useState(formatId || null);
@@ -60,11 +54,10 @@ export default function WaitlistPanel({
   const [rows, setRows] = useState([]);
   const [error, setError] = useState("");
 
-  // Keep in sync with props
   useEffect(() => setResolvedCourseId(courseId || null), [courseId]);
   useEffect(() => setResolvedFormatId(formatId || null), [formatId]);
 
-  // ✅ Si on a formatId mais pas courseId, on résout course_id via formats
+  // si formatId mais pas courseId => resolve course via formats
   useEffect(() => {
     let alive = true;
 
@@ -74,8 +67,8 @@ export default function WaitlistPanel({
       const fid = resolvedFormatId || formatId;
       const cid = resolvedCourseId || courseId;
 
-      if (!fid) return; // on attend formatId
-      if (cid) return; // déjà résolu
+      if (!fid) return;
+      if (cid) return;
 
       setLoadingResolve(true);
       try {
@@ -114,9 +107,7 @@ export default function WaitlistPanel({
     try {
       let q = supabase
         .from("waitlist")
-        .select(
-          "id, course_id, format_id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source"
-        )
+        .select("id, course_id, format_id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source")
         .eq("format_id", resolvedFormatId)
         .order("created_at", { ascending: false });
 
@@ -129,8 +120,7 @@ export default function WaitlistPanel({
     } catch (e) {
       console.error("WAITLIST_LOAD_ERROR", e);
       setError(
-        "Impossible de charger la liste d’attente (droits / RLS ?). " +
-          "Vérifie les policies SELECT sur la table waitlist."
+        "Impossible de charger la liste d’attente (droits / RLS ?). Vérifie les policies SELECT sur waitlist."
       );
       setRows([]);
     } finally {
@@ -150,72 +140,39 @@ export default function WaitlistPanel({
     return { total, invited, consumed, pending };
   }, [rows]);
 
-  // ✅ Bouton interne "Inviter" (Edge Function)
   const invite = useCallback(async () => {
-    if (!enabled) {
-      alert("Liste d’attente désactivée pour ce format.");
-      return;
-    }
-    if (!resolvedFormatId) {
-      alert("Format non résolu.");
-      return;
-    }
-    if (!resolvedCourseId) {
-      alert("Course non résolue (attends 1 seconde ou rafraîchis).");
-      return;
-    }
+    const cid = resolvedCourseId || courseId;
+    const fid = resolvedFormatId || formatId;
 
-    const maxInvites = Number(
-      prompt("Combien d’invitations envoyer ? (ex: 10)", "10") || "0"
-    );
+    if (!fid || !cid) return alert("Course/format non résolu.");
+    if (!enabled) return alert("Liste d’attente désactivée sur ce format.");
+
+    const maxInvites = Number(prompt("Combien d’invitations envoyer ? (ex: 10)", "10") || "0");
     if (!maxInvites || maxInvites <= 0) return;
 
-    const expireHours = Number(
-      prompt("Durée de validité (heures) ? (ex: 48)", "48") || "0"
-    );
+    const expireHours = Number(prompt("Durée de validité (heures) ? (ex: 48)", "48") || "0");
     if (!expireHours || expireHours <= 0) return;
 
     setInviting(true);
-    setError("");
-
     try {
       const { data, error } = await supabase.functions.invoke("invite-waitlist", {
-        body: {
-          courseId: resolvedCourseId,
-          formatId: resolvedFormatId,
-          maxInvites,
-          expireHours,
-        },
+        body: { courseId: cid, formatId: fid, maxInvites, expireHours },
       });
-
       if (error) throw error;
 
       alert(
-        `Invitations traitées: ${data?.invited ?? 0}\nEnvoyées: ${
-          data?.sent ?? 0
-        }\nÉchecs: ${data?.failed ?? 0}`
+        `Invitations traitées: ${data?.invited ?? 0}\nEnvoyées: ${data?.sent ?? 0}\nÉchecs: ${data?.failed ?? 0}`
       );
 
       await load();
-
-      // optionnel : callback parent
-      if (typeof onInvite === "function") {
-        try {
-          await onInvite(data);
-        } catch (e) {
-          console.warn("onInvite callback failed (ignored)", e);
-        }
-      }
+      onInvited?.(data);
     } catch (e) {
       console.error("INVITE_WAITLIST_ERROR", e);
       alert("Erreur lors de l’envoi des invitations.");
     } finally {
       setInviting(false);
     }
-  }, [enabled, resolvedCourseId, resolvedFormatId, load, onInvite]);
-
-  const inviteDisabled =
-    !enabled || inviting || loadingResolve || !resolvedFormatId || !resolvedCourseId;
+  }, [resolvedCourseId, resolvedFormatId, courseId, formatId, enabled, load, onInvited]);
 
   return (
     <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
@@ -225,46 +182,29 @@ export default function WaitlistPanel({
 
           <div className="mt-1 text-xs text-neutral-500">
             {formatLabel ? (
-              <>
-                Format :{" "}
-                <span className="font-medium text-neutral-700">{formatLabel}</span>
-              </>
+              <>Format : <span className="font-medium text-neutral-700">{formatLabel}</span></>
             ) : (
-              <>
-                Format :{" "}
-                <span className="font-medium text-neutral-700">
-                  {resolvedFormatId ? resolvedFormatId : "—"}
-                </span>
-              </>
+              <>Format : <span className="font-medium text-neutral-700">{resolvedFormatId || "—"}</span></>
             )}
           </div>
 
           <div className="mt-1 text-xs text-neutral-500">
             {loadingResolve && "Résolution course/format…"}
-            {!loadingResolve &&
-              !resolvedFormatId &&
-              "Chargement… (format non encore sélectionné)"}
+            {!loadingResolve && !resolvedFormatId && "Format non sélectionné"}
           </div>
         </div>
 
         <div className="flex items-center gap-2 shrink-0">
-          {/* ✅ Toujours affiché, plus dépendant de onInvite */}
           <button
             onClick={invite}
             className={cls(
               "rounded-xl px-3 py-2 text-xs font-semibold",
-              inviteDisabled
-                ? "border border-neutral-200 bg-neutral-100 text-neutral-400 cursor-not-allowed"
-                : "border border-neutral-300 hover:bg-neutral-50"
+              !enabled || inviting || !resolvedFormatId
+                ? "bg-neutral-200 text-neutral-500 cursor-not-allowed"
+                : "bg-neutral-900 text-white hover:bg-black"
             )}
-            disabled={inviteDisabled}
-            title={
-              !enabled
-                ? "Liste d’attente désactivée"
-                : !resolvedCourseId || !resolvedFormatId
-                ? "Course/format en cours de résolution"
-                : "Envoyer des invitations à la liste d’attente"
-            }
+            disabled={!enabled || inviting || !resolvedFormatId}
+            title={!enabled ? "Liste d’attente désactivée" : "Envoyer des invitations"}
           >
             {inviting ? "Invitation…" : "Inviter"}
           </button>
@@ -331,8 +271,7 @@ export default function WaitlistPanel({
             {!resolvedFormatId ? (
               <tr>
                 <td colSpan={8} className="py-3 text-xs text-neutral-500">
-                  Format non sélectionné (le panneau s’affichera dès qu’un format est
-                  choisi).
+                  Format non sélectionné.
                 </td>
               </tr>
             ) : loading ? (
@@ -350,9 +289,7 @@ export default function WaitlistPanel({
             ) : (
               rows.map((r) => (
                 <tr key={r.id} className="hover:bg-neutral-50/60">
-                  <td className="py-2 pr-3">
-                    <StatusPill row={r} />
-                  </td>
+                  <td className="py-2 pr-3"><StatusPill row={r} /></td>
                   <td className="py-2 pr-3 font-medium text-neutral-900">{r.email}</td>
                   <td className="py-2 pr-3 text-neutral-700">
                     {(r.nom || "") + (r.prenom ? ` ${r.prenom}` : "") || "—"}
