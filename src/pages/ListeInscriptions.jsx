@@ -55,6 +55,12 @@ function StatusBadge({ status }) {
   );
 }
 
+function chunk(arr, size) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += size) out.push(arr.slice(i, i + size));
+  return out;
+}
+
 /* -------------------------- Modale Email -------------------------- */
 function EmailModal({ open, onClose, recipients, onSend }) {
   const [subject, setSubject] = useState("");
@@ -118,6 +124,268 @@ function EmailModal({ open, onClose, recipients, onSend }) {
             className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black"
           >
             Envoyer
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ---------------------- Modale Waitlist (Invites) ---------------------- */
+function InviteWaitlistModal({
+  open,
+  onClose,
+  courseId,
+  formatId,
+  formatLabel,
+  onDone,
+}) {
+  const [limit, setLimit] = useState(10);
+  const [validHours, setValidHours] = useState(72);
+  const [loading, setLoading] = useState(false);
+  const [invites, setInvites] = useState([]); // {email, invite_token, invite_expires_at}
+  const [sending, setSending] = useState(false);
+
+  const BASE = window.location.origin;
+
+  useEffect(() => {
+    if (!open) {
+      setLimit(10);
+      setValidHours(72);
+      setLoading(false);
+      setInvites([]);
+      setSending(false);
+    }
+  }, [open]);
+
+  if (!open) return null;
+
+  const invite = async () => {
+    if (!formatId) return alert("Format introuvable.");
+    setLoading(true);
+    try {
+      const { data, error } = await supabase.rpc("invite_waitlist", {
+        p_format_id: formatId,
+        p_limit: Number(limit || 10),
+        p_valid_hours: Number(validHours || 72),
+      });
+      if (error) throw error;
+      setInvites(data || []);
+      if ((data || []).length === 0) {
+        alert("Aucune entrée à inviter (liste vide ou déjà invitée récemment).");
+      }
+      onDone?.();
+    } catch (e) {
+      console.error("INVITE_WAITLIST_ERROR", e);
+      alert("Erreur : impossible d’inviter la liste d’attente.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyAllLinks = async () => {
+    const lines = (invites || []).map((x) => {
+      const url = `${BASE}/inscription/${courseId}?format=${formatId}&invite=${x.invite_token}`;
+      return `${x.email};${url}`;
+    });
+    try {
+      await navigator.clipboard.writeText(lines.join("\n"));
+      alert("Copié dans le presse-papiers (email;url).");
+    } catch {
+      alert("Impossible de copier (navigateur).");
+    }
+  };
+
+  // Envoi "simple" via la function existante organiser-send-emails (1 email = 1 invite, personnalisé)
+  const sendEmails = async () => {
+    if (!invites?.length) return alert("Aucune invitation générée.");
+    const subject = `Invitation : une place s'est libérée (${formatLabel || "format"})`;
+    const batches = chunk(invites, 5); // petit throttle
+    setSending(true);
+
+    try {
+      for (const b of batches) {
+        const res = await Promise.allSettled(
+          b.map((x) => {
+            const url = `${BASE}/inscription/${courseId}?format=${formatId}&invite=${x.invite_token}`;
+            const exp = x.invite_expires_at
+              ? new Date(x.invite_expires_at).toLocaleString("fr-FR")
+              : null;
+
+            const html = `
+              <div style="font-family:Arial,sans-serif;line-height:1.5">
+                <p>Bonjour,</p>
+                <p>Une place est disponible. Vous pouvez finaliser votre inscription via ce lien :</p>
+                <p><a href="${url}">${url}</a></p>
+                ${
+                  exp
+                    ? `<p style="color:#666;font-size:12px">Lien valable jusqu’au : <b>${exp}</b></p>`
+                    : ""
+                }
+                <p style="color:#666;font-size:12px">Si vous ne souhaitez plus être sur liste d’attente, ignorez ce message.</p>
+                <p>Sportivement,<br/>Tickrace</p>
+              </div>
+            `;
+
+            return supabase.functions.invoke("organiser-send-emails", {
+              body: { subject, html, to: [x.email] },
+            });
+          })
+        );
+
+        const failures = res.filter(
+          (r) =>
+            r.status === "rejected" ||
+            (r.status === "fulfilled" && r.value?.error)
+        );
+        if (failures.length) {
+          console.warn("WAITLIST_SEND_FAIL", failures);
+          // on continue quand même
+        }
+      }
+
+      alert("Envoi terminé (voir console si certains emails ont échoué).");
+    } catch (e) {
+      console.error("WAITLIST_SEND_ERROR", e);
+      alert("Erreur lors de l’envoi des emails.");
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex items-end sm:items-center justify-center bg-black/30 p-4">
+      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div>
+            <h3 className="text-lg font-semibold">Inviter la liste d’attente</h3>
+            <div className="text-xs text-neutral-600 mt-0.5">
+              Format : <b>{formatLabel || formatId || "—"}</b>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-800 text-sm"
+          >
+            Fermer
+          </button>
+        </div>
+
+        <div className="p-5 space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium">Combien inviter</label>
+              <input
+                type="number"
+                min={1}
+                value={limit}
+                onChange={(e) => setLimit(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium">Validité (heures)</label>
+              <input
+                type="number"
+                min={1}
+                value={validHours}
+                onChange={(e) => setValidHours(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                onClick={invite}
+                disabled={loading || !courseId || !formatId}
+                className={cls(
+                  "w-full rounded-xl px-4 py-2 text-sm font-semibold text-white",
+                  loading || !courseId || !formatId
+                    ? "bg-neutral-400 cursor-not-allowed"
+                    : "bg-neutral-900 hover:bg-black"
+                )}
+              >
+                {loading ? "Invitation…" : "Générer les invitations"}
+              </button>
+            </div>
+          </div>
+
+          {invites.length > 0 && (
+            <div className="rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-sm">
+                  <b>{invites.length}</b> invitation{invites.length > 1 ? "s" : ""} générée
+                  {invites.length > 1 ? "s" : ""}.
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={copyAllLinks}
+                    className="rounded-xl border border-neutral-300 bg-white px-3 py-2 text-xs sm:text-sm hover:bg-neutral-50"
+                  >
+                    Copier email;url
+                  </button>
+                  <button
+                    onClick={sendEmails}
+                    disabled={sending}
+                    className={cls(
+                      "rounded-xl px-3 py-2 text-xs sm:text-sm font-semibold text-white",
+                      sending ? "bg-neutral-400" : "bg-emerald-600 hover:bg-emerald-500"
+                    )}
+                  >
+                    {sending ? "Envoi…" : "Envoyer les emails"}
+                  </button>
+                </div>
+              </div>
+
+              <div className="mt-3 max-h-64 overflow-auto rounded-xl border border-neutral-200 bg-white">
+                <table className="min-w-full text-xs">
+                  <thead className="bg-neutral-100 text-neutral-600">
+                    <tr>
+                      <th className="px-3 py-2 text-left">Email</th>
+                      <th className="px-3 py-2 text-left">Expiration</th>
+                      <th className="px-3 py-2 text-left">Lien</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {invites.map((x, i) => {
+                      const url = `${BASE}/inscription/${courseId}?format=${formatId}&invite=${x.invite_token}`;
+                      return (
+                        <tr key={`${x.email}-${i}`} className="border-t">
+                          <td className="px-3 py-2">{x.email}</td>
+                          <td className="px-3 py-2">
+                            {x.invite_expires_at
+                              ? new Date(x.invite_expires_at).toLocaleString("fr-FR")
+                              : "—"}
+                          </td>
+                          <td className="px-3 py-2">
+                            <a
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-blue-700 underline break-all"
+                            >
+                              Ouvrir
+                            </a>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="mt-2 text-[11px] text-neutral-500">
+                Astuce : si tu veux du “vrai tracking” (email délivré, cliqué, etc.), on branchera une Edge Function dédiée.
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
+          >
+            Fermer
           </button>
         </div>
       </div>
@@ -591,27 +859,21 @@ function AddTeamModal({
                       <input
                         className="w-44 rounded-xl border px-2 py-1"
                         value={m.nom}
-                        onChange={(e) =>
-                          setMember(i, "nom", e.target.value)
-                        }
+                        onChange={(e) => setMember(i, "nom", e.target.value)}
                       />
                     </td>
                     <td className="px-3 py-2">
                       <input
                         className="w-44 rounded-xl border px-2 py-1"
                         value={m.prenom}
-                        onChange={(e) =>
-                          setMember(i, "prenom", e.target.value)
-                        }
+                        onChange={(e) => setMember(i, "prenom", e.target.value)}
                       />
                     </td>
                     <td className="px-3 py-2">
                       <select
                         className="rounded-xl border px-2 py-1"
                         value={m.genre}
-                        onChange={(e) =>
-                          setMember(i, "genre", e.target.value)
-                        }
+                        onChange={(e) => setMember(i, "genre", e.target.value)}
                       >
                         <option value="">—</option>
                         <option>Homme</option>
@@ -641,9 +903,7 @@ function AddTeamModal({
                       <input
                         className="w-60 rounded-xl border px-2 py-1"
                         value={m.email}
-                        onChange={(e) =>
-                          setMember(i, "email", e.target.value)
-                        }
+                        onChange={(e) => setMember(i, "email", e.target.value)}
                       />
                     </td>
                   </tr>
@@ -801,6 +1061,11 @@ export default function ListeInscriptions() {
   const [showExport, setShowExport] = useState(false);
   const [showAssignBib, setShowAssignBib] = useState(false);
 
+  // ✅ Waitlist UI
+  const [showInviteWaitlist, setShowInviteWaitlist] = useState(false);
+  const [waitlistCount, setWaitlistCount] = useState(null); // null=unknown
+  const [waitlistLoading, setWaitlistLoading] = useState(false);
+
   // Fédérations & catégories
   const [federations, setFederations] = useState([]);
   const [federationCode, setFederationCode] = useState("FFA");
@@ -901,6 +1166,40 @@ export default function ListeInscriptions() {
   const formatLabel = formatObj
     ? `${formatObj.nom}${formatObj.date ? ` — ${formatObj.date}` : ""}`
     : formatId || "—";
+
+  /* ---------------- Waitlist count (format courant) ---------------- */
+  const loadWaitlistCount = useCallback(async () => {
+    if (!resolvedCourseId || !formatId) {
+      setWaitlistCount(null);
+      return;
+    }
+    setWaitlistLoading(true);
+    try {
+      // On compte les entrées actives (non consommées)
+      const { count, error } = await supabase
+        .from("waitlist")
+        .select("id", { count: "exact", head: true })
+        .eq("course_id", resolvedCourseId)
+        .eq("format_id", formatId)
+        .is("consumed_at", null);
+
+      if (error) {
+        console.warn("WAITLIST_COUNT_ERROR", error);
+        setWaitlistCount(null);
+      } else {
+        setWaitlistCount(count ?? 0);
+      }
+    } catch (e) {
+      console.warn("WAITLIST_COUNT_CATCH", e);
+      setWaitlistCount(null);
+    } finally {
+      setWaitlistLoading(false);
+    }
+  }, [resolvedCourseId, formatId]);
+
+  useEffect(() => {
+    loadWaitlistCount();
+  }, [loadWaitlistCount]);
 
   /* ---------------- Charger la liste des fédérations ---------------- */
   useEffect(() => {
@@ -1214,11 +1513,7 @@ export default function ListeInscriptions() {
     );
     if (!confirm) return;
     try {
-      const chunks = (arr, n) =>
-        Array.from({ length: Math.ceil(arr.length / n) }, (_, i) =>
-          arr.slice(i * n, (i + 1) * n)
-        );
-      const batches = chunks(ids, 500).map((part) =>
+      const batches = chunk(ids, 500).map((part) =>
         supabase.from("inscriptions").update({ dossard: null }).in("id", part)
       );
       const res = await Promise.allSettled(batches);
@@ -1384,14 +1679,24 @@ export default function ListeInscriptions() {
               ← Accueil
             </Link>
           )}
-          <h1 className="text-2xl sm:text-3xl font-bold mt-1">
-            Inscriptions
-          </h1>
+          <h1 className="text-2xl sm:text-3xl font-bold mt-1">Inscriptions</h1>
           <p className="text-neutral-600 mt-1">
             {total} résultat{total > 1 ? "s" : ""} —{" "}
             {formatObj ? formatObj.nom : `Format ${formatId || "?"}`}{" "}
             {formatObj?.date ? `(${formatObj.date})` : ""}
           </p>
+
+          {/* ✅ mini ligne waitlist */}
+          <div className="mt-2 text-xs text-neutral-600">
+            Liste d’attente :{" "}
+            {waitlistLoading ? (
+              <span className="text-neutral-500">chargement…</span>
+            ) : waitlistCount == null ? (
+              <span className="text-neutral-500">—</span>
+            ) : (
+              <b>{waitlistCount}</b>
+            )}
+          </div>
         </div>
 
         <div className="flex flex-wrap gap-2">
@@ -1406,6 +1711,20 @@ export default function ListeInscriptions() {
             )}
           >
             Email aux sélectionnés ({recipients.length})
+          </button>
+
+          {/* ✅ bouton waitlist */}
+          <button
+            onClick={() => setShowInviteWaitlist(true)}
+            disabled={!resolvedCourseId || !formatId}
+            className={cls(
+              "rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50",
+              (!resolvedCourseId || !formatId) && "opacity-60 cursor-not-allowed"
+            )}
+            title="Inviter des personnes depuis la liste d’attente"
+          >
+            Inviter liste d’attente
+            {typeof waitlistCount === "number" ? ` (${waitlistCount})` : ""}
           </button>
 
           <button
@@ -1432,7 +1751,10 @@ export default function ListeInscriptions() {
           </button>
 
           <button
-            onClick={() => load()}
+            onClick={() => {
+              load();
+              loadWaitlistCount();
+            }}
             className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
           >
             Rafraîchir
@@ -1609,9 +1931,7 @@ export default function ListeInscriptions() {
           </div>
 
           {categoriesError && (
-            <div className="mb-2 text-xs text-red-600">
-              {categoriesError}
-            </div>
+            <div className="mb-2 text-xs text-red-600">{categoriesError}</div>
           )}
 
           {previewCategories.length > 0 && (
@@ -1649,9 +1969,7 @@ export default function ListeInscriptions() {
                         <td className="px-2 py-1">
                           {row.nom} {row.prenom}
                         </td>
-                        <td className="px-2 py-1">
-                          {row.birthYear || "—"}
-                        </td>
+                        <td className="px-2 py-1">{row.birthYear || "—"}</td>
                         <td className="px-2 py-1 text-neutral-500">
                           {row.currentCode
                             ? `${row.currentCode} – ${row.currentLabel}`
@@ -1689,10 +2007,7 @@ export default function ListeInscriptions() {
         <div className="text-sm font-medium mb-2">Colonnes affichées</div>
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-2">
           {columns.map((c, i) => (
-            <label
-              key={c.key}
-              className="inline-flex items-center gap-2 text-sm"
-            >
+            <label key={c.key} className="inline-flex items-center gap-2 text-sm">
               <input
                 type="checkbox"
                 checked={c.visible}
@@ -1712,8 +2027,7 @@ export default function ListeInscriptions() {
             Tout sélectionner (page)
           </label>
           <div className="text-neutral-500">
-            {selected.size} sélectionné
-            {selected.size > 1 ? "s" : ""}
+            {selected.size} sélectionné{selected.size > 1 ? "s" : ""}
           </div>
         </div>
 
@@ -1740,9 +2054,7 @@ export default function ListeInscriptions() {
                           : ""
                       )}
                       onClick={() => {
-                        if (
-                          ["nom", "statut", "created_at"].includes(c.key)
-                        ) {
+                        if (["nom", "statut", "created_at"].includes(c.key)) {
                           setSortBy(c.key);
                           setSortDir((d) => (d === "asc" ? "desc" : "asc"));
                         }
@@ -1828,8 +2140,7 @@ export default function ListeInscriptions() {
 
                         if (c.key === "statut") {
                           const v =
-                            (r.statut || "").toLowerCase() ===
-                            "en attente"
+                            (r.statut || "").toLowerCase() === "en attente"
                               ? "en_attente"
                               : r.statut || "";
                           return (
@@ -1843,9 +2154,7 @@ export default function ListeInscriptions() {
                                   }
                                   className="rounded-lg border border-neutral-300 px-2 py-1 text-xs"
                                 >
-                                  <option value="en_attente">
-                                    En attente
-                                  </option>
+                                  <option value="en_attente">En attente</option>
                                   <option value="paye">Payé</option>
                                   <option value="annule">Annulé</option>
                                 </select>
@@ -1855,26 +2164,22 @@ export default function ListeInscriptions() {
                         }
 
                         return (
-                          <td
-                            key={c.key}
-                            className="px-4 py-2 align-top"
-                          >
+                          <td key={c.key} className="px-4 py-2 align-top">
                             {content ?? "—"}
                           </td>
                         );
                       })}
 
                     <td className="px-4 py-2 align-top">
-  <div className="flex flex-wrap gap-2">
-    <Link
-      to={`/details-coureur/${r.id}`}
-      className="inline-flex items-center rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
-    >
-      Fiche
-    </Link>
-  </div>
-</td>
-
+                      <div className="flex flex-wrap gap-2">
+                        <Link
+                          to={`/details-coureur/${r.id}`}
+                          className="inline-flex items-center rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+                        >
+                          Fiche
+                        </Link>
+                      </div>
+                    </td>
                   </tr>
                 ))
               )}
@@ -1938,14 +2243,21 @@ export default function ListeInscriptions() {
                 console.error("organiser-send-emails", error);
                 alert("Erreur d’envoi.");
               } else {
-                alert(
-                  `Email envoyé à ${recipients.length} destinataire(s).`
-                );
+                alert(`Email envoyé à ${recipients.length} destinataire(s).`);
                 setShowEmail(false);
               }
             })
             .catch(() => alert("Erreur d’envoi."));
         }}
+      />
+
+      <InviteWaitlistModal
+        open={showInviteWaitlist}
+        onClose={() => setShowInviteWaitlist(false)}
+        courseId={resolvedCourseId}
+        formatId={formatId}
+        formatLabel={formatLabel}
+        onDone={() => loadWaitlistCount()}
       />
 
       <AddRunnerModal
