@@ -1254,36 +1254,44 @@ export default function ListeInscriptions() {
   };
 
   // Effacer dossards (sélection ou tout filtré)
-  const clearBibNumbers = async (scope = "selected") => {
-    const ids = scope === "selected" ? Array.from(selected) : rows.map((r) => r.id;
-    );
-    if (ids.length === 0) return alert("Aucun coureur concerné.");
-    const confirm = window.confirm(`Effacer le dossard de ${ids.length} coureur(s) ?`);
-    if (!confirm) return;
+const clearBibNumbers = async (scope = "selected") => {
+  const ids =
+    scope === "selected" ? Array.from(selected) : rows.map((r) => r.id);
 
-    try {
-      const chunks = (arr, n) =>
-        Array.from({ length: Math.ceil(arr.length / n) }, (_, i) =>
-          arr.slice(i * n, (i + 1) * n)
-        );
-      const batches = chunks(ids, 500).map((part) =>
-        supabase.from("inscriptions").update({ dossard: null }).in("id", part)
+  if (ids.length === 0) return alert("Aucun coureur concerné.");
+
+  const confirm = window.confirm(
+    `Effacer le dossard de ${ids.length} coureur(s) ?`
+  );
+  if (!confirm) return;
+
+  try {
+    const chunks = (arr, n) =>
+      Array.from({ length: Math.ceil(arr.length / n) }, (_, i) =>
+        arr.slice(i * n, (i + 1) * n)
       );
-      const res = await Promise.allSettled(batches);
-      const ok = res.filter((r) => r.status === "fulfilled").length;
-      if (ok === batches.length) {
-        alert("Dossards effacés.");
-        load();
-      } else {
-        alert("Certains effacements ont échoué (voir console).");
-        console.warn(res);
-        load();
-      }
-    } catch (e) {
-      console.error(e);
-      alert("Erreur lors de l’effacement des dossards.");
+
+    const batches = chunks(ids, 500).map((part) =>
+      supabase.from("inscriptions").update({ dossard: null }).in("id", part)
+    );
+
+    const res = await Promise.allSettled(batches);
+    const allOk = res.every((r) => r.status === "fulfilled");
+
+    if (allOk) {
+      alert("Dossards effacés.");
+    } else {
+      console.warn("Certaines opérations ont échoué:", res);
+      alert("Certains effacements ont échoué (voir console).");
     }
-  };
+
+    load();
+  } catch (e) {
+    console.error(e);
+    alert("Erreur lors de l’effacement des dossards.");
+  }
+};
+
 
   /* ---------------------- Catégories d'âge : calcul ---------------------- */
   const handleComputeCategories = async () => {
