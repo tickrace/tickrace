@@ -1,17 +1,32 @@
 // src/pages/EspaceBenevole.jsx
-// ✅ Version ultra clean (Supabase) — layout 2 colonnes (desktop) + stack (mobile)
-// - Auth (magic link / OTP fallback)
-// - Liaison benevole.user_id auto au 1er login
-// - Affichage "Ma mission" + actions (confirmer / refuser / check-in)
-// - Planning équipe (couverture par poste)
-// - Chat équipe en temps réel (Realtime) + envoi + scroll
-// - Export calendrier (ICS) pour tes missions
-// - ✅ FIX: pas de courses.date -> on affiche une "prochaine date" via formats.date (si dispo)
+// ✅ Espace bénévole (Option A) + Mode Aperçu Organisateur (isOrgaPreview)
 //
-// Pré-requis tables : benevoles, benevoles_postes, benevoles_creneaux, benevoles_affectations, benevoles_chat_messages
-// Pré-requis RLS : le bénévole doit pouvoir SELECT postes/creneaux/affectations/chat pour sa course
+// - SUPPRESSION TOTALE de course.date (chez toi la date est dans formats)
+// - isOrgaPreview : si le user connecté est organisateur de la course -> aperçu autorisé
+// - Bannière UI "Mode aperçu organisateur"
+// - Actions bénévoles (claim user_id, confirmer/refuser/check-in) désactivées en preview
+// - Chat ACTIF (orga peut écrire) en preview
+//
+// Pré-requis tables :
+// - benevoles
+// - benevoles_postes
+// - benevoles_creneaux
+// - benevoles_affectations
+// - benevoles_chat_messages
+//
+// ⚠️ RLS :
+// - En mode bénévole normal : le bénévole doit pouvoir lire postes/creneaux/affectations/chat de SA course
+// - En mode aperçu orga : l'organisateur doit pouvoir lire postes/creneaux/affectations/chat de SA course
+// - Chat insert : orga + bénévole doivent pouvoir INSERT dans benevoles_chat_messages pour course_id
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  forwardRef,
+  useImperativeHandle,
+} from "react";
 import { useParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import {
@@ -30,6 +45,7 @@ import {
   Loader2,
   Info,
   XCircle,
+  Eye,
 } from "lucide-react";
 
 /* ----------------------------- UI Helpers ----------------------------- */
@@ -39,7 +55,9 @@ const Container = ({ children }) => (
 );
 
 const Card = ({ children, className = "" }) => (
-  <div className={`rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200 ${className}`}>{children}</div>
+  <div className={`rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200 ${className}`}>
+    {children}
+  </div>
 );
 
 const Pill = ({ tone = "orange", children }) => {
@@ -48,6 +66,7 @@ const Pill = ({ tone = "orange", children }) => {
     green: "bg-emerald-50 text-emerald-700 ring-emerald-200",
     red: "bg-red-50 text-red-700 ring-red-200",
     gray: "bg-neutral-100 text-neutral-700 ring-neutral-200",
+    blue: "bg-blue-50 text-blue-700 ring-blue-200",
   };
   return (
     <span className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ring-1 ${map[tone]}`}>
@@ -63,6 +82,7 @@ const Btn = ({ variant = "dark", className = "", ...props }) => {
     orange: "bg-orange-600 text-white hover:bg-orange-500",
     subtle: "bg-neutral-100 text-neutral-900 hover:bg-neutral-200",
     danger: "bg-red-600 text-white hover:bg-red-500",
+    disabled: "bg-neutral-200 text-neutral-500 cursor-not-allowed",
   };
   return (
     <button
@@ -78,21 +98,14 @@ const Btn = ({ variant = "dark", className = "", ...props }) => {
 
 const Line = () => <div className="h-px w-full bg-neutral-200" />;
 
-const fmtDate = (d) => {
-  if (!d) return "—";
-  const date = typeof d === "string" ? new Date(d) : d;
-  if (Number.isNaN(date.getTime())) return "—";
-  return new Intl.DateTimeFormat("fr-FR", { dateStyle: "full" }).format(date);
-};
+const safe = (s) => (s || "").toString().trim();
+const safeLower = (s) => safe(s).toLowerCase();
 
 const fmtTime = (d) => {
   if (!d) return "";
   const date = typeof d === "string" ? new Date(d) : d;
-  if (Number.isNaN(date.getTime())) return "";
   return new Intl.DateTimeFormat("fr-FR", { timeStyle: "short" }).format(date);
 };
-
-const safe = (s) => (s || "").toString().trim();
 
 /* ----------------------------- ICS Export ----------------------------- */
 
@@ -126,7 +139,7 @@ function downloadICS(filename, icsContent) {
 function buildICS({ course, benevole, missions }) {
   const uidBase = `${course?.id || "course"}-${benevole?.id || "benevole"}`;
 
-  const events = missions
+  const events = (missions || [])
     .filter((m) => m?.creneau?.start_at && m?.creneau?.end_at)
     .map((m, idx) => {
       const dtStart = toICSDateUTC(m.creneau.start_at);
@@ -181,14 +194,15 @@ export default function EspaceBenevole() {
   const [sessionUser, setSessionUser] = useState(null);
 
   const [course, setCourse] = useState(null);
-  const [nextDate, setNextDate] = useState(null); // ✅ prochaine date via formats.date
   const [benevole, setBenevole] = useState(null);
+
+  const [isOrgaPreview, setIsOrgaPreview] = useState(false);
 
   const [postes, setPostes] = useState([]);
   const [planningStats, setPlanningStats] = useState([]);
   const [myMissions, setMyMissions] = useState([]);
 
-  const [infoBlock, setInfoBlock] = useState({
+  const [infoBlock] = useState({
     rendez_vous_lieu: null,
     rendez_vous_heure: null,
     consignes_url: null,
@@ -203,7 +217,25 @@ export default function EspaceBenevole() {
 
   const chatRef = useRef(null);
 
+  const contactMailTo = useMemo(() => {
+    const email = infoBlock.contact_email || "support@tickrace.com";
+    const subject = encodeURIComponent(
+      `Bénévole — ${course?.nom || "Course"} — ${benevole?.prenom || ""} ${benevole?.nom || ""}`
+    );
+    const body = encodeURIComponent(
+      `Bonjour,\n\nJe suis bénévole sur ${course?.nom || "la course"}.\n\nMa demande : \n\nMerci !`
+    );
+    return `mailto:${email}?subject=${subject}&body=${body}`;
+  }, [infoBlock.contact_email, course?.nom, benevole?.prenom, benevole?.nom]);
+
   const statusChip = useMemo(() => {
+    if (isOrgaPreview) {
+      return (
+        <Pill tone="blue">
+          <Eye className="h-4 w-4" /> Aperçu organisateur
+        </Pill>
+      );
+    }
     const status = myMissions?.[0]?.status || "assigned";
     if (status === "checked_in") {
       return (
@@ -219,7 +251,7 @@ export default function EspaceBenevole() {
         </Pill>
       );
     }
-    if (myMissions.length === 0) {
+    if ((myMissions || []).length === 0) {
       return (
         <Pill tone="gray">
           <Info className="h-4 w-4" /> En attente d’affectation
@@ -231,18 +263,7 @@ export default function EspaceBenevole() {
         <AlertTriangle className="h-4 w-4" /> Action requise
       </Pill>
     );
-  }, [myMissions]);
-
-  const contactMailTo = useMemo(() => {
-    const email = infoBlock.contact_email || "support@tickrace.com";
-    const subject = encodeURIComponent(
-      `Bénévole — ${course?.nom || "Course"} — ${benevole?.prenom || ""} ${benevole?.nom || ""}`
-    );
-    const body = encodeURIComponent(
-      `Bonjour,\n\nJe suis bénévole sur ${course?.nom || "la course"}.\n\nMa demande : \n\nMerci !`
-    );
-    return `mailto:${email}?subject=${subject}&body=${body}`;
-  }, [infoBlock.contact_email, course?.nom, benevole?.prenom, benevole?.nom]);
+  }, [myMissions, isOrgaPreview]);
 
   /* ----------------------------- Data Loading ----------------------------- */
 
@@ -255,74 +276,70 @@ export default function EspaceBenevole() {
       const user = sess?.session?.user || null;
       setSessionUser(user);
 
-      // 1) Course (public) ✅ FIX: pas de date ici
+      // 1) Course (public + organisateur_id pour aperçu)
       const { data: c, error: cErr } = await supabase
         .from("courses")
-        .select("id, nom, lieu, image_url")
+        .select("id, nom, lieu, organisateur_id")
         .eq("id", courseId)
         .maybeSingle();
 
       if (cErr || !c) throw cErr || new Error("Course introuvable.");
       setCourse(c);
 
-      // 1bis) Prochaine date via formats.date (si dispo)
-      // ⚠️ Si ton champ n'est pas "date", remplace-le ici (ex: start_at / date_depart)
-      const { data: f, error: fErr } = await supabase
-        .from("formats")
-        .select("id, date")
-        .eq("course_id", courseId);
-
-      if (!fErr && f?.length) {
-        const now = Date.now();
-        const dates = f
-          .map((x) => (x?.date ? new Date(x.date).getTime() : null))
-          .filter((t) => Number.isFinite(t));
-
-        const future = dates.filter((t) => t >= now).sort((a, b) => a - b);
-        const past = dates.filter((t) => t < now).sort((a, b) => b - a);
-        const chosen = future[0] ?? past[0] ?? null;
-        setNextDate(chosen ? new Date(chosen).toISOString() : null);
-      } else {
-        setNextDate(null);
-      }
+      // 2) isOrgaPreview ?
+      const preview = !!user?.id && c?.organisateur_id === user.id;
+      setIsOrgaPreview(preview);
 
       if (!user) {
+        // Pas connecté : stop ici, on affichera le bloc OTP
         setLoading(false);
         return;
       }
 
-      // 2) Bénévole row par course + email
-      const email = user.email;
-      if (!email) throw new Error("Email utilisateur indisponible.");
+      // 3) Si organisateur -> pas besoin d'être bénévole (mode aperçu)
+      if (preview) {
+        setBenevole({
+          id: "orga-preview",
+          user_id: user.id,
+          prenom: "Organisateur",
+          nom: "",
+          email: user.email || "",
+          telephone: "",
+          status: "active",
+        });
+      } else {
+        // Mode bénévole normal : il doit exister dans benevoles
+        const email = user.email;
+        if (!email) throw new Error("Email utilisateur indisponible.");
 
-      const { data: b, error: bErr } = await supabase
-        .from("benevoles")
-        .select("*")
-        .eq("course_id", courseId)
-        .eq("email", email)
-        .maybeSingle();
-
-      if (bErr || !b) {
-        throw new Error("Ton email n’est pas enregistré comme bénévole sur cette course.");
-      }
-
-      // 3) Liaison user_id si manquant
-      if (!b.user_id) {
-        const { error: upErr } = await supabase
+        const { data: b, error: bErr } = await supabase
           .from("benevoles")
-          .update({ user_id: user.id, status: "active" })
-          .eq("id", b.id);
+          .select("*")
+          .eq("course_id", courseId)
+          .eq("email", email)
+          .maybeSingle();
 
-        if (upErr) {
-          console.warn("Unable to attach user_id:", upErr);
-        } else {
-          b.user_id = user.id;
-          b.status = "active";
+        if (bErr || !b) throw new Error("Ton email n’est pas enregistré comme bénévole sur cette course.");
+
+        // Liaison user_id si manquant (désactivée en preview)
+        if (!b.user_id) {
+          const { error: upErr } = await supabase
+            .from("benevoles")
+            .update({ user_id: user.id, status: "active" })
+            .eq("id", b.id);
+
+          if (!upErr) {
+            b.user_id = user.id;
+            b.status = "active";
+          } else {
+            console.warn("Unable to attach user_id:", upErr);
+          }
         }
-      }
-      setBenevole(b);
 
-      // 4) Postes (planning équipe)
+        setBenevole(b);
+      }
+
+      // 4) Postes
       const { data: p, error: pErr } = await supabase
         .from("benevoles_postes")
         .select("id, course_id, titre, lieu, description, capacite, ordre")
@@ -332,7 +349,7 @@ export default function EspaceBenevole() {
       if (pErr) throw pErr;
       setPostes(p || []);
 
-      // 5) Affectations (stats équipe)
+      // 5) Affectations (stats)
       const { data: aAll, error: aAllErr } = await supabase
         .from("benevoles_affectations")
         .select("id, poste_id, status")
@@ -341,7 +358,6 @@ export default function EspaceBenevole() {
       if (aAllErr) throw aAllErr;
 
       const isFilled = (st) => ["assigned", "confirmed", "checked_in"].includes(st);
-
       const countByPoste = new Map();
       (aAll || []).forEach((a) => {
         if (!a?.poste_id) return;
@@ -358,32 +374,50 @@ export default function EspaceBenevole() {
       }));
       setPlanningStats(stats);
 
-      // 6) Mes missions (affectations join poste/creneau)
-      const { data: my, error: myErr } = await supabase
-        .from("benevoles_affectations")
-        .select(
-          `
-          id, status, note, created_at,
-          poste: benevoles_postes ( id, titre, lieu, description ),
-          creneau: benevoles_creneaux ( id, label, start_at, end_at, ordre )
-        `
-        )
-        .eq("course_id", courseId)
-        .eq("benevole_id", b.id)
-        .order("created_at", { ascending: true });
+      // 6) Mes missions (si preview -> on ne montre pas "mes" missions)
+      if (preview) {
+        setMyMissions([]);
+      } else {
+        const b = preview ? null : benevole; // (benevole state pas encore synchro)
+        // on refetch benevole id proprement
+        const { data: bRow } = await supabase
+          .from("benevoles")
+          .select("id")
+          .eq("course_id", courseId)
+          .eq("email", user.email)
+          .maybeSingle();
 
-      if (myErr) throw myErr;
+        const benevoleId = bRow?.id;
+        if (!benevoleId) {
+          setMyMissions([]);
+        } else {
+          const { data: my, error: myErr } = await supabase
+            .from("benevoles_affectations")
+            .select(
+              `
+              id, status, note, created_at,
+              poste: benevoles_postes ( id, titre, lieu, description ),
+              creneau: benevoles_creneaux ( id, label, start_at, end_at, ordre )
+            `
+            )
+            .eq("course_id", courseId)
+            .eq("benevole_id", benevoleId)
+            .order("created_at", { ascending: true });
 
-      const mySorted = (my || []).slice().sort((x, y) => {
-        const ox = x?.creneau?.ordre ?? 9999;
-        const oy = y?.creneau?.ordre ?? 9999;
-        if (ox !== oy) return ox - oy;
-        const sx = x?.creneau?.start_at ? new Date(x.creneau.start_at).getTime() : 0;
-        const sy = y?.creneau?.start_at ? new Date(y.creneau.start_at).getTime() : 0;
-        return sx - sy;
-      });
+          if (myErr) throw myErr;
 
-      setMyMissions(mySorted);
+          const mySorted = (my || []).slice().sort((x, y) => {
+            const ox = x?.creneau?.ordre ?? 9999;
+            const oy = y?.creneau?.ordre ?? 9999;
+            if (ox !== oy) return ox - oy;
+            const sx = x?.creneau?.start_at ? new Date(x.creneau.start_at).getTime() : 0;
+            const sy = y?.creneau?.start_at ? new Date(y.creneau.start_at).getTime() : 0;
+            return sx - sy;
+          });
+
+          setMyMissions(mySorted);
+        }
+      }
     } catch (e) {
       setErr(e?.message || "Erreur");
     } finally {
@@ -406,6 +440,10 @@ export default function EspaceBenevole() {
 
   const updateMissionStatus = async (affId, status) => {
     if (!affId) return;
+    if (isOrgaPreview) {
+      setErr("Mode aperçu : actions bénévoles désactivées.");
+      return;
+    }
     setBusyAction(true);
     setErr("");
 
@@ -424,6 +462,10 @@ export default function EspaceBenevole() {
   };
 
   const exportMyCalendar = () => {
+    if (isOrgaPreview) {
+      setErr("Mode aperçu : export calendrier désactivé.");
+      return;
+    }
     if (!course || !benevole) return;
     if (!myMissions || myMissions.length === 0) {
       setErr("Aucune mission à exporter.");
@@ -434,7 +476,7 @@ export default function EspaceBenevole() {
   };
 
   const requestMagicLink = async () => {
-    const email = safe(authEmail);
+    const email = safeLower(authEmail);
     if (!email.includes("@")) return;
 
     setAuthSending(true);
@@ -472,7 +514,7 @@ export default function EspaceBenevole() {
     );
   }
 
-  // Not logged in -> OTP block
+  // Not logged in -> OTP block (fallback)
   if (!sessionUser) {
     return (
       <div className="min-h-screen bg-neutral-50">
@@ -483,8 +525,7 @@ export default function EspaceBenevole() {
               <p className="mt-1 text-neutral-600">
                 {course?.nom ? (
                   <>
-                    <span className="font-semibold">{course.nom}</span> · {course?.lieu || "—"} ·{" "}
-                    {nextDate ? fmtDate(nextDate) : "—"}
+                    <span className="font-semibold">{course.nom}</span> · {course?.lieu || "—"}
                   </>
                 ) : (
                   "Course"
@@ -528,7 +569,7 @@ export default function EspaceBenevole() {
                 </div>
               ) : (
                 <div className="mt-3 text-xs text-neutral-500">
-                  Astuce : utilise le même email que celui que tu as donné lors de l’inscription bénévole.
+                  Astuce : utilise le même email que celui donné lors de l’inscription bénévole.
                 </div>
               )}
             </Card>
@@ -538,8 +579,8 @@ export default function EspaceBenevole() {
     );
   }
 
-  // Logged in but error (RLS, not volunteer, etc.)
-  if (err && !benevole) {
+  // Logged in but error (not volunteer) - sauf si orga preview
+  if (err && !benevole && !isOrgaPreview) {
     return (
       <div className="min-h-screen bg-neutral-50">
         <div className="border-b border-neutral-200 bg-white">
@@ -593,23 +634,20 @@ export default function EspaceBenevole() {
                 <h1 className="truncate text-xl font-extrabold tracking-tight">{course?.nom || "Course"}</h1>
                 {statusChip}
               </div>
+
               <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-600">
-                <span className="inline-flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4" /> {nextDate ? fmtDate(nextDate) : "—"}
-                </span>
                 <span className="inline-flex items-center gap-2">
                   <MapPin className="h-4 w-4" /> {course?.lieu || "—"}
                 </span>
                 <span className="inline-flex items-center gap-2">
-                  <Clock3 className="h-4 w-4" /> RDV{" "}
-                  {infoBlock.rendez_vous_heure ? infoBlock.rendez_vous_heure : "—"} —{" "}
-                  {infoBlock.rendez_vous_lieu ? infoBlock.rendez_vous_lieu : "Accueil bénévoles"}
+                  <Clock3 className="h-4 w-4" /> RDV {infoBlock.rendez_vous_heure || "—"} —{" "}
+                  {infoBlock.rendez_vous_lieu || "Accueil bénévoles"}
                 </span>
               </div>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <Btn variant="light" onClick={exportMyCalendar} disabled={!myMissions?.length}>
+              <Btn variant="light" onClick={exportMyCalendar} disabled={isOrgaPreview || !myMissions?.length}>
                 <Download className="h-4 w-4" />
                 Ajouter au calendrier
               </Btn>
@@ -622,6 +660,23 @@ export default function EspaceBenevole() {
             </div>
           </div>
         </Container>
+
+        {/* ✅ Bannière aperçu orga */}
+        {isOrgaPreview ? (
+          <div className="border-t border-blue-200 bg-blue-50">
+            <Container>
+              <div className="py-3 flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-blue-900">
+                  <Eye className="h-4 w-4" />
+                  <div className="text-sm font-semibold">Mode aperçu organisateur</div>
+                </div>
+                <div className="text-xs text-blue-800">
+                  Les actions bénévoles (confirmation / check-in / liaison) sont désactivées. Le chat reste actif.
+                </div>
+              </div>
+            </Container>
+          </div>
+        ) : null}
       </div>
 
       <Container>
@@ -632,49 +687,39 @@ export default function EspaceBenevole() {
             <Card className="p-4">
               <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                 <div>
-                  <div className="text-xs font-semibold text-neutral-500">Connecté(e) en tant que</div>
+                  <div className="text-xs font-semibold text-neutral-500">
+                    {isOrgaPreview ? "Connecté(e) en tant que (aperçu)" : "Connecté(e) en tant que"}
+                  </div>
                   <div className="text-lg font-extrabold">
                     {benevole?.prenom} {benevole?.nom}
                   </div>
                   <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-600">
                     <span className="inline-flex items-center gap-2">
-                      <Mail className="h-4 w-4" /> {benevole?.email}
+                      <Mail className="h-4 w-4" /> {benevole?.email || sessionUser?.email || "—"}
                     </span>
-                    <span className="inline-flex items-center gap-2">
-                      <Phone className="h-4 w-4" /> {benevole?.telephone}
-                    </span>
+                    {benevole?.telephone ? (
+                      <span className="inline-flex items-center gap-2">
+                        <Phone className="h-4 w-4" /> {benevole.telephone}
+                      </span>
+                    ) : null}
                   </div>
                 </div>
 
-                <Pill tone="gray">
-                  <ShieldCheck className="h-4 w-4" /> Espace bénévole sécurisé
+                <Pill tone={isOrgaPreview ? "blue" : "gray"}>
+                  <ShieldCheck className="h-4 w-4" /> {isOrgaPreview ? "Aperçu sécurisé orga" : "Espace bénévole sécurisé"}
                 </Pill>
               </div>
             </Card>
 
-            {/* My missions */}
+            {/* My missions (disabled in preview) */}
             <Card className="p-4">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
                   <UserCheck className="h-5 w-5" />
                   <h2 className="text-lg font-extrabold">Ma mission</h2>
                 </div>
-                <Pill
-                  tone={
-                    myMissions.length
-                      ? ["confirmed", "checked_in"].includes(myMissions[0]?.status)
-                        ? "green"
-                        : "orange"
-                      : "gray"
-                  }
-                >
-                  {myMissions.length === 0
-                    ? "En attente"
-                    : myMissions[0]?.status === "checked_in"
-                    ? "Présent"
-                    : myMissions[0]?.status === "confirmed"
-                    ? "Confirmée"
-                    : "À confirmer"}
+                <Pill tone={isOrgaPreview ? "blue" : myMissions.length ? "orange" : "gray"}>
+                  {isOrgaPreview ? "Aperçu" : myMissions.length === 0 ? "En attente" : "À confirmer"}
                 </Pill>
               </div>
 
@@ -685,7 +730,14 @@ export default function EspaceBenevole() {
               ) : null}
 
               <div className="mt-4 space-y-3">
-                {myMissions.length === 0 ? (
+                {isOrgaPreview ? (
+                  <div className="rounded-2xl border border-blue-200 bg-blue-50 p-4">
+                    <div className="font-bold text-blue-900">Aperçu organisateur</div>
+                    <p className="mt-1 text-sm text-blue-900/80">
+                      Ici un bénévole verrait sa mission et pourrait confirmer / check-in. En aperçu, ces actions sont désactivées.
+                    </p>
+                  </div>
+                ) : myMissions.length === 0 ? (
                   <div className="rounded-2xl border border-neutral-200 bg-white p-4">
                     <div className="font-bold">Aucune mission attribuée pour le moment</div>
                     <p className="mt-1 text-sm text-neutral-600">
@@ -694,9 +746,7 @@ export default function EspaceBenevole() {
                     <div className="mt-3">
                       <Btn
                         variant="light"
-                        onClick={() => {
-                          chatRef.current?.focusAndPrefill?.("Je suis dispo, besoin d’aide sur quel poste ? ");
-                        }}
+                        onClick={() => chatRef.current?.focusAndPrefill?.("Je suis dispo, besoin d’aide sur quel poste ? ")}
                       >
                         <MessageCircle className="h-4 w-4" /> Proposer mon aide
                       </Btn>
@@ -728,7 +778,9 @@ export default function EspaceBenevole() {
                             {poste?.description ? (
                               <p className="mt-3 text-sm text-neutral-700">{poste.description}</p>
                             ) : (
-                              <p className="mt-3 text-sm text-neutral-700">Consignes à venir. Utilise le chat si tu as une question.</p>
+                              <p className="mt-3 text-sm text-neutral-700">
+                                Consignes à venir. Utilise le chat si tu as une question.
+                              </p>
                             )}
                           </div>
 
@@ -765,9 +817,11 @@ export default function EspaceBenevole() {
                                 <Btn
                                   variant="light"
                                   className="min-w-[150px]"
-                                  onClick={() => {
-                                    chatRef.current?.focusAndPrefill?.(`@orga J’ai une question sur "${poste?.titre || "ma mission"}" : `);
-                                  }}
+                                  onClick={() =>
+                                    chatRef.current?.focusAndPrefill?.(
+                                      `@orga J’ai une question sur "${poste?.titre || "ma mission"}" : `
+                                    )
+                                  }
                                 >
                                   <MessageCircle className="h-4 w-4" /> Prévenir
                                 </Btn>
@@ -776,11 +830,11 @@ export default function EspaceBenevole() {
                               <Btn
                                 variant="dark"
                                 className="min-w-[150px]"
-                                onClick={() => {
+                                onClick={() =>
                                   chatRef.current?.focusAndPrefill?.(
                                     `✅ Je suis en poste "${poste?.titre || "mission"}". Besoin de quelque chose ? `
-                                  );
-                                }}
+                                  )
+                                }
                               >
                                 <MessageCircle className="h-4 w-4" /> Message
                               </Btn>
@@ -788,9 +842,7 @@ export default function EspaceBenevole() {
                               <Btn
                                 variant="light"
                                 className="min-w-[150px]"
-                                onClick={() => {
-                                  chatRef.current?.focusAndPrefill?.("Je suis finalement dispo, je peux aider. ");
-                                }}
+                                onClick={() => chatRef.current?.focusAndPrefill?.("Je suis finalement dispo, je peux aider. ")}
                               >
                                 <MessageCircle className="h-4 w-4" /> Recontacter
                               </Btn>
@@ -885,23 +937,13 @@ export default function EspaceBenevole() {
                     </Btn>
                   </a>
                 ) : (
-                  <Btn
-                    variant="light"
-                    onClick={() => {
-                      chatRef.current?.focusAndPrefill?.("@orga Peux-tu partager les consignes / le PDF bénévoles ? ");
-                    }}
-                  >
+                  <Btn variant="light" onClick={() => chatRef.current?.focusAndPrefill?.("@orga Peux-tu partager les consignes / le PDF bénévoles ? ")}>
                     <Download className="h-4 w-4" />
                     Demander les consignes
                   </Btn>
                 )}
 
-                <Btn
-                  variant="subtle"
-                  onClick={() => {
-                    chatRef.current?.focusAndPrefill?.("Je signale un souci : ");
-                  }}
-                >
+                <Btn variant="subtle" onClick={() => chatRef.current?.focusAndPrefill?.("Je signale un souci : ")}>
                   <AlertTriangle className="h-4 w-4" />
                   Signaler un souci
                 </Btn>
@@ -917,11 +959,20 @@ export default function EspaceBenevole() {
                   <MessageCircle className="h-5 w-5" />
                   <h2 className="text-lg font-extrabold">Chat équipe</h2>
                 </div>
-                <Pill tone="gray">Global</Pill>
+                <Pill tone={isOrgaPreview ? "blue" : "gray"}>{isOrgaPreview ? "Orga (aperçu)" : "Global"}</Pill>
               </div>
 
               <div className="mt-4">
-                <BenevolesChat ref={chatRef} courseId={courseId} me={{ id: sessionUser?.id, prenom: benevole?.prenom, nom: benevole?.nom }} />
+                <BenevolesChat
+                  ref={chatRef}
+                  courseId={courseId}
+                  me={{
+                    id: sessionUser?.id,
+                    prenom: isOrgaPreview ? "Orga" : benevole?.prenom,
+                    nom: isOrgaPreview ? "" : benevole?.nom,
+                  }}
+                  isOrgaPreview={isOrgaPreview}
+                />
                 <p className="mt-2 text-xs text-neutral-500">
                   Astuce : utilise le chat pour signaler un retard, une urgence, ou un manque de matériel.
                 </p>
@@ -938,7 +989,7 @@ export default function EspaceBenevole() {
                 <Btn
                   variant="orange"
                   className="w-full"
-                  disabled={!myMissions?.length || busyAction}
+                  disabled={isOrgaPreview || !myMissions?.length || busyAction}
                   onClick={() => {
                     const first = myMissions?.[0];
                     if (!first) return;
@@ -949,7 +1000,11 @@ export default function EspaceBenevole() {
                   <UserCheck className="h-4 w-4" /> Je suis arrivé
                 </Btn>
 
-                <Btn variant="light" className="w-full" onClick={() => chatRef.current?.focusAndPrefill?.("Je signale un souci : ")}>
+                <Btn
+                  variant="light"
+                  className="w-full"
+                  onClick={() => chatRef.current?.focusAndPrefill?.("Je signale un souci : ")}
+                >
                   <AlertTriangle className="h-4 w-4" /> Signaler un souci
                 </Btn>
 
@@ -959,7 +1014,12 @@ export default function EspaceBenevole() {
                   </Btn>
                 </a>
 
-                <Btn variant="light" className="w-full" onClick={exportMyCalendar} disabled={!myMissions?.length}>
+                <Btn
+                  variant="light"
+                  className="w-full"
+                  onClick={exportMyCalendar}
+                  disabled={isOrgaPreview || !myMissions?.length}
+                >
                   <Download className="h-4 w-4" /> Calendrier (ICS)
                 </Btn>
               </div>
@@ -978,8 +1038,15 @@ export default function EspaceBenevole() {
 }
 
 /* ----------------------------- Chat Component ----------------------------- */
-
-const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, ref) {
+/**
+ * Chat temps réel (Supabase Realtime).
+ * - Charge les N derniers messages
+ * - Subscribe INSERT
+ * - Envoi message (optimistic)
+ * - Expose ref.focusAndPrefill(text)
+ * - Chat ACTIF en mode preview
+ */
+const BenevolesChat = forwardRef(function BenevolesChat({ courseId, me, isOrgaPreview }, ref) {
   const [loading, setLoading] = useState(true);
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState("");
@@ -996,7 +1063,7 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
     el.scrollTo({ top: el.scrollHeight, behavior });
   };
 
-  React.useImperativeHandle(ref, () => ({
+  useImperativeHandle(ref, () => ({
     focusAndPrefill: (prefill) => {
       inputRef.current?.focus?.();
       setText((prev) => (prev ? prev : prefill));
@@ -1006,7 +1073,7 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
 
   const displayName = (userId) => {
     if (!userId) return "Membre";
-    if (userId === me?.id) return me?.prenom || "Moi";
+    if (userId === me?.id) return isOrgaPreview ? "Orga" : me?.prenom || "Moi";
     return nameByUserId[userId] || "Membre";
   };
 
@@ -1015,7 +1082,6 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
     try {
       // roster (best effort)
       const rosterRes = await supabase.from("benevoles").select("user_id, prenom, nom").eq("course_id", courseId);
-
       if (!rosterRes.error && rosterRes.data) {
         const map = {};
         rosterRes.data.forEach((b) => {
@@ -1026,7 +1092,6 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
         setNameByUserId(map);
       }
 
-      // messages
       const { data, error } = await supabase
         .from("benevoles_chat_messages")
         .select("id, user_id, message, created_at")
@@ -1132,7 +1197,9 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
                     <div
                       className={[
                         "mt-1 rounded-2xl border px-3 py-2 text-sm whitespace-pre-wrap",
-                        isMe ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-neutral-50 text-neutral-900",
+                        isMe
+                          ? "border-neutral-900 bg-neutral-900 text-white"
+                          : "border-neutral-200 bg-neutral-50 text-neutral-900",
                       ].join(" ")}
                     >
                       {m.message}
@@ -1150,7 +1217,7 @@ const BenevolesChat = React.forwardRef(function BenevolesChat({ courseId, me }, 
           ref={inputRef}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="Écrire un message…"
+          placeholder={isOrgaPreview ? "Écrire un message (orga)…" : "Écrire un message…"}
           className="flex-1 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
           onKeyDown={(e) => {
             if (e.key === "Enter") send();
