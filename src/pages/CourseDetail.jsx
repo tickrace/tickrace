@@ -58,8 +58,34 @@ function formatRange(min, max, unit = "") {
   return `≤ ${Math.round(max)}${unit}`;
 }
 
+function isFormatOpenNow(format) {
+  const now = new Date();
+
+  const openAt = parseDate(format?.inscription_ouverture);
+  const closeAt = parseDate(format?.inscription_fermeture);
+
+  if (openAt && now < openAt) return false;
+  if (closeAt && now > closeAt) return false;
+
+  return true; // par défaut: ouvert si aucune fenêtre
+}
+
+function isFormatFuture(format) {
+  const openAt = parseDate(format?.inscription_ouverture);
+  if (!openAt) return false;
+  return new Date() < openAt;
+}
+
+function isFormatPast(format) {
+  const closeAt = parseDate(format?.inscription_fermeture);
+  if (!closeAt) return false;
+  return new Date() > closeAt;
+}
+
 function computeIsFullWithCounts(format, countsByFormat) {
   if (!format) return false;
+  if (countsByFormat === null) return false;
+
   const max = Number(format.nb_max_coureurs);
   if (!max || Number.isNaN(max)) return false;
 
@@ -68,6 +94,45 @@ function computeIsFullWithCounts(format, countsByFormat) {
 
   const count = Number(countsByFormat?.[format.id] || 0);
   return count >= max;
+}
+
+function getCtaForFormat({ courseId, format, countsByFormat }) {
+  if (!format) {
+    return { kind: "disabled", label: "Indisponible" };
+  }
+
+  const open = isFormatOpenNow(format);
+  const future = isFormatFuture(format);
+  const past = isFormatPast(format);
+
+  const isFull = computeIsFullWithCounts(format, countsByFormat);
+  const waitlistEnabled = !!format.waitlist_enabled;
+
+  // On ne “bloque” que si on sait (countsByFormat !== null).
+  if (!open) {
+    if (future) return { kind: "disabled", label: "Bientôt" };
+    if (past) return { kind: "disabled", label: "Fermé" };
+    return { kind: "disabled", label: "Fermé" };
+  }
+
+  if (countsByFormat !== null && isFull) {
+    if (waitlistEnabled) {
+      return {
+        kind: "link",
+        label: "Liste d’attente",
+        to: `/inscription/${courseId}?format=${format.id}&waitlist=1`,
+        variant: "secondary",
+      };
+    }
+    return { kind: "disabled", label: "Complet" };
+  }
+
+  return {
+    kind: "link",
+    label: "S’inscrire",
+    to: `/inscription/${courseId}?format=${format.id}`,
+    variant: "primary",
+  };
 }
 
 /* ============================== Page ============================== */
@@ -82,10 +147,14 @@ export default function CourseDetail() {
   const [countsByFormat, setCountsByFormat] = useState(null); // null = inconnu (RLS), {} = connu
   const [error, setError] = useState(null);
 
-  const [tab, setTab] = useState("aperçu"); // "aperçu" | "formats" | "parcours" | "infos" | "reglement" | "resultats"
+  const [tab, setTab] = useState("aperçu");
   const [selectedFormatId, setSelectedFormatId] = useState(null);
 
   const [copied, setCopied] = useState(false);
+
+  // ✅ Contrôles onglet "Formats"
+  const [formatsSortBy, setFormatsSortBy] = useState("date"); // date | price | dplus
+  const [onlyOpenFormats, setOnlyOpenFormats] = useState(false);
 
   // Règlement unique (niveau course)
   const [reglementText, setReglementText] = useState("");
@@ -100,7 +169,6 @@ export default function CourseDetail() {
       setLoading(true);
       setError(null);
 
-      // 1) Course
       const { data: c, error: e1 } = await supabase
         .from("courses")
         .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
@@ -124,7 +192,6 @@ export default function CourseDetail() {
 
       setCourse(c);
 
-      // 2) Formats (on récupère les champs utiles aux badges inscriptions)
       const { data: fmts, error: e2 } = await supabase
         .from("formats")
         .select(
@@ -171,7 +238,6 @@ export default function CourseDetail() {
         const list = (fmts || []).filter(Boolean);
         setFormats(list);
 
-        // Pré-sélection via ?format=...
         const wanted = searchParams.get("format");
         if (!selectedFormatId && list.length) {
           const ok = wanted && list.some((f) => f.id === wanted);
@@ -224,7 +290,6 @@ export default function CourseDetail() {
       setReglementError("");
 
       try {
-        // 1) dernier "published"
         const { data: pub, error: ePub } = await supabase
           .from("reglements")
           .select("id, status, edited_md, generated_md, updated_at")
@@ -236,7 +301,6 @@ export default function CourseDetail() {
 
         if (ePub) throw ePub;
 
-        // 2) sinon dernier tout court
         let row = pub;
         if (!row) {
           const { data: last, error: eLast } = await supabase
@@ -273,7 +337,10 @@ export default function CourseDetail() {
   }, [tab, id]);
 
   /* --------------------------- Derived / aggregates --------------------------- */
-  const selectedFormat = useMemo(() => formats.find((f) => f.id === selectedFormatId) || null, [formats, selectedFormatId]);
+  const selectedFormat = useMemo(
+    () => formats.find((f) => f.id === selectedFormatId) || null,
+    [formats, selectedFormatId]
+  );
 
   const nextFormat = useMemo(() => {
     const list = formats || [];
@@ -285,22 +352,16 @@ export default function CourseDetail() {
     return (upcoming.length ? upcoming : list)[0] || null;
   }, [formats]);
 
-  // “format actif” pour les badges dans le hero : selected si dispo, sinon next
   const heroFormat = selectedFormat || nextFormat;
 
-  // format enrichi avec nb_inscrits si on les connait (pour PlacesBadge)
   const heroFormatWithCounts = useMemo(() => {
     if (!heroFormat) return null;
     const count = countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
-    return {
-      ...heroFormat,
-      ...(count === undefined ? {} : { nb_inscrits: count }),
-    };
+    return { ...heroFormat, ...(count === undefined ? {} : { nb_inscrits: count }) };
   }, [heroFormat, countsByFormat]);
 
   const isHeroFull = useMemo(() => {
     if (!heroFormat) return false;
-    if (countsByFormat === null) return false;
     return computeIsFullWithCounts(heroFormat, countsByFormat);
   }, [heroFormat, countsByFormat]);
 
@@ -342,6 +403,32 @@ export default function CourseDetail() {
 
   const hasAnyGPX = useMemo(() => (formats || []).some((f) => !!f.gpx_url), [formats]);
 
+  // ✅ liste “onglet formats” (tri + filtre uniquement formats ouverts)
+  const formatsForTab = useMemo(() => {
+    const list = [...(formats || [])];
+
+    const filtered = onlyOpenFormats ? list.filter((f) => isFormatOpenNow(f)) : list;
+
+    filtered.sort((a, b) => {
+      if (formatsSortBy === "price") {
+        const pa = Number.isFinite(Number(a.prix)) ? Number(a.prix) : Infinity;
+        const pb = Number.isFinite(Number(b.prix)) ? Number(b.prix) : Infinity;
+        return pa - pb;
+      }
+      if (formatsSortBy === "dplus") {
+        const da = Number.isFinite(Number(a.denivele_dplus)) ? Number(a.denivele_dplus) : Infinity;
+        const db = Number.isFinite(Number(b.denivele_dplus)) ? Number(b.denivele_dplus) : Infinity;
+        return da - db;
+      }
+      // date (default)
+      const ta = parseDate(a.date)?.getTime() ?? Infinity;
+      const tb = parseDate(b.date)?.getTime() ?? Infinity;
+      return ta - tb;
+    });
+
+    return filtered;
+  }, [formats, formatsSortBy, onlyOpenFormats]);
+
   /* --------------------------- UI guards --------------------------- */
   if (loading) {
     return (
@@ -381,6 +468,13 @@ export default function CourseDetail() {
     } catch {}
   }
 
+  // ✅ CTA intelligent HERO
+  const heroCTA = getCtaForFormat({
+    courseId: course.id,
+    format: heroFormat,
+    countsByFormat,
+  });
+
   return (
     <div className="mx-auto max-w-7xl">
       {/* Toast copie lien */}
@@ -408,7 +502,6 @@ export default function CourseDetail() {
           {aggregates.is_new && <Badge text="Nouveau" color="blue" />}
           {!course.en_ligne && <Badge text="Hors-ligne" color="gray" />}
 
-          {/* ✅ statut inscriptions (format hero) */}
           {heroFormatWithCounts && (
             <InscriptionStatusBadge
               format={heroFormatWithCounts}
@@ -443,7 +536,6 @@ export default function CourseDetail() {
                 </span>
               )}
 
-              {/* ✅ places (format hero) */}
               {heroFormatWithCounts && countsByFormat !== null && (
                 <span className="inline-flex items-center gap-2">
                   <InscriptionPlacesBadge
@@ -457,12 +549,25 @@ export default function CourseDetail() {
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
-              <Link
-                to={`/inscription/${course.id}${heroFormatWithCounts?.id ? `?format=${heroFormatWithCounts.id}` : ""}`}
-                className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-white text-sm font-semibold hover:brightness-110"
-              >
-                S’inscrire <ArrowRight className="w-4 h-4" />
-              </Link>
+              {heroCTA.kind === "link" ? (
+                <Link
+                  to={heroCTA.to}
+                  className={[
+                    "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold hover:brightness-110",
+                    heroCTA.variant === "secondary" ? "bg-white/20 text-white" : "bg-orange-500 text-white",
+                  ].join(" ")}
+                >
+                  {heroCTA.label} <ArrowRight className="w-4 h-4" />
+                </Link>
+              ) : (
+                <button
+                  disabled
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/15 px-4 py-2 text-white/70 text-sm font-semibold cursor-not-allowed"
+                  title="Inscriptions indisponibles"
+                >
+                  {heroCTA.label}
+                </button>
+              )}
 
               <Link
                 to={`/benevoles/${course.id}`}
@@ -532,17 +637,53 @@ export default function CourseDetail() {
                   <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
                   <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
                   <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
-                  <Fact title="Statut" value={aggregates.is_full ? "Complet" : "—"} />
+                  <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
                 </div>
               </section>
             )}
 
             {tab === "formats" && (
-              <section className="mt-6">
+              <section className="mt-6 space-y-4">
                 {formats.length === 0 ? (
                   <EmptyBox text="Les formats seront publiés bientôt." />
                 ) : (
-                  <FormatsTable courseId={course.id} formats={formats} countsByFormat={countsByFormat} />
+                  <>
+                    {/* ✅ Contrôles Tri / Filtre */}
+                    <div className="rounded-2xl border bg-white shadow-sm p-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                        <div className="flex items-center gap-2">
+                          <span className="text-sm text-neutral-600">Trier par</span>
+                          <select
+                            value={formatsSortBy}
+                            onChange={(e) => setFormatsSortBy(e.target.value)}
+                            className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+                          >
+                            <option value="date">Date</option>
+                            <option value="price">Prix</option>
+                            <option value="dplus">D+</option>
+                          </select>
+                        </div>
+
+                        <label className="inline-flex items-center gap-2 select-none">
+                          <input
+                            type="checkbox"
+                            checked={onlyOpenFormats}
+                            onChange={(e) => setOnlyOpenFormats(e.target.checked)}
+                            className="h-4 w-4 rounded border-neutral-300 text-orange-600 focus:ring-orange-300"
+                          />
+                          <span className="text-sm text-neutral-700">Afficher uniquement les formats ouverts</span>
+                        </label>
+                      </div>
+
+                      <div className="mt-2 text-xs text-neutral-500">
+                        {onlyOpenFormats
+                          ? "Filtre actif : formats ouverts en ce moment."
+                          : "Astuce : active le filtre pour ne voir que les inscriptions ouvertes."}
+                      </div>
+                    </div>
+
+                    <FormatsTable courseId={course.id} formats={formatsForTab} countsByFormat={countsByFormat} />
+                  </>
                 )}
               </section>
             )}
@@ -657,7 +798,6 @@ export default function CourseDetail() {
                           {selectedFormat?.dotation || "—"}
                         </InfoItem>
 
-                        {/* ✅ options (repas supprimé ici) */}
                         <InfoItem icon="file" label="Options">
                           <span className="text-neutral-600 font-normal">
                             Les options (repas, t-shirt, navette…) sont gérées sur la page d’inscription.
@@ -706,7 +846,6 @@ export default function CourseDetail() {
               </section>
             )}
 
-            {/* Règlement */}
             {tab === "reglement" && (
               <section className="mt-6 space-y-4">
                 {reglementLoading ? (
@@ -751,7 +890,6 @@ export default function CourseDetail() {
               </div>
             </section>
 
-            {/* Partenaires & Sponsors */}
             <CoursePartnersBanner courseId={course.id} />
           </div>
 
@@ -767,19 +905,12 @@ export default function CourseDetail() {
                 ) : (
                   <div className="mt-3 space-y-2">
                     {formats.map((f) => {
-                      const max = Number(f.nb_max_coureurs) || null;
                       const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
-                      const remaining = max && inscrit != null ? Math.max(0, max - inscrit) : null;
-
                       const fmtForBadges =
-                        inscrit == null
-                          ? f
-                          : {
-                              ...f,
-                              nb_inscrits: inscrit,
-                            };
+                        inscrit == null ? f : { ...f, nb_inscrits: inscrit };
 
-                      const full = countsByFormat === null ? false : computeIsFullWithCounts(f, countsByFormat);
+                      const full = computeIsFullWithCounts(f, countsByFormat);
+                      const cta = getCtaForFormat({ courseId: course.id, format: f, countsByFormat });
 
                       return (
                         <div key={f.id} className="rounded-xl border p-3">
@@ -809,35 +940,32 @@ export default function CourseDetail() {
                                 )}
                               </div>
 
-                              {/* ✅ badges shared */}
                               <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="Inscriptions" />
                                 {countsByFormat !== null && (
                                   <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
                                 )}
                               </div>
-
-                              {/* petit bonus “places restantes” si on les connait */}
-                              {remaining !== null && remaining <= 10 && !full && (
-                                <div className="mt-2">
-                                  <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-medium">
-                                    {remaining} place{remaining > 1 ? "s" : ""} restante{remaining > 1 ? "s" : ""}
-                                  </span>
-                                </div>
-                              )}
                             </div>
 
-                            {full ? (
-                              <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1 text-[11px] font-medium text-rose-800">
-                                Complet
-                              </span>
-                            ) : (
+                            {/* ✅ CTA intelligent */}
+                            {cta.kind === "link" ? (
                               <Link
-                                to={`/inscription/${course.id}?format=${f.id}`}
-                                className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
+                                to={cta.to}
+                                className={[
+                                  "shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:brightness-110",
+                                  cta.variant === "secondary" ? "bg-neutral-900 text-white" : "bg-orange-500 text-white",
+                                ].join(" ")}
                               >
-                                S’inscrire <ArrowRight className="w-4 h-4" />
+                                {cta.label} <ArrowRight className="w-4 h-4" />
                               </Link>
+                            ) : (
+                              <button
+                                disabled
+                                className="shrink-0 inline-flex items-center rounded-xl bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-500 cursor-not-allowed"
+                              >
+                                {cta.label}
+                              </button>
                             )}
                           </div>
                         </div>
@@ -923,7 +1051,6 @@ export default function CourseDetail() {
           </div>
         </div>
 
-        {/* Message d’erreur éventuel */}
         {error && (
           <div className="mt-8 rounded-xl border border-rose-200 bg-rose-50 p-4 text-rose-800">
             <div className="flex items-center gap-2">
@@ -961,11 +1088,21 @@ function Fact({ title, value, Icon }) {
 }
 
 function EmptyBox({ text }) {
-  return <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">{text}</div>;
+  return (
+    <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">
+      {text}
+    </div>
+  );
 }
 
 function FormatsTable({ courseId, formats, countsByFormat }) {
-  if (!formats?.length) return null;
+  if (!formats?.length) {
+    return (
+      <div className="rounded-2xl border bg-white shadow-sm p-6 text-sm text-neutral-600">
+        Aucun format ne correspond aux filtres.
+      </div>
+    );
+  }
 
   return (
     <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
@@ -985,15 +1122,10 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
         <tbody>
           {formats.map((f, idx) => {
             const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
-            const full = countsByFormat === null ? false : computeIsFullWithCounts(f, countsByFormat);
+            const full = computeIsFullWithCounts(f, countsByFormat);
 
-            const fmtForBadges =
-              inscrit == null
-                ? f
-                : {
-                    ...f,
-                    nb_inscrits: inscrit,
-                  };
+            const fmtForBadges = inscrit == null ? f : { ...f, nb_inscrits: inscrit };
+            const cta = getCtaForFormat({ courseId, format: f, countsByFormat });
 
             return (
               <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}>
@@ -1013,7 +1145,9 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
                 <td className="px-4 py-3 text-neutral-700">
                   <div className="flex flex-wrap items-center gap-2">
                     <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="" />
-                    {countsByFormat !== null && <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />}
+                    {countsByFormat !== null && (
+                      <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
+                    )}
                   </div>
                 </td>
 
@@ -1022,17 +1156,23 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
                 </td>
 
                 <td className="px-4 py-3 text-right">
-                  {full ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1 text-[11px] font-medium text-rose-800">
-                      Complet
-                    </span>
-                  ) : (
+                  {cta.kind === "link" ? (
                     <Link
-                      to={`/inscription/${courseId}?format=${f.id}`}
-                      className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
+                      to={cta.to}
+                      className={[
+                        "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:brightness-110",
+                        cta.variant === "secondary" ? "bg-neutral-900 text-white" : "bg-orange-500 text-white",
+                      ].join(" ")}
                     >
-                      S’inscrire <ArrowRight className="w-4 h-4" />
+                      {cta.label} <ArrowRight className="w-4 h-4" />
                     </Link>
+                  ) : (
+                    <button
+                      disabled
+                      className="inline-flex items-center rounded-xl bg-neutral-100 px-3 py-2 text-sm font-semibold text-neutral-500 cursor-not-allowed"
+                    >
+                      {cta.label}
+                    </button>
                   )}
                 </td>
               </tr>
