@@ -529,6 +529,16 @@ export default function ListeInscriptions() {
       if (!alive) return;
       if (!error && data) {
         setFormats(data);
+ // ✅ Si on arrive via /listeinscriptions/:courseId et qu’aucun formatId n’est défini,
+     // on prend automatiquement le 1er format.
+     if ((!formatId || formatId === "") && data.length > 0) {
+       const firstId = data[0].id;
+       setFormatId(firstId);
+       const sp = new URLSearchParams(searchParams.toString());
+       sp.set("formatId", firstId);
+       setSearchParams(sp, { replace: true });
+     }
+
         if (formatId) {
           const f = data.find((x) => x.id === formatId);
           if (f) {

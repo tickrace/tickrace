@@ -1,5 +1,5 @@
 // src/components/WaitlistPanel.jsx
-import React, { useEffect, useMemo, useState, useCallback } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
 
 function cls(...xs) {
@@ -9,27 +9,29 @@ function cls(...xs) {
 function fmt(iso) {
   if (!iso) return "—";
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "—";
-  return new Intl.DateTimeFormat("fr-FR", {
+  return d.toLocaleString("fr-FR", {
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
-  }).format(d);
+  });
 }
 
-function Pill({ children, tone = "neutral" }) {
-  const map = {
-    neutral: "bg-neutral-100 text-neutral-800",
-    emerald: "bg-emerald-100 text-emerald-800",
-    amber: "bg-amber-100 text-amber-800",
-    rose: "bg-rose-100 text-rose-800",
-    blue: "bg-blue-100 text-blue-800",
-  };
+function StatusPill({ row }) {
+  const consumed = !!row.consumed_at;
+  const invited = !!row.invited_at;
+
+  const label = consumed ? "Consommé" : invited ? "Invité" : "En attente";
+  const style = consumed
+    ? "bg-emerald-100 text-emerald-800"
+    : invited
+    ? "bg-amber-100 text-amber-800"
+    : "bg-neutral-100 text-neutral-700";
+
   return (
-    <span className={cls("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", map[tone])}>
-      {children}
+    <span className={cls("inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium", style)}>
+      {label}
     </span>
   );
 }
@@ -38,55 +40,103 @@ export default function WaitlistPanel({
   courseId,
   formatId,
   formatLabel = "",
-  enabled = false,
+  enabled = true,
   quotaAttente = null,
+  onInvite, // optionnel : () => Promise<void>
 }) {
-  const [loading, setLoading] = useState(false);
-  const [err, setErr] = useState("");
-  const [rows, setRows] = useState([]);
-  const [showConsumed, setShowConsumed] = useState(false);
+  const [resolvedCourseId, setResolvedCourseId] = useState(courseId || null);
+  const [resolvedFormatId, setResolvedFormatId] = useState(formatId || null);
 
-  const canFetch = !!(enabled && courseId && formatId);
+  const [loadingResolve, setLoadingResolve] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
+
+  // Keep in sync with props
+  useEffect(() => {
+    setResolvedCourseId(courseId || null);
+  }, [courseId]);
+
+  useEffect(() => {
+    setResolvedFormatId(formatId || null);
+  }, [formatId]);
+
+  // ✅ Si on a formatId mais pas courseId, on peut résoudre course_id via formats
+  useEffect(() => {
+    let alive = true;
+
+    const resolve = async () => {
+      setError("");
+
+      const fid = resolvedFormatId || formatId;
+      const cid = resolvedCourseId || courseId;
+
+      if (!fid) return; // rien à faire (on attend formatId)
+      if (cid) return;  // déjà résolu
+
+      setLoadingResolve(true);
+      try {
+        const { data, error: e } = await supabase
+          .from("formats")
+          .select("id, course_id")
+          .eq("id", fid)
+          .maybeSingle();
+
+        if (e) throw e;
+        if (!alive) return;
+
+        if (data?.course_id) setResolvedCourseId(data.course_id);
+      } catch (e) {
+        console.error("WAITLIST_RESOLVE_ERROR", e);
+        if (alive) setError("Impossible de résoudre la course depuis le format.");
+      } finally {
+        if (alive) setLoadingResolve(false);
+      }
+    };
+
+    resolve();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatId, courseId, resolvedFormatId, resolvedCourseId]);
+
+  const canLoad = useMemo(() => {
+    return !!resolvedFormatId; // format obligatoire pour lister
+  }, [resolvedFormatId]);
 
   const load = useCallback(async () => {
-    if (!canFetch) return;
+    if (!canLoad) return;
 
     setLoading(true);
-    setErr("");
-
+    setError("");
     try {
+      // NB: on filtre par format_id (et course_id si connu, pour sécurité)
       let q = supabase
         .from("waitlist")
-        .select("id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source")
-        .eq("course_id", courseId)
-        .eq("format_id", formatId)
+        .select("id, course_id, format_id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source")
+        .eq("format_id", resolvedFormatId)
         .order("created_at", { ascending: false });
 
-      if (!showConsumed) q = q.is("consumed_at", null);
+      if (resolvedCourseId) q = q.eq("course_id", resolvedCourseId);
 
-      const { data, error } = await q;
-
-      if (error) {
-        console.error("[WaitlistPanel] select error:", error);
-        // 42501 / "permission denied" => RLS très probable
-        const msg =
-          (error?.code === "42501" || /permission/i.test(error?.message || ""))
-            ? "Accès refusé (RLS). Ajoute une policy SELECT sur public.waitlist pour l’organisateur (voir plus bas)."
-            : error.message || "Erreur lors du chargement de la liste d’attente.";
-        setErr(msg);
-        setRows([]);
-        return;
-      }
+      const { data, error: e } = await q;
+      if (e) throw e;
 
       setRows(data || []);
     } catch (e) {
-      console.error("[WaitlistPanel] unexpected error:", e);
-      setErr("Erreur inattendue lors du chargement de la liste d’attente.");
+      console.error("WAITLIST_LOAD_ERROR", e);
+      // Très souvent: RLS bloque le SELECT
+      setError(
+        "Impossible de charger la liste d’attente (droits / RLS ?). " +
+          "Vérifie les policies SELECT sur la table waitlist."
+      );
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [canFetch, courseId, formatId, showConsumed]);
+  }, [canLoad, resolvedCourseId, resolvedFormatId]);
 
   useEffect(() => {
     load();
@@ -95,146 +145,139 @@ export default function WaitlistPanel({
   const stats = useMemo(() => {
     const total = rows.length;
     const invited = rows.filter((r) => !!r.invited_at && !r.consumed_at).length;
-    const notInvited = rows.filter((r) => !r.invited_at && !r.consumed_at).length;
     const consumed = rows.filter((r) => !!r.consumed_at).length;
-    return { total, invited, notInvited, consumed };
+    const pending = total - invited - consumed;
+    return { total, invited, consumed, pending };
   }, [rows]);
 
-  if (!enabled) {
-    return (
-      <div className="rounded-2xl border border-neutral-200 bg-white p-4">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-semibold text-neutral-800">Liste d’attente</div>
-            <div className="text-xs text-neutral-500">Désactivée pour ce format.</div>
-          </div>
-          <Pill tone="neutral">OFF</Pill>
-        </div>
-      </div>
-    );
-  }
-
-  if (!courseId || !formatId) {
-    return (
-      <div className="rounded-2xl border border-neutral-200 bg-white p-4">
-        <div className="text-sm font-semibold text-neutral-800">Liste d’attente</div>
-        <div className="text-xs text-neutral-500 mt-1">Course/format non résolu.</div>
-      </div>
-    );
-  }
-
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-4">
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <div className="text-sm font-semibold text-neutral-800">Liste d’attente</div>
-            {quotaAttente != null && <Pill tone="blue">Quota : {Number(quotaAttente)}</Pill>}
-            <Pill tone="neutral">Format</Pill>
-            <span className="text-xs text-neutral-500">{formatLabel || formatId}</span>
+    <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-sm font-semibold text-neutral-900">Liste d’attente</div>
+
+          <div className="mt-1 text-xs text-neutral-500">
+            {formatLabel ? (
+              <>Format : <span className="font-medium text-neutral-700">{formatLabel}</span></>
+            ) : (
+              <>Format : <span className="font-medium text-neutral-700">{resolvedFormatId ? resolvedFormatId : "—"}</span></>
+            )}
           </div>
-          <div className="mt-1 flex items-center gap-2 flex-wrap">
-            <Pill tone="amber">À inviter : {stats.notInvited}</Pill>
-            <Pill tone="emerald">Invités : {stats.invited}</Pill>
-            {showConsumed && <Pill tone="neutral">Consommés : {stats.consumed}</Pill>}
-            <span className="text-xs text-neutral-500">{loading ? "Chargement…" : `${stats.total} ligne(s)`}</span>
+
+          <div className="mt-1 text-xs text-neutral-500">
+            {loadingResolve && "Résolution course/format…"}
+            {!loadingResolve && !resolvedFormatId && "Chargement… (format non encore sélectionné)"}
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="inline-flex items-center gap-2 text-xs text-neutral-700 select-none">
-            <input
-              type="checkbox"
-              checked={showConsumed}
-              onChange={(e) => setShowConsumed(e.target.checked)}
-            />
-            Afficher consommés
-          </label>
+        <div className="flex items-center gap-2 shrink-0">
+          {typeof onInvite === "function" && (
+            <button
+              onClick={onInvite}
+              className="rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold hover:bg-neutral-50"
+              title="Envoyer des invitations à la liste d’attente"
+            >
+              Inviter
+            </button>
+          )}
 
           <button
             onClick={load}
-            className="rounded-xl border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50"
-            disabled={loading}
+            className="rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold hover:bg-neutral-50"
+            disabled={!canLoad || loading}
           >
-            Rafraîchir
+            {loading ? "…" : "Rafraîchir"}
           </button>
         </div>
       </div>
 
-      {err && (
-        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-rose-800 text-xs">
-          {err}
-          <div className="mt-1 text-rose-700/90">
-            Debug : course_id={String(courseId)} • format_id={String(formatId)}
-          </div>
+      {!enabled && (
+        <div className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-700">
+          Liste d’attente désactivée pour ce format.
         </div>
       )}
 
+      {quotaAttente != null && (
+        <div className="mt-3 text-xs text-neutral-600">
+          Quota attente : <b>{quotaAttente}</b> • Total : <b>{stats.total}</b>
+        </div>
+      )}
+
+      {!!error && (
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+          {error}
+        </div>
+      )}
+
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <span className="rounded-full bg-neutral-100 px-3 py-1 text-neutral-700">
+          Total <b>{stats.total}</b>
+        </span>
+        <span className="rounded-full bg-neutral-100 px-3 py-1 text-neutral-700">
+          En attente <b>{stats.pending}</b>
+        </span>
+        <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
+          Invités <b>{stats.invited}</b>
+        </span>
+        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">
+          Consommés <b>{stats.consumed}</b>
+        </span>
+      </div>
+
       <div className="mt-3 overflow-x-auto">
-        <table className="min-w-[900px] w-full text-sm">
-          <thead className="text-left text-neutral-600">
-            <tr className="border-b">
-              <th className="px-3 py-2">Créé le</th>
-              <th className="px-3 py-2">Nom</th>
-              <th className="px-3 py-2">Email</th>
-              <th className="px-3 py-2">Source</th>
-              <th className="px-3 py-2">Statut</th>
-              <th className="px-3 py-2">Invité le</th>
-              <th className="px-3 py-2">Expire</th>
-              <th className="px-3 py-2">Consommé le</th>
+        <table className="min-w-full text-sm">
+          <thead className="text-left text-neutral-500">
+            <tr>
+              <th className="py-2 pr-3">Statut</th>
+              <th className="py-2 pr-3">Email</th>
+              <th className="py-2 pr-3">Nom</th>
+              <th className="py-2 pr-3">Créé</th>
+              <th className="py-2 pr-3">Invité</th>
+              <th className="py-2 pr-3">Expire</th>
+              <th className="py-2 pr-3">Consommé</th>
+              <th className="py-2 pr-3">Source</th>
             </tr>
           </thead>
 
           <tbody className="divide-y">
-            {loading ? (
-              [...Array(3)].map((_, i) => (
-                <tr key={i} className="animate-pulse">
-                  <td className="px-3 py-2"><div className="h-4 w-24 bg-neutral-100 rounded" /></td>
-                  <td className="px-3 py-2"><div className="h-4 w-36 bg-neutral-100 rounded" /></td>
-                  <td className="px-3 py-2"><div className="h-4 w-52 bg-neutral-100 rounded" /></td>
-                  <td className="px-3 py-2"><div className="h-4 w-16 bg-neutral-100 rounded" /></td>
-                  <td className="px-3 py-2"><div className="h-4 w-20 bg-neutral-100 rounded" /></td>
-                  <td className="px-3 py-2"><div className="h-4 w-24 bg-neutral-100 rounded" /></td>
-                  <td className="px-3 py-2"><div className="h-4 w-24 bg-neutral-100 rounded" /></td>
-                  <td className="px-3 py-2"><div className="h-4 w-24 bg-neutral-100 rounded" /></td>
-                </tr>
-              ))
+            {!resolvedFormatId ? (
+              <tr>
+                <td colSpan={8} className="py-3 text-xs text-neutral-500">
+                  Format non sélectionné (le panneau s’affichera dès qu’un format est choisi).
+                </td>
+              </tr>
+            ) : loading ? (
+              <tr>
+                <td colSpan={8} className="py-3 text-xs text-neutral-500">
+                  Chargement…
+                </td>
+              </tr>
             ) : rows.length === 0 ? (
               <tr>
-                <td colSpan={8} className="px-3 py-4 text-neutral-600 text-sm">
-                  Aucune entrée{showConsumed ? "" : " (non consommée)"} pour ce format.
+                <td colSpan={8} className="py-3 text-xs text-neutral-500">
+                  Aucun inscrit en liste d’attente pour ce format.
                 </td>
               </tr>
             ) : (
-              rows.map((r) => {
-                const status = r.consumed_at
-                  ? { label: "Consommé", tone: "neutral" }
-                  : r.invited_at
-                  ? { label: "Invité", tone: "emerald" }
-                  : { label: "En attente", tone: "amber" };
-
-                return (
-                  <tr key={r.id} className="hover:bg-neutral-50/60">
-                    <td className="px-3 py-2">{fmt(r.created_at)}</td>
-                    <td className="px-3 py-2">
-                      {(r.prenom || "—") + " " + (r.nom || "")}
-                    </td>
-                    <td className="px-3 py-2">{r.email || "—"}</td>
-                    <td className="px-3 py-2">{r.source || "—"}</td>
-                    <td className="px-3 py-2"><Pill tone={status.tone}>{status.label}</Pill></td>
-                    <td className="px-3 py-2">{fmt(r.invited_at)}</td>
-                    <td className="px-3 py-2">{fmt(r.invite_expires_at)}</td>
-                    <td className="px-3 py-2">{fmt(r.consumed_at)}</td>
-                  </tr>
-                );
-              })
+              rows.map((r) => (
+                <tr key={r.id} className="hover:bg-neutral-50/60">
+                  <td className="py-2 pr-3">
+                    <StatusPill row={r} />
+                  </td>
+                  <td className="py-2 pr-3 font-medium text-neutral-900">{r.email}</td>
+                  <td className="py-2 pr-3 text-neutral-700">
+                    {(r.nom || "") + (r.prenom ? ` ${r.prenom}` : "") || "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.created_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.invited_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.invite_expires_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.consumed_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-500">{r.source || "—"}</td>
+                </tr>
+              ))
             )}
           </tbody>
         </table>
-      </div>
-
-      <div className="mt-2 text-[11px] text-neutral-500">
-        NB : si tu vois “Accès refusé (RLS)”, c’est que le front ne peut pas lire `public.waitlist` → ajoute les policies ci-dessous.
       </div>
     </div>
   );
