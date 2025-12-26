@@ -65,9 +65,11 @@ function isFormatOpenNow(format) {
   const now = new Date();
   const openAt = parseDate(format?.inscription_ouverture);
   const closeAt = parseDate(format?.inscription_fermeture);
+
   if (openAt && now < openAt) return false;
   if (closeAt && now > closeAt) return false;
-  return true;
+
+  return true; // par défaut: ouvert si aucune fenêtre
 }
 
 function isFormatFuture(format) {
@@ -96,12 +98,6 @@ function computeIsFullWithCounts(format, countsByFormat) {
   return count >= max;
 }
 
-/**
- * CTA unique :
- * - inscription si ouvert & pas complet
- * - waitlist si complet & waitlist_enabled
- * - sinon disabled
- */
 function getCtaForFormat({ courseId, format, countsByFormat }) {
   if (!format) return { kind: "disabled", label: "Indisponible" };
 
@@ -118,9 +114,14 @@ function getCtaForFormat({ courseId, format, countsByFormat }) {
     return { kind: "disabled", label: "Fermé" };
   }
 
+  // ✅ IMPORTANT : si complet + waitlist => on ouvre une modale (pas de redirection)
   if (countsByFormat !== null && isFull) {
     if (waitlistEnabled) {
-      return { kind: "waitlist", label: "Liste d’attente" };
+      return {
+        kind: "waitlist",
+        label: "Liste d’attente",
+        variant: "secondary",
+      };
     }
     return { kind: "disabled", label: "Complet" };
   }
@@ -131,6 +132,12 @@ function getCtaForFormat({ courseId, format, countsByFormat }) {
     to: `/inscription/${courseId}?format=${format.id}`,
     variant: "primary",
   };
+}
+
+function isValidEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  // simple et robuste
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
 /* ============================== Page ============================== */
@@ -162,11 +169,12 @@ export default function CourseDetail() {
   // ✅ Waitlist modal
   const [waitlistOpen, setWaitlistOpen] = useState(false);
   const [waitlistFormat, setWaitlistFormat] = useState(null);
+  const [toast, setToast] = useState(null);
 
   const BASE = import.meta.env?.VITE_PUBLIC_BASE_URL || window.location.origin;
 
-  const openWaitlist = (fmt) => {
-    setWaitlistFormat(fmt || null);
+  const openWaitlist = (format) => {
+    setWaitlistFormat(format || null);
     setWaitlistOpen(true);
   };
 
@@ -256,7 +264,7 @@ export default function CourseDetail() {
         }
       }
 
-      // Comptage inscriptions (peut être bloqué par RLS)
+      // 3) Inscriptions → comptage (peut être bloqué par RLS)
       try {
         const fids = (fmts || []).map((f) => f.id);
         if (fids.length) {
@@ -369,7 +377,9 @@ export default function CourseDetail() {
   const heroFormatWithCounts = useMemo(() => {
     if (!heroFormat) return null;
     const count =
-      countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
+      countsByFormat === null
+        ? undefined
+        : Number(countsByFormat?.[heroFormat.id] || 0);
     return { ...heroFormat, ...(count === undefined ? {} : { nb_inscrits: count }) };
   }, [heroFormat, countsByFormat]);
 
@@ -394,8 +404,12 @@ export default function CourseDetail() {
     }, Infinity);
     const min_prix = minPrix === Infinity ? null : minPrix;
 
-    const dists = fList.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
-    const dplus = fList.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
+    const dists = fList
+      .map((f) => Number(f.distance_km))
+      .filter((n) => Number.isFinite(n));
+    const dplus = fList
+      .map((f) => Number(f.denivele_dplus))
+      .filter((n) => Number.isFinite(n));
 
     const min_dist = dists.length ? Math.min(...dists) : null;
     const max_dist = dists.length ? Math.max(...dists) : null;
@@ -411,10 +425,22 @@ export default function CourseDetail() {
       ? (Date.now() - new Date(course.created_at).getTime()) / 86400000 < 14
       : false;
 
-    return { next_date, min_prix, min_dist, max_dist, min_dplus, max_dplus, is_full, is_new };
+    return {
+      next_date,
+      min_prix,
+      min_dist,
+      max_dist,
+      min_dplus,
+      max_dplus,
+      is_full,
+      is_new,
+    };
   }, [formats, countsByFormat, course?.created_at]);
 
-  const hasAnyGPX = useMemo(() => (formats || []).some((f) => !!f.gpx_url), [formats]);
+  const hasAnyGPX = useMemo(
+    () => (formats || []).some((f) => !!f.gpx_url),
+    [formats]
+  );
 
   // ✅ liste “onglet formats” (tri + filtre uniquement formats ouverts)
   const formatsForTab = useMemo(() => {
@@ -428,8 +454,12 @@ export default function CourseDetail() {
         return pa - pb;
       }
       if (formatsSortBy === "dplus") {
-        const da = Number.isFinite(Number(a.denivele_dplus)) ? Number(a.denivele_dplus) : Infinity;
-        const db = Number.isFinite(Number(b.denivele_dplus)) ? Number(b.denivele_dplus) : Infinity;
+        const da = Number.isFinite(Number(a.denivele_dplus))
+          ? Number(a.denivele_dplus)
+          : Infinity;
+        const db = Number.isFinite(Number(b.denivele_dplus))
+          ? Number(b.denivele_dplus)
+          : Infinity;
         return da - db;
       }
       const ta = parseDate(a.date)?.getTime() ?? Infinity;
@@ -481,6 +511,7 @@ export default function CourseDetail() {
     } catch {}
   }
 
+  // ✅ CTA intelligent HERO
   const heroCTA = getCtaForFormat({
     courseId: course.id,
     format: heroFormat,
@@ -496,13 +527,25 @@ export default function CourseDetail() {
         </div>
       )}
 
+      {/* Toast waitlist */}
+      {toast && (
+        <div className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-4 z-[70] rounded-2xl bg-neutral-900 text-white text-sm px-4 py-3 shadow max-w-md">
+          {toast}
+        </div>
+      )}
+
       {/* Waitlist modal */}
       <WaitlistModal
         open={waitlistOpen}
         onClose={() => setWaitlistOpen(false)}
-        format={waitlistFormat}
         courseId={course.id}
+        format={waitlistFormat}
         defaultEmail={session?.user?.email || ""}
+        onSuccess={(msg) => {
+          setWaitlistOpen(false);
+          setToast(msg || "Inscription en liste d’attente enregistrée.");
+          setTimeout(() => setToast(null), 2500);
+        }}
       />
 
       {/* HERO */}
@@ -592,9 +635,9 @@ export default function CourseDetail() {
               ) : heroCTA.kind === "waitlist" ? (
                 <button
                   onClick={() => openWaitlist(heroFormat)}
-                  className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-white text-sm font-semibold hover:bg-white/25"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-sm font-semibold text-white hover:bg-white/25"
                 >
-                  Liste d’attente <ArrowRight className="w-4 h-4" />
+                  {heroCTA.label} <ArrowRight className="w-4 h-4" />
                 </button>
               ) : (
                 <button
@@ -694,7 +737,9 @@ export default function CourseDetail() {
                   <Fact
                     title="Prochaine date"
                     value={
-                      aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"
+                      aggregates.next_date
+                        ? fmtDate(aggregates.next_date)
+                        : "À venir"
                     }
                   />
                   <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
@@ -708,12 +753,11 @@ export default function CourseDetail() {
                   <EmptyBox text="Les formats seront publiés bientôt." />
                 ) : (
                   <>
+                    {/* ✅ Contrôles Tri / Filtre */}
                     <div className="rounded-2xl border bg-white shadow-sm p-4">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-neutral-600">
-                            Trier par
-                          </span>
+                          <span className="text-sm text-neutral-600">Trier par</span>
                           <select
                             value={formatsSortBy}
                             onChange={(e) => setFormatsSortBy(e.target.value)}
@@ -729,9 +773,7 @@ export default function CourseDetail() {
                           <input
                             type="checkbox"
                             checked={onlyOpenFormats}
-                            onChange={(e) =>
-                              setOnlyOpenFormats(e.target.checked)
-                            }
+                            onChange={(e) => setOnlyOpenFormats(e.target.checked)}
                             className="h-4 w-4 rounded border-neutral-300 text-orange-600 focus:ring-orange-300"
                           />
                           <span className="text-sm text-neutral-700">
@@ -751,7 +793,7 @@ export default function CourseDetail() {
                       courseId={course.id}
                       formats={formatsForTab}
                       countsByFormat={countsByFormat}
-                      onOpenWaitlist={openWaitlist}
+                      onWaitlist={(f) => openWaitlist(f)}
                     />
                   </>
                 )}
@@ -839,41 +881,20 @@ export default function CourseDetail() {
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                      <SectionCard
-                        title="Logistique"
-                        subtitle="Infos clés du jour J"
-                      >
+                      <SectionCard title="Logistique" subtitle="Infos clés du jour J">
                         <InfoItem icon="calendar" label="Date">
-                          {selectedFormat?.date
-                            ? fmtDate(selectedFormat.date)
-                            : "—"}
-                          {selectedFormat?.heure_depart
-                            ? ` • ${selectedFormat.heure_depart}`
-                            : ""}
+                          {selectedFormat?.date ? fmtDate(selectedFormat.date) : "—"}
+                          {selectedFormat?.heure_depart ? ` • ${selectedFormat.heure_depart}` : ""}
                         </InfoItem>
 
                         <InfoItem icon="start" label="Départ">
-                          {selectedFormat?.adresse_depart ||
-                            formats[0]?.adresse_depart ||
-                            "Non communiqué"}
-                          <MapLink
-                            address={
-                              selectedFormat?.adresse_depart ||
-                              formats[0]?.adresse_depart
-                            }
-                          />
+                          {selectedFormat?.adresse_depart || formats[0]?.adresse_depart || "Non communiqué"}
+                          <MapLink address={selectedFormat?.adresse_depart || formats[0]?.adresse_depart} />
                         </InfoItem>
 
                         <InfoItem icon="finish" label="Arrivée">
-                          {selectedFormat?.adresse_arrivee ||
-                            formats[0]?.adresse_arrivee ||
-                            "Non communiqué"}
-                          <MapLink
-                            address={
-                              selectedFormat?.adresse_arrivee ||
-                              formats[0]?.adresse_arrivee
-                            }
-                          />
+                          {selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee || "Non communiqué"}
+                          <MapLink address={selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee} />
                         </InfoItem>
 
                         <InfoItem icon="shield" label="Âge minimum">
@@ -883,23 +904,14 @@ export default function CourseDetail() {
                         </InfoItem>
                       </SectionCard>
 
-                      <SectionCard
-                        title="Course & tarifs"
-                        subtitle="Résumé du format"
-                      >
+                      <SectionCard title="Course & tarifs" subtitle="Résumé du format">
                         <div className="mb-2">
                           <Chips
                             items={[
-                              selectedFormat?.type_epreuve &&
-                                selectedFormat.type_epreuve.toUpperCase(),
-                              selectedFormat?.distance_km &&
-                                `${Number(selectedFormat.distance_km)} km`,
-                              Number.isFinite(
-                                Number(selectedFormat?.denivele_dplus)
-                              ) && `${selectedFormat.denivele_dplus} m D+`,
-                              Number.isFinite(
-                                Number(selectedFormat?.denivele_dmoins)
-                              ) && `${selectedFormat.denivele_dmoins} m D-`,
+                              selectedFormat?.type_epreuve && selectedFormat.type_epreuve.toUpperCase(),
+                              selectedFormat?.distance_km && `${Number(selectedFormat.distance_km)} km`,
+                              Number.isFinite(Number(selectedFormat?.denivele_dplus)) && `${selectedFormat.denivele_dplus} m D+`,
+                              Number.isFinite(Number(selectedFormat?.denivele_dmoins)) && `${selectedFormat.denivele_dmoins} m D-`,
                             ]}
                           />
                         </div>
@@ -916,8 +928,7 @@ export default function CourseDetail() {
 
                         <InfoItem icon="file" label="Options">
                           <span className="text-neutral-600 font-normal">
-                            Les options (repas, t-shirt, navette…) sont gérées
-                            sur la page d’inscription.
+                            Les options (repas, t-shirt, navette…) sont gérées sur la page d’inscription.
                           </span>
                         </InfoItem>
                       </SectionCard>
@@ -932,11 +943,9 @@ export default function CourseDetail() {
                               Ravitaillements
                             </div>
                             <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
-                              {asList(selectedFormat.ravitaillements).map(
-                                (r, i) => (
-                                  <li key={i}>{r}</li>
-                                )
-                              )}
+                              {asList(selectedFormat.ravitaillements).map((r, i) => (
+                                <li key={i}>{r}</li>
+                              ))}
                             </ul>
                           </div>
                         ) : (
@@ -950,10 +959,7 @@ export default function CourseDetail() {
                         </InfoItem>
                       </SectionCard>
 
-                      <SectionCard
-                        title="Règlement"
-                        subtitle="Document officiel (unique)"
-                      >
+                      <SectionCard title="Règlement" subtitle="Document officiel (unique)">
                         <div className="flex items-center gap-2 text-sm text-neutral-700">
                           <FileText className="w-4 h-4" />
                           Onglet “Règlement” → règlement unique de l’épreuve
@@ -1061,7 +1067,6 @@ export default function CourseDetail() {
                         countsByFormat === null
                           ? null
                           : Number(countsByFormat?.[f.id] || 0);
-
                       const fmtForBadges =
                         inscrit == null ? f : { ...f, nb_inscrits: inscrit };
 
@@ -1083,9 +1088,7 @@ export default function CourseDetail() {
                                   <span className="inline-flex items-center gap-1">
                                     <CalendarDays className="w-3 h-3" />
                                     {fmtDate(f.date)}
-                                    {f.heure_depart
-                                      ? ` • ${f.heure_depart}`
-                                      : ""}
+                                    {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                                   </span>
                                 )}
                                 {Number.isFinite(Number(f.distance_km)) && (
@@ -1125,7 +1128,7 @@ export default function CourseDetail() {
                               </div>
                             </div>
 
-                            {/* CTA */}
+                            {/* ✅ CTA intelligent */}
                             {cta.kind === "link" ? (
                               <Link
                                 to={cta.to}
@@ -1143,7 +1146,7 @@ export default function CourseDetail() {
                                 onClick={() => openWaitlist(f)}
                                 className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black"
                               >
-                                Liste d’attente <ArrowRight className="w-4 h-4" />
+                                {cta.label} <ArrowRight className="w-4 h-4" />
                               </button>
                             ) : (
                               <button
@@ -1237,23 +1240,22 @@ export default function CourseDetail() {
               </div>
 
               {/* Alerte hors-ligne pour l'organisateur */}
-              {!course.en_ligne &&
-                course.organisateur_id === session?.user?.id && (
-                  <div className="rounded-2xl border bg-amber-50 text-amber-900 shadow-sm p-4">
-                    <div className="flex items-center gap-2">
-                      <AlertCircle className="w-5 h-5" />
-                      <span>Cette épreuve est en </span>
-                      <strong>brouillon</strong>
-                      <span> (hors-ligne).</span>
-                    </div>
-                    <Link
-                      to={`/modifier-course/${course.id}`}
-                      className="inline-flex items-center gap-2 mt-3 rounded-xl bg-amber-600 px-3 py-2 text-white text-sm font-semibold hover:bg-amber-700"
-                    >
-                      Modifier l’épreuve
-                    </Link>
+              {!course.en_ligne && course.organisateur_id === session?.user?.id && (
+                <div className="rounded-2xl border bg-amber-50 text-amber-900 shadow-sm p-4">
+                  <div className="flex items-center gap-2">
+                    <AlertCircle className="w-5 h-5" />
+                    <span>Cette épreuve est en </span>
+                    <strong>brouillon</strong>
+                    <span> (hors-ligne).</span>
                   </div>
-                )}
+                  <Link
+                    to={`/modifier-course/${course.id}`}
+                    className="inline-flex items-center gap-2 mt-3 rounded-xl bg-amber-600 px-3 py-2 text-white text-sm font-semibold hover:bg-amber-700"
+                  >
+                    Modifier l’épreuve
+                  </Link>
+                </div>
+              )}
             </div>
           </div>
         </div>
@@ -1272,6 +1274,146 @@ export default function CourseDetail() {
 }
 
 /* ============================== UI components ============================== */
+
+function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onSuccess }) {
+  const [email, setEmail] = useState(defaultEmail || "");
+  const [prenom, setPrenom] = useState("");
+  const [nom, setNom] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setSaving(false);
+    setMsg("");
+    setEmail((defaultEmail || "").trim());
+    setPrenom("");
+    setNom("");
+  }, [open, defaultEmail]);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    setMsg("");
+    const e = String(email || "").trim().toLowerCase();
+
+    if (!format?.id) return setMsg("Format introuvable.");
+    if (!courseId) return setMsg("Course introuvable.");
+    if (!isValidEmail(e)) return setMsg("Email invalide.");
+
+    setSaving(true);
+    try {
+      const payload = {
+        course_id: courseId,
+        format_id: format.id,
+        email: e,
+        prenom: prenom?.trim() || null,
+        nom: nom?.trim() || null,
+        // source = 'public' par défaut dans la table
+      };
+
+      const { error } = await supabase.from("waitlist").insert(payload);
+      if (error) {
+        // duplicate (ux_waitlist_format_email)
+        if (error.code === "23505") {
+          setMsg("Tu es déjà inscrit(e) sur la liste d’attente de ce format.");
+          return;
+        }
+        console.error("WAITLIST_INSERT_ERROR", error);
+        setMsg("Impossible de t’inscrire à la liste d’attente pour le moment.");
+        return;
+      }
+
+      onSuccess?.(
+        "✅ Inscription en liste d’attente enregistrée. Tu recevras un email si une place se libère."
+      );
+    } catch (e) {
+      console.error(e);
+      setMsg("Erreur lors de l’inscription en liste d’attente.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/40 p-4">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <div className="min-w-0">
+            <h3 className="text-lg font-semibold">Liste d’attente</h3>
+            <p className="text-xs text-neutral-500 mt-0.5 truncate">
+              {format?.nom ? `${format.nom}` : "Format"}{" "}
+              {format?.date ? `— ${fmtDate(format.date)}` : ""}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-sm text-neutral-500 hover:text-neutral-800">
+            Fermer
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <p className="text-sm text-neutral-700">
+            L’épreuve est complète. Laisse ton email : l’organisation pourra t’inviter si une place se libère.
+          </p>
+
+          <div>
+            <label className="text-sm font-medium">Email *</label>
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+              placeholder="ton@email.com"
+              autoComplete="email"
+            />
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">Prénom</label>
+              <input
+                value={prenom}
+                onChange={(e) => setPrenom(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                placeholder="Prénom"
+              />
+            </div>
+            <div>
+              <label className="text-sm font-medium">Nom</label>
+              <input
+                value={nom}
+                onChange={(e) => setNom(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                placeholder="Nom"
+              />
+            </div>
+          </div>
+
+          {msg && <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{msg}</div>}
+        </div>
+
+        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
+            disabled={saving}
+          >
+            Annuler
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className={[
+              "rounded-xl px-4 py-2 text-sm font-semibold text-white",
+              saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black",
+            ].join(" ")}
+          >
+            {saving ? "Inscription…" : "M’inscrire"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function Badge({ text, color = "gray" }) {
   const bg = {
@@ -1293,9 +1435,7 @@ function Fact({ title, value, Icon }) {
     <div className="rounded-xl border bg-white p-3 text-center">
       {Icon ? <Icon className="w-4 h-4 mx-auto text-neutral-700" /> : null}
       <div className="text-[11px] text-neutral-500 mt-1">{title}</div>
-      <div className="text-sm font-semibold text-neutral-900">
-        {value || "—"}
-      </div>
+      <div className="text-sm font-semibold text-neutral-900">{value || "—"}</div>
     </div>
   );
 }
@@ -1308,7 +1448,7 @@ function EmptyBox({ text }) {
   );
 }
 
-function FormatsTable({ courseId, formats, countsByFormat, onOpenWaitlist }) {
+function FormatsTable({ courseId, formats, countsByFormat, onWaitlist }) {
   if (!formats?.length) {
     return (
       <div className="rounded-2xl border bg-white shadow-sm p-6 text-sm text-neutral-600">
@@ -1338,27 +1478,19 @@ function FormatsTable({ courseId, formats, countsByFormat, onOpenWaitlist }) {
               countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
             const full = computeIsFullWithCounts(f, countsByFormat);
 
-            const fmtForBadges =
-              inscrit == null ? f : { ...f, nb_inscrits: inscrit };
+            const fmtForBadges = inscrit == null ? f : { ...f, nb_inscrits: inscrit };
             const cta = getCtaForFormat({ courseId, format: f, countsByFormat });
 
             return (
-              <tr
-                key={f.id}
-                className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}
-              >
-                <td className="px-4 py-3 font-medium text-neutral-900">
-                  {f.nom}
-                </td>
+              <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}>
+                <td className="px-4 py-3 font-medium text-neutral-900">{f.nom}</td>
 
                 <td className="px-4 py-3 text-neutral-700">
                   {f.date ? fmtDate(f.date) : "—"}
                   {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                 </td>
 
-                <td className="px-4 py-3 text-neutral-700">
-                  {numOrDash(f.distance_km)} km
-                </td>
+                <td className="px-4 py-3 text-neutral-700">{numOrDash(f.distance_km)} km</td>
 
                 <td className="px-4 py-3 text-neutral-700">
                   {numOrDash(f.denivele_dplus)} / {numOrDash(f.denivele_dmoins)} m
@@ -1366,25 +1498,15 @@ function FormatsTable({ courseId, formats, countsByFormat, onOpenWaitlist }) {
 
                 <td className="px-4 py-3 text-neutral-700">
                   <div className="flex flex-wrap items-center gap-2">
-                    <InscriptionStatusBadge
-                      format={fmtForBadges}
-                      isFullOverride={full}
-                      prefix=""
-                    />
+                    <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="" />
                     {countsByFormat !== null && (
-                      <InscriptionPlacesBadge
-                        format={fmtForBadges}
-                        style="soft"
-                        label="Places"
-                      />
+                      <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
                     )}
                   </div>
                 </td>
 
                 <td className="px-4 py-3 text-neutral-900">
-                  {Number.isFinite(Number(f.prix))
-                    ? `${Number(f.prix).toFixed(2)} €`
-                    : "—"}
+                  {Number.isFinite(Number(f.prix)) ? `${Number(f.prix).toFixed(2)} €` : "—"}
                 </td>
 
                 <td className="px-4 py-3 text-right">
@@ -1393,19 +1515,17 @@ function FormatsTable({ courseId, formats, countsByFormat, onOpenWaitlist }) {
                       to={cta.to}
                       className={[
                         "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:brightness-110",
-                        cta.variant === "secondary"
-                          ? "bg-neutral-900 text-white"
-                          : "bg-orange-500 text-white",
+                        cta.variant === "secondary" ? "bg-neutral-900 text-white" : "bg-orange-500 text-white",
                       ].join(" ")}
                     >
                       {cta.label} <ArrowRight className="w-4 h-4" />
                     </Link>
                   ) : cta.kind === "waitlist" ? (
                     <button
-                      onClick={() => onOpenWaitlist?.(f)}
+                      onClick={() => onWaitlist?.(f)}
                       className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black"
                     >
-                      Liste d’attente <ArrowRight className="w-4 h-4" />
+                      {cta.label} <ArrowRight className="w-4 h-4" />
                     </button>
                   ) : (
                     <button
@@ -1574,9 +1694,7 @@ function BedIcon(props) {
 
 function MapLink({ address }) {
   if (!address) return null;
-  const href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
-    address
-  )}`;
+  const href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
   return (
     <a
       href={href}
@@ -1586,190 +1704,5 @@ function MapLink({ address }) {
     >
       (Voir sur Maps)
     </a>
-  );
-}
-
-/* ============================== WAITLIST MODAL ============================== */
-
-function isValidEmail(email) {
-  const s = String(email || "").trim();
-  // Simple & robuste pour UI (la contrainte DB + unique index fait le vrai contrôle)
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
-
-function WaitlistModal({ open, onClose, format, courseId, defaultEmail }) {
-  const [email, setEmail] = useState(defaultEmail || "");
-  const [prenom, setPrenom] = useState("");
-  const [nom, setNom] = useState("");
-  const [agree, setAgree] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [msg, setMsg] = useState("");
-
-  useEffect(() => {
-    if (!open) return;
-    setEmail(defaultEmail || "");
-    setPrenom("");
-    setNom("");
-    setAgree(false);
-    setSaving(false);
-    setMsg("");
-  }, [open, defaultEmail]);
-
-  if (!open) return null;
-
-  const submit = async () => {
-    const e = String(email || "").trim().toLowerCase();
-    const p = String(prenom || "").trim() || null;
-    const n = String(nom || "").trim() || null;
-
-    if (!format?.id) return;
-
-    if (!isValidEmail(e)) {
-      setMsg("Email invalide.");
-      return;
-    }
-    if (!agree) {
-      setMsg("Merci de cocher la case pour rejoindre la liste d’attente.");
-      return;
-    }
-
-    setSaving(true);
-    setMsg("");
-
-    try {
-      const { error } = await supabase.from("waitlist").insert({
-        course_id: courseId,
-        format_id: format.id,
-        email: e, // ✅ lowercase (index unique sur lower(email))
-        prenom: p,
-        nom: n,
-        source: "public",
-      });
-
-      if (error) {
-        if (String(error.code) === "23505") {
-          setMsg("✅ Tu es déjà inscrit(e) sur la liste d’attente pour ce format.");
-        } else {
-          console.error("WAITLIST_INSERT_ERROR", error);
-          setMsg("Erreur : impossible de rejoindre la liste d’attente.");
-        }
-        return;
-      }
-
-      setMsg(
-        "✅ Inscription en liste d’attente enregistrée. Tu recevras un email si une place se libère."
-      );
-      setTimeout(() => onClose?.(), 900);
-    } catch (e2) {
-      console.error(e2);
-      setMsg("Erreur : impossible de rejoindre la liste d’attente.");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/30 p-4">
-      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
-          <h3 className="text-lg font-semibold">Liste d’attente</h3>
-          <button
-            onClick={onClose}
-            className="text-neutral-500 hover:text-neutral-800 text-sm"
-            disabled={saving}
-          >
-            Fermer
-          </button>
-        </div>
-
-        <div className="p-5 space-y-3">
-          <div className="text-sm text-neutral-700">
-            Format : <b>{format?.nom || "—"}</b>
-            {format?.date ? (
-              <span className="text-neutral-500"> • {fmtDate(format.date)}</span>
-            ) : null}
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <div>
-              <label className="text-sm font-medium">Prénom (optionnel)</label>
-              <input
-                value={prenom}
-                onChange={(e) => setPrenom(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-                placeholder="Prénom"
-                autoComplete="given-name"
-              />
-            </div>
-
-            <div>
-              <label className="text-sm font-medium">Nom (optionnel)</label>
-              <input
-                value={nom}
-                onChange={(e) => setNom(e.target.value)}
-                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-                placeholder="Nom"
-                autoComplete="family-name"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Email</label>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
-              placeholder="ton.email@exemple.com"
-              autoComplete="email"
-            />
-          </div>
-
-          <label className="flex items-start gap-2 text-sm text-neutral-700">
-            <input
-              type="checkbox"
-              checked={agree}
-              onChange={(e) => setAgree(e.target.checked)}
-              className="mt-1 h-4 w-4 rounded border-neutral-300"
-            />
-            <span>
-              Je souhaite m’inscrire en liste d’attente et être contacté(e) par
-              email si une place se libère.
-            </span>
-          </label>
-
-          {msg ? (
-            <div
-              className={
-                msg.startsWith("✅")
-                  ? "text-sm text-emerald-700"
-                  : "text-sm text-rose-700"
-              }
-            >
-              {msg}
-            </div>
-          ) : null}
-        </div>
-
-        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
-          <button
-            onClick={onClose}
-            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
-            disabled={saving}
-          >
-            Annuler
-          </button>
-          <button
-            onClick={submit}
-            disabled={saving}
-            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
-              saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"
-            }`}
-          >
-            {saving ? "Enregistrement…" : "Rejoindre la liste"}
-          </button>
-        </div>
-      </div>
-    </div>
   );
 }
