@@ -4,6 +4,7 @@ import { useParams, useSearchParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
 import AssignBibModal from "../components/AssignBibModal";
 import { computeCategoryForAthlete } from "../utils/ageCategories";
+import WaitlistPanel from "../components/WaitlistPanel";
 
 /* ----------------------------- Utils ----------------------------- */
 function cls(...xs) {
@@ -872,7 +873,9 @@ export default function ListeInscriptions() {
     (async () => {
       const base = supabase
         .from("formats")
-        .select("id, nom, date, course_id, type_format, team_size, nb_coureurs_min, nb_coureurs_max")
+.select(
+  "id, nom, date, course_id, type_format, team_size, nb_coureurs_min, nb_coureurs_max, waitlist_enabled, quota_attente"
+)
         .order("date", { ascending: true });
 
       const { data, error } = resolvedCourseId ? await base.eq("course_id", resolvedCourseId) : await base;
@@ -1601,6 +1604,15 @@ const clearBibNumbers = async (scope = "selected") => {
             </div>
           </div>
         </div>
+<div className="mb-4">
+  <WaitlistPanel
+    courseId={resolvedCourseId}
+    formatId={formatId}
+    formatLabel={formatObj ? `${formatObj.nom}${formatObj.date ? ` — ${formatObj.date}` : ""}` : ""}
+    enabled={!!formatObj?.waitlist_enabled}
+    quotaAttente={formatObj?.quota_attente ?? null}
+  />
+</div>
 
         {/* Bloc Catégories d'âge */}
         <div className="rounded-2xl border border-neutral-200 bg-white p-4">
