@@ -7,11 +7,11 @@ import CoursePartnersBanner from "../components/CoursePartnersBanner";
 
 import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
+
 import {
   CalendarDays,
   MapPin,
   Mountain,
-  UtensilsCrossed,
   Share2,
   ArrowRight,
   AlertCircle,
@@ -19,21 +19,58 @@ import {
   FileText,
 } from "lucide-react";
 
+import { InscriptionPlacesBadge, InscriptionStatusBadge } from "../components/InscriptionBadges";
+
 const GPXViewer = lazy(() => import("../components/GPXViewer"));
 
-/* ===== Helpers de dates et téléchargements ===== */
-const parseDate = (d) => (d ? new Date(d) : null);
-const fmtDate = (d) =>
-  d
-    ? new Intl.DateTimeFormat("fr-FR", {
-        weekday: "short",
-        day: "2-digit",
-        month: "long",
-        year: "numeric",
-      }).format(typeof d === "string" ? new Date(d) : d)
-    : "";
+/* ============================== Utils ============================== */
+const parseDate = (d) => {
+  if (!d) return null;
+  const dt = new Date(d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+};
 
-/* ===== Page ===== */
+const fmtDate = (d) => {
+  const dt = typeof d === "string" ? parseDate(d) : d;
+  if (!dt) return "";
+  return new Intl.DateTimeFormat("fr-FR", {
+    weekday: "short",
+    day: "2-digit",
+    month: "long",
+    year: "numeric",
+  }).format(dt);
+};
+
+const todayStart = () => new Date(new Date().toDateString());
+
+function numOrDash(v) {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : "—";
+}
+
+function formatRange(min, max, unit = "") {
+  if (min == null && max == null) return "—";
+  if (min != null && max != null) {
+    if (Number(min) === Number(max)) return `${Math.round(min)}${unit}`;
+    return `${Math.round(min)}–${Math.round(max)}${unit}`;
+  }
+  if (min != null) return `≥ ${Math.round(min)}${unit}`;
+  return `≤ ${Math.round(max)}${unit}`;
+}
+
+function computeIsFullWithCounts(format, countsByFormat) {
+  if (!format) return false;
+  const max = Number(format.nb_max_coureurs);
+  if (!max || Number.isNaN(max)) return false;
+
+  const closeOnFull = format.close_on_full !== false; // default true
+  if (!closeOnFull) return false;
+
+  const count = Number(countsByFormat?.[format.id] || 0);
+  return count >= max;
+}
+
+/* ============================== Page ============================== */
 export default function CourseDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
@@ -48,15 +85,16 @@ export default function CourseDetail() {
   const [tab, setTab] = useState("aperçu"); // "aperçu" | "formats" | "parcours" | "infos" | "reglement" | "resultats"
   const [selectedFormatId, setSelectedFormatId] = useState(null);
 
-  const [copied, setCopied] = useState(false); // toast copie lien
+  const [copied, setCopied] = useState(false);
 
-  // ✅ Règlement unique (niveau course) depuis table reglements
+  // Règlement unique (niveau course)
   const [reglementText, setReglementText] = useState("");
   const [reglementLoading, setReglementLoading] = useState(false);
   const [reglementError, setReglementError] = useState("");
 
   const BASE = import.meta.env?.VITE_PUBLIC_BASE_URL || window.location.origin;
 
+  /* --------------------------- Fetch course + formats --------------------------- */
   useEffect(() => {
     const fetchAll = async () => {
       setLoading(true);
@@ -86,11 +124,42 @@ export default function CourseDetail() {
 
       setCourse(c);
 
-      // 2) Formats
+      // 2) Formats (on récupère les champs utiles aux badges inscriptions)
       const { data: fmts, error: e2 } = await supabase
         .from("formats")
         .select(
-          "id, nom, type_epreuve, date, heure_depart, prix, distance_km, denivele_dplus, denivele_dmoins, adresse_depart, adresse_arrivee, dotation, presentation_parcours, image_url, gpx_url, nb_max_coureurs, stock_repas, ravitaillements, remise_dossards, age_minimum, hebergements, prix_repas"
+          [
+            "id",
+            "nom",
+            "type_epreuve",
+            "date",
+            "heure_depart",
+            "prix",
+            "distance_km",
+            "denivele_dplus",
+            "denivele_dmoins",
+            "adresse_depart",
+            "adresse_arrivee",
+            "dotation",
+            "presentation_parcours",
+            "image_url",
+            "gpx_url",
+            "nb_max_coureurs",
+            "ravitaillements",
+            "remise_dossards",
+            "age_minimum",
+            "hebergements",
+            "inscription_ouverture",
+            "inscription_fermeture",
+            "fuseau_horaire",
+            "close_on_full",
+            "waitlist_enabled",
+            "quota_attente",
+            "type_format",
+            "team_size",
+            "nb_coureurs_min",
+            "nb_coureurs_max",
+          ].join(", ")
         )
         .eq("course_id", id)
         .order("date", { ascending: true });
@@ -99,11 +168,14 @@ export default function CourseDetail() {
         console.error(e2);
         setFormats([]);
       } else {
-        setFormats(fmts || []);
+        const list = (fmts || []).filter(Boolean);
+        setFormats(list);
+
         // Pré-sélection via ?format=...
         const wanted = searchParams.get("format");
-        if (!selectedFormatId && (fmts || []).length) {
-          setSelectedFormatId(wanted && (fmts || []).some((f) => f.id === wanted) ? wanted : fmts[0].id);
+        if (!selectedFormatId && list.length) {
+          const ok = wanted && list.some((f) => f.id === wanted);
+          setSelectedFormatId(ok ? wanted : list[0].id);
         }
       }
 
@@ -111,7 +183,11 @@ export default function CourseDetail() {
       try {
         const fids = (fmts || []).map((f) => f.id);
         if (fids.length) {
-          const { data: insc, error: e3 } = await supabase.from("inscriptions").select("format_id").in("format_id", fids);
+          const { data: insc, error: e3 } = await supabase
+            .from("inscriptions")
+            .select("format_id")
+            .in("format_id", fids);
+
           if (e3) {
             setCountsByFormat(null);
           } else {
@@ -135,11 +211,11 @@ export default function CourseDetail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id, session?.user?.id]);
 
-  // ✅ Charger le règlement (unique, niveau course) quand on ouvre l’onglet
+  /* --------------------------- Fetch règlement (tab) --------------------------- */
   useEffect(() => {
     if (tab !== "reglement") return;
     if (reglementLoading) return;
-    if (reglementText) return; // cache simple
+    if (reglementText) return;
 
     let cancelled = false;
 
@@ -148,7 +224,7 @@ export default function CourseDetail() {
       setReglementError("");
 
       try {
-        // 1) on tente le dernier "published"
+        // 1) dernier "published"
         const { data: pub, error: ePub } = await supabase
           .from("reglements")
           .select("id, status, edited_md, generated_md, updated_at")
@@ -160,7 +236,7 @@ export default function CourseDetail() {
 
         if (ePub) throw ePub;
 
-        // 2) sinon fallback : dernier (draft ou autre)
+        // 2) sinon dernier tout court
         let row = pub;
         if (!row) {
           const { data: last, error: eLast } = await supabase
@@ -190,20 +266,51 @@ export default function CourseDetail() {
     };
 
     fetchReglement();
-
     return () => {
       cancelled = true;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, id]);
 
-  // Agrégats généraux
+  /* --------------------------- Derived / aggregates --------------------------- */
+  const selectedFormat = useMemo(() => formats.find((f) => f.id === selectedFormatId) || null, [formats, selectedFormatId]);
+
+  const nextFormat = useMemo(() => {
+    const list = formats || [];
+    const t0 = todayStart();
+    const upcoming = list.filter((f) => {
+      const d = parseDate(f.date);
+      return d && d >= t0;
+    });
+    return (upcoming.length ? upcoming : list)[0] || null;
+  }, [formats]);
+
+  // “format actif” pour les badges dans le hero : selected si dispo, sinon next
+  const heroFormat = selectedFormat || nextFormat;
+
+  // format enrichi avec nb_inscrits si on les connait (pour PlacesBadge)
+  const heroFormatWithCounts = useMemo(() => {
+    if (!heroFormat) return null;
+    const count = countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
+    return {
+      ...heroFormat,
+      ...(count === undefined ? {} : { nb_inscrits: count }),
+    };
+  }, [heroFormat, countsByFormat]);
+
+  const isHeroFull = useMemo(() => {
+    if (!heroFormat) return false;
+    if (countsByFormat === null) return false;
+    return computeIsFullWithCounts(heroFormat, countsByFormat);
+  }, [heroFormat, countsByFormat]);
+
   const aggregates = useMemo(() => {
     const fList = formats || [];
-    const now = new Date();
+    const t0 = todayStart();
+
     const upcoming = fList.filter((f) => {
       const d = parseDate(f.date);
-      return d && d >= new Date(now.toDateString());
+      return d && d >= t0;
     });
     const next_date = (upcoming.length ? upcoming : fList)[0]?.date || null;
 
@@ -215,41 +322,27 @@ export default function CourseDetail() {
 
     const dists = fList.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
     const dplus = fList.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
+
     const min_dist = dists.length ? Math.min(...dists) : null;
     const max_dist = dists.length ? Math.max(...dists) : null;
     const min_dplus = dplus.length ? Math.min(...dplus) : null;
     const max_dplus = dplus.length ? Math.max(...dplus) : null;
 
-    const has_repas = fList.some((f) => Number(f.stock_repas) > 0);
-
     let is_full = false;
     if (countsByFormat !== null && fList.length) {
-      is_full = fList.every((f) => {
-        const max = Number(f.nb_max_coureurs);
-        if (!max || Number.isNaN(max)) return false;
-        const count = Number(countsByFormat?.[f.id] || 0);
-        return count >= max;
-      });
+      is_full = fList.every((f) => computeIsFullWithCounts(f, countsByFormat));
     }
 
-    const is_new = course?.created_at ? (new Date().getTime() - new Date(course.created_at).getTime()) / 86400000 < 14 : false;
+    const is_new = course?.created_at
+      ? (Date.now() - new Date(course.created_at).getTime()) / 86400000 < 14
+      : false;
 
-    return {
-      next_date,
-      min_prix,
-      min_dist,
-      max_dist,
-      min_dplus,
-      max_dplus,
-      has_repas,
-      is_full,
-      is_new,
-    };
+    return { next_date, min_prix, min_dist, max_dist, min_dplus, max_dplus, is_full, is_new };
   }, [formats, countsByFormat, course?.created_at]);
 
-  const selectedFormat = formats.find((f) => f.id === selectedFormatId) || null;
   const hasAnyGPX = useMemo(() => (formats || []).some((f) => !!f.gpx_url), [formats]);
 
+  /* --------------------------- UI guards --------------------------- */
   if (loading) {
     return (
       <div className="max-w-7xl mx-auto px-4 py-16 flex items-center gap-3 text-neutral-600">
@@ -276,7 +369,9 @@ export default function CourseDetail() {
   }
 
   const shareUrl = `${BASE}/courses/${course.id}`;
-  const soon = aggregates.next_date && (parseDate(aggregates.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
+  const soon =
+    aggregates.next_date &&
+    (parseDate(aggregates.next_date).getTime() - Date.now()) / 86400000 <= 14;
 
   async function copyShare(url) {
     try {
@@ -288,7 +383,7 @@ export default function CourseDetail() {
 
   return (
     <div className="mx-auto max-w-7xl">
-      {/* TOAST copie lien */}
+      {/* Toast copie lien */}
       {copied && (
         <div className="fixed bottom-4 right-4 z-[70] rounded-full bg-black text-white text-sm px-3 py-2 shadow">
           Lien copié ✨
@@ -307,39 +402,63 @@ export default function CourseDetail() {
         <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/20 to-transparent" />
 
         {/* Badges */}
-        <div className="absolute left-4 top-4 flex gap-2 flex-wrap">
+        <div className="absolute left-4 top-4 flex gap-2 flex-wrap items-center">
           {soon && <Badge text="Bientôt" color="emerald" />}
-          {aggregates.has_repas && <Badge text="Repas" color="amber" />}
           {aggregates.is_full && <Badge text="Complet" color="rose" />}
           {aggregates.is_new && <Badge text="Nouveau" color="blue" />}
           {!course.en_ligne && <Badge text="Hors-ligne" color="gray" />}
+
+          {/* ✅ statut inscriptions (format hero) */}
+          {heroFormatWithCounts && (
+            <InscriptionStatusBadge
+              format={heroFormatWithCounts}
+              isFullOverride={isHeroFull}
+              prefix="Inscriptions"
+              className="!bg-white/20 !text-white ring-1 ring-white/15"
+            />
+          )}
         </div>
 
         {/* Titre & CTA */}
         <div className="absolute bottom-4 left-4 right-4">
           <div className="max-w-7xl mx-auto px-2 sm:px-4">
             <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">{course.nom}</h1>
+
             <div className="mt-2 flex flex-wrap items-center gap-3 text-white/90">
               <span className="inline-flex items-center gap-1">
                 <MapPin className="w-4 h-4" />
                 {course.lieu} ({course.departement})
               </span>
+
               {aggregates.next_date && (
                 <span className="inline-flex items-center gap-1">
                   <CalendarDays className="w-4 h-4" />
                   {fmtDate(aggregates.next_date)}
                 </span>
               )}
+
               {aggregates.min_prix != null && (
                 <span className="inline-flex items-center gap-1">
-                  💶 À partir de <strong>{aggregates.min_prix.toFixed(2)} €</strong>
+                  💶 À partir de <strong>{Number(aggregates.min_prix).toFixed(2)} €</strong>
+                </span>
+              )}
+
+              {/* ✅ places (format hero) */}
+              {heroFormatWithCounts && countsByFormat !== null && (
+                <span className="inline-flex items-center gap-2">
+                  <InscriptionPlacesBadge
+                    format={heroFormatWithCounts}
+                    style="overlay"
+                    className="!bg-white/20 !text-white ring-1 ring-white/15"
+                    label="Places"
+                  />
                 </span>
               )}
             </div>
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
               <Link
-                to={`/inscription/${course.id}`}
+                to={`/inscription/${course.id}${heroFormatWithCounts?.id ? `?format=${heroFormatWithCounts.id}` : ""}`}
                 className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-4 py-2 text-white text-sm font-semibold hover:brightness-110"
               >
                 S’inscrire <ArrowRight className="w-4 h-4" />
@@ -413,7 +532,7 @@ export default function CourseDetail() {
                   <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
                   <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
                   <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
-                  <Fact title="Repas" value={aggregates.has_repas ? "Disponible" : "—"} Icon={UtensilsCrossed} />
+                  <Fact title="Statut" value={aggregates.is_full ? "Complet" : "—"} />
                 </div>
               </section>
             )}
@@ -467,7 +586,9 @@ export default function CourseDetail() {
                       <EmptyBox text="Le GPX n’est pas disponible pour ce format." />
                     )}
 
-                    {selectedFormat?.presentation_parcours && <p className="text-neutral-700">{selectedFormat.presentation_parcours}</p>}
+                    {selectedFormat?.presentation_parcours && (
+                      <p className="text-neutral-700">{selectedFormat.presentation_parcours}</p>
+                    )}
                   </>
                 )}
               </section>
@@ -500,14 +621,17 @@ export default function CourseDetail() {
                           {selectedFormat?.date ? fmtDate(selectedFormat.date) : "—"}
                           {selectedFormat?.heure_depart ? ` • ${selectedFormat.heure_depart}` : ""}
                         </InfoItem>
+
                         <InfoItem icon="start" label="Départ">
                           {selectedFormat?.adresse_depart || formats[0]?.adresse_depart || "Non communiqué"}
                           <MapLink address={selectedFormat?.adresse_depart || formats[0]?.adresse_depart} />
                         </InfoItem>
+
                         <InfoItem icon="finish" label="Arrivée">
                           {selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee || "Non communiqué"}
                           <MapLink address={selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee} />
                         </InfoItem>
+
                         <InfoItem icon="shield" label="Âge minimum">
                           {Number.isFinite(Number(selectedFormat?.age_minimum)) ? `${selectedFormat.age_minimum} ans` : "—"}
                         </InfoItem>
@@ -524,16 +648,20 @@ export default function CourseDetail() {
                             ]}
                           />
                         </div>
+
                         <InfoItem icon="euro" label="Prix">
                           {Number.isFinite(Number(selectedFormat?.prix)) ? `${Number(selectedFormat.prix).toFixed(2)} €` : "—"}
                         </InfoItem>
-                        {Number(selectedFormat?.stock_repas) > 0 && (
-                          <InfoItem icon="meal" label="Repas">
-                            {selectedFormat?.prix_repas != null ? `${Number(selectedFormat.prix_repas).toFixed(2)} €` : "Disponible"}
-                          </InfoItem>
-                        )}
+
                         <InfoItem icon="trophy" label="Dotation">
                           {selectedFormat?.dotation || "—"}
+                        </InfoItem>
+
+                        {/* ✅ options (repas supprimé ici) */}
+                        <InfoItem icon="file" label="Options">
+                          <span className="text-neutral-600 font-normal">
+                            Les options (repas, t-shirt, navette…) sont gérées sur la page d’inscription.
+                          </span>
                         </InfoItem>
                       </SectionCard>
 
@@ -578,7 +706,7 @@ export default function CourseDetail() {
               </section>
             )}
 
-            {/* ✅ ONGLET : Règlement (unique course) */}
+            {/* Règlement */}
             {tab === "reglement" && (
               <section className="mt-6 space-y-4">
                 {reglementLoading ? (
@@ -616,7 +744,6 @@ export default function CourseDetail() {
                 </div>
                 <div className="p-5">
                   {course && <Chat courseId={course.id} organisateurId={course.organisateur_id} />}
-
                   <p className="text-neutral-600 text-sm mt-3">
                     Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour poser une question à l’assistant.
                   </p>
@@ -624,30 +751,42 @@ export default function CourseDetail() {
               </div>
             </section>
 
-            {/* ✅ Partenaires & Sponsors (bannière) */}
+            {/* Partenaires & Sponsors */}
             <CoursePartnersBanner courseId={course.id} />
           </div>
 
-          {/* Sidebar sticky */}
+          {/* Sidebar */}
           <div className="lg:col-span-4">
             <div className="lg:sticky lg:top-6 space-y-4">
+              {/* S’inscrire */}
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">S’inscrire</h3>
+
                 {formats.length === 0 ? (
                   <p className="text-sm text-neutral-600 mt-2">Les formats seront publiés bientôt.</p>
                 ) : (
                   <div className="mt-3 space-y-2">
                     {formats.map((f) => {
                       const max = Number(f.nb_max_coureurs) || null;
-                      const inscrit = Number(countsByFormat?.[f.id] || 0);
-                      const remaining = max ? Math.max(0, max - inscrit) : null;
-                      const full = max ? inscrit >= max : false;
+                      const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
+                      const remaining = max && inscrit != null ? Math.max(0, max - inscrit) : null;
+
+                      const fmtForBadges =
+                        inscrit == null
+                          ? f
+                          : {
+                              ...f,
+                              nb_inscrits: inscrit,
+                            };
+
+                      const full = countsByFormat === null ? false : computeIsFullWithCounts(f, countsByFormat);
 
                       return (
                         <div key={f.id} className="rounded-xl border p-3">
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="font-medium">{f.nom}</div>
+
                               <div className="text-xs text-neutral-600 mt-0.5 flex flex-wrap gap-2">
                                 {f.date && (
                                   <span className="inline-flex items-center gap-1">
@@ -670,17 +809,17 @@ export default function CourseDetail() {
                                 )}
                               </div>
 
-                              {max && (
-                                <div className="mt-1 text-xs text-neutral-600">
-                                  Places : {inscrit} / {max}{" "}
-                                  {remaining !== null && remaining <= 10 && !full && (
-                                    <span className="ml-1 text-amber-700 font-medium">({remaining} restantes)</span>
-                                  )}
-                                </div>
-                              )}
+                              {/* ✅ badges shared */}
+                              <div className="mt-2 flex flex-wrap items-center gap-2">
+                                <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="Inscriptions" />
+                                {countsByFormat !== null && (
+                                  <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
+                                )}
+                              </div>
 
+                              {/* petit bonus “places restantes” si on les connait */}
                               {remaining !== null && remaining <= 10 && !full && (
-                                <div className="mt-1">
+                                <div className="mt-2">
                                   <span className="inline-flex items-center rounded-full bg-amber-100 text-amber-800 px-2 py-0.5 text-[11px] font-medium">
                                     {remaining} place{remaining > 1 ? "s" : ""} restante{remaining > 1 ? "s" : ""}
                                   </span>
@@ -706,6 +845,12 @@ export default function CourseDetail() {
                     })}
                   </div>
                 )}
+
+                {countsByFormat === null && (
+                  <div className="mt-3 text-xs text-neutral-500">
+                    ⚠️ Les places / complet peuvent être masqués (accès inscriptions restreint).
+                  </div>
+                )}
               </div>
 
               {/* Faits rapides */}
@@ -715,7 +860,7 @@ export default function CourseDetail() {
                   <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
                   <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
                   <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"} />
-                  <Fact title="Repas" value={aggregates.has_repas ? "Disponible" : "—"} Icon={UtensilsCrossed} />
+                  <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
                 </div>
               </div>
 
@@ -746,7 +891,9 @@ export default function CourseDetail() {
               {/* Bénévoles */}
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Bénévoles</h3>
-                <p className="mt-2 text-sm text-neutral-600">Un peu de temps libre ? Donnez un coup de main à l’organisation.</p>
+                <p className="mt-2 text-sm text-neutral-600">
+                  Un peu de temps libre ? Donnez un coup de main à l’organisation.
+                </p>
                 <Link
                   to={`/benevoles/${course.id}`}
                   className="mt-3 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
@@ -790,7 +937,7 @@ export default function CourseDetail() {
   );
 }
 
-/* ===== Sous-composants & utilitaires UI ===== */
+/* ============================== UI components ============================== */
 
 function Badge({ text, color = "gray" }) {
   const bg = {
@@ -813,22 +960,13 @@ function Fact({ title, value, Icon }) {
   );
 }
 
-function formatRange(min, max, unit = "") {
-  if (min == null && max == null) return "—";
-  if (min != null && max != null) {
-    if (min === max) return `${Math.round(min)}${unit}`;
-    return `${Math.round(min)}–${Math.round(max)}${unit}`;
-  }
-  if (min != null) return `≥ ${Math.round(min)}${unit}`;
-  return `≤ ${Math.round(max)}${unit}`;
-}
-
 function EmptyBox({ text }) {
   return <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">{text}</div>;
 }
 
 function FormatsTable({ courseId, formats, countsByFormat }) {
   if (!formats?.length) return null;
+
   return (
     <div className="overflow-hidden rounded-2xl border bg-white shadow-sm">
       <table className="min-w-full text-sm">
@@ -838,44 +976,51 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
             <th className="text-left px-4 py-3">Date</th>
             <th className="text-left px-4 py-3">Distance</th>
             <th className="text-left px-4 py-3">D+ / D-</th>
-            <th className="text-left px-4 py-3">Places</th>
+            <th className="text-left px-4 py-3">Inscriptions</th>
             <th className="text-left px-4 py-3">Prix</th>
             <th className="text-right px-4 py-3">Action</th>
           </tr>
         </thead>
+
         <tbody>
           {formats.map((f, idx) => {
-            const max = Number(f.nb_max_coureurs) || null;
-            const inscrit = Number(countsByFormat?.[f.id] || 0);
-            const remaining = max ? Math.max(0, max - inscrit) : null;
-            const full = max ? inscrit >= max : false;
+            const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
+            const full = countsByFormat === null ? false : computeIsFullWithCounts(f, countsByFormat);
+
+            const fmtForBadges =
+              inscrit == null
+                ? f
+                : {
+                    ...f,
+                    nb_inscrits: inscrit,
+                  };
 
             return (
               <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}>
                 <td className="px-4 py-3 font-medium text-neutral-900">{f.nom}</td>
+
                 <td className="px-4 py-3 text-neutral-700">
                   {f.date ? fmtDate(f.date) : "—"}
                   {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                 </td>
+
                 <td className="px-4 py-3 text-neutral-700">{numOrDash(f.distance_km)} km</td>
+
                 <td className="px-4 py-3 text-neutral-700">
                   {numOrDash(f.denivele_dplus)} / {numOrDash(f.denivele_dmoins)} m
                 </td>
+
                 <td className="px-4 py-3 text-neutral-700">
-                  {max ? (
-                    <>
-                      {inscrit} / {max}{" "}
-                      {remaining !== null && remaining <= 10 && !full && (
-                        <span className="ml-1 text-amber-700 font-medium">({remaining} restantes)</span>
-                      )}
-                    </>
-                  ) : (
-                    "—"
-                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="" />
+                    {countsByFormat !== null && <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />}
+                  </div>
                 </td>
+
                 <td className="px-4 py-3 text-neutral-900">
                   {Number.isFinite(Number(f.prix)) ? `${Number(f.prix).toFixed(2)} €` : "—"}
                 </td>
+
                 <td className="px-4 py-3 text-right">
                   {full ? (
                     <span className="inline-flex items-center gap-1 rounded-full bg-rose-100 px-3 py-1 text-[11px] font-medium text-rose-800">
@@ -895,13 +1040,14 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
           })}
         </tbody>
       </table>
+
+      {countsByFormat === null && (
+        <div className="px-4 py-3 text-xs text-neutral-500 border-t">
+          ⚠️ Les places / complet peuvent être masqués (accès inscriptions restreint).
+        </div>
+      )}
     </div>
   );
-}
-
-function numOrDash(v) {
-  const n = Number(v);
-  return Number.isFinite(n) ? n : "—";
 }
 
 /* ===== Détails format (onglet Infos) ===== */
@@ -969,8 +1115,6 @@ function InfoIcon({ name, className }) {
       return <ShieldIcon className={className} />;
     case "euro":
       return <EuroIcon className={className} />;
-    case "meal":
-      return <UtensilsCrossed className={className} />;
     case "trophy":
       return <TrophyIcon className={className} />;
     case "bottle":
