@@ -1291,8 +1291,31 @@ const clearBibNumbers = async (scope = "selected") => {
     alert("Erreur lors de l’effacement des dossards.");
   }
 };
+  // ✅ Inviter la liste d’attente
+  const inviteWaitlist = async () => {
+    if (!resolvedCourseId || !formatId) return;
 
+    const maxInvites = Number(
+      prompt("Combien d’invitations envoyer ? (ex: 10)", "10") || "0"
+    );
+    if (!maxInvites || maxInvites <= 0) return;
 
+    const { data, error } = await supabase.functions.invoke("invite-waitlist", {
+      body: { courseId: resolvedCourseId, formatId, maxInvites, expireHours: 48 },
+    });
+
+    if (error) {
+      console.error("invite-waitlist", error);
+      alert("Erreur lors de l’envoi des invitations.");
+      return;
+    }
+
+    alert(
+      `Invitations traitées: ${data?.invited ?? 0} / Envoyées: ${data?.sent ?? 0} / Échecs: ${data?.failed ?? 0}`
+    );
+  };
+
+  
   /* ---------------------- Catégories d'âge : calcul ---------------------- */
   const handleComputeCategories = async () => {
     if (!formatId || rows.length === 0) return;
@@ -1457,6 +1480,12 @@ const clearBibNumbers = async (scope = "selected") => {
           >
             + Ajouter un coureur
           </button>
+          <button
+  onClick={inviteWaitlist}
+  className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-neutral-50"
+>
+  Inviter liste d’attente
+</button>
 
           {(formatType === "groupe" || formatType === "relais") && (
             <button
