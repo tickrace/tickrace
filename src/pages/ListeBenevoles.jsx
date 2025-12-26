@@ -16,6 +16,7 @@ import {
   AlertTriangle,
   ShieldCheck,
   ArrowRight,
+  ClipboardList,
 } from "lucide-react";
 
 /* ------------------------------ UI Helpers ------------------------------ */
@@ -119,6 +120,17 @@ export default function ListeBenevoles() {
   const publicLink = useMemo(() => {
     if (selectedCourseId === "all") return null;
     return `${window.location.origin}/benevole/${selectedCourseId}`;
+  }, [selectedCourseId]);
+
+  // ✅ Preview organisateur (bannière + actions bénévoles désactivées dans EspaceBenevole)
+  const previewLink = useMemo(() => {
+    if (selectedCourseId === "all") return null;
+    return `/benevole/${selectedCourseId}?preview=1`;
+  }, [selectedCourseId]);
+
+  const planningLink = useMemo(() => {
+    if (selectedCourseId === "all") return null;
+    return `/organisateur/planning-benevoles/${selectedCourseId}`;
   }, [selectedCourseId]);
 
   const stats = useMemo(() => {
@@ -386,29 +398,20 @@ export default function ListeBenevoles() {
           <div className="flex items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-extrabold tracking-tight">Bénévoles</h1>
-              <p className="mt-1 text-sm text-neutral-600">
-                Gestion simple : liste + invitation + lien vers l’espace bénévole.
-              </p>
+              <p className="mt-1 text-sm text-neutral-600">Gestion simple : liste + invitation + planning.</p>
             </div>
 
-            <Link
-              to="/mon-espace"
-              className="text-sm text-neutral-600 hover:text-neutral-900 underline underline-offset-4"
-            >
+            <Link to="/mon-espace" className="text-sm text-neutral-600 hover:text-neutral-900 underline underline-offset-4">
               ← Retour à mon espace
             </Link>
           </div>
 
           {toast ? (
-            <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 ring-1 ring-emerald-200">
-              {toast}
-            </div>
+            <div className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-800 ring-1 ring-emerald-200">{toast}</div>
           ) : null}
 
           {err ? (
-            <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-200">
-              {err}
-            </div>
+            <div className="rounded-2xl bg-red-50 px-4 py-3 text-sm text-red-800 ring-1 ring-red-200">{err}</div>
           ) : null}
 
           {/* Filters */}
@@ -433,12 +436,7 @@ export default function ListeBenevoles() {
 
                 <div className="relative w-full sm:ml-auto sm:max-w-md">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-neutral-400" />
-                  <Input
-                    value={q}
-                    onChange={(e) => setQ(e.target.value)}
-                    placeholder="Recherche (nom, email, statut, course...)"
-                    className="pl-9"
-                  />
+                  <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Recherche (nom, email, statut, course...)" className="pl-9" />
                 </div>
 
                 <Btn variant="light" onClick={exportCSV} disabled={filtered.length === 0}>
@@ -470,11 +468,7 @@ export default function ListeBenevoles() {
 
               <div className="mt-3 flex items-center gap-3 text-sm">
                 <label className="inline-flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={selectedIds.size === filtered.length && filtered.length > 0}
-                    onChange={toggleAll}
-                  />
+                  <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} />
                   <span>Sélectionner tout ({filtered.length})</span>
                 </label>
                 <div className="text-neutral-600">
@@ -487,16 +481,14 @@ export default function ListeBenevoles() {
             <Card className="p-4 lg:col-span-4">
               <div className="flex items-center justify-between">
                 <div className="font-extrabold inline-flex items-center gap-2">
-                  <ShieldCheck className="h-5 w-5" /> Espace bénévole
+                  <ShieldCheck className="h-5 w-5" /> Espace bénévoles
                 </div>
                 <Pill tone={selectedCourseId === "all" ? "orange" : "green"}>
                   {selectedCourseId === "all" ? "Sélectionne une course" : "Prêt"}
                 </Pill>
               </div>
 
-              <p className="mt-2 text-sm text-neutral-600">
-                Copie le lien, ouvre l’espace bénévole (preview), et invite la liste.
-              </p>
+              <p className="mt-2 text-sm text-neutral-600">Copie le lien, ouvre l’espace bénévole en mode aperçu, invite la liste, puis gère le planning.</p>
 
               <div className="mt-3">
                 <div className="rounded-xl border border-neutral-200 bg-white p-3 text-xs text-neutral-700">
@@ -538,31 +530,36 @@ export default function ListeBenevoles() {
                     Inviter les bénévoles
                   </Btn>
 
-                  {selectedCourseId !== "all" ? (
-                    <Link to={`/benevole/${selectedCourseId}`} className="w-full">
-                      <Btn variant="light" className="w-full">
+                  {previewLink ? (
+                    <Link to={previewLink} className="w-full">
+                      <Btn variant="light" className="w-full" type="button">
                         <ExternalLink className="h-4 w-4" />
                         Ouvrir l’espace bénévole (preview)
                         <ArrowRight className="h-4 w-4 opacity-70" />
                       </Btn>
                     </Link>
-                    
                   ) : (
-                    <Btn variant="light" disabled className="w-full">
+                    <Btn variant="light" disabled className="w-full" type="button">
                       <ExternalLink className="h-4 w-4" />
                       Ouvrir l’espace bénévole (preview)
                     </Btn>
                   )}
-                  <Link to={`/organisateur/planning-benevoles/${selectedCourseId}`}>
-  <Btn variant="light" disabled={selectedCourseId === "all"} className="w-full">
-    <ClipboardList className="h-4 w-4" /> Gérer le planning
-  </Btn>
-</Link>
 
+                  {planningLink ? (
+                    <Link to={planningLink} className="w-full">
+                      <Btn variant="light" className="w-full" type="button">
+                        <ClipboardList className="h-4 w-4" /> Gérer le planning
+                      </Btn>
+                    </Link>
+                  ) : (
+                    <Btn variant="light" disabled className="w-full" type="button">
+                      <ClipboardList className="h-4 w-4" /> Gérer le planning
+                    </Btn>
+                  )}
                 </div>
 
                 <p className="mt-2 text-xs text-neutral-500">
-                  “Inviter” envoie un lien de connexion (magic link) vers l’espace bénévole de cette course.
+                  “Inviter” envoie un lien de connexion (magic link). Le bouton “preview” ouvre l’espace bénévole en mode aperçu organisateur.
                 </p>
               </div>
             </Card>
@@ -576,11 +573,7 @@ export default function ListeBenevoles() {
               <thead className="bg-neutral-50 text-neutral-700">
                 <tr>
                   <th className="text-left px-4 py-3 w-8">
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.size === filtered.length && filtered.length > 0}
-                      onChange={toggleAll}
-                    />
+                    <input type="checkbox" checked={selectedIds.size === filtered.length && filtered.length > 0} onChange={toggleAll} />
                   </th>
                   <th className="text-left px-4 py-3">Bénévole</th>
                   <th className="text-left px-4 py-3">Course</th>
@@ -629,11 +622,7 @@ export default function ListeBenevoles() {
                     return (
                       <tr key={b.id} className="hover:bg-neutral-50/60">
                         <td className="px-4 py-3 align-top">
-                          <input
-                            type="checkbox"
-                            checked={selectedIds.has(b.id)}
-                            onChange={() => toggleOne(b.id)}
-                          />
+                          <input type="checkbox" checked={selectedIds.has(b.id)} onChange={() => toggleOne(b.id)} />
                         </td>
 
                         <td className="px-4 py-3 align-top">
@@ -685,12 +674,8 @@ export default function ListeBenevoles() {
 
                         <td className="px-4 py-3 align-top">
                           <div className="font-semibold">{b.invite_count || 0} relance(s)</div>
-                          <div className="text-xs text-neutral-500">
-                            Dernière : {b.last_invite_at ? fmtDateTime(b.last_invite_at) : "—"}
-                          </div>
-                          <div className="text-xs text-neutral-500">
-                            1ère : {b.invited_at ? fmtDateTime(b.invited_at) : "—"}
-                          </div>
+                          <div className="text-xs text-neutral-500">Dernière : {b.last_invite_at ? fmtDateTime(b.last_invite_at) : "—"}</div>
+                          <div className="text-xs text-neutral-500">1ère : {b.invited_at ? fmtDateTime(b.invited_at) : "—"}</div>
                         </td>
 
                         <td className="px-4 py-3 align-top">
