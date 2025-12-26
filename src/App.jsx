@@ -47,6 +47,7 @@ import ReglementAssistant from "./pages/ReglementAssistant";
 import ChecklistAssistant from "./pages/ChecklistAssistant";
 import ClassementArrivees from "./pages/ClassementArrivees";
 import Compta from "./pages/organisateur/Compta";
+import WaitlistAccept from "./pages/WaitlistAccept";
 
 // ✅ NOUVEAU : Partenaires / Sponsors (page organisateur)
 import CoursePartenaires from "./pages/CoursePartenaires";
@@ -112,6 +113,8 @@ function AppContent() {
       <main className="flex-1">
         <Routes>
           {/* ============================= PUBLIC ============================= */}
+          <Route path="/waitlist/accept/*" element={<WaitlistAccept />} />
+
           <Route path="/" element={<Home />} />
           <Route path="/courses" element={<Courses />} />
           <Route path="/courses/:id" element={<CourseDetail />} />
