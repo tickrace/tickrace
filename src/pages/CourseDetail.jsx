@@ -19,7 +19,10 @@ import {
   FileText,
 } from "lucide-react";
 
-import { InscriptionPlacesBadge, InscriptionStatusBadge } from "../components/InscriptionBadges";
+import {
+  InscriptionPlacesBadge,
+  InscriptionStatusBadge,
+} from "../components/InscriptionBadges";
 
 const GPXViewer = lazy(() => import("../components/GPXViewer"));
 
@@ -60,14 +63,11 @@ function formatRange(min, max, unit = "") {
 
 function isFormatOpenNow(format) {
   const now = new Date();
-
   const openAt = parseDate(format?.inscription_ouverture);
   const closeAt = parseDate(format?.inscription_fermeture);
-
   if (openAt && now < openAt) return false;
   if (closeAt && now > closeAt) return false;
-
-  return true; // par défaut: ouvert si aucune fenêtre
+  return true;
 }
 
 function isFormatFuture(format) {
@@ -96,10 +96,14 @@ function computeIsFullWithCounts(format, countsByFormat) {
   return count >= max;
 }
 
+/**
+ * CTA unique :
+ * - inscription si ouvert & pas complet
+ * - waitlist si complet & waitlist_enabled
+ * - sinon disabled
+ */
 function getCtaForFormat({ courseId, format, countsByFormat }) {
-  if (!format) {
-    return { kind: "disabled", label: "Indisponible" };
-  }
+  if (!format) return { kind: "disabled", label: "Indisponible" };
 
   const open = isFormatOpenNow(format);
   const future = isFormatFuture(format);
@@ -108,7 +112,6 @@ function getCtaForFormat({ courseId, format, countsByFormat }) {
   const isFull = computeIsFullWithCounts(format, countsByFormat);
   const waitlistEnabled = !!format.waitlist_enabled;
 
-  // On ne “bloque” que si on sait (countsByFormat !== null).
   if (!open) {
     if (future) return { kind: "disabled", label: "Bientôt" };
     if (past) return { kind: "disabled", label: "Fermé" };
@@ -117,12 +120,7 @@ function getCtaForFormat({ courseId, format, countsByFormat }) {
 
   if (countsByFormat !== null && isFull) {
     if (waitlistEnabled) {
-      return {
-        kind: "link",
-        label: "Liste d’attente",
-        to: `/inscription/${courseId}?format=${format.id}&waitlist=1`,
-        variant: "secondary",
-      };
+      return { kind: "waitlist", label: "Liste d’attente" };
     }
     return { kind: "disabled", label: "Complet" };
   }
@@ -161,7 +159,16 @@ export default function CourseDetail() {
   const [reglementLoading, setReglementLoading] = useState(false);
   const [reglementError, setReglementError] = useState("");
 
+  // ✅ Waitlist modal
+  const [waitlistOpen, setWaitlistOpen] = useState(false);
+  const [waitlistFormat, setWaitlistFormat] = useState(null);
+
   const BASE = import.meta.env?.VITE_PUBLIC_BASE_URL || window.location.origin;
+
+  const openWaitlist = (fmt) => {
+    setWaitlistFormat(fmt || null);
+    setWaitlistOpen(true);
+  };
 
   /* --------------------------- Fetch course + formats --------------------------- */
   useEffect(() => {
@@ -171,7 +178,9 @@ export default function CourseDetail() {
 
       const { data: c, error: e1 } = await supabase
         .from("courses")
-        .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
+        .select(
+          "id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at"
+        )
         .eq("id", id)
         .maybeSingle();
 
@@ -182,7 +191,9 @@ export default function CourseDetail() {
         return;
       }
 
-      const isOwner = !!(session?.user?.id && c.organisateur_id === session.user.id);
+      const isOwner = !!(
+        session?.user?.id && c.organisateur_id === session.user.id
+      );
       if (!c.en_ligne && !isOwner) {
         setCourse(c);
         setError("Cette épreuve est hors-ligne.");
@@ -245,7 +256,7 @@ export default function CourseDetail() {
         }
       }
 
-      // 3) Inscriptions → comptage (peut être bloqué par RLS)
+      // Comptage inscriptions (peut être bloqué par RLS)
       try {
         const fids = (fmts || []).map((f) => f.id);
         if (fids.length) {
@@ -323,7 +334,8 @@ export default function CourseDetail() {
         }
       } catch (e) {
         console.error(e);
-        if (!cancelled) setReglementError("Règlement indisponible pour le moment.");
+        if (!cancelled)
+          setReglementError("Règlement indisponible pour le moment.");
       } finally {
         if (!cancelled) setReglementLoading(false);
       }
@@ -356,7 +368,8 @@ export default function CourseDetail() {
 
   const heroFormatWithCounts = useMemo(() => {
     if (!heroFormat) return null;
-    const count = countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
+    const count =
+      countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
     return { ...heroFormat, ...(count === undefined ? {} : { nb_inscrits: count }) };
   }, [heroFormat, countsByFormat]);
 
@@ -406,7 +419,6 @@ export default function CourseDetail() {
   // ✅ liste “onglet formats” (tri + filtre uniquement formats ouverts)
   const formatsForTab = useMemo(() => {
     const list = [...(formats || [])];
-
     const filtered = onlyOpenFormats ? list.filter((f) => isFormatOpenNow(f)) : list;
 
     filtered.sort((a, b) => {
@@ -420,7 +432,6 @@ export default function CourseDetail() {
         const db = Number.isFinite(Number(b.denivele_dplus)) ? Number(b.denivele_dplus) : Infinity;
         return da - db;
       }
-      // date (default)
       const ta = parseDate(a.date)?.getTime() ?? Infinity;
       const tb = parseDate(b.date)?.getTime() ?? Infinity;
       return ta - tb;
@@ -444,7 +455,9 @@ export default function CourseDetail() {
       <div className="max-w-4xl mx-auto px-4 py-16 text-center">
         <AlertCircle className="w-8 h-8 text-rose-600 mx-auto mb-2" />
         <h1 className="text-xl font-semibold">Épreuve introuvable</h1>
-        <p className="text-neutral-600 mt-1">Vérifiez le lien ou revenez à la liste.</p>
+        <p className="text-neutral-600 mt-1">
+          Vérifiez le lien ou revenez à la liste.
+        </p>
         <Link
           to="/courses"
           className="inline-flex mt-4 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
@@ -468,7 +481,6 @@ export default function CourseDetail() {
     } catch {}
   }
 
-  // ✅ CTA intelligent HERO
   const heroCTA = getCtaForFormat({
     courseId: course.id,
     format: heroFormat,
@@ -484,10 +496,23 @@ export default function CourseDetail() {
         </div>
       )}
 
+      {/* Waitlist modal */}
+      <WaitlistModal
+        open={waitlistOpen}
+        onClose={() => setWaitlistOpen(false)}
+        format={waitlistFormat}
+        courseId={course.id}
+        defaultEmail={session?.user?.email || ""}
+      />
+
       {/* HERO */}
       <div className="relative h-[260px] sm:h-[360px] md:h-[420px] w-full overflow-hidden">
         {course.image_url ? (
-          <img src={course.image_url} alt={`Image de ${course.nom}`} className="h-full w-full object-cover" />
+          <img
+            src={course.image_url}
+            alt={`Image de ${course.nom}`}
+            className="h-full w-full object-cover"
+          />
         ) : (
           <div className="h-full w-full bg-neutral-200 flex items-center justify-center text-neutral-500">
             <Mountain className="w-10 h-10" />
@@ -515,7 +540,9 @@ export default function CourseDetail() {
         {/* Titre & CTA */}
         <div className="absolute bottom-4 left-4 right-4">
           <div className="max-w-7xl mx-auto px-2 sm:px-4">
-            <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">{course.nom}</h1>
+            <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">
+              {course.nom}
+            </h1>
 
             <div className="mt-2 flex flex-wrap items-center gap-3 text-white/90">
               <span className="inline-flex items-center gap-1">
@@ -532,7 +559,8 @@ export default function CourseDetail() {
 
               {aggregates.min_prix != null && (
                 <span className="inline-flex items-center gap-1">
-                  💶 À partir de <strong>{Number(aggregates.min_prix).toFixed(2)} €</strong>
+                  💶 À partir de{" "}
+                  <strong>{Number(aggregates.min_prix).toFixed(2)} €</strong>
                 </span>
               )}
 
@@ -554,11 +582,20 @@ export default function CourseDetail() {
                   to={heroCTA.to}
                   className={[
                     "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold hover:brightness-110",
-                    heroCTA.variant === "secondary" ? "bg-white/20 text-white" : "bg-orange-500 text-white",
+                    heroCTA.variant === "secondary"
+                      ? "bg-white/20 text-white"
+                      : "bg-orange-500 text-white",
                   ].join(" ")}
                 >
                   {heroCTA.label} <ArrowRight className="w-4 h-4" />
                 </Link>
+              ) : heroCTA.kind === "waitlist" ? (
+                <button
+                  onClick={() => openWaitlist(heroFormat)}
+                  className="inline-flex items-center gap-2 rounded-xl bg-white/20 px-4 py-2 text-white text-sm font-semibold hover:bg-white/25"
+                >
+                  Liste d’attente <ArrowRight className="w-4 h-4" />
+                </button>
               ) : (
                 <button
                   disabled
@@ -628,15 +665,38 @@ export default function CourseDetail() {
             {tab === "aperçu" && (
               <section className="mt-6 space-y-4">
                 {course.presentation ? (
-                  <p className="text-neutral-800 leading-relaxed whitespace-pre-line">{course.presentation}</p>
+                  <p className="text-neutral-800 leading-relaxed whitespace-pre-line">
+                    {course.presentation}
+                  </p>
                 ) : (
-                  <p className="text-neutral-500">La présentation de l’épreuve sera bientôt disponible.</p>
+                  <p className="text-neutral-500">
+                    La présentation de l’épreuve sera bientôt disponible.
+                  </p>
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
-                  <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
-                  <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
+                  <Fact
+                    title="Distance"
+                    value={formatRange(
+                      aggregates.min_dist,
+                      aggregates.max_dist,
+                      " km"
+                    )}
+                  />
+                  <Fact
+                    title="D+"
+                    value={formatRange(
+                      aggregates.min_dplus,
+                      aggregates.max_dplus,
+                      " m"
+                    )}
+                  />
+                  <Fact
+                    title="Prochaine date"
+                    value={
+                      aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"
+                    }
+                  />
                   <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
                 </div>
               </section>
@@ -648,11 +708,12 @@ export default function CourseDetail() {
                   <EmptyBox text="Les formats seront publiés bientôt." />
                 ) : (
                   <>
-                    {/* ✅ Contrôles Tri / Filtre */}
                     <div className="rounded-2xl border bg-white shadow-sm p-4">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm text-neutral-600">Trier par</span>
+                          <span className="text-sm text-neutral-600">
+                            Trier par
+                          </span>
                           <select
                             value={formatsSortBy}
                             onChange={(e) => setFormatsSortBy(e.target.value)}
@@ -668,10 +729,14 @@ export default function CourseDetail() {
                           <input
                             type="checkbox"
                             checked={onlyOpenFormats}
-                            onChange={(e) => setOnlyOpenFormats(e.target.checked)}
+                            onChange={(e) =>
+                              setOnlyOpenFormats(e.target.checked)
+                            }
                             className="h-4 w-4 rounded border-neutral-300 text-orange-600 focus:ring-orange-300"
                           />
-                          <span className="text-sm text-neutral-700">Afficher uniquement les formats ouverts</span>
+                          <span className="text-sm text-neutral-700">
+                            Afficher uniquement les formats ouverts
+                          </span>
                         </label>
                       </div>
 
@@ -682,7 +747,12 @@ export default function CourseDetail() {
                       </div>
                     </div>
 
-                    <FormatsTable courseId={course.id} formats={formatsForTab} countsByFormat={countsByFormat} />
+                    <FormatsTable
+                      courseId={course.id}
+                      formats={formatsForTab}
+                      countsByFormat={countsByFormat}
+                      onOpenWaitlist={openWaitlist}
+                    />
                   </>
                 )}
               </section>
@@ -695,7 +765,9 @@ export default function CourseDetail() {
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="text-sm text-neutral-700">Choisir un format :</label>
+                      <label className="text-sm text-neutral-700">
+                        Choisir un format :
+                      </label>
                       <select
                         value={selectedFormatId || ""}
                         onChange={(e) => setSelectedFormatId(e.target.value)}
@@ -711,7 +783,13 @@ export default function CourseDetail() {
 
                     {selectedFormat?.gpx_url ? (
                       <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-                        <Suspense fallback={<div className="p-4 text-neutral-600">Chargement de la carte…</div>}>
+                        <Suspense
+                          fallback={
+                            <div className="p-4 text-neutral-600">
+                              Chargement de la carte…
+                            </div>
+                          }
+                        >
                           <GPXViewer
                             gpxUrl={selectedFormat.gpx_url}
                             height={420}
@@ -728,7 +806,9 @@ export default function CourseDetail() {
                     )}
 
                     {selectedFormat?.presentation_parcours && (
-                      <p className="text-neutral-700">{selectedFormat.presentation_parcours}</p>
+                      <p className="text-neutral-700">
+                        {selectedFormat.presentation_parcours}
+                      </p>
                     )}
                   </>
                 )}
@@ -742,7 +822,9 @@ export default function CourseDetail() {
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="text-sm text-neutral-700">Choisir un format :</label>
+                      <label className="text-sm text-neutral-700">
+                        Choisir un format :
+                      </label>
                       <select
                         value={selectedFormatId || ""}
                         onChange={(e) => setSelectedFormatId(e.target.value)}
@@ -757,41 +839,75 @@ export default function CourseDetail() {
                     </div>
 
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-                      <SectionCard title="Logistique" subtitle="Infos clés du jour J">
+                      <SectionCard
+                        title="Logistique"
+                        subtitle="Infos clés du jour J"
+                      >
                         <InfoItem icon="calendar" label="Date">
-                          {selectedFormat?.date ? fmtDate(selectedFormat.date) : "—"}
-                          {selectedFormat?.heure_depart ? ` • ${selectedFormat.heure_depart}` : ""}
+                          {selectedFormat?.date
+                            ? fmtDate(selectedFormat.date)
+                            : "—"}
+                          {selectedFormat?.heure_depart
+                            ? ` • ${selectedFormat.heure_depart}`
+                            : ""}
                         </InfoItem>
 
                         <InfoItem icon="start" label="Départ">
-                          {selectedFormat?.adresse_depart || formats[0]?.adresse_depart || "Non communiqué"}
-                          <MapLink address={selectedFormat?.adresse_depart || formats[0]?.adresse_depart} />
+                          {selectedFormat?.adresse_depart ||
+                            formats[0]?.adresse_depart ||
+                            "Non communiqué"}
+                          <MapLink
+                            address={
+                              selectedFormat?.adresse_depart ||
+                              formats[0]?.adresse_depart
+                            }
+                          />
                         </InfoItem>
 
                         <InfoItem icon="finish" label="Arrivée">
-                          {selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee || "Non communiqué"}
-                          <MapLink address={selectedFormat?.adresse_arrivee || formats[0]?.adresse_arrivee} />
+                          {selectedFormat?.adresse_arrivee ||
+                            formats[0]?.adresse_arrivee ||
+                            "Non communiqué"}
+                          <MapLink
+                            address={
+                              selectedFormat?.adresse_arrivee ||
+                              formats[0]?.adresse_arrivee
+                            }
+                          />
                         </InfoItem>
 
                         <InfoItem icon="shield" label="Âge minimum">
-                          {Number.isFinite(Number(selectedFormat?.age_minimum)) ? `${selectedFormat.age_minimum} ans` : "—"}
+                          {Number.isFinite(Number(selectedFormat?.age_minimum))
+                            ? `${selectedFormat.age_minimum} ans`
+                            : "—"}
                         </InfoItem>
                       </SectionCard>
 
-                      <SectionCard title="Course & tarifs" subtitle="Résumé du format">
+                      <SectionCard
+                        title="Course & tarifs"
+                        subtitle="Résumé du format"
+                      >
                         <div className="mb-2">
                           <Chips
                             items={[
-                              selectedFormat?.type_epreuve && selectedFormat.type_epreuve.toUpperCase(),
-                              selectedFormat?.distance_km && `${Number(selectedFormat.distance_km)} km`,
-                              Number.isFinite(Number(selectedFormat?.denivele_dplus)) && `${selectedFormat.denivele_dplus} m D+`,
-                              Number.isFinite(Number(selectedFormat?.denivele_dmoins)) && `${selectedFormat.denivele_dmoins} m D-`,
+                              selectedFormat?.type_epreuve &&
+                                selectedFormat.type_epreuve.toUpperCase(),
+                              selectedFormat?.distance_km &&
+                                `${Number(selectedFormat.distance_km)} km`,
+                              Number.isFinite(
+                                Number(selectedFormat?.denivele_dplus)
+                              ) && `${selectedFormat.denivele_dplus} m D+`,
+                              Number.isFinite(
+                                Number(selectedFormat?.denivele_dmoins)
+                              ) && `${selectedFormat.denivele_dmoins} m D-`,
                             ]}
                           />
                         </div>
 
                         <InfoItem icon="euro" label="Prix">
-                          {Number.isFinite(Number(selectedFormat?.prix)) ? `${Number(selectedFormat.prix).toFixed(2)} €` : "—"}
+                          {Number.isFinite(Number(selectedFormat?.prix))
+                            ? `${Number(selectedFormat.prix).toFixed(2)} €`
+                            : "—"}
                         </InfoItem>
 
                         <InfoItem icon="trophy" label="Dotation">
@@ -800,19 +916,27 @@ export default function CourseDetail() {
 
                         <InfoItem icon="file" label="Options">
                           <span className="text-neutral-600 font-normal">
-                            Les options (repas, t-shirt, navette…) sont gérées sur la page d’inscription.
+                            Les options (repas, t-shirt, navette…) sont gérées
+                            sur la page d’inscription.
                           </span>
                         </InfoItem>
                       </SectionCard>
 
-                      <SectionCard title="Ravitaillements & dossards" subtitle="Ce qu’il faut savoir">
+                      <SectionCard
+                        title="Ravitaillements & dossards"
+                        subtitle="Ce qu’il faut savoir"
+                      >
                         {asList(selectedFormat?.ravitaillements).length > 0 ? (
                           <div className="mb-3">
-                            <div className="text-[13px] font-medium text-neutral-600 mb-1">Ravitaillements</div>
+                            <div className="text-[13px] font-medium text-neutral-600 mb-1">
+                              Ravitaillements
+                            </div>
                             <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
-                              {asList(selectedFormat.ravitaillements).map((r, i) => (
-                                <li key={i}>{r}</li>
-                              ))}
+                              {asList(selectedFormat.ravitaillements).map(
+                                (r, i) => (
+                                  <li key={i}>{r}</li>
+                                )
+                              )}
                             </ul>
                           </div>
                         ) : (
@@ -826,7 +950,10 @@ export default function CourseDetail() {
                         </InfoItem>
                       </SectionCard>
 
-                      <SectionCard title="Règlement" subtitle="Document officiel (unique)">
+                      <SectionCard
+                        title="Règlement"
+                        subtitle="Document officiel (unique)"
+                      >
                         <div className="flex items-center gap-2 text-sm text-neutral-700">
                           <FileText className="w-4 h-4" />
                           Onglet “Règlement” → règlement unique de l’épreuve
@@ -834,9 +961,14 @@ export default function CourseDetail() {
                       </SectionCard>
 
                       <div className="xl:col-span-2">
-                        <SectionCard title="Présentation du parcours" subtitle="Description de l’organisateur">
+                        <SectionCard
+                          title="Présentation du parcours"
+                          subtitle="Description de l’organisateur"
+                        >
                           <div className="text-sm text-neutral-800 whitespace-pre-line">
-                            {selectedFormat?.presentation_parcours || course.presentation || "—"}
+                            {selectedFormat?.presentation_parcours ||
+                              course.presentation ||
+                              "—"}
                           </div>
                         </SectionCard>
                       </div>
@@ -854,11 +986,17 @@ export default function CourseDetail() {
                     Chargement du règlement…
                   </div>
                 ) : reglementError ? (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">{reglementError}</div>
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
+                    {reglementError}
+                  </div>
                 ) : reglementText ? (
                   <div className="rounded-2xl border bg-white shadow-sm p-5">
-                    <div className="text-sm text-neutral-500 mb-3">Règlement officiel de l’épreuve.</div>
-                    <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">{reglementText}</pre>
+                    <div className="text-sm text-neutral-500 mb-3">
+                      Règlement officiel de l’épreuve.
+                    </div>
+                    <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">
+                      {reglementText}
+                    </pre>
                   </div>
                 ) : (
                   <EmptyBox text="Le règlement n’est pas encore disponible." />
@@ -876,15 +1014,27 @@ export default function CourseDetail() {
             <section id="discussion" className="mt-8">
               <div className="rounded-2xl border bg-white shadow-sm">
                 <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">Discuter sous l’épreuve</h2>
-                  <a href="#discussion" className="text-sm text-neutral-500 hover:text-neutral-800" title="Lien direct">
+                  <h2 className="text-lg font-semibold">
+                    Discuter sous l’épreuve
+                  </h2>
+                  <a
+                    href="#discussion"
+                    className="text-sm text-neutral-500 hover:text-neutral-800"
+                    title="Lien direct"
+                  >
                     #discussion
                   </a>
                 </div>
                 <div className="p-5">
-                  {course && <Chat courseId={course.id} organisateurId={course.organisateur_id} />}
+                  {course && (
+                    <Chat
+                      courseId={course.id}
+                      organisateurId={course.organisateur_id}
+                    />
+                  )}
                   <p className="text-neutral-600 text-sm mt-3">
-                    Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour poser une question à l’assistant.
+                    Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour
+                    poser une question à l’assistant.
                   </p>
                 </div>
               </div>
@@ -901,16 +1051,26 @@ export default function CourseDetail() {
                 <h3 className="text-lg font-semibold">S’inscrire</h3>
 
                 {formats.length === 0 ? (
-                  <p className="text-sm text-neutral-600 mt-2">Les formats seront publiés bientôt.</p>
+                  <p className="text-sm text-neutral-600 mt-2">
+                    Les formats seront publiés bientôt.
+                  </p>
                 ) : (
                   <div className="mt-3 space-y-2">
                     {formats.map((f) => {
-                      const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
+                      const inscrit =
+                        countsByFormat === null
+                          ? null
+                          : Number(countsByFormat?.[f.id] || 0);
+
                       const fmtForBadges =
                         inscrit == null ? f : { ...f, nb_inscrits: inscrit };
 
                       const full = computeIsFullWithCounts(f, countsByFormat);
-                      const cta = getCtaForFormat({ courseId: course.id, format: f, countsByFormat });
+                      const cta = getCtaForFormat({
+                        courseId: course.id,
+                        format: f,
+                        countsByFormat,
+                      });
 
                       return (
                         <div key={f.id} className="rounded-xl border p-3">
@@ -923,17 +1083,26 @@ export default function CourseDetail() {
                                   <span className="inline-flex items-center gap-1">
                                     <CalendarDays className="w-3 h-3" />
                                     {fmtDate(f.date)}
-                                    {f.heure_depart ? ` • ${f.heure_depart}` : ""}
+                                    {f.heure_depart
+                                      ? ` • ${f.heure_depart}`
+                                      : ""}
                                   </span>
                                 )}
-                                {Number.isFinite(Number(f.distance_km)) && <span>{Number(f.distance_km)} km</span>}
-                                {Number.isFinite(Number(f.denivele_dplus)) && <span>{Number(f.denivele_dplus)} m D+</span>}
+                                {Number.isFinite(Number(f.distance_km)) && (
+                                  <span>{Number(f.distance_km)} km</span>
+                                )}
+                                {Number.isFinite(Number(f.denivele_dplus)) && (
+                                  <span>{Number(f.denivele_dplus)} m D+</span>
+                                )}
                               </div>
 
                               <div className="mt-1 text-sm text-neutral-800">
                                 {Number.isFinite(Number(f.prix)) ? (
                                   <>
-                                    Prix : <strong>{Number(f.prix).toFixed(2)} €</strong>
+                                    Prix :{" "}
+                                    <strong>
+                                      {Number(f.prix).toFixed(2)} €
+                                    </strong>
                                   </>
                                 ) : (
                                   <>Prix : —</>
@@ -941,24 +1110,41 @@ export default function CourseDetail() {
                               </div>
 
                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="Inscriptions" />
+                                <InscriptionStatusBadge
+                                  format={fmtForBadges}
+                                  isFullOverride={full}
+                                  prefix="Inscriptions"
+                                />
                                 {countsByFormat !== null && (
-                                  <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
+                                  <InscriptionPlacesBadge
+                                    format={fmtForBadges}
+                                    style="soft"
+                                    label="Places"
+                                  />
                                 )}
                               </div>
                             </div>
 
-                            {/* ✅ CTA intelligent */}
+                            {/* CTA */}
                             {cta.kind === "link" ? (
                               <Link
                                 to={cta.to}
                                 className={[
                                   "shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:brightness-110",
-                                  cta.variant === "secondary" ? "bg-neutral-900 text-white" : "bg-orange-500 text-white",
+                                  cta.variant === "secondary"
+                                    ? "bg-neutral-900 text-white"
+                                    : "bg-orange-500 text-white",
                                 ].join(" ")}
                               >
                                 {cta.label} <ArrowRight className="w-4 h-4" />
                               </Link>
+                            ) : cta.kind === "waitlist" ? (
+                              <button
+                                onClick={() => openWaitlist(f)}
+                                className="shrink-0 inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black"
+                              >
+                                Liste d’attente <ArrowRight className="w-4 h-4" />
+                              </button>
                             ) : (
                               <button
                                 disabled
@@ -976,7 +1162,8 @@ export default function CourseDetail() {
 
                 {countsByFormat === null && (
                   <div className="mt-3 text-xs text-neutral-500">
-                    ⚠️ Les places / complet peuvent être masqués (accès inscriptions restreint).
+                    ⚠️ Les places / complet peuvent être masqués (accès inscriptions
+                    restreint).
                   </div>
                 )}
               </div>
@@ -985,9 +1172,26 @@ export default function CourseDetail() {
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Faits rapides</h3>
                 <div className="mt-3 grid grid-cols-2 gap-3">
-                  <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
-                  <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
-                  <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"} />
+                  <Fact
+                    title="Distance"
+                    value={formatRange(
+                      aggregates.min_dist,
+                      aggregates.max_dist,
+                      " km"
+                    )}
+                  />
+                  <Fact
+                    title="D+"
+                    value={formatRange(
+                      aggregates.min_dplus,
+                      aggregates.max_dplus,
+                      " m"
+                    )}
+                  />
+                  <Fact
+                    title="Prochaine date"
+                    value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"}
+                  />
                   <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
                 </div>
               </div>
@@ -1005,7 +1209,9 @@ export default function CourseDetail() {
                   </button>
                   <div className="ml-auto">
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(shareUrl)}`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
+                        shareUrl
+                      )}`}
                       alt="QR de partage"
                       className="rounded-md border"
                       width={120}
@@ -1031,22 +1237,23 @@ export default function CourseDetail() {
               </div>
 
               {/* Alerte hors-ligne pour l'organisateur */}
-              {!course.en_ligne && course.organisateur_id === session?.user?.id && (
-                <div className="rounded-2xl border bg-amber-50 text-amber-900 shadow-sm p-4">
-                  <div className="flex items-center gap-2">
-                    <AlertCircle className="w-5 h-5" />
-                    <span>Cette épreuve est en </span>
-                    <strong>brouillon</strong>
-                    <span> (hors-ligne).</span>
+              {!course.en_ligne &&
+                course.organisateur_id === session?.user?.id && (
+                  <div className="rounded-2xl border bg-amber-50 text-amber-900 shadow-sm p-4">
+                    <div className="flex items-center gap-2">
+                      <AlertCircle className="w-5 h-5" />
+                      <span>Cette épreuve est en </span>
+                      <strong>brouillon</strong>
+                      <span> (hors-ligne).</span>
+                    </div>
+                    <Link
+                      to={`/modifier-course/${course.id}`}
+                      className="inline-flex items-center gap-2 mt-3 rounded-xl bg-amber-600 px-3 py-2 text-white text-sm font-semibold hover:bg-amber-700"
+                    >
+                      Modifier l’épreuve
+                    </Link>
                   </div>
-                  <Link
-                    to={`/modifier-course/${course.id}`}
-                    className="inline-flex items-center gap-2 mt-3 rounded-xl bg-amber-600 px-3 py-2 text-white text-sm font-semibold hover:bg-amber-700"
-                  >
-                    Modifier l’épreuve
-                  </Link>
-                </div>
-              )}
+                )}
             </div>
           </div>
         </div>
@@ -1074,7 +1281,11 @@ function Badge({ text, color = "gray" }) {
     blue: "bg-blue-100/90 text-blue-800",
     gray: "bg-neutral-200/90 text-neutral-800",
   }[color];
-  return <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${bg}`}>{text}</span>;
+  return (
+    <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${bg}`}>
+      {text}
+    </span>
+  );
 }
 
 function Fact({ title, value, Icon }) {
@@ -1082,7 +1293,9 @@ function Fact({ title, value, Icon }) {
     <div className="rounded-xl border bg-white p-3 text-center">
       {Icon ? <Icon className="w-4 h-4 mx-auto text-neutral-700" /> : null}
       <div className="text-[11px] text-neutral-500 mt-1">{title}</div>
-      <div className="text-sm font-semibold text-neutral-900">{value || "—"}</div>
+      <div className="text-sm font-semibold text-neutral-900">
+        {value || "—"}
+      </div>
     </div>
   );
 }
@@ -1095,7 +1308,7 @@ function EmptyBox({ text }) {
   );
 }
 
-function FormatsTable({ courseId, formats, countsByFormat }) {
+function FormatsTable({ courseId, formats, countsByFormat, onOpenWaitlist }) {
   if (!formats?.length) {
     return (
       <div className="rounded-2xl border bg-white shadow-sm p-6 text-sm text-neutral-600">
@@ -1121,22 +1334,31 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
 
         <tbody>
           {formats.map((f, idx) => {
-            const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
+            const inscrit =
+              countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
             const full = computeIsFullWithCounts(f, countsByFormat);
 
-            const fmtForBadges = inscrit == null ? f : { ...f, nb_inscrits: inscrit };
+            const fmtForBadges =
+              inscrit == null ? f : { ...f, nb_inscrits: inscrit };
             const cta = getCtaForFormat({ courseId, format: f, countsByFormat });
 
             return (
-              <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}>
-                <td className="px-4 py-3 font-medium text-neutral-900">{f.nom}</td>
+              <tr
+                key={f.id}
+                className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}
+              >
+                <td className="px-4 py-3 font-medium text-neutral-900">
+                  {f.nom}
+                </td>
 
                 <td className="px-4 py-3 text-neutral-700">
                   {f.date ? fmtDate(f.date) : "—"}
                   {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                 </td>
 
-                <td className="px-4 py-3 text-neutral-700">{numOrDash(f.distance_km)} km</td>
+                <td className="px-4 py-3 text-neutral-700">
+                  {numOrDash(f.distance_km)} km
+                </td>
 
                 <td className="px-4 py-3 text-neutral-700">
                   {numOrDash(f.denivele_dplus)} / {numOrDash(f.denivele_dmoins)} m
@@ -1144,15 +1366,25 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
 
                 <td className="px-4 py-3 text-neutral-700">
                   <div className="flex flex-wrap items-center gap-2">
-                    <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="" />
+                    <InscriptionStatusBadge
+                      format={fmtForBadges}
+                      isFullOverride={full}
+                      prefix=""
+                    />
                     {countsByFormat !== null && (
-                      <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
+                      <InscriptionPlacesBadge
+                        format={fmtForBadges}
+                        style="soft"
+                        label="Places"
+                      />
                     )}
                   </div>
                 </td>
 
                 <td className="px-4 py-3 text-neutral-900">
-                  {Number.isFinite(Number(f.prix)) ? `${Number(f.prix).toFixed(2)} €` : "—"}
+                  {Number.isFinite(Number(f.prix))
+                    ? `${Number(f.prix).toFixed(2)} €`
+                    : "—"}
                 </td>
 
                 <td className="px-4 py-3 text-right">
@@ -1161,11 +1393,20 @@ function FormatsTable({ courseId, formats, countsByFormat }) {
                       to={cta.to}
                       className={[
                         "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:brightness-110",
-                        cta.variant === "secondary" ? "bg-neutral-900 text-white" : "bg-orange-500 text-white",
+                        cta.variant === "secondary"
+                          ? "bg-neutral-900 text-white"
+                          : "bg-orange-500 text-white",
                       ].join(" ")}
                     >
                       {cta.label} <ArrowRight className="w-4 h-4" />
                     </Link>
+                  ) : cta.kind === "waitlist" ? (
+                    <button
+                      onClick={() => onOpenWaitlist?.(f)}
+                      className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black"
+                    >
+                      Liste d’attente <ArrowRight className="w-4 h-4" />
+                    </button>
                   ) : (
                     <button
                       disabled
@@ -1333,7 +1574,9 @@ function BedIcon(props) {
 
 function MapLink({ address }) {
   if (!address) return null;
-  const href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(address)}`;
+  const href = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(
+    address
+  )}`;
   return (
     <a
       href={href}
@@ -1343,5 +1586,190 @@ function MapLink({ address }) {
     >
       (Voir sur Maps)
     </a>
+  );
+}
+
+/* ============================== WAITLIST MODAL ============================== */
+
+function isValidEmail(email) {
+  const s = String(email || "").trim();
+  // Simple & robuste pour UI (la contrainte DB + unique index fait le vrai contrôle)
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
+}
+
+function WaitlistModal({ open, onClose, format, courseId, defaultEmail }) {
+  const [email, setEmail] = useState(defaultEmail || "");
+  const [prenom, setPrenom] = useState("");
+  const [nom, setNom] = useState("");
+  const [agree, setAgree] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState("");
+
+  useEffect(() => {
+    if (!open) return;
+    setEmail(defaultEmail || "");
+    setPrenom("");
+    setNom("");
+    setAgree(false);
+    setSaving(false);
+    setMsg("");
+  }, [open, defaultEmail]);
+
+  if (!open) return null;
+
+  const submit = async () => {
+    const e = String(email || "").trim().toLowerCase();
+    const p = String(prenom || "").trim() || null;
+    const n = String(nom || "").trim() || null;
+
+    if (!format?.id) return;
+
+    if (!isValidEmail(e)) {
+      setMsg("Email invalide.");
+      return;
+    }
+    if (!agree) {
+      setMsg("Merci de cocher la case pour rejoindre la liste d’attente.");
+      return;
+    }
+
+    setSaving(true);
+    setMsg("");
+
+    try {
+      const { error } = await supabase.from("waitlist").insert({
+        course_id: courseId,
+        format_id: format.id,
+        email: e, // ✅ lowercase (index unique sur lower(email))
+        prenom: p,
+        nom: n,
+        source: "public",
+      });
+
+      if (error) {
+        if (String(error.code) === "23505") {
+          setMsg("✅ Tu es déjà inscrit(e) sur la liste d’attente pour ce format.");
+        } else {
+          console.error("WAITLIST_INSERT_ERROR", error);
+          setMsg("Erreur : impossible de rejoindre la liste d’attente.");
+        }
+        return;
+      }
+
+      setMsg(
+        "✅ Inscription en liste d’attente enregistrée. Tu recevras un email si une place se libère."
+      );
+      setTimeout(() => onClose?.(), 900);
+    } catch (e2) {
+      console.error(e2);
+      setMsg("Erreur : impossible de rejoindre la liste d’attente.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center bg-black/30 p-4">
+      <div className="w-full max-w-xl rounded-2xl bg-white shadow-xl ring-1 ring-neutral-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-neutral-200 flex items-center justify-between">
+          <h3 className="text-lg font-semibold">Liste d’attente</h3>
+          <button
+            onClick={onClose}
+            className="text-neutral-500 hover:text-neutral-800 text-sm"
+            disabled={saving}
+          >
+            Fermer
+          </button>
+        </div>
+
+        <div className="p-5 space-y-3">
+          <div className="text-sm text-neutral-700">
+            Format : <b>{format?.nom || "—"}</b>
+            {format?.date ? (
+              <span className="text-neutral-500"> • {fmtDate(format.date)}</span>
+            ) : null}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-sm font-medium">Prénom (optionnel)</label>
+              <input
+                value={prenom}
+                onChange={(e) => setPrenom(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                placeholder="Prénom"
+                autoComplete="given-name"
+              />
+            </div>
+
+            <div>
+              <label className="text-sm font-medium">Nom (optionnel)</label>
+              <input
+                value={nom}
+                onChange={(e) => setNom(e.target.value)}
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                placeholder="Nom"
+                autoComplete="family-name"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Email</label>
+            <input
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+              placeholder="ton.email@exemple.com"
+              autoComplete="email"
+            />
+          </div>
+
+          <label className="flex items-start gap-2 text-sm text-neutral-700">
+            <input
+              type="checkbox"
+              checked={agree}
+              onChange={(e) => setAgree(e.target.checked)}
+              className="mt-1 h-4 w-4 rounded border-neutral-300"
+            />
+            <span>
+              Je souhaite m’inscrire en liste d’attente et être contacté(e) par
+              email si une place se libère.
+            </span>
+          </label>
+
+          {msg ? (
+            <div
+              className={
+                msg.startsWith("✅")
+                  ? "text-sm text-emerald-700"
+                  : "text-sm text-rose-700"
+              }
+            >
+              {msg}
+            </div>
+          ) : null}
+        </div>
+
+        <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="rounded-xl border border-neutral-300 px-4 py-2 text-sm hover:bg-white"
+            disabled={saving}
+          >
+            Annuler
+          </button>
+          <button
+            onClick={submit}
+            disabled={saving}
+            className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${
+              saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"
+            }`}
+          >
+            {saving ? "Enregistrement…" : "Rejoindre la liste"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
