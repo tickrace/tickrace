@@ -546,12 +546,19 @@ export default function ListeBenevoles() {
                         <ArrowRight className="h-4 w-4 opacity-70" />
                       </Btn>
                     </Link>
+                    
                   ) : (
                     <Btn variant="light" disabled className="w-full">
                       <ExternalLink className="h-4 w-4" />
                       Ouvrir l’espace bénévole (preview)
                     </Btn>
                   )}
+                  <Link to={`/organisateur/planning-benevoles/${selectedCourseId}`}>
+  <Btn variant="light" disabled={selectedCourseId === "all"} className="w-full">
+    <ClipboardList className="h-4 w-4" /> Gérer le planning
+  </Btn>
+</Link>
+
                 </div>
 
                 <p className="mt-2 text-xs text-neutral-500">

@@ -55,6 +55,7 @@ import CoursePartenaires from "./pages/CoursePartenaires";
 import BenevoleInscription from "./pages/BenevoleInscription";
 import ListeBenevoles from "./pages/ListeBenevoles";
 import EspaceBenevole from "./pages/EspaceBenevole";
+import PlanningBenevoles from "./pages/PlanningBenevoles";
 
 // Paiements
 import Merci from "./pages/Merci";
@@ -230,6 +231,13 @@ function AppContent() {
 
           {/* ============================ ORGANISATEUR ======================== */}
           <Route
+  path="/organisateur/planning-benevoles/:courseId"
+  element={
+    <ProtectedRoute>
+      <PlanningBenevoles />
+    </ProtectedRoute>
+  }
+/><Route
             path="/organisateur/mon-espace"
             element={
               <ProtectedRoute>
