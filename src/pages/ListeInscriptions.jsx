@@ -1077,15 +1077,14 @@ export default function ListeInscriptions() {
 
         {/* Waitlist */}
         <WaitlistPanel
-          courseId={resolvedCourseId}
-          formatId={formatId}
-          formatLabel={formatLabel}
-          enabled={!!formatObj?.waitlist_enabled}
-          quotaAttente={formatObj?.quota_attente ?? null}
-          onChanged={() => {
-            // si un invite consomme / etc, tu peux rafraîchir d'autres choses ici
-          }}
-        />
+  courseId={resolvedCourseId}
+  formatId={formatId}
+  formatLabel={formatObj ? `${formatObj.nom}${formatObj.date ? ` — ${formatObj.date}` : ""}` : ""}
+  enabled={!!formatObj?.waitlist_enabled}
+  quotaAttente={formatObj?.quota_attente ?? null}
+  onInvited={() => load()}
+/>
+
 
         {/* Catégories */}
         <div className="rounded-2xl border border-neutral-200 bg-white p-4">
