@@ -1,13 +1,6 @@
 // src/components/WaitlistPanel.jsx
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
-import {
-  RefreshCcw,
-  Send,
-  AlertCircle,
-  CheckCircle2,
-  Clock,
-} from "lucide-react";
 
 function cls(...xs) {
   return xs.filter(Boolean).join(" ");
@@ -27,27 +20,24 @@ function fmt(iso) {
 }
 
 function StatusPill({ row }) {
-  if (row?.consumed_at) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 px-2 py-0.5 text-[11px] font-medium text-emerald-800">
-        <CheckCircle2 className="h-3.5 w-3.5" />
-        Consommée
-      </span>
-    );
-  }
+  const consumed = !!row.consumed_at;
+  const invited = !!row.invited_at;
 
-  if (row?.invited_at) {
-    return (
-      <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-800">
-        <Clock className="h-3.5 w-3.5" />
-        Invitée
-      </span>
-    );
-  }
+  const label = consumed ? "Consommé" : invited ? "Invité" : "En attente";
+  const style = consumed
+    ? "bg-emerald-100 text-emerald-800"
+    : invited
+    ? "bg-amber-100 text-amber-800"
+    : "bg-neutral-100 text-neutral-700";
 
   return (
-    <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
-      En attente
+    <span
+      className={cls(
+        "inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium",
+        style
+      )}
+    >
+      {label}
     </span>
   );
 }
@@ -56,45 +46,97 @@ export default function WaitlistPanel({
   courseId,
   formatId,
   formatLabel = "",
-  enabled = false,
+  enabled = true,
   quotaAttente = null,
-  onInvited,
+  onInvite, // optionnel : callback après invitation
 }) {
+  const [resolvedCourseId, setResolvedCourseId] = useState(courseId || null);
+  const [resolvedFormatId, setResolvedFormatId] = useState(formatId || null);
+
+  const [loadingResolve, setLoadingResolve] = useState(false);
   const [loading, setLoading] = useState(false);
   const [inviting, setInviting] = useState(false);
-  const [error, setError] = useState("");
-  const [rows, setRows] = useState([]);
 
-  const resolved = !!courseId && !!formatId;
+  const [rows, setRows] = useState([]);
+  const [error, setError] = useState("");
+
+  // Keep in sync with props
+  useEffect(() => setResolvedCourseId(courseId || null), [courseId]);
+  useEffect(() => setResolvedFormatId(formatId || null), [formatId]);
+
+  // ✅ Si on a formatId mais pas courseId, on résout course_id via formats
+  useEffect(() => {
+    let alive = true;
+
+    const resolve = async () => {
+      setError("");
+
+      const fid = resolvedFormatId || formatId;
+      const cid = resolvedCourseId || courseId;
+
+      if (!fid) return; // on attend formatId
+      if (cid) return; // déjà résolu
+
+      setLoadingResolve(true);
+      try {
+        const { data, error: e } = await supabase
+          .from("formats")
+          .select("id, course_id")
+          .eq("id", fid)
+          .maybeSingle();
+
+        if (e) throw e;
+        if (!alive) return;
+
+        if (data?.course_id) setResolvedCourseId(data.course_id);
+      } catch (e) {
+        console.error("WAITLIST_RESOLVE_ERROR", e);
+        if (alive) setError("Impossible de résoudre la course depuis le format.");
+      } finally {
+        if (alive) setLoadingResolve(false);
+      }
+    };
+
+    resolve();
+    return () => {
+      alive = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatId, courseId, resolvedFormatId, resolvedCourseId]);
+
+  const canLoad = useMemo(() => !!resolvedFormatId, [resolvedFormatId]);
 
   const load = useCallback(async () => {
-    setError("");
-    if (!resolved) {
-      setRows([]);
-      return;
-    }
+    if (!canLoad) return;
 
     setLoading(true);
+    setError("");
     try {
-      const { data, error: e } = await supabase
+      let q = supabase
         .from("waitlist")
         .select(
-          "id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source"
+          "id, course_id, format_id, email, prenom, nom, created_at, invited_at, invite_expires_at, consumed_at, source"
         )
-        .eq("course_id", courseId)
-        .eq("format_id", formatId)
-        .order("created_at", { ascending: true });
+        .eq("format_id", resolvedFormatId)
+        .order("created_at", { ascending: false });
 
+      if (resolvedCourseId) q = q.eq("course_id", resolvedCourseId);
+
+      const { data, error: e } = await q;
       if (e) throw e;
+
       setRows(data || []);
     } catch (e) {
       console.error("WAITLIST_LOAD_ERROR", e);
-      setError("Impossible de charger la liste d’attente.");
+      setError(
+        "Impossible de charger la liste d’attente (droits / RLS ?). " +
+          "Vérifie les policies SELECT sur la table waitlist."
+      );
       setRows([]);
     } finally {
       setLoading(false);
     }
-  }, [courseId, formatId, resolved]);
+  }, [canLoad, resolvedCourseId, resolvedFormatId]);
 
   useEffect(() => {
     load();
@@ -102,17 +144,26 @@ export default function WaitlistPanel({
 
   const stats = useMemo(() => {
     const total = rows.length;
-    const pending = rows.filter((r) => !r.invited_at && !r.consumed_at).length;
-    const invited = rows.filter((r) => r.invited_at && !r.consumed_at).length;
-    const consumed = rows.filter((r) => r.consumed_at).length;
-    return { total, pending, invited, consumed };
+    const invited = rows.filter((r) => !!r.invited_at && !r.consumed_at).length;
+    const consumed = rows.filter((r) => !!r.consumed_at).length;
+    const pending = total - invited - consumed;
+    return { total, invited, consumed, pending };
   }, [rows]);
 
-  // ✅ Bouton d’invitation (Edge Function)
+  // ✅ Bouton interne "Inviter" (Edge Function)
   const invite = useCallback(async () => {
-    if (!resolved) return alert("Course/format non résolu.");
-    if (!enabled)
-      return alert("La liste d’attente n’est pas activée sur ce format.");
+    if (!enabled) {
+      alert("Liste d’attente désactivée pour ce format.");
+      return;
+    }
+    if (!resolvedFormatId) {
+      alert("Format non résolu.");
+      return;
+    }
+    if (!resolvedCourseId) {
+      alert("Course non résolue (attends 1 seconde ou rafraîchis).");
+      return;
+    }
 
     const maxInvites = Number(
       prompt("Combien d’invitations envoyer ? (ex: 10)", "10") || "0"
@@ -125,9 +176,16 @@ export default function WaitlistPanel({
     if (!expireHours || expireHours <= 0) return;
 
     setInviting(true);
+    setError("");
+
     try {
       const { data, error } = await supabase.functions.invoke("invite-waitlist", {
-        body: { courseId, formatId, maxInvites, expireHours },
+        body: {
+          courseId: resolvedCourseId,
+          formatId: resolvedFormatId,
+          maxInvites,
+          expireHours,
+        },
       });
 
       if (error) throw error;
@@ -139,175 +197,176 @@ export default function WaitlistPanel({
       );
 
       await load();
-      onInvited?.(data);
+
+      // optionnel : callback parent
+      if (typeof onInvite === "function") {
+        try {
+          await onInvite(data);
+        } catch (e) {
+          console.warn("onInvite callback failed (ignored)", e);
+        }
+      }
     } catch (e) {
       console.error("INVITE_WAITLIST_ERROR", e);
       alert("Erreur lors de l’envoi des invitations.");
     } finally {
       setInviting(false);
     }
-  }, [resolved, enabled, courseId, formatId, load, onInvited]);
+  }, [enabled, resolvedCourseId, resolvedFormatId, load, onInvite]);
+
+  const inviteDisabled =
+    !enabled || inviting || loadingResolve || !resolvedFormatId || !resolvedCourseId;
 
   return (
-    <div className="rounded-2xl border border-neutral-200 bg-white p-4">
+    <div className="rounded-2xl border border-neutral-200 bg-white p-4 shadow-sm">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-neutral-800">
-              Liste d’attente
-            </h2>
+          <div className="text-sm font-semibold text-neutral-900">Liste d’attente</div>
 
-            {!enabled && (
-              <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600">
-                Désactivée
-              </span>
-            )}
-
-            {quotaAttente != null && (
-              <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-700">
-                Quota: {quotaAttente}
-              </span>
-            )}
-          </div>
-
-          <div className="mt-1 text-xs text-neutral-500 truncate">
+          <div className="mt-1 text-xs text-neutral-500">
             {formatLabel ? (
-              <span>
-                Format : <b className="text-neutral-700">{formatLabel}</b>
-              </span>
-            ) : null}
-            {!resolved ? (
-              <span className="ml-2 inline-flex items-center gap-1 text-rose-700">
-                <AlertCircle className="h-3.5 w-3.5" />
-                Course/format non résolu
-              </span>
-            ) : null}
+              <>
+                Format :{" "}
+                <span className="font-medium text-neutral-700">{formatLabel}</span>
+              </>
+            ) : (
+              <>
+                Format :{" "}
+                <span className="font-medium text-neutral-700">
+                  {resolvedFormatId ? resolvedFormatId : "—"}
+                </span>
+              </>
+            )}
           </div>
 
-          <div className="mt-2 flex flex-wrap gap-2 text-xs text-neutral-600">
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
-              Total: <b>{stats.total}</b>
-            </span>
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
-              En attente: <b>{stats.pending}</b>
-            </span>
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
-              Invitées: <b>{stats.invited}</b>
-            </span>
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5">
-              Consommées: <b>{stats.consumed}</b>
-            </span>
+          <div className="mt-1 text-xs text-neutral-500">
+            {loadingResolve && "Résolution course/format…"}
+            {!loadingResolve &&
+              !resolvedFormatId &&
+              "Chargement… (format non encore sélectionné)"}
           </div>
         </div>
 
-        <div className="flex shrink-0 flex-wrap items-center gap-2">
-          <button
-            onClick={load}
-            disabled={loading || !resolved}
-            className={cls(
-              "inline-flex items-center gap-2 rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold",
-              loading || !resolved
-                ? "bg-neutral-100 text-neutral-400 cursor-not-allowed"
-                : "hover:bg-neutral-50"
-            )}
-            title={!resolved ? "Course/format non résolu" : "Rafraîchir"}
-          >
-            <RefreshCcw className={cls("h-4 w-4", loading ? "animate-spin" : "")} />
-            Rafraîchir
-          </button>
-
-          {/* ✅ Bouton INVITER */}
+        <div className="flex items-center gap-2 shrink-0">
+          {/* ✅ Toujours affiché, plus dépendant de onInvite */}
           <button
             onClick={invite}
-            disabled={inviting || !resolved || !enabled}
             className={cls(
-              "inline-flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-semibold",
-              inviting || !resolved || !enabled
-                ? "bg-neutral-200 text-neutral-500 cursor-not-allowed"
-                : "bg-neutral-900 text-white hover:bg-black"
+              "rounded-xl px-3 py-2 text-xs font-semibold",
+              inviteDisabled
+                ? "border border-neutral-200 bg-neutral-100 text-neutral-400 cursor-not-allowed"
+                : "border border-neutral-300 hover:bg-neutral-50"
             )}
+            disabled={inviteDisabled}
             title={
-              !resolved
-                ? "Course/format non résolu"
-                : !enabled
+              !enabled
                 ? "Liste d’attente désactivée"
-                : "Envoyer des invitations"
+                : !resolvedCourseId || !resolvedFormatId
+                ? "Course/format en cours de résolution"
+                : "Envoyer des invitations à la liste d’attente"
             }
           >
-            <Send className={cls("h-4 w-4", inviting ? "animate-pulse" : "")} />
-            {inviting ? "Invitation…" : "Inviter la liste d’attente"}
+            {inviting ? "Invitation…" : "Inviter"}
+          </button>
+
+          <button
+            onClick={load}
+            className="rounded-xl border border-neutral-300 px-3 py-2 text-xs font-semibold hover:bg-neutral-50"
+            disabled={!canLoad || loading}
+          >
+            {loading ? "…" : "Rafraîchir"}
           </button>
         </div>
       </div>
 
-      {error && (
-        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-800">
+      {!enabled && (
+        <div className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3 text-xs text-neutral-700">
+          Liste d’attente désactivée pour ce format.
+        </div>
+      )}
+
+      {quotaAttente != null && (
+        <div className="mt-3 text-xs text-neutral-600">
+          Quota attente : <b>{quotaAttente}</b> • Total : <b>{stats.total}</b>
+        </div>
+      )}
+
+      {!!error && (
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
           {error}
         </div>
       )}
 
-      <div className="mt-4">
-        {loading ? (
-          <div className="text-sm text-neutral-500">Chargement…</div>
-        ) : !resolved ? (
-          <div className="text-sm text-neutral-500">
-            Sélectionnez un format valide pour afficher la liste d’attente.
-          </div>
-        ) : rows.length === 0 ? (
-          <div className="text-sm text-neutral-500">
-            Aucune personne en liste d’attente pour ce format.
-          </div>
-        ) : (
-          <div className="overflow-x-auto rounded-xl border border-neutral-200">
-            <table className="min-w-full text-sm">
-              <thead className="bg-neutral-50 text-neutral-600">
-                <tr>
-                  <th className="px-3 py-2 text-left">Email</th>
-                  <th className="px-3 py-2 text-left">Nom</th>
-                  <th className="px-3 py-2 text-left">Ajouté le</th>
-                  <th className="px-3 py-2 text-left">Statut</th>
-                  <th className="px-3 py-2 text-left">Invité le</th>
-                  <th className="px-3 py-2 text-left">Expire</th>
-                  <th className="px-3 py-2 text-left">Source</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y">
-                {rows.map((r) => (
-                  <tr key={r.id} className="hover:bg-neutral-50/60">
-                    <td className="px-3 py-2 font-medium text-neutral-900">
-                      {r.email}
-                    </td>
-                    <td className="px-3 py-2 text-neutral-700">
-                      {(r.prenom || "").trim()} {(r.nom || "").trim()}
-                    </td>
-                    <td className="px-3 py-2 text-neutral-700">
-                      {fmt(r.created_at)}
-                    </td>
-                    <td className="px-3 py-2">
-                      <StatusPill row={r} />
-                    </td>
-                    <td className="px-3 py-2 text-neutral-700">
-                      {fmt(r.invited_at)}
-                    </td>
-                    <td className="px-3 py-2 text-neutral-700">
-                      {fmt(r.invite_expires_at)}
-                    </td>
-                    <td className="px-3 py-2 text-neutral-500">
-                      {r.source || "—"}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      <div className="mt-3 flex flex-wrap gap-2 text-xs">
+        <span className="rounded-full bg-neutral-100 px-3 py-1 text-neutral-700">
+          Total <b>{stats.total}</b>
+        </span>
+        <span className="rounded-full bg-neutral-100 px-3 py-1 text-neutral-700">
+          En attente <b>{stats.pending}</b>
+        </span>
+        <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-800">
+          Invités <b>{stats.invited}</b>
+        </span>
+        <span className="rounded-full bg-emerald-100 px-3 py-1 text-emerald-800">
+          Consommés <b>{stats.consumed}</b>
+        </span>
+      </div>
 
-        {enabled && resolved && (
-          <div className="mt-3 text-xs text-neutral-500">
-            Astuce : le bouton “Inviter” prend les personnes <b>non invitées</b>{" "}
-            en priorité (selon ta logique côté Edge Function).
-          </div>
-        )}
+      <div className="mt-3 overflow-x-auto">
+        <table className="min-w-full text-sm">
+          <thead className="text-left text-neutral-500">
+            <tr>
+              <th className="py-2 pr-3">Statut</th>
+              <th className="py-2 pr-3">Email</th>
+              <th className="py-2 pr-3">Nom</th>
+              <th className="py-2 pr-3">Créé</th>
+              <th className="py-2 pr-3">Invité</th>
+              <th className="py-2 pr-3">Expire</th>
+              <th className="py-2 pr-3">Consommé</th>
+              <th className="py-2 pr-3">Source</th>
+            </tr>
+          </thead>
+
+          <tbody className="divide-y">
+            {!resolvedFormatId ? (
+              <tr>
+                <td colSpan={8} className="py-3 text-xs text-neutral-500">
+                  Format non sélectionné (le panneau s’affichera dès qu’un format est
+                  choisi).
+                </td>
+              </tr>
+            ) : loading ? (
+              <tr>
+                <td colSpan={8} className="py-3 text-xs text-neutral-500">
+                  Chargement…
+                </td>
+              </tr>
+            ) : rows.length === 0 ? (
+              <tr>
+                <td colSpan={8} className="py-3 text-xs text-neutral-500">
+                  Aucun inscrit en liste d’attente pour ce format.
+                </td>
+              </tr>
+            ) : (
+              rows.map((r) => (
+                <tr key={r.id} className="hover:bg-neutral-50/60">
+                  <td className="py-2 pr-3">
+                    <StatusPill row={r} />
+                  </td>
+                  <td className="py-2 pr-3 font-medium text-neutral-900">{r.email}</td>
+                  <td className="py-2 pr-3 text-neutral-700">
+                    {(r.nom || "") + (r.prenom ? ` ${r.prenom}` : "") || "—"}
+                  </td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.created_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.invited_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.invite_expires_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-600">{fmt(r.consumed_at)}</td>
+                  <td className="py-2 pr-3 text-neutral-500">{r.source || "—"}</td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
