@@ -75,9 +75,10 @@ const VIEWS = new Set(["list", "map"]);
 export default function Courses() {
   const [searchParams, setSearchParams] = useSearchParams();
 
-  // --- Init depuis l’URL (+ fallback localStorage)
+  // Init depuis l'URL (+ fallback localStorage)
   const initial = useMemo(() => {
     const q = searchParams.get("q") ?? "";
+
     const viewFromUrl = searchParams.get("view");
     const viewFromLs = safeLocalStorageGet("tickrace:courses:view");
     const view =
@@ -112,7 +113,7 @@ export default function Courses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // --- UI state
+  // UI state
   const [viewMode, setViewMode] = useState(initial.view);
   const [search, setSearch] = useState(initial.q);
   const [departement, setDepartement] = useState(initial.dep);
@@ -125,23 +126,21 @@ export default function Courses() {
   const [page, setPage] = useState(initial.page);
   const [pageSize, setPageSize] = useState(initial.size);
 
-  // --- Data state
+  // Data state
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState("");
-  const [courses, setCourses] = useState([]); // courses + formats (nested)
-  const [countsByFormat, setCountsByFormat] = useState(null); // null = inconnu (RLS), {} = connu
+  const [courses, setCourses] = useState([]);
 
   const searchDebounced = useDebouncedValue(search, 350);
 
-  // --- Persistance viewMode
+  // Persistance viewMode
   useEffect(() => {
     safeLocalStorageSet("tickrace:courses:view", viewMode);
   }, [viewMode]);
 
-  // --- Sync URL (partageable + persistant)
+  // Sync URL
   const didSyncUrl = useRef(false);
   useEffect(() => {
-    // on évite une première écriture agressive si jamais
     if (!didSyncUrl.current) didSyncUrl.current = true;
 
     const sp = new URLSearchParams();
@@ -179,13 +178,13 @@ export default function Courses() {
     setSearchParams,
   ]);
 
-  // --- Reset page si filtres changent (hors pagination)
+  // Reset page quand filtres changent
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departement, type, dateFrom, dateTo, distKey, dplusKey, sortBy, pageSize, viewMode]);
 
-  // --- Fetch (courses publiées + formats)
+  // Fetch (courses publiées + formats avec nb_inscrits)
   const fetchAll = async () => {
     setLoading(true);
     setErrorMsg("");
@@ -212,7 +211,11 @@ export default function Courses() {
             prix,
             distance_km,
             denivele_dplus,
-            nb_max_coureurs
+            nb_max_coureurs,
+            nb_inscrits,
+            inscription_ouverture,
+            inscription_fermeture,
+            close_on_full
           )
         `
         )
@@ -227,7 +230,6 @@ export default function Courses() {
       const { data, error } = await query;
       if (error) throw error;
 
-      // Nettoyage + tri formats par date
       const normalized = (data || []).map((c) => {
         const f = Array.isArray(c.formats) ? c.formats : [];
         const sortedFormats = [...f].sort((a, b) => {
@@ -239,40 +241,10 @@ export default function Courses() {
       });
 
       setCourses(normalized);
-
-      // Tentative : lecture inscriptions pour badge "Complet" (peut être bloquée par RLS)
-      const allFormatIds = normalized.flatMap((c) => (c.formats || []).map((f) => f.id));
-      if (!allFormatIds.length) {
-        setCountsByFormat({});
-        setLoading(false);
-        return;
-      }
-
-      try {
-        const { data: insc, error: insErr } = await supabase
-          .from("inscriptions")
-          .select("format_id")
-          .in("format_id", allFormatIds);
-
-        if (insErr) {
-          // normal si RLS bloque en public
-          setCountsByFormat(null);
-        } else {
-          const counts = {};
-          (insc || []).forEach((i) => {
-            counts[i.format_id] = (counts[i.format_id] || 0) + 1;
-          });
-          setCountsByFormat(counts);
-        }
-      } catch {
-        setCountsByFormat(null);
-      }
-
       setLoading(false);
     } catch (e) {
       console.error(e);
       setCourses([]);
-      setCountsByFormat(null);
       setErrorMsg(e?.message || "Impossible de charger les courses.");
       setLoading(false);
     }
@@ -283,7 +255,7 @@ export default function Courses() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchDebounced]);
 
-  /* --------------------- Filtres dynamiques ---------------------- */
+  // Filtres dynamiques
   const departements = useMemo(() => {
     return Array.from(new Set(courses.map((c) => c.departement).filter(Boolean))).sort();
   }, [courses]);
@@ -298,7 +270,7 @@ export default function Courses() {
     return Array.from(new Set(all)).sort();
   }, [courses]);
 
-  /* ---------------------- ViewModel course ----------------------- */
+  // ViewModel course
   const resume = useMemo(() => {
     const now = new Date();
     const todayStart = new Date(now.toDateString());
@@ -328,12 +300,17 @@ export default function Courses() {
       const minDplus = dplus.length ? Math.min(...dplus) : null;
       const maxDplus = dplus.length ? Math.max(...dplus) : null;
 
+      // Complet via nb_inscrits (public-safe)
       let isFull = false;
-      if (countsByFormat !== null && fList.length) {
+      if (fList.length) {
         isFull = fList.every((f) => {
           const max = Number(f.nb_max_coureurs);
           if (!max || Number.isNaN(max)) return false;
-          const count = Number(countsByFormat?.[f.id] || 0);
+
+          const count = Number(f.nb_inscrits || 0);
+          const closeOnFull = f.close_on_full !== false; // default true
+          if (!closeOnFull) return false;
+
           return count >= max;
         });
       }
@@ -341,8 +318,6 @@ export default function Courses() {
       const createdAt = parseDate(c.created_at);
       const isNew =
         createdAt ? (new Date().getTime() - createdAt.getTime()) / 86400000 < 14 : false;
-
-      const hasMultipleFormats = fList.length > 1;
 
       return {
         ...c,
@@ -355,22 +330,25 @@ export default function Courses() {
         max_dplus: maxDplus,
         is_full: isFull,
         is_new: isNew,
-        has_multiple_formats: hasMultipleFormats,
+        has_multiple_formats: fList.length > 1,
       };
     });
-  }, [courses, countsByFormat]);
+  }, [courses]);
 
-  /* --------------------- Application filtres --------------------- */
+  // Application filtres + tri
   const filtered = useMemo(() => {
     return resume
       .filter((c) => {
+        // Département
         if (departement !== "all" && c.departement !== departement) return false;
 
+        // Type épreuve
         if (type !== "all") {
           const hasType = (c.formats || []).some((f) => f.type_epreuve === type);
           if (!hasType) return false;
         }
 
+        // Dates
         if (dateFrom || dateTo) {
           const nd = parseDate(c.next_date);
           if (!nd) return false;
@@ -378,6 +356,7 @@ export default function Courses() {
           if (dateTo && nd > new Date(dateTo)) return false;
         }
 
+        // Distance
         if (distKey !== "all") {
           if (c.min_dist == null || c.max_dist == null) return false;
           const b = DIST_BUCKETS.find((x) => x.key === distKey);
@@ -387,6 +366,7 @@ export default function Courses() {
           if (!overlaps) return false;
         }
 
+        // D+
         if (dplusKey !== "all") {
           if (c.min_dplus == null || c.max_dplus == null) return false;
           const b = DPLUS_BUCKETS.find((x) => x.key === dplusKey);
@@ -399,29 +379,18 @@ export default function Courses() {
         return true;
       })
       .sort((a, b) => {
-        if (sortBy === "price") {
-          const pa = a.min_prix ?? Infinity;
-          const pb = b.min_prix ?? Infinity;
-          return pa - pb;
-        }
-        if (sortBy === "dplus") {
-          const da = a.max_dplus ?? Infinity;
-          const db = b.max_dplus ?? Infinity;
-          return da - db;
-        }
-        const ta = parseDate(a.next_date)?.getTime() ?? Infinity;
-        const tb = parseDate(b.next_date)?.getTime() ?? Infinity;
-        return ta - tb;
+        if (sortBy === "price") return (a.min_prix ?? Infinity) - (b.min_prix ?? Infinity);
+        if (sortBy === "dplus") return (a.max_dplus ?? Infinity) - (b.max_dplus ?? Infinity);
+        return (parseDate(a.next_date)?.getTime() ?? Infinity) - (parseDate(b.next_date)?.getTime() ?? Infinity);
       });
   }, [resume, departement, type, dateFrom, dateTo, distKey, dplusKey, sortBy]);
 
-  /* -------------------------- Pagination -------------------------- */
+  // Pagination
   const total = filtered.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   const currentPage = clampInt(page, 1, totalPages);
-  const pageSlice = filtered.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const pageSlice = filtered.slice((currentPage - 1) * pageSize, pageSize * currentPage);
 
-  /* ---------------------------- Actions --------------------------- */
   const toggleView = () => setViewMode((v) => (v === "list" ? "map" : "list"));
 
   const resetFilters = () => {
@@ -437,7 +406,6 @@ export default function Courses() {
     setPageSize(12);
   };
 
-  /* ----------------------------- Render --------------------------- */
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
@@ -563,12 +531,6 @@ export default function Courses() {
                 onNext={() => setPage((p) => Math.min(totalPages, p + 1))}
               />
             )}
-
-            {countsByFormat === null && (
-              <div className="mt-6 text-xs text-neutral-500">
-                ⚠️ Le badge <strong>Complet</strong> peut être masqué (accès aux inscriptions restreint).
-              </div>
-            )}
           </>
         )}
       </div>
@@ -600,7 +562,6 @@ function FiltersBar({
   return (
     <div className="mb-6 rounded-2xl ring-1 ring-neutral-200 bg-white p-4 shadow-sm">
       <div className="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
-        {/* Dates */}
         <div className="flex flex-1 flex-col md:flex-row gap-3">
           <div className="flex items-center gap-2">
             <label className="text-xs text-neutral-500">Du</label>
@@ -622,7 +583,6 @@ function FiltersBar({
           </div>
         </div>
 
-        {/* Selects */}
         <div className="flex flex-1 flex-col md:flex-row gap-3">
           <select
             value={departement}
@@ -678,7 +638,6 @@ function FiltersBar({
             value={sortBy}
             onChange={(e) => setSortBy(e.target.value)}
             className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
-            title="Trier par"
           >
             <option value="date">Prochaine date</option>
             <option value="price">Prix mini</option>
@@ -688,7 +647,6 @@ function FiltersBar({
           <button
             onClick={resetFilters}
             className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 px-3 py-2 text-sm text-neutral-800 hover:bg-neutral-50"
-            title="Réinitialiser"
           >
             ↺ Réinitialiser
           </button>
@@ -750,7 +708,9 @@ function CourseCard({ course }) {
         <h3 className="line-clamp-1 text-lg font-semibold">{course.nom}</h3>
 
         <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-600">
-          <span>📍 {course.lieu} {course.departement ? `(${course.departement})` : ""}</span>
+          <span>
+            📍 {course.lieu} {course.departement ? `(${course.departement})` : ""}
+          </span>
           {course.next_date && <span>📅 {formatDate(course.next_date)}</span>}
         </div>
 
@@ -835,7 +795,6 @@ function Pagination({ currentPage, totalPages, onPrev, onNext }) {
   );
 }
 
-/* --------------------------- Skeletons --------------------------- */
 function SkeletonGrid() {
   return (
     <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
@@ -857,7 +816,6 @@ function SkeletonGrid() {
   );
 }
 
-/* --------------------------- Empty state -------------------------- */
 function EmptyState({ onReset }) {
   return (
     <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-10 text-center">
