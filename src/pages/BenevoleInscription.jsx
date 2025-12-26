@@ -76,7 +76,7 @@ export default function BenevoleInscription() {
     return `${course.nom}${course.lieu ? ` (${course.lieu})` : ""}`;
   }, [course]);
 
-  const nextPath = useMemo(() => `/benevole-inscription/${courseId}`, [courseId]);
+  const nextPath = useMemo(() => `/benevoles/${courseId}`, [courseId]);
   const loginLink = useMemo(() => `/login?next=${encodeURIComponent(nextPath)}&flow=benevole&courseId=${courseId}`, [nextPath, courseId]);
   const signupLink = useMemo(() => `/signup?next=${encodeURIComponent(nextPath)}&flow=benevole&courseId=${courseId}`, [nextPath, courseId]);
 
