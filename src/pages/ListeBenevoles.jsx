@@ -15,6 +15,7 @@ import {
   CheckCircle2,
   AlertTriangle,
   ShieldCheck,
+  ArrowRight,
 } from "lucide-react";
 
 /* ------------------------------ UI Helpers ------------------------------ */
@@ -187,7 +188,6 @@ export default function ListeBenevoles() {
     } else if (courseIdsAll?.length) {
       query = query.in("course_id", courseIdsAll);
     } else {
-      // aucune course -> aucun bénévole
       return [];
     }
 
@@ -208,7 +208,6 @@ export default function ListeBenevoles() {
       const b = await loadBenevoles(selectedCourseId, allIds);
       setBenevoles(b);
 
-      // reset sélection si la liste change
       setSelectedIds(new Set());
     } catch (e) {
       console.error(e);
@@ -226,7 +225,6 @@ export default function ListeBenevoles() {
   }, [userId]);
 
   useEffect(() => {
-    // quand on change de course, on recharge les bénévoles
     if (!userId) return;
     (async () => {
       setLoading(true);
@@ -310,7 +308,6 @@ export default function ListeBenevoles() {
       setToast(`Invitations envoyées : ${sent}${skipped ? ` (ignorées: ${skipped})` : ""}`);
       setTimeout(() => setToast(""), 2600);
 
-      // refresh bénévoles (pour invite_count/last_invite_at/status)
       const allIds = courses.map((x) => x.id);
       const b = await loadBenevoles(selectedCourseId, allIds);
       setBenevoles(b);
@@ -498,7 +495,7 @@ export default function ListeBenevoles() {
               </div>
 
               <p className="mt-2 text-sm text-neutral-600">
-                Depuis ici, tu copies le lien et tu invites tous les bénévoles de la course.
+                Copie le lien, ouvre l’espace bénévole (preview), et invite la liste.
               </p>
 
               <div className="mt-3">
@@ -530,16 +527,31 @@ export default function ListeBenevoles() {
                   )}
                 </div>
 
-                <div className="mt-3 flex gap-2">
+                <div className="mt-3 grid grid-cols-1 gap-2">
                   <Btn
                     variant="dark"
                     onClick={inviteBenevoles}
                     disabled={busyInvite || selectedCourseId === "all"}
-                    className="flex-1"
+                    className="w-full"
                   >
                     {busyInvite ? <Loader2 className="h-4 w-4 animate-spin" /> : <Mail className="h-4 w-4" />}
                     Inviter les bénévoles
                   </Btn>
+
+                  {selectedCourseId !== "all" ? (
+                    <Link to={`/benevole/${selectedCourseId}`} className="w-full">
+                      <Btn variant="light" className="w-full">
+                        <ExternalLink className="h-4 w-4" />
+                        Ouvrir l’espace bénévole (preview)
+                        <ArrowRight className="h-4 w-4 opacity-70" />
+                      </Btn>
+                    </Link>
+                  ) : (
+                    <Btn variant="light" disabled className="w-full">
+                      <ExternalLink className="h-4 w-4" />
+                      Ouvrir l’espace bénévole (preview)
+                    </Btn>
+                  )}
                 </div>
 
                 <p className="mt-2 text-xs text-neutral-500">
@@ -650,7 +662,13 @@ export default function ListeBenevoles() {
                             )}
                           </div>
                           <div className="text-xs text-neutral-700">
-                            {b.telephone ? <a href={`tel:${b.telephone}`} className="hover:underline">{b.telephone}</a> : "—"}
+                            {b.telephone ? (
+                              <a href={`tel:${b.telephone}`} className="hover:underline">
+                                {b.telephone}
+                              </a>
+                            ) : (
+                              "—"
+                            )}
                           </div>
                         </td>
 
