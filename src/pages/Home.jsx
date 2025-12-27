@@ -2,7 +2,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Mountain,
   CalendarDays,
   MapPin,
   Sparkles,
@@ -20,11 +19,11 @@ import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import ALaUneSection from "../components/home/ALaUneSection";
 
+import CourseCard from "../components/CourseCard";
+
 // --- Mini helpers
 const Container = ({ children, className = "" }) => (
-  <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>
-    {children}
-  </div>
+  <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>
 );
 
 const Pill = ({ children }) => (
@@ -75,15 +74,12 @@ const Badge = ({ children }) => (
   </span>
 );
 
-// --- Utils
-const fmtDate = (d) =>
-  d
-    ? new Intl.DateTimeFormat("fr-FR", {
-        day: "2-digit",
-        month: "short",
-        year: "numeric",
-      }).format(typeof d === "string" ? new Date(d) : d)
-    : "";
+/* ----------------------------- Utils ----------------------------- */
+const parseDate = (d) => {
+  if (!d) return null;
+  const dt = new Date(d);
+  return Number.isNaN(dt.getTime()) ? null : dt;
+};
 
 const fmtEUR = (n) =>
   new Intl.NumberFormat("fr-FR", {
@@ -92,9 +88,6 @@ const fmtEUR = (n) =>
     maximumFractionDigits: 2,
   }).format(Number(n || 0));
 
-// ============================
-// Page
-// ============================
 export default function Home() {
   const navigate = useNavigate();
   const { session } = useUser();
@@ -145,47 +138,107 @@ export default function Home() {
     };
   }, [simParticipants, simPrix, simExtras, simStripe]);
 
-  // Charger 3 dernières courses en ligne
+  // Charger 3 dernières courses en ligne (mêmes champs que Courses.jsx => même Card)
   useEffect(() => {
     (async () => {
+      setLoading(true);
       try {
         const { data, error } = await supabase
           .from("courses")
-          .select("id, nom, lieu, departement, created_at, image_url")
+          .select(
+            `
+            id,
+            nom,
+            lieu,
+            departement,
+            created_at,
+            image_url,
+            formats (
+              id,
+              course_id,
+              nom,
+              type_epreuve,
+              date,
+              prix,
+              distance_km,
+              denivele_dplus,
+              nb_max_coureurs,
+              nb_inscrits,
+              inscription_ouverture,
+              inscription_fermeture,
+              close_on_full
+            )
+          `
+          )
           .eq("en_ligne", true)
           .order("created_at", { ascending: false })
           .limit(3);
+
         if (error) throw error;
 
-        const ids = (data || []).map((c) => c.id);
-        let byCourse = {};
-        if (ids.length) {
-          const { data: fmts } = await supabase
-            .from("formats")
-            .select("course_id, date, distance_km, denivele_dplus")
-            .in("course_id", ids);
-
-          (fmts || []).forEach((f) => {
-            (byCourse[f.course_id] = byCourse[f.course_id] || []).push(f);
-          });
-        }
+        const now = new Date();
+        const todayStart = new Date(now.toDateString());
 
         const decorated = (data || []).map((c) => {
-          const f = byCourse[c.id] || [];
-          const dists = f.map((x) => Number(x.distance_km)).filter((n) => Number.isFinite(n));
-          const dplus = f.map((x) => Number(x.denivele_dplus)).filter((n) => Number.isFinite(n));
-          const nextDate = f
-            .map((x) => x.date)
-            .filter(Boolean)
-            .sort((a, b) => new Date(a) - new Date(b))[0];
+          const fList = Array.isArray(c.formats) ? [...c.formats] : [];
+          fList.sort((a, b) => {
+            const ta = parseDate(a.date)?.getTime() ?? Infinity;
+            const tb = parseDate(b.date)?.getTime() ?? Infinity;
+            return ta - tb;
+          });
+
+          const upcoming = fList.filter((f) => {
+            const d = parseDate(f.date);
+            return d && d >= todayStart;
+          });
+
+          const nextFormat = (upcoming.length ? upcoming : fList)[0] || null;
+          const next = nextFormat?.date || null;
+
+          const dists = fList.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
+          const dplus = fList.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
+
+          const minDist = dists.length ? Math.min(...dists) : null;
+          const maxDist = dists.length ? Math.max(...dists) : null;
+
+          const minDplus = dplus.length ? Math.min(...dplus) : null;
+          const maxDplus = dplus.length ? Math.max(...dplus) : null;
+
+          const minPrix = fList.reduce((min, f) => {
+            const p = Number(f.prix);
+            return Number.isFinite(p) ? Math.min(min, p) : min;
+          }, Infinity);
+          const minPrixVal = minPrix === Infinity ? null : minPrix;
+
+          // course full = tous les formats full (close_on_full + max)
+          let isFull = false;
+          if (fList.length) {
+            isFull = fList.every((f) => {
+              const max = Number(f.nb_max_coureurs);
+              if (!max || Number.isNaN(max)) return false;
+              const count = Number(f.nb_inscrits || 0);
+              const closeOnFull = f.close_on_full !== false;
+              if (!closeOnFull) return false;
+              return count >= max;
+            });
+          }
+
+          const createdAt = parseDate(c.created_at);
+          const isNew = createdAt ? (Date.now() - createdAt.getTime()) / 86400000 < 14 : false;
 
           return {
             ...c,
-            nextDate: nextDate || null,
-            minDist: dists.length ? Math.min(...dists) : null,
-            maxDist: dists.length ? Math.max(...dists) : null,
-            minDplus: dplus.length ? Math.min(...dplus) : null,
-            maxDplus: dplus.length ? Math.max(...dplus) : null,
+            formats: fList,
+            next_format: nextFormat,
+            next_date: next,
+            min_prix: minPrixVal,
+            min_dist: minDist,
+            max_dist: maxDist,
+            min_dplus: minDplus,
+            max_dplus: maxDplus,
+            is_full: isFull,
+            is_new: isNew,
+            has_multiple_formats: fList.length > 1,
           };
         });
 
@@ -220,13 +273,12 @@ export default function Home() {
               </div>
 
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
-                Inscris-toi, organise, cours.{" "}
-                <span className="text-orange-600">Une seule plateforme.</span>
+                Inscris-toi, organise, cours. <span className="text-orange-600">Une seule plateforme.</span>
               </h1>
 
               <p className="text-neutral-600 max-w-xl">
-                TickRace centralise la création d’épreuves, l’inscription coureurs, le chat
-                communautaire, la gestion des bénévoles et les reversements automatiques (en 2 temps).
+                TickRace centralise la création d’épreuves, l’inscription coureurs, le chat communautaire, la gestion des
+                bénévoles et les reversements automatiques (en 2 temps).
               </p>
 
               <div className="flex flex-wrap gap-3 pt-1">
@@ -320,74 +372,29 @@ export default function Home() {
             </div>
           </Card>
 
+          {/* ✅ mêmes cards que /courses */}
           <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {loading ? (
               Array.from({ length: 3 }).map((_, i) => (
-                <Card key={i} className="overflow-hidden animate-pulse">
-                  <div className="h-44 w-full bg-neutral-100" />
-                  <div className="p-4 space-y-2">
+                <div
+                  key={i}
+                  className="animate-pulse overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm"
+                >
+                  <div className="h-40 w-full bg-neutral-100" />
+                  <div className="p-4 space-y-3">
                     <div className="h-5 w-2/3 bg-neutral-100 rounded" />
                     <div className="h-4 w-1/3 bg-neutral-100 rounded" />
                     <div className="h-4 w-1/2 bg-neutral-100 rounded" />
+                    <div className="h-8 w-full bg-neutral-100 rounded mt-4" />
                   </div>
-                </Card>
+                </div>
               ))
             ) : latest.length === 0 ? (
               <div className="sm:col-span-2 lg:col-span-3">
                 <Card className="p-6 text-center text-neutral-600">Aucune épreuve en ligne pour le moment.</Card>
               </div>
             ) : (
-              latest.map((r) => (
-                <Card key={r.id} className="overflow-hidden">
-                  <div className="relative">
-                    {r.image_url ? (
-                      <img src={r.image_url} alt={r.nom} className="h-44 w-full object-cover" />
-                    ) : (
-                      <div className="h-44 w-full grid place-items-center bg-neutral-100 text-neutral-400">
-                        <Mountain className="h-6 w-6" />
-                      </div>
-                    )}
-                    {r.nextDate && (
-                      <div className="absolute left-3 top-3">
-                        <span className="rounded-full bg-white/90 px-2 py-1 text-[11px] font-semibold ring-1 ring-neutral-200">
-                          {fmtDate(r.nextDate)}
-                        </span>
-                      </div>
-                    )}
-                  </div>
-                  <div className="p-4">
-                    <h3 className="text-base font-bold leading-snug line-clamp-1">{r.nom}</h3>
-                    <div className="mt-0.5 flex items-center gap-1.5 text-xs text-neutral-500">
-                      <MapPin className="h-3.5 w-3.5" /> {r.lieu} ({r.departement})
-                    </div>
-
-                    <div className="mt-3 flex items-center gap-3 text-sm">
-                      {r.minDist != null && r.maxDist != null && (
-                        <Badge>
-                          {Math.round(r.minDist)}–{Math.round(r.maxDist)} km
-                        </Badge>
-                      )}
-                      {r.minDplus != null && r.maxDplus != null && (
-                        <Badge>
-                          {Math.round(r.minDplus)}–{Math.round(r.maxDplus)} m D+
-                        </Badge>
-                      )}
-                    </div>
-
-                    <div className="mt-4 flex items-center justify-between">
-                      <Link
-                        to={`/inscription/${r.id}`}
-                        className="rounded-xl bg-neutral-900 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
-                      >
-                        S'inscrire
-                      </Link>
-                      <Link to={`/courses/${r.id}`} className="text-sm font-semibold text-neutral-700 hover:underline">
-                        Voir la fiche
-                      </Link>
-                    </div>
-                  </div>
-                </Card>
-              ))
+              latest.map((c) => <CourseCard key={c.id} course={c} />)
             )}
           </div>
         </Container>
@@ -465,7 +472,6 @@ export default function Home() {
                 rapide.
               </p>
 
-              {/* ✅ Exemple de chat (étoffé) */}
               <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
