@@ -24,15 +24,27 @@ import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import ALaUneSection from "../components/home/ALaUneSection";
 
-import { InscriptionPlacesBadge, InscriptionStatusBadge } from "../components/InscriptionBadges";
+import {
+  InscriptionPlacesBadge,
+  InscriptionStatusBadge,
+} from "../components/InscriptionBadges";
 
 /* ----------------------------- UI helpers ----------------------------- */
 const Container = ({ children, className = "" }) => (
-  <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>
+  <div
+    className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}
+  >
+    {children}
+  </div>
 );
 
 const Card = ({ children, className = "" }) => (
-  <div className={["rounded-2xl bg-white ring-1 ring-neutral-200 shadow-sm", className].join(" ")}>
+  <div
+    className={[
+      "rounded-2xl bg-white ring-1 ring-neutral-200 shadow-sm",
+      className,
+    ].join(" ")}
+  >
     {children}
   </div>
 );
@@ -48,7 +60,13 @@ const Badge = ({ children, className = "" }) => (
   </span>
 );
 
-const CTA = ({ children, to, onClick, variant = "primary", className = "" }) => {
+const CTA = ({
+  children,
+  to,
+  onClick,
+  variant = "primary",
+  className = "",
+}) => {
   const base =
     "inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold transition active:translate-y-px focus:outline-none focus:ring-2";
   const styles =
@@ -204,9 +222,15 @@ export default function Home() {
           const nextFormat = upcoming[0] || null;
           const nextDate = nextFormat?.date || null;
 
-          const prices = sorted.map((f) => Number(f.prix)).filter((n) => Number.isFinite(n));
-          const dists = sorted.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
-          const dplus = sorted.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
+          const prices = sorted
+            .map((f) => Number(f.prix))
+            .filter((n) => Number.isFinite(n));
+          const dists = sorted
+            .map((f) => Number(f.distance_km))
+            .filter((n) => Number.isFinite(n));
+          const dplus = sorted
+            .map((f) => Number(f.denivele_dplus))
+            .filter((n) => Number.isFinite(n));
 
           const minPrix = prices.length ? Math.min(...prices) : null;
           const minDist = dists.length ? Math.min(...dists) : null;
@@ -227,7 +251,9 @@ export default function Home() {
           }
 
           const createdAt = parseDate(c.created_at);
-          const isNew = createdAt ? (Date.now() - createdAt.getTime()) / 86400000 < 14 : false;
+          const isNew = createdAt
+            ? (Date.now() - createdAt.getTime()) / 86400000 < 14
+            : false;
 
           return {
             ...c,
@@ -303,13 +329,41 @@ export default function Home() {
               </div>
 
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
-                Trouve une course. <span className="text-orange-600">Ou publie la tienne.</span>
+                Trouve une course.{" "}
+                <span className="text-orange-600">Ou publie la tienne.</span>
               </h1>
 
               <p className="text-neutral-600 max-w-xl">
-                TickRace centralise la création d’épreuves, l’inscription, le règlement, les messages coureurs, la
-                gestion bénévoles et les reversements automatiques.
+                TickRace centralise la création d’épreuves, l’inscription, le
+                règlement, les messages coureurs, la gestion bénévoles et les
+                reversements automatiques.
               </p>
+
+              {/* ✅ Multi-sports (quelques lignes, discret) */}
+              <Card className="p-4 bg-white/70 backdrop-blur">
+                <div className="text-xs font-black text-neutral-900">
+                  Multi-sports
+                </div>
+                <p className="mt-1 text-sm text-neutral-700">
+                  Pensé pour le <strong>trail</strong>, TickRace s’adapte aussi à
+                  d’autres disciplines : <strong>route</strong>,{" "}
+                  <strong>VTT</strong>, <strong>triathlon</strong>,{" "}
+                  <strong>randonnée</strong>…
+                  <span className="text-neutral-600"> (et plus à venir)</span>
+                </p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {["Trail", "Route", "VTT", "Triathlon", "Randonnée"].map(
+                    (s) => (
+                      <Badge key={s} className="bg-neutral-50">
+                        {s}
+                      </Badge>
+                    )
+                  )}
+                  <Badge className="bg-orange-50 text-orange-700 ring-orange-200">
+                    Branding multi-sports
+                  </Badge>
+                </div>
+              </Card>
 
               <div className="flex flex-wrap gap-3">
                 <CTA to="/courses" variant="primary">
@@ -331,8 +385,8 @@ export default function Home() {
               </div>
 
               <div className="text-[11px] text-neutral-500">
-                Reversements indicatifs : acompte (50%) à partir de J+7 après paiement, puis solde à partir de J+2 après
-                la course.
+                Reversements indicatifs : acompte (50%) à partir de J+7 après
+                paiement, puis solde à partir de J+2 après la course.
               </div>
             </motion.div>
 
@@ -370,14 +424,19 @@ export default function Home() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* recherche */}
             <Card className="p-5 lg:col-span-5">
-              <div className="text-sm font-black text-neutral-900">Recherche rapide</div>
+              <div className="text-sm font-black text-neutral-900">
+                Recherche rapide
+              </div>
               <p className="mt-1 text-sm text-neutral-600">
-                Une recherche simple — puis tous les filtres avancés sur la page Courses.
+                Une recherche simple — puis tous les filtres avancés sur la page
+                Courses.
               </p>
 
               <div className="mt-4 space-y-3">
                 <div>
-                  <label className="text-xs font-semibold text-neutral-600">Lieu</label>
+                  <label className="text-xs font-semibold text-neutral-600">
+                    Lieu
+                  </label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <MapPin className="h-4 w-4 text-neutral-400" />
                     <input
@@ -391,7 +450,9 @@ export default function Home() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="text-xs font-semibold text-neutral-600">À partir du</label>
+                    <label className="text-xs font-semibold text-neutral-600">
+                      À partir du
+                    </label>
                     <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                       <CalendarDays className="h-4 w-4 text-neutral-400" />
                       <input
@@ -404,7 +465,9 @@ export default function Home() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-neutral-600">Distance</label>
+                    <label className="text-xs font-semibold text-neutral-600">
+                      Distance
+                    </label>
                     <select
                       value={homeDist}
                       onChange={(e) => setHomeDist(e.target.value)}
@@ -434,10 +497,17 @@ export default function Home() {
             <div className="lg:col-span-7">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <div className="text-sm font-black text-neutral-900">Prochaines épreuves</div>
-                  <p className="mt-1 text-sm text-neutral-600">Les 3 prochaines courses à venir, triées par date.</p>
+                  <div className="text-sm font-black text-neutral-900">
+                    Prochaines épreuves
+                  </div>
+                  <p className="mt-1 text-sm text-neutral-600">
+                    Les 3 prochaines courses à venir, triées par date.
+                  </p>
                 </div>
-                <Link to="/courses" className="text-sm font-semibold text-neutral-800 hover:underline">
+                <Link
+                  to="/courses"
+                  className="text-sm font-semibold text-neutral-800 hover:underline"
+                >
                   Voir toutes →
                 </Link>
               </div>
@@ -482,11 +552,12 @@ export default function Home() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
-                      Une suite organisateur <span className="text-orange-600">simple & pro</span>
+                      Une suite organisateur{" "}
+                      <span className="text-orange-600">simple & pro</span>
                     </h2>
                     <p className="mt-2 text-sm text-neutral-600">
-                      Tout est pensé pour réduire l’administratif : un flux clair, des outils intégrés, et une
-                      traçabilité propre.
+                      Tout est pensé pour réduire l’administratif : un flux clair,
+                      des outils intégrés, et une traçabilité propre.
                     </p>
                   </div>
                   <Badge className="bg-orange-50 text-orange-700 ring-orange-200">
@@ -550,7 +621,9 @@ export default function Home() {
                 <div className="mt-6 flex flex-wrap gap-2">
                   <CTA
                     onClick={() =>
-                      session?.user ? navigate("/organisateur/mon-espace") : navigate("/login")
+                      session?.user
+                        ? navigate("/organisateur/mon-espace")
+                        : navigate("/login")
                     }
                     variant="dark"
                   >
@@ -576,8 +649,8 @@ export default function Home() {
                     <Users className="h-4 w-4" /> Communauté
                   </div>
                   <p className="mt-2 text-sm text-neutral-700">
-                    Pose une question, organise un covoit’, et mentionne <span className="font-semibold">@IA</span> si
-                    besoin.
+                    Pose une question, organise un covoit’, et mentionne{" "}
+                    <span className="font-semibold">@IA</span> si besoin.
                   </p>
 
                   <div className="mt-4 flex gap-2">
@@ -614,9 +687,15 @@ export default function Home() {
                 </div>
 
                 <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-                  <div className="text-xs font-semibold text-neutral-500">Net organisateur (estimation)</div>
-                  <div className="mt-1 text-2xl font-black">{fmtEUR(sim.netOrganisateur)}</div>
-                  <div className="mt-1 text-xs text-neutral-500">~ {fmtEUR(sim.netParInscrit)} / inscrit</div>
+                  <div className="text-xs font-semibold text-neutral-500">
+                    Net organisateur (estimation)
+                  </div>
+                  <div className="mt-1 text-2xl font-black">
+                    {fmtEUR(sim.netOrganisateur)}
+                  </div>
+                  <div className="mt-1 text-xs text-neutral-500">
+                    ~ {fmtEUR(sim.netParInscrit)} / inscrit
+                  </div>
 
                   {showSimDetails && (
                     <div className="mt-4 space-y-3">
@@ -628,7 +707,9 @@ export default function Home() {
                             min={0}
                             step={10}
                             value={simParticipants}
-                            onChange={(e) => setSimParticipants(Number(e.target.value || 0))}
+                            onChange={(e) =>
+                              setSimParticipants(Number(e.target.value || 0))
+                            }
                             className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
                           />
                         </label>
@@ -639,7 +720,9 @@ export default function Home() {
                             min={0}
                             step={1}
                             value={simPrix}
-                            onChange={(e) => setSimPrix(Number(e.target.value || 0))}
+                            onChange={(e) =>
+                              setSimPrix(Number(e.target.value || 0))
+                            }
                             className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
                           />
                         </label>
@@ -652,7 +735,9 @@ export default function Home() {
                           min={0}
                           step={1}
                           value={simExtras}
-                          onChange={(e) => setSimExtras(Number(e.target.value || 0))}
+                          onChange={(e) =>
+                            setSimExtras(Number(e.target.value || 0))
+                          }
                           className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
                         />
                       </label>
@@ -690,12 +775,20 @@ export default function Home() {
                           <span className="font-semibold">{fmtEUR(sim.brut)}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-neutral-600">Commission Tickrace (5%)</span>
-                          <span className="font-semibold">-{fmtEUR(sim.commissionTickrace)}</span>
+                          <span className="text-neutral-600">
+                            Commission Tickrace (5%)
+                          </span>
+                          <span className="font-semibold">
+                            -{fmtEUR(sim.commissionTickrace)}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-neutral-600">Frais paiement estimés</span>
-                          <span className="font-semibold">-{fmtEUR(sim.fraisStripe)}</span>
+                          <span className="text-neutral-600">
+                            Frais paiement estimés
+                          </span>
+                          <span className="font-semibold">
+                            -{fmtEUR(sim.fraisStripe)}
+                          </span>
                         </div>
                       </div>
                     </div>
@@ -721,12 +814,17 @@ export default function Home() {
         <Container>
           <div className="flex items-end justify-between gap-3">
             <div>
-              <div className="text-sm font-black text-neutral-900">Les fondamentaux TickRace</div>
+              <div className="text-sm font-black text-neutral-900">
+                Les fondamentaux TickRace
+              </div>
               <p className="mt-1 text-sm text-neutral-600">
                 Des briques simples, bien finies, qui couvrent le cœur du besoin.
               </p>
             </div>
-            <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
+            <Link
+              to="/fonctionnalites"
+              className="text-sm font-semibold text-neutral-800 hover:underline"
+            >
               Tout voir →
             </Link>
           </div>
@@ -789,7 +887,8 @@ function MiniFeature({ icon, title, desc, to, linkLabel }) {
 function CourseCardHome({ course }) {
   const soon =
     course.next_date &&
-    (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
+    (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <=
+      14;
 
   return (
     <div className="group overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow">
@@ -814,7 +913,11 @@ function CourseCardHome({ course }) {
             </span>
           )}
 
-          <InscriptionStatusBadge format={course.next_format} isFullOverride={course.is_full} prefix="Inscriptions" />
+          <InscriptionStatusBadge
+            format={course.next_format}
+            isFullOverride={course.is_full}
+            prefix="Inscriptions"
+          />
 
           {course.has_multiple_formats && (
             <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">
@@ -841,7 +944,11 @@ function CourseCardHome({ course }) {
           📍 {course.lieu} {course.departement ? `(${course.departement})` : ""}
         </div>
 
-        {course.next_date && <div className="mt-1 text-sm text-neutral-600">📅 {fmtDate(course.next_date)}</div>}
+        {course.next_date && (
+          <div className="mt-1 text-sm text-neutral-600">
+            📅 {fmtDate(course.next_date)}
+          </div>
+        )}
 
         <div className="mt-3 text-sm text-neutral-700 space-y-1">
           {course.min_dist != null && course.max_dist != null && (
@@ -854,13 +961,15 @@ function CourseCardHome({ course }) {
           {course.min_dplus != null && course.max_dplus != null && (
             <div>
               <strong>
-                {Math.round(course.min_dplus)}–{Math.round(course.max_dplus)} m D+
+                {Math.round(course.min_dplus)}–{Math.round(course.max_dplus)} m
+                D+
               </strong>
             </div>
           )}
           {course.min_prix != null && (
             <div className="text-neutral-700">
-              À partir de <strong>{Number(course.min_prix).toFixed(2)} €</strong>
+              À partir de{" "}
+              <strong>{Number(course.min_prix).toFixed(2)} €</strong>
             </div>
           )}
         </div>
