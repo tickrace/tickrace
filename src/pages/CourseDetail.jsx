@@ -16,7 +16,6 @@ import {
   ArrowRight,
   AlertCircle,
   Loader2,
-  FileText,
 } from "lucide-react";
 
 import {
@@ -114,7 +113,7 @@ function getCtaForFormat({ courseId, format, countsByFormat }) {
     return { kind: "disabled", label: "Fermé" };
   }
 
-  // ✅ IMPORTANT : si complet + waitlist => on ouvre une modale (pas de redirection)
+  // ✅ si complet + waitlist => modal
   if (countsByFormat !== null && isFull) {
     if (waitlistEnabled) {
       return {
@@ -136,7 +135,6 @@ function getCtaForFormat({ courseId, format, countsByFormat }) {
 
 function isValidEmail(email) {
   const e = String(email || "").trim().toLowerCase();
-  // simple et robuste
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 }
 
@@ -186,7 +184,9 @@ export default function CourseDetail() {
 
       const { data: c, error: e1 } = await supabase
         .from("courses")
-        .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
+        .select(
+          "id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at"
+        )
         .eq("id", id)
         .maybeSingle();
 
@@ -371,8 +371,7 @@ export default function CourseDetail() {
 
   const heroFormatWithCounts = useMemo(() => {
     if (!heroFormat) return null;
-    const count =
-      countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
+    const count = countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
     return { ...heroFormat, ...(count === undefined ? {} : { nb_inscrits: count }) };
   }, [heroFormat, countsByFormat]);
 
@@ -405,6 +404,16 @@ export default function CourseDetail() {
     const min_dplus = dplus.length ? Math.min(...dplus) : null;
     const max_dplus = dplus.length ? Math.max(...dplus) : null;
 
+    // ✅ Discipline (trail / route / vtt / etc. depuis formats.type_epreuve)
+    const types = Array.from(
+      new Set(
+        fList
+          .map((f) => (f?.type_epreuve || "").trim())
+          .filter(Boolean)
+      )
+    );
+    const discipline = types.length === 0 ? null : types.length === 1 ? types[0] : `${types[0]} +${types.length - 1}`;
+
     let is_full = false;
     if (countsByFormat !== null && fList.length) {
       is_full = fList.every((f) => computeIsFullWithCounts(f, countsByFormat));
@@ -423,6 +432,7 @@ export default function CourseDetail() {
       max_dplus,
       is_full,
       is_new,
+      discipline, // ✅
     };
   }, [formats, countsByFormat, course?.created_at]);
 
@@ -479,9 +489,7 @@ export default function CourseDetail() {
   }
 
   const shareUrl = `${BASE}/courses/${course.id}`;
-  const soon =
-    aggregates.next_date &&
-    (parseDate(aggregates.next_date).getTime() - Date.now()) / 86400000 <= 14;
+  const soon = aggregates.next_date && (parseDate(aggregates.next_date).getTime() - Date.now()) / 86400000 <= 14;
 
   async function copyShare(url) {
     try {
@@ -559,9 +567,7 @@ export default function CourseDetail() {
         {/* Titre & CTA */}
         <div className="absolute bottom-4 left-4 right-4">
           <div className="max-w-7xl mx-auto px-2 sm:px-4">
-            <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">
-              {course.nom}
-            </h1>
+            <h1 className="text-white text-2xl sm:text-3xl md:text-4xl font-bold drop-shadow">{course.nom}</h1>
 
             <div className="mt-2 flex flex-wrap items-center gap-3 text-white/90">
               <span className="inline-flex items-center gap-1">
@@ -686,7 +692,9 @@ export default function CourseDetail() {
                   <p className="text-neutral-500">La présentation de l’épreuve sera bientôt disponible.</p>
                 )}
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {/* ✅ Ajout discipline */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
+                  <Fact title="Discipline" value={aggregates.discipline || "—"} />
                   <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
                   <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
                   <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
@@ -832,9 +840,7 @@ export default function CourseDetail() {
                         </InfoItem>
 
                         <InfoItem icon="shield" label="Âge minimum">
-                          {Number.isFinite(Number(selectedFormat?.age_minimum))
-                            ? `${selectedFormat.age_minimum} ans`
-                            : "—"}
+                          {Number.isFinite(Number(selectedFormat?.age_minimum)) ? `${selectedFormat.age_minimum} ans` : "—"}
                         </InfoItem>
                       </SectionCard>
 
@@ -851,9 +857,7 @@ export default function CourseDetail() {
                         </div>
 
                         <InfoItem icon="euro" label="Prix">
-                          {Number.isFinite(Number(selectedFormat?.prix))
-                            ? `${Number(selectedFormat.prix).toFixed(2)} €`
-                            : "—"}
+                          {Number.isFinite(Number(selectedFormat?.prix)) ? `${Number(selectedFormat.prix).toFixed(2)} €` : "—"}
                         </InfoItem>
 
                         <InfoItem icon="trophy" label="Dotation">
@@ -878,9 +882,7 @@ export default function CourseDetail() {
                             </ul>
                           </div>
                         ) : (
-                          <InfoItem icon="bottle" label="Ravitaillements">
-                            —
-                          </InfoItem>
+                          <InfoItem icon="bottle" label="Ravitaillements">—</InfoItem>
                         )}
 
                         <InfoItem icon="id" label="Remise des dossards">
@@ -888,12 +890,7 @@ export default function CourseDetail() {
                         </InfoItem>
                       </SectionCard>
 
-                      <SectionCard title="Règlement" subtitle="Document officiel (unique)">
-                        <div className="flex items-center gap-2 text-sm text-neutral-700">
-                          <FileText className="w-4 h-4" />
-                          Onglet “Règlement” → règlement unique de l’épreuve
-                        </div>
-                      </SectionCard>
+                      {/* ✅ Supprimé : bloc règlement dans Infos pratiques (déjà un onglet dédié) */}
 
                       <div className="xl:col-span-2">
                         <SectionCard title="Présentation du parcours" subtitle="Description de l’organisateur">
@@ -916,15 +913,11 @@ export default function CourseDetail() {
                     Chargement du règlement…
                   </div>
                 ) : reglementError ? (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
-                    {reglementError}
-                  </div>
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">{reglementError}</div>
                 ) : reglementText ? (
                   <div className="rounded-2xl border bg-white shadow-sm p-5">
                     <div className="text-sm text-neutral-500 mb-3">Règlement officiel de l’épreuve.</div>
-                    <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">
-                      {reglementText}
-                    </pre>
+                    <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">{reglementText}</pre>
                   </div>
                 ) : (
                   <EmptyBox text="Le règlement n’est pas encore disponible." />
@@ -943,11 +936,7 @@ export default function CourseDetail() {
               <div className="rounded-2xl border bg-white shadow-sm">
                 <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                   <h2 className="text-lg font-semibold">Discuter sous l’épreuve</h2>
-                  <a
-                    href="#discussion"
-                    className="text-sm text-neutral-500 hover:text-neutral-800"
-                    title="Lien direct"
-                  >
+                  <a href="#discussion" className="text-sm text-neutral-500 hover:text-neutral-800" title="Lien direct">
                     #discussion
                   </a>
                 </div>
@@ -1015,9 +1004,7 @@ export default function CourseDetail() {
 
                               <div className="mt-2 flex flex-wrap items-center gap-2">
                                 <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="Inscriptions" />
-                                {countsByFormat !== null && (
-                                  <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
-                                )}
+                                {countsByFormat !== null && <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />}
                               </div>
                             </div>
 
@@ -1065,10 +1052,10 @@ export default function CourseDetail() {
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Faits rapides</h3>
                 <div className="mt-3 grid grid-cols-2 gap-3">
+                  <Fact title="Discipline" value={aggregates.discipline || "—"} />
                   <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
                   <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
                   <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"} />
-                  <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
                 </div>
               </div>
 
@@ -1085,9 +1072,7 @@ export default function CourseDetail() {
                   </button>
                   <div className="ml-auto">
                     <img
-                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(
-                        shareUrl
-                      )}`}
+                      src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(shareUrl)}`}
                       alt="QR de partage"
                       className="rounded-md border"
                       width={120}
@@ -1101,9 +1086,7 @@ export default function CourseDetail() {
               {/* Bénévoles */}
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Bénévoles</h3>
-                <p className="mt-2 text-sm text-neutral-600">
-                  Un peu de temps libre ? Donnez un coup de main à l’organisation.
-                </p>
+                <p className="mt-2 text-sm text-neutral-600">Un peu de temps libre ? Donnez un coup de main à l’organisation.</p>
                 <Link
                   to={`/benevoles/${course.id}`}
                   className="mt-3 inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
@@ -1182,12 +1165,10 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
         email: e,
         prenom: prenom?.trim() || null,
         nom: nom?.trim() || null,
-        // source = 'public' par défaut dans la table
       };
 
       const { error } = await supabase.from("waitlist").insert(payload);
       if (error) {
-        // duplicate (ux_waitlist_format_email)
         if (error.code === "23505") {
           setMsg("Tu es déjà inscrit(e) sur la liste d’attente de ce format.");
           return;
@@ -1259,9 +1240,7 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
           </div>
 
           {msg && (
-            <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
-              {msg}
-            </div>
+            <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{msg}</div>
           )}
         </div>
 
@@ -1276,10 +1255,7 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
           <button
             onClick={submit}
             disabled={saving}
-            className={[
-              "rounded-xl px-4 py-2 text-sm font-semibold text-white",
-              saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black",
-            ].join(" ")}
+            className={["rounded-xl px-4 py-2 text-sm font-semibold text-white", saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"].join(" ")}
           >
             {saving ? "Inscription…" : "M’inscrire"}
           </button>
@@ -1311,11 +1287,7 @@ function Fact({ title, value, Icon }) {
 }
 
 function EmptyBox({ text }) {
-  return (
-    <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">
-      {text}
-    </div>
-  );
+  return <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">{text}</div>;
 }
 
 function FormatsTable({ courseId, formats, countsByFormat, onWaitlist }) {
@@ -1368,9 +1340,7 @@ function FormatsTable({ courseId, formats, countsByFormat, onWaitlist }) {
                 <td className="px-4 py-3 text-neutral-700">
                   <div className="flex flex-wrap items-center gap-2">
                     <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="" />
-                    {countsByFormat !== null && (
-                      <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
-                    )}
+                    {countsByFormat !== null && <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />}
                   </div>
                 </td>
 
