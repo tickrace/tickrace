@@ -1,3 +1,4 @@
+// supabase/functions/invite-benevoles/index.ts
 // deno-lint-ignore-file no-explicit-any
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
@@ -10,11 +11,36 @@ const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY")!;
 const SITE_URL = Deno.env.get("SITE_URL") || "https://www.tickrace.com";
 const FROM_EMAIL = Deno.env.get("FROM_EMAIL") || "Tickrace <support@tickrace.com>";
 
+// ✅ CORS allowlist
+const ALLOWED_ORIGINS = [
+  "https://www.tickrace.com",
+  "https://tickrace.com",
+  "http://localhost:5173",
+  "http://127.0.0.1:5173",
+];
+
+function corsHeaders(origin: string | null) {
+  const allowOrigin = origin && ALLOWED_ORIGINS.includes(origin) ? origin : "*";
+  return {
+    "Access-Control-Allow-Origin": allowOrigin,
+    "Access-Control-Allow-Methods": "POST, OPTIONS",
+    "Access-Control-Allow-Headers": "authorization, apikey, content-type, x-client-info, prefer",
+    "Access-Control-Max-Age": "86400",
+  };
+}
+
+function jsonRes(origin: string | null, status: number, body: any) {
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "Content-Type": "application/json", ...corsHeaders(origin) },
+  });
+}
+
 async function sendResendEmail(to: string, subject: string, html: string) {
   const r = await fetch("https://api.resend.com/emails", {
     method: "POST",
     headers: {
-      "Authorization": `Bearer ${RESEND_API_KEY}`,
+      Authorization: `Bearer ${RESEND_API_KEY}`,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ from: FROM_EMAIL, to, subject, html }),
@@ -26,22 +52,30 @@ async function sendResendEmail(to: string, subject: string, html: string) {
 }
 
 serve(async (req) => {
+  const origin = req.headers.get("Origin");
+
+  // ✅ Préflight CORS
+  if (req.method === "OPTIONS") {
+    return new Response("ok", { status: 200, headers: corsHeaders(origin) });
+  }
+
   try {
     if (req.method !== "POST") {
-      return new Response("Method not allowed", { status: 405 });
+      return new Response("Method not allowed", { status: 405, headers: corsHeaders(origin) });
     }
 
     const authHeader = req.headers.get("Authorization") || "";
     const supabaseUserClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
       global: { headers: { Authorization: authHeader } },
     });
+
     const { data: u } = await supabaseUserClient.auth.getUser();
     const user = u?.user;
-    if (!user) return new Response("Unauthorized", { status: 401 });
+    if (!user) return new Response("Unauthorized", { status: 401, headers: corsHeaders(origin) });
 
     const body = await req.json().catch(() => ({}));
     const courseId = body.courseId as string | undefined;
-    if (!courseId) return new Response("Missing courseId", { status: 400 });
+    if (!courseId) return new Response("Missing courseId", { status: 400, headers: corsHeaders(origin) });
 
     const supabaseSR = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
@@ -52,8 +86,8 @@ serve(async (req) => {
       .eq("id", courseId)
       .maybeSingle();
 
-    if (cErr || !course) return new Response("Course not found", { status: 404 });
-    if (course.organisateur_id !== user.id) return new Response("Forbidden", { status: 403 });
+    if (cErr || !course) return new Response("Course not found", { status: 404, headers: corsHeaders(origin) });
+    if (course.organisateur_id !== user.id) return new Response("Forbidden", { status: 403, headers: corsHeaders(origin) });
 
     // ✅ Volunteers to invite
     const { data: benevoles, error: bErr } = await supabaseSR
@@ -64,11 +98,10 @@ serve(async (req) => {
 
     if (bErr) throw bErr;
 
-    const redirectTo = `${SITE_URL}/benevole/${courseId}`;
-
     const results: any[] = [];
+
     for (const b of benevoles || []) {
-      // petite règle anti-spam : pas + d'1 invite / 10 minutes
+      // anti-spam : pas + d'1 invite / 10 minutes
       const last = b.last_invite_at ? new Date(b.last_invite_at).getTime() : 0;
       const now = Date.now();
       if (last && now - last < 10 * 60 * 1000) {
@@ -76,27 +109,10 @@ serve(async (req) => {
         continue;
       }
 
-      // 1) generate magic link (fallback signup)
-      let actionLink = "";
-      let genErr: any = null;
-
-      const gen1 = await supabaseSR.auth.admin.generateLink({
-        type: "magiclink",
-        email: b.email,
-        options: { redirectTo },
-      });
-      if (gen1.error) {
-        genErr = gen1.error;
-        const gen2 = await supabaseSR.auth.admin.generateLink({
-          type: "signup",
-          email: b.email,
-          options: { redirectTo },
-        });
-        if (gen2.error) throw gen2.error;
-        actionLink = gen2.data.properties.action_link;
-      } else {
-        actionLink = gen1.data.properties.action_link;
-      }
+      // ✅ Lien stable Tickrace (ne se périme pas)
+      // On passe l'email pour autologin (la page générera un magiclink "au clic").
+      const landingLink =
+        `${SITE_URL}/benevole/${courseId}?autologin=1&email=${encodeURIComponent(b.email)}`;
 
       const subject = `Bienvenue dans l’équipe bénévoles — ${course.nom}`;
       const html = `
@@ -104,13 +120,13 @@ serve(async (req) => {
           <h2>Bonjour ${b.prenom || ""} 👋</h2>
           <p>Tu as été invité(e) dans l’espace bénévoles de <b>${course.nom}</b>.</p>
           <p>
-            <a href="${actionLink}" style="display:inline-block;padding:12px 16px;border-radius:12px;background:#111;color:#fff;text-decoration:none">
+            <a href="${landingLink}" style="display:inline-block;padding:12px 16px;border-radius:12px;background:#111;color:#fff;text-decoration:none">
               Accéder à mon espace bénévole
             </a>
           </p>
           <p style="color:#666;font-size:12px">
             Si le bouton ne marche pas, copie/colle ce lien :<br/>
-            ${actionLink}
+            ${landingLink}
           </p>
           <hr style="border:none;border-top:1px solid #eee;margin:16px 0"/>
           <p style="color:#666;font-size:12px">
@@ -132,16 +148,12 @@ serve(async (req) => {
         })
         .eq("id", b.id);
 
-      results.push({ id: b.id, email: b.email, sent: true, usedFallbackSignup: !!genErr });
+      results.push({ id: b.id, email: b.email, sent: true });
     }
 
-    return new Response(JSON.stringify({ ok: true, count: results.length, results }), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return jsonRes(origin, 200, { ok: true, count: results.length, results });
   } catch (e: any) {
-    return new Response(JSON.stringify({ ok: false, error: e?.message || String(e) }), {
-      status: 500,
-      headers: { "Content-Type": "application/json" },
-    });
+    console.error("invite-benevoles error:", e);
+    return jsonRes(origin, 500, { ok: false, error: e?.message || String(e) });
   }
 });
