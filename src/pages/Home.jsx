@@ -59,7 +59,12 @@ const CTA = ({ children, to, onClick, variant = "primary", className = "" }) => 
       : "bg-white text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50 focus:ring-neutral-200";
   const cls = [base, styles, className].join(" ");
 
-  if (onClick) return <button onClick={onClick} className={cls}>{children}</button>;
+  if (onClick)
+    return (
+      <button onClick={onClick} className={cls}>
+        {children}
+      </button>
+    );
   return (
     <Link to={to || "#"} className={cls}>
       {children}
@@ -298,13 +303,12 @@ export default function Home() {
               </div>
 
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
-                Trouve une course.{" "}
-                <span className="text-orange-600">Ou publie la tienne.</span>
+                Trouve une course. <span className="text-orange-600">Ou publie la tienne.</span>
               </h1>
 
               <p className="text-neutral-600 max-w-xl">
-                TickRace centralise la création d’épreuves, l’inscription, le règlement, les messages coureurs,
-                la gestion bénévoles et les reversements automatiques.
+                TickRace centralise la création d’épreuves, l’inscription, le règlement, les messages coureurs, la
+                gestion bénévoles et les reversements automatiques.
               </p>
 
               <div className="flex flex-wrap gap-3">
@@ -327,24 +331,20 @@ export default function Home() {
               </div>
 
               <div className="text-[11px] text-neutral-500">
-                Reversements indicatifs : acompte (50%) à partir de J+7 après paiement, puis solde à partir de J+2 après la course.
+                Reversements indicatifs : acompte (50%) à partir de J+7 après paiement, puis solde à partir de J+2 après
+                la course.
               </div>
             </motion.div>
 
-            {/* Droite : À LA UNE (sans double bloc) */}
+            {/* Droite : À LA UNE (full height) */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08 }}
-              className="lg:col-span-7"
+              className="lg:col-span-7 flex"
             >
-              <div className="relative">
-                {/* Overlay label (pas un bloc blanc) */}
-                <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-neutral-900 ring-1 ring-neutral-200 backdrop-blur">
-                  <Sparkles className="h-3.5 w-3.5 text-orange-600" />
-                  À LA UNE
-                </div>
-
+              <div className="relative w-full flex flex-col justify-center">
+                {/* Explorer (overlay) */}
                 <div className="absolute right-4 top-4 z-10">
                   <Link
                     to="/courses"
@@ -354,8 +354,10 @@ export default function Home() {
                   </Link>
                 </div>
 
-                {/* ✅ Le composant doit être l’unique “carte” visuelle */}
-                <ALaUneSection />
+                {/* ✅ hauteur de référence + fill */}
+                <div className="min-h-[360px] sm:min-h-[420px] lg:min-h-[520px]">
+                  <ALaUneSection fill className="h-full" />
+                </div>
               </div>
             </motion.div>
           </div>
@@ -433,9 +435,7 @@ export default function Home() {
               <div className="flex items-end justify-between gap-3">
                 <div>
                   <div className="text-sm font-black text-neutral-900">Prochaines épreuves</div>
-                  <p className="mt-1 text-sm text-neutral-600">
-                    Les 3 prochaines courses à venir, triées par date.
-                  </p>
+                  <p className="mt-1 text-sm text-neutral-600">Les 3 prochaines courses à venir, triées par date.</p>
                 </div>
                 <Link to="/courses" className="text-sm font-semibold text-neutral-800 hover:underline">
                   Voir toutes →
@@ -485,8 +485,8 @@ export default function Home() {
                       Une suite organisateur <span className="text-orange-600">simple & pro</span>
                     </h2>
                     <p className="mt-2 text-sm text-neutral-600">
-                      Tout est pensé pour réduire l’administratif : un flux clair, des outils intégrés,
-                      et une traçabilité propre.
+                      Tout est pensé pour réduire l’administratif : un flux clair, des outils intégrés, et une
+                      traçabilité propre.
                     </p>
                   </div>
                   <Badge className="bg-orange-50 text-orange-700 ring-orange-200">
@@ -548,7 +548,12 @@ export default function Home() {
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-2">
-                  <CTA onClick={() => (session?.user ? navigate("/organisateur/mon-espace") : navigate("/login"))} variant="dark">
+                  <CTA
+                    onClick={() =>
+                      session?.user ? navigate("/organisateur/mon-espace") : navigate("/login")
+                    }
+                    variant="dark"
+                  >
                     <Settings className="h-4 w-4" /> Ouvrir l’espace
                   </CTA>
                   <CTA to="/fonctionnalites" variant="secondary">
@@ -571,7 +576,8 @@ export default function Home() {
                     <Users className="h-4 w-4" /> Communauté
                   </div>
                   <p className="mt-2 text-sm text-neutral-700">
-                    Pose une question, organise un covoit’, et mentionne <span className="font-semibold">@IA</span> si besoin.
+                    Pose une question, organise un covoit’, et mentionne <span className="font-semibold">@IA</span> si
+                    besoin.
                   </p>
 
                   <div className="mt-4 flex gap-2">
@@ -716,7 +722,9 @@ export default function Home() {
           <div className="flex items-end justify-between gap-3">
             <div>
               <div className="text-sm font-black text-neutral-900">Les fondamentaux TickRace</div>
-              <p className="mt-1 text-sm text-neutral-600">Des briques simples, bien finies, qui couvrent le cœur du besoin.</p>
+              <p className="mt-1 text-sm text-neutral-600">
+                Des briques simples, bien finies, qui couvrent le cœur du besoin.
+              </p>
             </div>
             <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
               Tout voir →
@@ -806,11 +814,7 @@ function CourseCardHome({ course }) {
             </span>
           )}
 
-          <InscriptionStatusBadge
-            format={course.next_format}
-            isFullOverride={course.is_full}
-            prefix="Inscriptions"
-          />
+          <InscriptionStatusBadge format={course.next_format} isFullOverride={course.is_full} prefix="Inscriptions" />
 
           {course.has_multiple_formats && (
             <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">

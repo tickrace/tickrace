@@ -37,13 +37,17 @@ function isInternalLink(url) {
 }
 
 export default function ALaUneSection({
+  // ✅ permet de remplir un conteneur parent (Hero)
+  fill = false,
+  className = "",
+
   // fallback local (si aucune Une en DB)
   fallback = {
     title: "Le site est en cours de développement",
     body:
       "Tickrace évolue chaque semaine : nouvelles fonctionnalités, pages organisateurs, outils de gestion, etc.",
     link_url: "/fonctionnalites",
-    image_url: "/OIP.jpg", // tu peux changer par OIP2/3/4
+    image_url: "/OIP.jpg",
     published_at: new Date(),
   },
 }) {
@@ -79,14 +83,28 @@ export default function ALaUneSection({
     return une || fallback;
   }, [loading, une, fallback]);
 
+  // ✅ wrapper responsive : en mode fill, pas de padding vertical + pas de max-width container
+  const Wrapper = fill ? React.Fragment : Container;
+  const wrapperProps = fill ? {} : {};
+
   return (
-    <section className="py-6 sm:py-8">
-      <Container>
+    <section
+      className={[
+        fill ? "h-full" : "py-6 sm:py-8",
+        className,
+      ].join(" ")}
+    >
+      <Wrapper {...wrapperProps}>
         {loading ? (
-          <Card className="overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-5">
-              <div className="lg:col-span-2 h-44 lg:h-full bg-neutral-100 animate-pulse" />
-              <div className="lg:col-span-3 p-5 space-y-3">
+          <Card className={["overflow-hidden", fill ? "h-full" : ""].join(" ")}>
+            <div className={["grid grid-cols-1 lg:grid-cols-5", fill ? "h-full" : ""].join(" ")}>
+              <div
+                className={[
+                  "lg:col-span-2 bg-neutral-100 animate-pulse",
+                  fill ? "h-full" : "h-44 lg:h-full",
+                ].join(" ")}
+              />
+              <div className={["lg:col-span-3 p-5 space-y-3", fill ? "flex flex-col justify-center" : ""].join(" ")}>
                 <div className="h-4 w-28 bg-neutral-100 rounded animate-pulse" />
                 <div className="h-6 w-2/3 bg-neutral-100 rounded animate-pulse" />
                 <div className="h-4 w-full bg-neutral-100 rounded animate-pulse" />
@@ -96,16 +114,24 @@ export default function ALaUneSection({
             </div>
           </Card>
         ) : !content ? null : (
-          <Card className="overflow-hidden">
-            <div className="grid grid-cols-1 lg:grid-cols-5">
-              <div className="lg:col-span-2 relative">
+          <Card className={["overflow-hidden", fill ? "h-full" : ""].join(" ")}>
+            <div className={["grid grid-cols-1 lg:grid-cols-5", fill ? "h-full" : ""].join(" ")}>
+              <div className={["lg:col-span-2 relative", fill ? "h-full" : ""].join(" ")}>
                 <div className="absolute left-4 top-4 z-10">
                   <span className="inline-flex items-center gap-2 rounded-full bg-neutral-900/80 px-3 py-1 text-xs font-semibold text-white ring-1 ring-white/10">
                     À LA UNE
                   </span>
                 </div>
 
-                <div className="h-48 lg:h-full bg-neutral-100">
+                {/* ✅ image block : devient "flex-1" en fill pour occuper toute la hauteur */}
+                <div
+                  className={[
+                    "bg-neutral-100",
+                    fill
+                      ? "h-full min-h-[240px] sm:min-h-[280px] lg:min-h-[340px]"
+                      : "h-48 lg:h-full",
+                  ].join(" ")}
+                >
                   {content.image_url ? (
                     <img
                       src={content.image_url}
@@ -121,7 +147,8 @@ export default function ALaUneSection({
                 </div>
               </div>
 
-              <div className="lg:col-span-3 p-5">
+              {/* ✅ contenu : en fill => flex-col + bouton en bas (mt-auto) */}
+              <div className={["lg:col-span-3 p-5", fill ? "h-full flex flex-col" : ""].join(" ")}>
                 <div className="flex flex-wrap items-center gap-2 text-xs text-neutral-500">
                   <span className="inline-flex items-center gap-2">
                     <CalendarDays className="h-4 w-4" />
@@ -140,7 +167,7 @@ export default function ALaUneSection({
                 </p>
 
                 {content.link_url && (
-                  <div className="mt-4">
+                  <div className={fill ? "mt-auto pt-4" : "mt-4"}>
                     {isInternalLink(content.link_url) ? (
                       <Link
                         to={content.link_url}
@@ -158,17 +185,25 @@ export default function ALaUneSection({
                         En savoir plus <ArrowUpRight className="h-4 w-4 opacity-80" />
                       </a>
                     )}
+
+                    <div className="mt-4 text-[11px] text-neutral-500">
+                      Le site est en cours de développement : certaines fonctionnalités et pages évoluent chaque semaine.
+                    </div>
                   </div>
                 )}
 
-                <div className="mt-4 text-[11px] text-neutral-500">
-                  Le site est en cours de développement : certaines fonctionnalités et pages évoluent chaque semaine.
-                </div>
+                {!content.link_url && (
+                  <div className={fill ? "mt-auto pt-4" : "mt-4"}>
+                    <div className="text-[11px] text-neutral-500">
+                      Le site est en cours de développement : certaines fonctionnalités et pages évoluent chaque semaine.
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           </Card>
         )}
-      </Container>
+      </Wrapper>
     </section>
   );
 }
