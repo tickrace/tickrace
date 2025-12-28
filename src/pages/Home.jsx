@@ -331,28 +331,31 @@ export default function Home() {
               </div>
             </motion.div>
 
-            {/* Droite : À LA UNE intégré (dynamique) */}
+            {/* Droite : À LA UNE (sans double bloc) */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08 }}
               className="lg:col-span-7"
             >
-              <div className="rounded-3xl ring-1 ring-neutral-200 shadow-xl bg-white overflow-hidden">
-                <div className="px-5 pt-5 pb-3 border-b border-neutral-200 flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-black text-neutral-900">À LA UNE</div>
-                    <div className="text-xs text-neutral-500">Contenu dynamique (actus, mises à jour, partenariats)</div>
-                  </div>
-                  <Link to="/courses" className="text-sm font-semibold text-neutral-800 hover:underline">
+              <div className="relative">
+                {/* Overlay label (pas un bloc blanc) */}
+                <div className="absolute left-4 top-4 z-10 flex items-center gap-2 rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-neutral-900 ring-1 ring-neutral-200 backdrop-blur">
+                  <Sparkles className="h-3.5 w-3.5 text-orange-600" />
+                  À LA UNE
+                </div>
+
+                <div className="absolute right-4 top-4 z-10">
+                  <Link
+                    to="/courses"
+                    className="rounded-full bg-white/80 px-3 py-1 text-xs font-semibold text-neutral-900 ring-1 ring-neutral-200 backdrop-blur hover:bg-white"
+                  >
                     Explorer →
                   </Link>
                 </div>
 
-                {/* Le composant gère son contenu — on le place dans le hero */}
-                <div className="p-4">
-                  <ALaUneSection />
-                </div>
+                {/* ✅ Le composant doit être l’unique “carte” visuelle */}
+                <ALaUneSection />
               </div>
             </motion.div>
           </div>
@@ -545,7 +548,7 @@ export default function Home() {
                 </div>
 
                 <div className="mt-6 flex flex-wrap gap-2">
-                  <CTA onClick={goOrganizer} variant="dark">
+                  <CTA onClick={() => (session?.user ? navigate("/organisateur/mon-espace") : navigate("/login"))} variant="dark">
                     <Settings className="h-4 w-4" /> Ouvrir l’espace
                   </CTA>
                   <CTA to="/fonctionnalites" variant="secondary">
@@ -707,7 +710,7 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* ✅ 4 petits blocs (réintroduits, bas de page, premium & aérés) */}
+      {/* ✅ 4 petits blocs (bas de page) */}
       <section className="py-12 sm:py-16">
         <Container>
           <div className="flex items-end justify-between gap-3">
@@ -775,7 +778,6 @@ function MiniFeature({ icon, title, desc, to, linkLabel }) {
 }
 
 /* ============================ Course card (home) ============================ */
-/* Alignée à Courses.jsx mais plus “calme” */
 function CourseCardHome({ course }) {
   const soon =
     course.next_date &&
