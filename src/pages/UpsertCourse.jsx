@@ -482,7 +482,7 @@ export default function UpsertCourse() {
     return {
       id: uuidv4(),
       nom: "",
-      imageFile: null,
+     // imageFile: null,
       date: "",
       heure_depart: "",
       presentation_parcours: "",
@@ -664,7 +664,7 @@ export default function UpsertCourse() {
             ...formatTemplate(),
             id: f.id,
             nom: f.nom || "",
-            image_url: f.image_url || null,
+           // image_url: f.image_url || null,
             date: f.date || "",
             heure_depart: f.heure_depart || "",
             presentation_parcours: f.presentation_parcours || "",
@@ -910,13 +910,13 @@ export default function UpsertCourse() {
       const keptIds = [];
       for (const f of formats) {
         // uploads
-        let imageFormatUrl = f.image_url || null;
-        if (f.imageFile) {
-          const { data, error } = await supabase.storage
-            .from("formats")
-            .upload(`format-${Date.now()}-${f.nom || "sans-nom"}.jpg`, f.imageFile, { upsert: false });
-          if (!error) imageFormatUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
-        }
+        //let imageFormatUrl = f.image_url || null;
+        //if (f.imageFile) {
+        //  const { data, error } = await supabase.storage
+         //   .from("formats")
+        //    .upload(`format-${Date.now()}-${f.nom || "sans-nom"}.jpg`, f.imageFile, { upsert: false });
+        //  if (!error) imageFormatUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+       // }
 
         let gpxUrl = f.gpx_url || null;
         if (f.gpx_urlFile) {
@@ -1398,15 +1398,7 @@ export default function UpsertCourse() {
                             placeholder="Ex. 32K Skyrace"
                           />
                         </Field>
-                        <Field label="Image du format">
-                          <input
-                            type="file"
-                            name="image"
-                            accept="image/*"
-                            onChange={(e) => handleFormatChange(index, e)}
-                            className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
-                          />
-                        </Field>
+                       
                       </div>
 
                       {/* ✅ Multi-sport par format */}
