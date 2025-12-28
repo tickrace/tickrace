@@ -1236,8 +1236,16 @@ export default function UpsertCourse() {
 
             <div className="p-5 grid gap-6">
               {formats.map((f, index) => {
-                const sportCode = normalizeFormatSport(f.sport_global) || normalizeFormatSport(course.sport_code) || "trail";
-                const te = typeEpreuveFromSport(sportCode);
+                const sportCode =
+  normalizeFormatSport(f.sport_global) ||
+  normalizeFormatSport(course.sport_code) ||
+  "trail";
+
+const sportLabel = SPORTS.find((s) => s.code === sportCode)?.label || sportCode;
+
+// ✅ te = sport du format (comme tu veux)
+const te = sportLabel; // ou: const te = sportCode;
+
 
                 return (
                   <div key={f.id} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
@@ -1280,8 +1288,9 @@ export default function UpsertCourse() {
                             ))}
                           </select>
                           <p className="mt-1 text-[11px] text-neutral-500">
-                            Catégorie technique (compat) : <span className="font-semibold">{te}</span>
-                          </p>
+  Sport du format : <span className="font-semibold">{te}</span>
+</p>
+
                         </Field>
 
                         <Field label="Type d’inscription">
@@ -1296,9 +1305,10 @@ export default function UpsertCourse() {
                           </select>
                         </Field>
 
-                        <Field label="(Auto) type_epreuve (DB)">
-                          <Input value={te} readOnly className="bg-neutral-100 text-neutral-700" />
-                        </Field>
+                       <Field label="(Auto) sport_global (format)">
+  <Input value={te} readOnly className="bg-neutral-100 text-neutral-700" />
+</Field>
+
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
