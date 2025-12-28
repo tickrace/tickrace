@@ -12,10 +12,12 @@ import {
   Star,
   Users,
   ShieldCheck,
-  FileText,
   Mail,
   Receipt,
   CheckCircle2,
+  Map as MapIcon,
+  Tag,
+  Undo2,
 } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
@@ -261,26 +263,29 @@ export default function Home() {
     const sp = new URLSearchParams();
     if (homeLieu.trim()) sp.set("q", homeLieu.trim());
     if (homeDate) sp.set("from", homeDate);
+
     // mapping simple vers buckets /courses
     if (homeDist === "<10") sp.set("dist", "0-15");
     if (homeDist === "10-20") sp.set("dist", "0-15");
     if (homeDist === "20-40") sp.set("dist", "15-30");
     if (homeDist === ">40") sp.set("dist", "30+");
+
     navigate(`/courses?${sp.toString()}`);
   };
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
-      {/* HERO (clean, respirant) */}
+      {/* HERO (dynamique : À LA UNE à la place de l’image) */}
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 -z-10 bg-[radial-gradient(55%_55%_at_50%_0%,#fdba74_0%,transparent_60%)]" />
         <Container className="py-14 sm:py-20">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-start">
+            {/* Gauche : message + CTAs */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.55 }}
-              className="space-y-5"
+              className="lg:col-span-5 space-y-5"
             >
               <div className="flex flex-wrap items-center gap-2">
                 <span className="inline-flex items-center gap-2 rounded-full bg-neutral-900/70 px-3 py-1 text-xs text-white ring-1 ring-white/10">
@@ -326,30 +331,33 @@ export default function Home() {
               </div>
             </motion.div>
 
+            {/* Droite : À LA UNE intégré (dynamique) */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ duration: 0.6, delay: 0.08 }}
-              className="relative"
+              className="lg:col-span-7"
             >
-              <div className="aspect-[4/3] overflow-hidden rounded-3xl ring-1 ring-neutral-200 shadow-xl bg-white">
-                <img src="/home.png" alt="Coureurs sur TickRace" className="h-full w-full object-cover" />
-              </div>
+              <div className="rounded-3xl ring-1 ring-neutral-200 shadow-xl bg-white overflow-hidden">
+                <div className="px-5 pt-5 pb-3 border-b border-neutral-200 flex items-center justify-between">
+                  <div>
+                    <div className="text-sm font-black text-neutral-900">À LA UNE</div>
+                    <div className="text-xs text-neutral-500">Contenu dynamique (actus, mises à jour, partenariats)</div>
+                  </div>
+                  <Link to="/courses" className="text-sm font-semibold text-neutral-800 hover:underline">
+                    Explorer →
+                  </Link>
+                </div>
 
-              {/* petite carte flottante (sobre) */}
-              <div className="absolute -bottom-5 left-5 right-5 hidden sm:block">
-                <div className="rounded-2xl bg-white ring-1 ring-neutral-200 shadow-sm px-4 py-3 flex items-center justify-between">
-                  <div className="text-sm font-semibold text-neutral-900">Prochaine étape</div>
-                  <div className="text-sm text-neutral-600">Découvrir les 3 prochaines épreuves</div>
+                {/* Le composant gère son contenu — on le place dans le hero */}
+                <div className="p-4">
+                  <ALaUneSection />
                 </div>
               </div>
             </motion.div>
           </div>
         </Container>
       </section>
-
-      {/* À LA UNE */}
-      <ALaUneSection />
 
       {/* Recherche + Prochaines épreuves (simple, premium) */}
       <section className="py-10 sm:py-14">
@@ -479,7 +487,7 @@ export default function Home() {
                     </p>
                   </div>
                   <Badge className="bg-orange-50 text-orange-700 ring-orange-200">
-                    <Sparkles className="h-3.5 w-3.5" /> Ultra premium
+                    <Sparkles className="h-3.5 w-3.5" /> Premium
                   </Badge>
                 </div>
 
@@ -490,8 +498,8 @@ export default function Home() {
                     </div>
                     <ul className="mt-2 space-y-1 text-sm text-neutral-700">
                       <li>• Multi-formats, quotas, options & codes promo.</li>
+                      <li>• Règlement assisté + checklist administratif.</li>
                       <li>• Page publique propre (partage, QR, etc.).</li>
-                      <li>• Règlement assisté + checklist.</li>
                     </ul>
                   </div>
 
@@ -698,12 +706,76 @@ export default function Home() {
           </div>
         </Container>
       </section>
+
+      {/* ✅ 4 petits blocs (réintroduits, bas de page, premium & aérés) */}
+      <section className="py-12 sm:py-16">
+        <Container>
+          <div className="flex items-end justify-between gap-3">
+            <div>
+              <div className="text-sm font-black text-neutral-900">Les fondamentaux TickRace</div>
+              <p className="mt-1 text-sm text-neutral-600">Des briques simples, bien finies, qui couvrent le cœur du besoin.</p>
+            </div>
+            <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
+              Tout voir →
+            </Link>
+          </div>
+
+          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
+            <MiniFeature
+              icon={<MapIcon className="h-5 w-5" />}
+              title="Carte interactive"
+              desc="Liste + carte, filtres, recherche, accès rapide à la fiche."
+              to="/courses"
+              linkLabel="Explorer les courses →"
+            />
+            <MiniFeature
+              icon={<Tag className="h-5 w-5" />}
+              title="Options & promos"
+              desc="Extras (repas, navette, textile…), quantités, quotas, codes promo."
+              to="/fonctionnalites"
+              linkLabel="Voir les options →"
+            />
+            <MiniFeature
+              icon={<Undo2 className="h-5 w-5" />}
+              title="Annulation simple"
+              desc="Le coureur annule en ligne, crédit/remboursement calculé automatiquement."
+              to="/legal/remboursements"
+              linkLabel="Comprendre l’annulation →"
+            />
+            <MiniFeature
+              icon={<Users className="h-5 w-5" />}
+              title="Bénévoles"
+              desc="Inscriptions bénévoles, centralisation des infos, planning (roadmap)."
+              to="/fonctionnalites"
+              linkLabel="Découvrir la roadmap →"
+            />
+          </div>
+        </Container>
+      </section>
+    </div>
+  );
+}
+
+/* ============================ Components ============================ */
+function MiniFeature({ icon, title, desc, to, linkLabel }) {
+  return (
+    <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-5 min-h-[190px] flex flex-col shadow-sm">
+      <div className="flex items-center gap-2 text-neutral-900">
+        {icon}
+        <div className="text-base font-black">{title}</div>
+      </div>
+      <p className="mt-2 text-sm text-neutral-600">{desc}</p>
+      <div className="mt-auto pt-4">
+        <Link to={to} className="text-sm font-semibold text-neutral-800 hover:underline">
+          {linkLabel}
+        </Link>
+      </div>
     </div>
   );
 }
 
 /* ============================ Course card (home) ============================ */
-/* Alignée à Courses.jsx mais plus “calme” (CTA plus simple) */
+/* Alignée à Courses.jsx mais plus “calme” */
 function CourseCardHome({ course }) {
   const soon =
     course.next_date &&
@@ -768,12 +840,16 @@ function CourseCardHome({ course }) {
         <div className="mt-3 text-sm text-neutral-700 space-y-1">
           {course.min_dist != null && course.max_dist != null && (
             <div>
-              <strong>{Math.round(course.min_dist)}–{Math.round(course.max_dist)} km</strong>
+              <strong>
+                {Math.round(course.min_dist)}–{Math.round(course.max_dist)} km
+              </strong>
             </div>
           )}
           {course.min_dplus != null && course.max_dplus != null && (
             <div>
-              <strong>{Math.round(course.min_dplus)}–{Math.round(course.max_dplus)} m D+</strong>
+              <strong>
+                {Math.round(course.min_dplus)}–{Math.round(course.max_dplus)} m D+
+              </strong>
             </div>
           )}
           {course.min_prix != null && (
