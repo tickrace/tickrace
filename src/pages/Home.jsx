@@ -2,6 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  Mountain,
   CalendarDays,
   MapPin,
   Sparkles,
@@ -19,9 +20,9 @@ import { supabase } from "../supabase";
 import { useUser } from "../contexts/UserContext";
 import ALaUneSection from "../components/home/ALaUneSection";
 
-import CourseCard from "../components/CourseCard";
+import { InscriptionPlacesBadge, InscriptionStatusBadge } from "../components/InscriptionBadges";
 
-// --- Mini helpers
+/* ----------------------------- UI helpers ----------------------------- */
 const Container = ({ children, className = "" }) => (
   <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>{children}</div>
 );
@@ -81,6 +82,15 @@ const parseDate = (d) => {
   return Number.isNaN(dt.getTime()) ? null : dt;
 };
 
+const fmtDate = (d) =>
+  d
+    ? new Intl.DateTimeFormat("fr-FR", {
+        day: "2-digit",
+        month: "short",
+        year: "numeric",
+      }).format(typeof d === "string" ? new Date(d) : d)
+    : "";
+
 const fmtEUR = (n) =>
   new Intl.NumberFormat("fr-FR", {
     style: "currency",
@@ -88,18 +98,27 @@ const fmtEUR = (n) =>
     maximumFractionDigits: 2,
   }).format(Number(n || 0));
 
+const todayStart = () => new Date(new Date().toDateString());
+
+/* ============================ Page ============================ */
 export default function Home() {
   const navigate = useNavigate();
   const { session } = useUser();
 
-  const [latest, setLatest] = useState([]);
-  const [loading, setLoading] = useState(true);
+  // Prochaines courses (3) triées chronologiquement (par prochaine date)
+  const [upcoming3, setUpcoming3] = useState([]);
+  const [loadingUpcoming, setLoadingUpcoming] = useState(true);
 
   // Simulateur (home)
   const [simParticipants, setSimParticipants] = useState(250);
   const [simPrix, setSimPrix] = useState(25);
   const [simExtras, setSimExtras] = useState(3); // panier moyen options
   const [simStripe, setSimStripe] = useState("eu"); // eu | international
+
+  // Search quick inputs (optionnels, non bloquants)
+  const [homeLieu, setHomeLieu] = useState("");
+  const [homeDate, setHomeDate] = useState("");
+  const [homeDist, setHomeDist] = useState("");
 
   const goOrganizer = () => {
     if (!session?.user) navigate("/login");
@@ -113,7 +132,6 @@ export default function Home() {
 
     const totalParInscrit = prix + extras;
     const brut = n * totalParInscrit;
-
     const commissionTickrace = brut * 0.05;
 
     // Estimation Stripe (par transaction)
@@ -138,10 +156,10 @@ export default function Home() {
     };
   }, [simParticipants, simPrix, simExtras, simStripe]);
 
-  // Charger 3 dernières courses en ligne (mêmes champs que Courses.jsx => même Card)
+  /* -------- Charger les 3 prochaines épreuves (chrono) -------- */
   useEffect(() => {
     (async () => {
-      setLoading(true);
+      setLoadingUpcoming(true);
       try {
         const { data, error } = await supabase
           .from("courses")
@@ -170,50 +188,42 @@ export default function Home() {
             )
           `
           )
-          .eq("en_ligne", true)
-          .order("created_at", { ascending: false })
-          .limit(3);
+          .eq("en_ligne", true);
 
         if (error) throw error;
 
-        const now = new Date();
-        const todayStart = new Date(now.toDateString());
+        const t0 = todayStart();
 
-        const decorated = (data || []).map((c) => {
-          const fList = Array.isArray(c.formats) ? [...c.formats] : [];
-          fList.sort((a, b) => {
+        const normalized = (data || []).map((c) => {
+          const fList = Array.isArray(c.formats) ? c.formats : [];
+          const sorted = [...fList].sort((a, b) => {
             const ta = parseDate(a.date)?.getTime() ?? Infinity;
             const tb = parseDate(b.date)?.getTime() ?? Infinity;
             return ta - tb;
           });
 
-          const upcoming = fList.filter((f) => {
+          const upcoming = sorted.filter((f) => {
             const d = parseDate(f.date);
-            return d && d >= todayStart;
+            return d && d >= t0;
           });
 
-          const nextFormat = (upcoming.length ? upcoming : fList)[0] || null;
-          const next = nextFormat?.date || null;
+          const nextFormat = upcoming[0] || null;
+          const nextDate = nextFormat?.date || null;
 
-          const dists = fList.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
-          const dplus = fList.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
+          const prices = sorted.map((f) => Number(f.prix)).filter((n) => Number.isFinite(n));
+          const dists = sorted.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
+          const dplus = sorted.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
 
+          const minPrix = prices.length ? Math.min(...prices) : null;
           const minDist = dists.length ? Math.min(...dists) : null;
           const maxDist = dists.length ? Math.max(...dists) : null;
-
           const minDplus = dplus.length ? Math.min(...dplus) : null;
           const maxDplus = dplus.length ? Math.max(...dplus) : null;
 
-          const minPrix = fList.reduce((min, f) => {
-            const p = Number(f.prix);
-            return Number.isFinite(p) ? Math.min(min, p) : min;
-          }, Infinity);
-          const minPrixVal = minPrix === Infinity ? null : minPrix;
-
           // course full = tous les formats full (close_on_full + max)
           let isFull = false;
-          if (fList.length) {
-            isFull = fList.every((f) => {
+          if (sorted.length) {
+            isFull = sorted.every((f) => {
               const max = Number(f.nb_max_coureurs);
               if (!max || Number.isNaN(max)) return false;
               const count = Number(f.nb_inscrits || 0);
@@ -228,29 +238,48 @@ export default function Home() {
 
           return {
             ...c,
-            formats: fList,
+            formats: sorted,
             next_format: nextFormat,
-            next_date: next,
-            min_prix: minPrixVal,
+            next_date: nextDate,
+            min_prix: minPrix,
             min_dist: minDist,
             max_dist: maxDist,
             min_dplus: minDplus,
             max_dplus: maxDplus,
             is_full: isFull,
             is_new: isNew,
-            has_multiple_formats: fList.length > 1,
+            has_multiple_formats: sorted.length > 1,
           };
         });
 
-        setLatest(decorated);
+        // garder uniquement les courses à venir (avec next_date)
+        const onlyUpcoming = normalized
+          .filter((c) => parseDate(c.next_date))
+          .sort((a, b) => (parseDate(a.next_date)?.getTime() ?? Infinity) - (parseDate(b.next_date)?.getTime() ?? Infinity))
+          .slice(0, 3);
+
+        setUpcoming3(onlyUpcoming);
       } catch (e) {
         console.error(e);
-        setLatest([]);
+        setUpcoming3([]);
       } finally {
-        setLoading(false);
+        setLoadingUpcoming(false);
       }
     })();
   }, []);
+
+  const onHomeSearch = () => {
+    // On garde simple : on redirige vers /courses avec q et from si renseignés
+    const sp = new URLSearchParams();
+    if (homeLieu.trim()) sp.set("q", homeLieu.trim());
+    if (homeDate) sp.set("from", homeDate);
+    // distance bucket (optionnel, simple mapping)
+    if (homeDist === "<10") sp.set("dist", "0-15");
+    if (homeDist === "10-20") sp.set("dist", "0-15");
+    if (homeDist === "20-40") sp.set("dist", "15-30");
+    if (homeDist === ">40") sp.set("dist", "30+");
+    navigate(`/courses?${sp.toString()}`);
+  };
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
@@ -277,8 +306,8 @@ export default function Home() {
               </h1>
 
               <p className="text-neutral-600 max-w-xl">
-                TickRace centralise la création d’épreuves, l’inscription coureurs, le chat communautaire, la gestion des
-                bénévoles et les reversements automatiques (en 2 temps).
+                TickRace centralise la création d’épreuves, l’inscription coureurs, le chat communautaire,
+                la gestion des bénévoles et les reversements automatiques (en 2 temps).
               </p>
 
               <div className="flex flex-wrap gap-3 pt-1">
@@ -287,7 +316,7 @@ export default function Home() {
                 </CTA>
                 <button
                   onClick={goOrganizer}
-                  className="inline-flex items-center gap-2 rounded-2xl bg-white/5 px-5 py-3 text-sm font-semibold text-white ring-1 ring-white/10 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/20"
+                  className="inline-flex items-center gap-2 rounded-2xl bg-neutral-900 px-5 py-3 text-sm font-semibold text-white shadow-sm hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-neutral-300 active:translate-y-px"
                 >
                   <Settings className="h-4 w-4" /> Je suis organisateur
                 </button>
@@ -327,7 +356,7 @@ export default function Home() {
       {/* À LA UNE — géré par le composant */}
       <ALaUneSection />
 
-      {/* SEARCH + DERNIÈRES COURSES */}
+      {/* SEARCH + 3 PROCHAINES COURSES */}
       <section id="courses" className="py-8 sm:py-12">
         <Container>
           <Card className="p-4 sm:p-6">
@@ -337,31 +366,49 @@ export default function Home() {
                   <label className="text-xs font-semibold text-neutral-600">Lieu</label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <MapPin className="h-4 w-4 text-neutral-400" />
-                    <input className="w-full bg-transparent text-sm outline-none" placeholder="Ville, région…" />
+                    <input
+                      value={homeLieu}
+                      onChange={(e) => setHomeLieu(e.target.value)}
+                      className="w-full bg-transparent text-sm outline-none"
+                      placeholder="Ville, région, département…"
+                    />
                   </div>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-neutral-600">Date</label>
+                  <label className="text-xs font-semibold text-neutral-600">À partir du</label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <CalendarDays className="h-4 w-4 text-neutral-400" />
-                    <input type="date" className="w-full bg-transparent text-sm outline-none" />
+                    <input
+                      type="date"
+                      value={homeDate}
+                      onChange={(e) => setHomeDate(e.target.value)}
+                      className="w-full bg-transparent text-sm outline-none"
+                    />
                   </div>
                 </div>
                 <div>
                   <label className="text-xs font-semibold text-neutral-600">Distance</label>
-                  <select className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm">
-                    <option>—</option>
-                    <option>&lt; 10 km</option>
-                    <option>10–20 km</option>
-                    <option>20–40 km</option>
-                    <option>&gt; 40 km</option>
+                  <select
+                    value={homeDist}
+                    onChange={(e) => setHomeDist(e.target.value)}
+                    className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                  >
+                    <option value="">—</option>
+                    <option value="<10">&lt; 10 km</option>
+                    <option value="10-20">10–20 km</option>
+                    <option value="20-40">20–40 km</option>
+                    <option value=">40">&gt; 40 km</option>
                   </select>
                 </div>
               </div>
+
               <div className="flex gap-3">
-                <CTA to="/courses">
+                <button
+                  onClick={onHomeSearch}
+                  className="inline-flex items-center gap-2 rounded-2xl bg-lime-400 px-5 py-3 text-sm font-semibold text-neutral-900 shadow-sm hover:brightness-95 focus:outline-none focus:ring-2 focus:ring-lime-300 active:translate-y-px"
+                >
                   <ArrowRight className="h-4 w-4" /> Rechercher
-                </CTA>
+                </button>
                 <Link
                   to="/courses"
                   className="inline-flex items-center gap-2 rounded-2xl bg-white px-5 py-3 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
@@ -372,15 +419,24 @@ export default function Home() {
             </div>
           </Card>
 
-          {/* ✅ mêmes cards que /courses */}
-          <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {loading ? (
+          <div className="mt-6 flex items-end justify-between gap-3">
+            <div>
+              <h2 className="text-2xl sm:text-3xl font-black tracking-tight">Prochaines épreuves</h2>
+              <p className="mt-1 text-sm text-neutral-600">Les 3 prochaines courses à venir, triées par date.</p>
+            </div>
+            <Link to="/courses" className="text-sm font-semibold text-neutral-800 hover:underline">
+              Voir toutes les courses →
+            </Link>
+          </div>
+
+          <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {loadingUpcoming ? (
               Array.from({ length: 3 }).map((_, i) => (
                 <div
                   key={i}
-                  className="animate-pulse overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm"
+                  className="animate-pulse overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white"
                 >
-                  <div className="h-40 w-full bg-neutral-100" />
+                  <div className="h-44 w-full bg-neutral-100" />
                   <div className="p-4 space-y-3">
                     <div className="h-5 w-2/3 bg-neutral-100 rounded" />
                     <div className="h-4 w-1/3 bg-neutral-100 rounded" />
@@ -389,12 +445,14 @@ export default function Home() {
                   </div>
                 </div>
               ))
-            ) : latest.length === 0 ? (
+            ) : upcoming3.length === 0 ? (
               <div className="sm:col-span-2 lg:col-span-3">
-                <Card className="p-6 text-center text-neutral-600">Aucune épreuve en ligne pour le moment.</Card>
+                <Card className="p-6 text-center text-neutral-600">
+                  Aucune épreuve à venir n’est en ligne pour le moment.
+                </Card>
               </div>
             ) : (
-              latest.map((c) => <CourseCard key={c.id} course={c} />)
+              upcoming3.map((c) => <CourseCardHome key={c.id} course={c} />)
             )}
           </div>
         </Container>
@@ -427,215 +485,191 @@ export default function Home() {
           </div>
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-       {/* Organisateur — variante "ultra premium" */}
-<Card className="p-6 h-full">
-  <div className="flex items-start justify-between gap-3">
-    <div>
-      <h3 className="text-xl font-black">Publiez votre course en quelques minutes</h3>
-      <p className="mt-2 text-sm text-neutral-600">
-        Un back-office clair pour centraliser : page épreuve, inscriptions, règlement, administratif,
-        communication, reversements et suivi compta.
-      </p>
-    </div>
+            {/* Organisateur — ultra premium (KPI simulés, pas “réels”) */}
+            <Card className="p-6 h-full">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-xl font-black">Publiez votre course en quelques minutes</h3>
+                  <p className="mt-2 text-sm text-neutral-600">
+                    Un back-office clair pour centraliser : page épreuve, inscriptions, règlement, administratif,
+                    communication, reversements et suivi compta.
+                  </p>
+                </div>
+                <span className="shrink-0 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-700 ring-1 ring-orange-200">
+                  Mode organisateur • Premium UI
+                </span>
+              </div>
 
-    <span className="shrink-0 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-700 ring-1 ring-orange-200">
-      Mode organisateur • Premium UI
-    </span>
-  </div>
+              {/* Mini-dashboard (aperçu) — chiffres non “réels” */}
+              <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <div className="text-xs font-semibold text-neutral-500">Mini-dashboard (aperçu)</div>
+                    <div className="mt-0.5 text-sm font-semibold text-neutral-800">
+                      Estimations & repères rapides
+                    </div>
+                  </div>
+                  <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-700 ring-1 ring-neutral-200">
+                    Bêta
+                  </span>
+                </div>
 
-  {/* KPI strip */}
-  <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-    <div className="flex items-center justify-between gap-3">
-      <div>
-        <div className="text-xs font-semibold text-neutral-500">Mini-dashboard (aperçu)</div>
-        <div className="mt-0.5 text-sm font-semibold text-neutral-800">
-          Estimations & indicateurs rapides
-        </div>
-      </div>
-      <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-700 ring-1 ring-neutral-200">
-        Bêta
-      </span>
-    </div>
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+                    <div className="text-[11px] text-neutral-500">Net / inscrit (simu)</div>
+                    <div className="mt-0.5 text-base font-black">{fmtEUR(sim.netParInscrit)}</div>
+                    <div className="mt-0.5 text-[11px] text-neutral-500">après 5% + frais paiement</div>
+                  </div>
 
-    <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
-      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
-        <div className="text-[11px] text-neutral-500">Net / inscrit (simu)</div>
-        <div className="mt-0.5 text-base font-black">{fmtEUR(sim.netParInscrit)}</div>
-        <div className="mt-0.5 text-[11px] text-neutral-500">après 5% + frais paiement</div>
-      </div>
+                  <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+                    <div className="text-[11px] text-neutral-500">Net total (simu)</div>
+                    <div className="mt-0.5 text-base font-black">{fmtEUR(sim.netOrganisateur)}</div>
+                    <div className="mt-0.5 text-[11px] text-neutral-500">{sim.n} inscrits • panier moyen</div>
+                  </div>
 
-      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
-        <div className="text-[11px] text-neutral-500">Net total (simu)</div>
-        <div className="mt-0.5 text-base font-black">{fmtEUR(sim.netOrganisateur)}</div>
-        <div className="mt-0.5 text-[11px] text-neutral-500">{sim.n} inscrits • panier moyen</div>
-      </div>
+                  <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+                    <div className="text-[11px] text-neutral-500">Prochaines épreuves</div>
+                    <div className="mt-0.5 text-base font-black">{upcoming3.length}</div>
+                    <div className="mt-0.5 text-[11px] text-neutral-500">affichées sur la home</div>
+                  </div>
 
-      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
-        <div className="text-[11px] text-neutral-500">Épreuves récentes</div>
-        <div className="mt-0.5 text-base font-black">{latest.length}</div>
-        <div className="mt-0.5 text-[11px] text-neutral-500">dernières en ligne (home)</div>
-      </div>
+                  <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+                    <div className="text-[11px] text-neutral-500">Reversements</div>
+                    <div className="mt-0.5 text-base font-black">J+7 • J+2</div>
+                    <div className="mt-0.5 text-[11px] text-neutral-500">acompte 50% • solde après course</div>
+                  </div>
+                </div>
 
-      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
-        <div className="text-[11px] text-neutral-500">Reversements</div>
-        <div className="mt-0.5 text-base font-black">J+7 • J+2</div>
-        <div className="mt-0.5 text-[11px] text-neutral-500">acompte 50% • solde après course</div>
-      </div>
-    </div>
+                <div className="mt-3 rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+                  <div className="flex items-center justify-between text-[11px] text-neutral-500">
+                    <span>Pipeline organisateur</span>
+                    <span className="font-semibold text-neutral-700">Créer → Publier → Inviter → Suivre</span>
+                  </div>
+                  <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-neutral-100">
+                    <div className="h-full w-[72%] rounded-full bg-neutral-900" />
+                  </div>
+                  <div className="mt-1 text-[11px] text-neutral-500">
+                    (Aperçu) chiffres illustratifs : le but est d’expliquer la logique, pas d’afficher de la compta réelle sur la home.
+                  </div>
+                </div>
+              </div>
 
-    {/* "progress" micro-strip */}
-    <div className="mt-3 rounded-xl bg-white ring-1 ring-neutral-200 p-3">
-      <div className="flex items-center justify-between text-[11px] text-neutral-500">
-        <span>Pipeline organisateur</span>
-        <span className="font-semibold text-neutral-700">Créer → Publier → Inviter → Suivre</span>
-      </div>
-      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-neutral-100">
-        <div className="h-full w-[72%] rounded-full bg-neutral-900" />
-      </div>
-      <div className="mt-1 text-[11px] text-neutral-500">
-        (UI) Les modules “admin/compta/mailing” sont en cours d’enrichissement.
-      </div>
-    </div>
-  </div>
+              {/* Workflow */}
+              <div className="mt-4 rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
+                <div className="text-sm font-black text-neutral-900">Workflow</div>
+                <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                  {[
+                    { k: "1", t: "Créer", d: "formats, quotas, options" },
+                    { k: "2", t: "Publier", d: "règlement, infos, page" },
+                    { k: "3", t: "Inviter", d: "coureurs, groupes, emails" },
+                    { k: "4", t: "Suivre", d: "paiements, factures, reversements" },
+                  ].map((s) => (
+                    <div key={s.k} className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3">
+                      <div className="flex items-center gap-2">
+                        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-white text-xs font-black">
+                          {s.k}
+                        </span>
+                        <div className="font-semibold">{s.t}</div>
+                      </div>
+                      <div className="mt-1 text-xs text-neutral-500">{s.d}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
 
-  {/* Workflow */}
-  <div className="mt-4 rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
-    <div className="text-sm font-black text-neutral-900">Workflow</div>
-    <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-      {[
-        { k: "1", t: "Créer", d: "formats, quotas, options" },
-        { k: "2", t: "Publier", d: "règlement, infos, page" },
-        { k: "3", t: "Inviter", d: "coureurs, groupes, emails" },
-        { k: "4", t: "Suivre", d: "paiements, factures, reversements" },
-      ].map((s) => (
-        <div key={s.k} className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3">
-          <div className="flex items-center gap-2">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-white text-xs font-black">
-              {s.k}
-            </span>
-            <div className="font-semibold">{s.t}</div>
-          </div>
-          <div className="mt-1 text-xs text-neutral-500">{s.d}</div>
-        </div>
-      ))}
-    </div>
-  </div>
+              {/* Sections */}
+              <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-black text-neutral-900">Inscriptions & paiements</div>
+                    <span className="text-[11px] font-semibold text-neutral-500">Opérationnel</span>
+                  </div>
+                  <ul className="mt-3 space-y-2 text-sm text-neutral-700">
+                    <li className="flex items-start gap-2">
+                      <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
+                      <span>
+                        <span className="font-semibold">Multi-formats</span> : prix, distance, D+, quotas, ouverture/fermeture.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
+                      <span>
+                        <span className="font-semibold">Stripe</span> : paiements + reversements (acompte / solde) + suivi.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
+                      <span>
+                        <span className="font-semibold">Annulation en ligne</span> : calcul crédit/remboursement + traçabilité.
+                      </span>
+                    </li>
+                  </ul>
+                </div>
 
-  {/* Sections */}
-  <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-    <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-black text-neutral-900">Inscriptions & paiements</div>
-        <span className="text-[11px] font-semibold text-neutral-500">Opérationnel</span>
-      </div>
-      <ul className="mt-3 space-y-2 text-sm text-neutral-700">
-        <li className="flex items-start gap-2">
-          <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
-          <span>
-            <span className="font-semibold">Multi-formats</span> : prix, distance, D+, quotas, ouverture/fermeture.
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
-          <span>
-            <span className="font-semibold">Stripe</span> : paiements + reversements (acompte / solde) + suivi.
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
-          <span>
-            <span className="font-semibold">Annulation en ligne</span> : calcul crédit/remboursement + traçabilité.
-          </span>
-        </li>
-      </ul>
-    </div>
+                <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
+                  <div className="flex items-center justify-between">
+                    <div className="text-sm font-black text-neutral-900">Admin & communication</div>
+                    <span className="text-[11px] font-semibold text-neutral-500">Gain de temps</span>
+                  </div>
+                  <ul className="mt-3 space-y-2 text-sm text-neutral-700">
+                    <li className="flex items-start gap-2">
+                      <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
+                      <span>
+                        <span className="font-semibold">Règlement assisté</span> : une version unique, propre, facile à maintenir.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
+                      <span>
+                        <span className="font-semibold">Checklist administratif</span> : points clés, docs, rappels (sécurité, organisation).
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
+                      <span>
+                        <span className="font-semibold">Invitations & mailing</span> : infos course, relances, messages de masse.
+                      </span>
+                    </li>
+                    <li className="flex items-start gap-2">
+                      <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
+                      <span>
+                        <span className="font-semibold">Compta & factures</span> : paiements, justificatifs, exports & traçabilité.
+                      </span>
+                    </li>
+                  </ul>
+                </div>
+              </div>
 
-    <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
-      <div className="flex items-center justify-between">
-        <div className="text-sm font-black text-neutral-900">Admin & communication</div>
-        <span className="text-[11px] font-semibold text-neutral-500">Gain de temps</span>
-      </div>
-      <ul className="mt-3 space-y-2 text-sm text-neutral-700">
-        <li className="flex items-start gap-2">
-          <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
-          <span>
-            <span className="font-semibold">Règlement assisté</span> : une version unique, propre, facile à maintenir.
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
-          <span>
-            <span className="font-semibold">Checklist administratif</span> : points clés, docs, rappels (sécurité, organisation).
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
-          <span>
-            <span className="font-semibold">Invitations & mailing</span> : infos course, relances, messages de masse.
-          </span>
-        </li>
-        <li className="flex items-start gap-2">
-          <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
-          <span>
-            <span className="font-semibold">Compta & factures</span> : paiements, justificatifs, exports & traçabilité.
-          </span>
-        </li>
-      </ul>
-    </div>
-  </div>
+              {/* CTAs */}
+              <div className="mt-6 flex gap-2">
+                <button
+                  onClick={goOrganizer}
+                  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  Ouvrir l’espace <ArrowRight className="h-4 w-4" />
+                </button>
+                <Link
+                  to="/fonctionnalites"
+                  className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
+                >
+                  Détails
+                </Link>
+              </div>
 
-  {/* CTAs */}
-  <div className="mt-6 flex gap-2">
-    <button
-      onClick={goOrganizer}
-      className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
-    >
-      Ouvrir l’espace <ArrowRight className="h-4 w-4" />
-    </button>
-    <Link
-      to="/fonctionnalites"
-      className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold text-neutral-800 ring-1 ring-neutral-200 hover:bg-neutral-50"
-    >
-      Détails
-    </Link>
-  </div>
-
-  <div className="mt-5 flex flex-wrap gap-2">
-    <Badge>5% Tickrace</Badge>
-    <Badge>Acompte J+7 • solde J+2</Badge>
-    <Badge>Règlement & checklist</Badge>
-    <Badge>Invitations & mailing</Badge>
-    <Badge>Factures & suivi</Badge>
-  </div>
-
-  <div className="mt-3 text-[11px] text-neutral-500">
-    Note : le mini-dashboard affiche des indicateurs “home” (simu + dernières épreuves).
-    On pourra le rendre 100% réel via une vue SQL / RPC d’agrégation (inscriptions, paiements, reversements).
-  </div>
-</Card>
- 
-
-  {/* Badges */}
-  <div className="mt-5 flex flex-wrap gap-2">
-    <Badge>5% Tickrace</Badge>
-    <Badge>Acompte J+7 • solde J+2</Badge>
-    <Badge>Règlement & checklist</Badge>
-    <Badge>Invitations & mailing</Badge>
-    <Badge>Factures & suivi</Badge>
-  </div>
-
-  <div className="mt-3 text-[11px] text-neutral-500">
-    Objectif : centraliser ce qui est habituellement éparpillé (docs, relances, exports, suivi) — tout en gardant une expérience simple.
-  </div>
-</Card>
-
+              <div className="mt-5 flex flex-wrap gap-2">
+                <Badge>5% Tickrace</Badge>
+                <Badge>Acompte J+7 • solde J+2</Badge>
+                <Badge>Règlement & checklist</Badge>
+                <Badge>Invitations & mailing</Badge>
+                <Badge>Factures & suivi</Badge>
+              </div>
+            </Card>
 
             {/* Chat — avec exemple étoffé */}
             <Card className="p-6 h-full">
               <h3 className="text-xl font-black">Discutez sous chaque épreuve</h3>
               <p className="mt-2 text-sm text-neutral-600">
-                Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse
-                rapide.
+                Questions, covoiturage, entraide. Mentionnez <span className="font-semibold">@IA</span> pour une réponse rapide.
               </p>
 
               <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
@@ -654,8 +688,7 @@ export default function Home() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-semibold">@IA</div>
                       <div className="text-sm text-neutral-700">
-                        Sur la fiche actuelle : <span className="font-semibold">+2630 m D+</span>. (Ça peut évoluer si
-                        l’organisateur met à jour la trace.)
+                        Sur la fiche actuelle : <span className="font-semibold">+2630 m D+</span>. (Ça peut évoluer si l’organisateur met à jour la trace.)
                       </div>
                       <div className="text-[11px] text-neutral-400 mt-0.5">Il y a 2 min</div>
                     </div>
@@ -675,8 +708,7 @@ export default function Home() {
                     <div className="min-w-0 flex-1">
                       <div className="text-sm font-semibold">@IA</div>
                       <div className="text-sm text-neutral-700">
-                        Oui : points d’eau + ravitos principaux (selon la fiche et le règlement). Si tu veux, ping l’orga
-                        pour le détail.
+                        Oui : points d’eau + ravitos principaux (selon la fiche et le règlement). Si tu veux, ping l’orga pour le détail.
                       </div>
                       <div className="text-[11px] text-neutral-400 mt-0.5">À l’instant</div>
                     </div>
@@ -824,7 +856,7 @@ export default function Home() {
             </Card>
           </div>
 
-          {/* ✅ Feature cards */}
+          {/* Feature cards */}
           <div className="mt-10 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5">
             <div className="rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-5 min-h-[190px] flex flex-col">
               <div className="flex items-center gap-2 text-neutral-900">
@@ -904,6 +936,131 @@ export default function Home() {
           </div>
         </Container>
       </section>
+    </div>
+  );
+}
+
+/* ============================ Home Course Card ============================ */
+/* Card alignée sur Courses.jsx (badges, overlay, CTA) */
+function CourseCardHome({ course }) {
+  const soon =
+    course.next_date &&
+    (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
+
+  return (
+    <div className="group overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow">
+      {/* Image */}
+      <div className="relative aspect-[16/10] w-full overflow-hidden bg-neutral-100">
+        {course.image_url ? (
+          <img
+            src={course.image_url}
+            alt={`Image de ${course.nom}`}
+            loading="lazy"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+          />
+        ) : (
+          <div className="h-full w-full flex items-center justify-center text-neutral-400 text-sm">
+            Pas d’image
+          </div>
+        )}
+
+        {/* Badges */}
+        <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+          {soon && (
+            <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
+              Bientôt
+            </span>
+          )}
+
+          <InscriptionStatusBadge
+            format={course.next_format}
+            isFullOverride={course.is_full}
+            prefix="Inscriptions"
+          />
+
+          {course.has_multiple_formats && (
+            <span className="rounded-full bg-sky-100 px-2.5 py-1 text-[11px] font-medium text-sky-700">
+              Multi-formats
+            </span>
+          )}
+
+          {course.is_new && (
+            <span className="rounded-full bg-orange-100 px-2.5 py-1 text-[11px] font-medium text-orange-700">
+              Nouveau
+            </span>
+          )}
+        </div>
+
+        {/* Mini compteur places */}
+        <div className="absolute right-3 bottom-3">
+          <InscriptionPlacesBadge format={course.next_format} style="overlay" />
+        </div>
+      </div>
+
+      {/* Infos */}
+      <div className="p-4">
+        <h3 className="line-clamp-1 text-lg font-semibold">{course.nom}</h3>
+
+        <div className="mt-1 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-neutral-600">
+          <span>
+            📍 {course.lieu} {course.departement ? `(${course.departement})` : ""}
+          </span>
+          {course.next_date && <span>📅 {fmtDate(course.next_date)}</span>}
+        </div>
+
+        <div className="mt-2 text-sm text-neutral-700 space-y-1">
+          {course.min_dist != null && course.max_dist != null && (
+            <div>
+              Distance :{" "}
+              <strong>
+                {Math.round(course.min_dist)}–{Math.round(course.max_dist)} km
+              </strong>
+            </div>
+          )}
+          {course.min_dplus != null && course.max_dplus != null && (
+            <div>
+              D+ :{" "}
+              <strong>
+                {Math.round(course.min_dplus)}–{Math.round(course.max_dplus)} m
+              </strong>
+            </div>
+          )}
+          {course.min_prix != null && (
+            <div>
+              À partir de <strong>{Number(course.min_prix).toFixed(2)} €</strong>
+            </div>
+          )}
+        </div>
+
+        {/* CTAs */}
+        <div className="mt-4 flex flex-col gap-2">
+          <Link
+            to={`/courses/${course.id}`}
+            className="inline-flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
+            title="Voir l'épreuve"
+          >
+            Voir l’épreuve ↗
+          </Link>
+
+          <div className="grid grid-cols-2 gap-2">
+            <Link
+              to={`/inscription/${course.id}`}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+              title="S'inscrire"
+            >
+              S’inscrire
+            </Link>
+
+            <Link
+              to={`/benevoles/${course.id}`}
+              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+              title="S’inscrire comme bénévole"
+            >
+              Bénévoles
+            </Link>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
