@@ -427,35 +427,90 @@ export default function Home() {
           </div>
 
           <div className="mt-8 grid grid-cols-1 lg:grid-cols-3 gap-6">
-            {/* Organisateur */}
+       {/* Organisateur — variante "ultra premium" */}
 <Card className="p-6 h-full">
   <div className="flex items-start justify-between gap-3">
     <div>
       <h3 className="text-xl font-black">Publiez votre course en quelques minutes</h3>
       <p className="mt-2 text-sm text-neutral-600">
-        Un back-office clair pour centraliser l’essentiel : page épreuve, inscriptions, règlement,
-        administratif, communication, reversements, et suivi compta.
+        Un back-office clair pour centraliser : page épreuve, inscriptions, règlement, administratif,
+        communication, reversements et suivi compta.
       </p>
     </div>
 
     <span className="shrink-0 inline-flex items-center rounded-full bg-orange-50 px-3 py-1 text-[11px] font-semibold text-orange-700 ring-1 ring-orange-200">
-      Mode organisateur
+      Mode organisateur • Premium UI
     </span>
   </div>
 
-  {/* Workflow */}
+  {/* KPI strip */}
   <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-    <div className="text-xs font-semibold text-neutral-500">Workflow</div>
-    <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+    <div className="flex items-center justify-between gap-3">
+      <div>
+        <div className="text-xs font-semibold text-neutral-500">Mini-dashboard (aperçu)</div>
+        <div className="mt-0.5 text-sm font-semibold text-neutral-800">
+          Estimations & indicateurs rapides
+        </div>
+      </div>
+      <span className="inline-flex items-center rounded-full bg-white px-2.5 py-1 text-[11px] font-semibold text-neutral-700 ring-1 ring-neutral-200">
+        Bêta
+      </span>
+    </div>
+
+    <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+        <div className="text-[11px] text-neutral-500">Net / inscrit (simu)</div>
+        <div className="mt-0.5 text-base font-black">{fmtEUR(sim.netParInscrit)}</div>
+        <div className="mt-0.5 text-[11px] text-neutral-500">après 5% + frais paiement</div>
+      </div>
+
+      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+        <div className="text-[11px] text-neutral-500">Net total (simu)</div>
+        <div className="mt-0.5 text-base font-black">{fmtEUR(sim.netOrganisateur)}</div>
+        <div className="mt-0.5 text-[11px] text-neutral-500">{sim.n} inscrits • panier moyen</div>
+      </div>
+
+      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+        <div className="text-[11px] text-neutral-500">Épreuves récentes</div>
+        <div className="mt-0.5 text-base font-black">{latest.length}</div>
+        <div className="mt-0.5 text-[11px] text-neutral-500">dernières en ligne (home)</div>
+      </div>
+
+      <div className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+        <div className="text-[11px] text-neutral-500">Reversements</div>
+        <div className="mt-0.5 text-base font-black">J+7 • J+2</div>
+        <div className="mt-0.5 text-[11px] text-neutral-500">acompte 50% • solde après course</div>
+      </div>
+    </div>
+
+    {/* "progress" micro-strip */}
+    <div className="mt-3 rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+      <div className="flex items-center justify-between text-[11px] text-neutral-500">
+        <span>Pipeline organisateur</span>
+        <span className="font-semibold text-neutral-700">Créer → Publier → Inviter → Suivre</span>
+      </div>
+      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-neutral-100">
+        <div className="h-full w-[72%] rounded-full bg-neutral-900" />
+      </div>
+      <div className="mt-1 text-[11px] text-neutral-500">
+        (UI) Les modules “admin/compta/mailing” sont en cours d’enrichissement.
+      </div>
+    </div>
+  </div>
+
+  {/* Workflow */}
+  <div className="mt-4 rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
+    <div className="text-sm font-black text-neutral-900">Workflow</div>
+    <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
       {[
         { k: "1", t: "Créer", d: "formats, quotas, options" },
         { k: "2", t: "Publier", d: "règlement, infos, page" },
-        { k: "3", t: "Inviter", d: "coureurs, groupes, mails" },
+        { k: "3", t: "Inviter", d: "coureurs, groupes, emails" },
         { k: "4", t: "Suivre", d: "paiements, factures, reversements" },
       ].map((s) => (
-        <div key={s.k} className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+        <div key={s.k} className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3">
           <div className="flex items-center gap-2">
-            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-neutral-900 text-white text-xs font-black">
+            <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-orange-500 text-white text-xs font-black">
               {s.k}
             </span>
             <div className="font-semibold">{s.t}</div>
@@ -466,67 +521,63 @@ export default function Home() {
     </div>
   </div>
 
-  {/* 2 colonnes / sections */}
+  {/* Sections */}
   <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-    {/* Inscriptions & paiement */}
     <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
       <div className="flex items-center justify-between">
         <div className="text-sm font-black text-neutral-900">Inscriptions & paiements</div>
         <span className="text-[11px] font-semibold text-neutral-500">Opérationnel</span>
       </div>
-
       <ul className="mt-3 space-y-2 text-sm text-neutral-700">
         <li className="flex items-start gap-2">
           <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
           <span>
-            <span className="font-semibold">Multi-formats</span> : distances, D+, prix, quotas, inscriptions ouvertes/fermées.
+            <span className="font-semibold">Multi-formats</span> : prix, distance, D+, quotas, ouverture/fermeture.
           </span>
         </li>
         <li className="flex items-start gap-2">
           <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
           <span>
-            <span className="font-semibold">Paiements Stripe</span> + reversements en 2 temps (acompte / solde).
+            <span className="font-semibold">Stripe</span> : paiements + reversements (acompte / solde) + suivi.
           </span>
         </li>
         <li className="flex items-start gap-2">
           <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
           <span>
-            <span className="font-semibold">Annulation en ligne</span> : calcul automatique crédit/remboursement + statut et historique.
+            <span className="font-semibold">Annulation en ligne</span> : calcul crédit/remboursement + traçabilité.
           </span>
         </li>
       </ul>
     </div>
 
-    {/* Admin & communication */}
     <div className="rounded-2xl bg-white ring-1 ring-neutral-200 p-4">
       <div className="flex items-center justify-between">
         <div className="text-sm font-black text-neutral-900">Admin & communication</div>
         <span className="text-[11px] font-semibold text-neutral-500">Gain de temps</span>
       </div>
-
       <ul className="mt-3 space-y-2 text-sm text-neutral-700">
         <li className="flex items-start gap-2">
           <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
           <span>
-            <span className="font-semibold">Règlement assisté</span> : une version unique, lisible, facile à maintenir (et à mettre à jour).
+            <span className="font-semibold">Règlement assisté</span> : une version unique, propre, facile à maintenir.
           </span>
         </li>
         <li className="flex items-start gap-2">
           <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
           <span>
-            <span className="font-semibold">Checklist administratif</span> : points clés, pièces à préparer, rappels (sécurité, docs, organisation).
+            <span className="font-semibold">Checklist administratif</span> : points clés, docs, rappels (sécurité, organisation).
           </span>
         </li>
         <li className="flex items-start gap-2">
           <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
           <span>
-            <span className="font-semibold">Invitations & emails</span> : invitation coureurs, infos pratiques, changements de dernière minute, mailing de masse.
+            <span className="font-semibold">Invitations & mailing</span> : infos course, relances, messages de masse.
           </span>
         </li>
         <li className="flex items-start gap-2">
           <span className="mt-2 h-2 w-2 rounded-full bg-orange-500" />
           <span>
-            <span className="font-semibold">Compta & factures</span> : suivi paiements, justificatifs, exports et traçabilité.
+            <span className="font-semibold">Compta & factures</span> : paiements, justificatifs, exports & traçabilité.
           </span>
         </li>
       </ul>
@@ -548,6 +599,21 @@ export default function Home() {
       Détails
     </Link>
   </div>
+
+  <div className="mt-5 flex flex-wrap gap-2">
+    <Badge>5% Tickrace</Badge>
+    <Badge>Acompte J+7 • solde J+2</Badge>
+    <Badge>Règlement & checklist</Badge>
+    <Badge>Invitations & mailing</Badge>
+    <Badge>Factures & suivi</Badge>
+  </div>
+
+  <div className="mt-3 text-[11px] text-neutral-500">
+    Note : le mini-dashboard affiche des indicateurs “home” (simu + dernières épreuves).
+    On pourra le rendre 100% réel via une vue SQL / RPC d’agrégation (inscriptions, paiements, reversements).
+  </div>
+</Card>
+ 
 
   {/* Badges */}
   <div className="mt-5 flex flex-wrap gap-2">
