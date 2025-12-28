@@ -20,19 +20,74 @@ const formatDate = (d) => {
   }).format(dt);
 };
 
+// ✅ Multi-sport compat : sport_global sinon fallback type_epreuve (ancien modèle)
+const getSportLabelFromFormat = (format) => {
+  const sg = (format?.sport_global || "").trim();
+  if (sg) return sg;
+
+  const te = (format?.type_epreuve || "").trim().toLowerCase();
+  if (te === "trail") return "Trail";
+  if (te === "route") return "Course à pied";
+  if (te === "rando") return "Randonnée";
+  return "";
+};
+
+// ✅ Style badges par sport (facultatif, juste pour harmoniser)
+const sportBadgeClass = (sport) => {
+  const s = (sport || "").toLowerCase();
+  if (s.includes("trail")) return "bg-violet-100 text-violet-700";
+  if (s.includes("course")) return "bg-blue-100 text-blue-700";
+  if (s.includes("vtt") || s.includes("gravel") || s.includes("cyclo"))
+    return "bg-green-100 text-green-700";
+  if (s.includes("triathlon") || s.includes("swimrun") || s.includes("raid") || s.includes("multisport"))
+    return "bg-amber-100 text-amber-800";
+  if (s.includes("natation") || s.includes("swim")) return "bg-cyan-100 text-cyan-800";
+  if (s.includes("orientation") || s.includes("orienteering")) return "bg-lime-100 text-lime-800";
+  if (s.includes("rando")) return "bg-stone-100 text-stone-700";
+  return "bg-neutral-100 text-neutral-700";
+};
+
+function uniqueSportsFromCourse(course) {
+  const formats = Array.isArray(course?.formats) ? course.formats : [];
+  const set = new Set();
+  for (const f of formats) {
+    const s = getSportLabelFromFormat(f);
+    if (s) set.add(s);
+  }
+  return Array.from(set);
+}
+
+function orderSports(sports, nextSport) {
+  if (!sports.length) return [];
+  if (!nextSport) return sports.slice().sort((a, b) => a.localeCompare(b, "fr"));
+
+  // nextSport en premier, puis le reste trié
+  const rest = sports.filter((s) => s !== nextSport).sort((a, b) => a.localeCompare(b, "fr"));
+  return [nextSport, ...rest];
+}
+
 /**
- * Attend un objet "course" déjà décoré (comme dans Courses.jsx / Home.jsx) :
+ * Attend un objet "course" déjà décoré (Courses.jsx / Home.jsx) :
  * {
  *  id, nom, lieu, departement, image_url,
  *  next_date, next_format,
  *  min_dist, max_dist, min_dplus, max_dplus, min_prix,
- *  is_full, is_new, has_multiple_formats
+ *  is_full, is_new, has_multiple_formats,
+ *  formats: [...]
  * }
  */
 export default function CourseCard({ course }) {
   const soon =
     course?.next_date &&
     (parseDate(course.next_date)?.getTime() - new Date().getTime()) / 86400000 <= 14;
+
+  const nextSport = getSportLabelFromFormat(course?.next_format);
+  const sportsAll = uniqueSportsFromCourse(course);
+  const sportsOrdered = orderSports(sportsAll, nextSport);
+
+  const maxBadges = 3;
+  const visibleSports = sportsOrdered.slice(0, maxBadges);
+  const extraCount = Math.max(0, sportsOrdered.length - maxBadges);
 
   return (
     <div className="group overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow">
@@ -53,6 +108,29 @@ export default function CourseCard({ course }) {
 
         {/* Badges */}
         <div className="absolute left-3 top-3 flex flex-wrap gap-2">
+          {/* ✅ Sports multiples */}
+          {visibleSports.map((s) => (
+            <span
+              key={s}
+              className={[
+                "rounded-full px-2.5 py-1 text-[11px] font-medium",
+                sportBadgeClass(s),
+              ].join(" ")}
+              title={sportsOrdered.length > 1 ? `Sports : ${sportsOrdered.join(", ")}` : `Sport : ${s}`}
+            >
+              {s}
+            </span>
+          ))}
+
+          {extraCount > 0 && (
+            <span
+              className="rounded-full bg-neutral-900/80 px-2.5 py-1 text-[11px] font-medium text-white"
+              title={`Autres sports : ${sportsOrdered.slice(maxBadges).join(", ")}`}
+            >
+              +{extraCount}
+            </span>
+          )}
+
           {soon && (
             <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[11px] font-medium text-emerald-700">
               Bientôt
