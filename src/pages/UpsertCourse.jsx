@@ -1,10 +1,119 @@
 // src/pages/UpsertCourse.jsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
 import { BookOpen, ArrowUpRight } from "lucide-react";
 import GainPreview from "../components/GainPreview";
+
+/* =========================
+   Multi-sport (courses)
+   ========================= */
+const SPORTS = [
+  {
+    code: "trail",
+    label: "Trail",
+    defaultTimingMode: "splits",
+    defaultIsTeamEvent: false,
+    disciplines: [],
+  },
+  {
+    code: "running",
+    label: "Running / Route",
+    defaultTimingMode: "simple",
+    defaultIsTeamEvent: false,
+    disciplines: [
+      { code: "5k", label: "5 km" },
+      { code: "10k", label: "10 km" },
+      { code: "hm", label: "Semi-marathon" },
+      { code: "marathon", label: "Marathon" },
+      { code: "track", label: "Piste" },
+      { code: "cross", label: "Cross" },
+    ],
+  },
+  {
+    code: "hiking",
+    label: "Rando / Marche",
+    defaultTimingMode: "simple",
+    defaultIsTeamEvent: false,
+    disciplines: [
+      { code: "rando_chrono", label: "Rando chronométrée" },
+      { code: "marche_nordique", label: "Marche nordique" },
+    ],
+  },
+  {
+    code: "mtb",
+    label: "VTT",
+    defaultTimingMode: "splits",
+    defaultIsTeamEvent: false,
+    disciplines: [
+      { code: "xc", label: "XC" },
+      { code: "marathon", label: "Marathon VTT" },
+      { code: "enduro", label: "Enduro (spéciales)" },
+      { code: "ebike", label: "E-bike" },
+    ],
+  },
+  {
+    code: "gravel",
+    label: "Gravel",
+    defaultTimingMode: "simple",
+    defaultIsTeamEvent: false,
+    disciplines: [],
+  },
+  {
+    code: "cycling_road",
+    label: "Cyclosportive / Route",
+    defaultTimingMode: "simple",
+    defaultIsTeamEvent: false,
+    disciplines: [
+      { code: "cyclosportive", label: "Cyclosportive" },
+      { code: "tt", label: "Contre-la-montre" },
+    ],
+  },
+  {
+    code: "triathlon",
+    label: "Triathlon",
+    defaultTimingMode: "waves",
+    defaultIsTeamEvent: false,
+    disciplines: [
+      { code: "sprint", label: "Sprint" },
+      { code: "olympic", label: "Olympique" },
+      { code: "md", label: "M" },
+      { code: "ld", label: "L" },
+      { code: "xtri", label: "XTri" },
+    ],
+  },
+  {
+    code: "swimrun",
+    label: "Swimrun",
+    defaultTimingMode: "relay",
+    defaultIsTeamEvent: true,
+    disciplines: [],
+  },
+  {
+    code: "raid_multisport",
+    label: "Raid multisport",
+    defaultTimingMode: "stages",
+    defaultIsTeamEvent: true,
+    disciplines: [],
+  },
+  {
+    code: "orienteering",
+    label: "Course d’orientation",
+    defaultTimingMode: "penalties",
+    defaultIsTeamEvent: false,
+    disciplines: [],
+  },
+];
+
+const TIMING_MODES = [
+  { code: "simple", label: "Chrono simple (départ → arrivée)" },
+  { code: "splits", label: "Points de passage / barrières horaires" },
+  { code: "waves", label: "Départs en vagues / sas" },
+  { code: "relay", label: "Relais / équipe" },
+  { code: "stages", label: "Multi-étapes (classement général)" },
+  { code: "penalties", label: "Pénalités / bonus (OCR, CO…)" },
+];
 
 /* ---------- UI helpers ---------- */
 function Field({ label, required, children }) {
@@ -87,18 +196,14 @@ function EtapesRelaisEditor({ etapes, setEtapes }) {
             <Field label="Titre">
               <Input
                 value={e.titre}
-                onChange={(ev) =>
-                  update(e._local_id, { titre: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { titre: ev.target.value })}
               />
             </Field>
             <Field label="Sport">
               <select
                 className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
                 value={e.sport}
-                onChange={(ev) =>
-                  update(e._local_id, { sport: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { sport: ev.target.value })}
               >
                 <option value="">—</option>
                 <option>Course à pied</option>
@@ -114,36 +219,28 @@ function EtapesRelaisEditor({ etapes, setEtapes }) {
                 type="number"
                 step="0.1"
                 value={e.distance_km}
-                onChange={(ev) =>
-                  update(e._local_id, { distance_km: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { distance_km: ev.target.value })}
               />
             </Field>
             <Field label="D+ (m)">
               <Input
                 type="number"
                 value={e.denivele_dplus}
-                onChange={(ev) =>
-                  update(e._local_id, { denivele_dplus: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { denivele_dplus: ev.target.value })}
               />
             </Field>
             <Field label="D- (m)">
               <Input
                 type="number"
                 value={e.denivele_dmoins}
-                onChange={(ev) =>
-                  update(e._local_id, { denivele_dmoins: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { denivele_dmoins: ev.target.value })}
               />
             </Field>
             <Field label="Cut-off (min)">
               <Input
                 type="number"
                 value={e.cut_off_minutes}
-                onChange={(ev) =>
-                  update(e._local_id, { cut_off_minutes: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { cut_off_minutes: ev.target.value })}
               />
             </Field>
           </div>
@@ -151,18 +248,14 @@ function EtapesRelaisEditor({ etapes, setEtapes }) {
             <Field label="URL GPX (optionnel)">
               <Input
                 value={e.gpx_url || ""}
-                onChange={(ev) =>
-                  update(e._local_id, { gpx_url: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { gpx_url: ev.target.value })}
                 placeholder="https://…"
               />
             </Field>
             <Field label="Description (optionnel)">
               <Textarea
                 value={e.description || ""}
-                onChange={(ev) =>
-                  update(e._local_id, { description: ev.target.value })
-                }
+                onChange={(ev) => update(e._local_id, { description: ev.target.value })}
               />
             </Field>
           </div>
@@ -207,8 +300,7 @@ function OptionsEditor({ options, setOptions }) {
   const update = (id, patch) =>
     setOptions(options.map((o) => (o._local_id === id ? { ...o, ...patch } : o)));
 
-  const remove = (id) =>
-    setOptions(options.filter((o) => o._local_id !== id));
+  const remove = (id) => setOptions(options.filter((o) => o._local_id !== id));
 
   return (
     <div className="grid gap-3">
@@ -230,24 +322,18 @@ function OptionsEditor({ options, setOptions }) {
                 type="number"
                 step="0.01"
                 value={o.price_eur}
-                onChange={(e) =>
-                  update(o._local_id, { price_eur: e.target.value })
-                }
+                onChange={(e) => update(o._local_id, { price_eur: e.target.value })}
                 placeholder="Ex. 12"
               />
             </Field>
-           
 
-            
             <Field label="Quantité max / inscription">
               <Input
                 type="number"
                 min={0}
                 value={o.max_qty_per_inscription}
                 onChange={(e) =>
-                  update(o._local_id, {
-                    max_qty_per_inscription: e.target.value,
-                  })
+                  update(o._local_id, { max_qty_per_inscription: e.target.value })
                 }
               />
             </Field>
@@ -256,9 +342,7 @@ function OptionsEditor({ options, setOptions }) {
                 <input
                   type="checkbox"
                   checked={o.is_active}
-                  onChange={(e) =>
-                    update(o._local_id, { is_active: e.target.checked })
-                  }
+                  onChange={(e) => update(o._local_id, { is_active: e.target.checked })}
                 />
                 <span className="ml-2 text-xs text-neutral-600">
                   Visible au moment de l’inscription
@@ -266,16 +350,16 @@ function OptionsEditor({ options, setOptions }) {
               </div>
             </Field>
           </div>
+
           <Field label="Description (optionnel)">
             <Textarea
               rows={2}
               value={o.description || ""}
-              onChange={(e) =>
-                update(o._local_id, { description: e.target.value })
-              }
+              onChange={(e) => update(o._local_id, { description: e.target.value })}
               placeholder="Détails pratiques, contenu, horaires, etc."
             />
           </Field>
+
           <div className="flex justify-end">
             <button
               type="button"
@@ -287,6 +371,7 @@ function OptionsEditor({ options, setOptions }) {
           </div>
         </div>
       ))}
+
       <button
         type="button"
         onClick={add}
@@ -321,7 +406,18 @@ export default function UpsertCourse() {
     presentation: "",
     imageFile: null,
     image_url: "",
+    // ✅ multi-sport (courses)
+    sport_code: "trail",
+    discipline_code: "",
+    timing_mode: "splits",
+    is_team_event: false,
   });
+
+  const selectedSport = useMemo(
+    () => SPORTS.find((s) => s.code === course.sport_code) || SPORTS[0],
+    [course.sport_code]
+  );
+  const availableDisciplines = selectedSport?.disciplines || [];
 
   const formatTemplate = () => ({
     id: uuidv4(),
@@ -373,12 +469,24 @@ export default function UpsertCourse() {
   const [saving, setSaving] = useState(false);
 
   const handleCourseChange = (e) => {
-    const { name, value, files } = e.target;
-    setCourse((p) => ({
-      ...p,
-      [files ? name + "File" : name]: files ? files[0] : value,
-    }));
+    const { name, value, files, type, checked } = e.target;
+
+    // checkbox
+    if (type === "checkbox") {
+      setCourse((p) => ({ ...p, [name]: !!checked }));
+      return;
+    }
+
+    // file
+    if (files) {
+      setCourse((p) => ({ ...p, [name + "File"]: files[0] }));
+      return;
+    }
+
+    // normal
+    setCourse((p) => ({ ...p, [name]: value }));
   };
+
   const handleFormatChange = (index, e) => {
     const { name, value, files } = e.target;
     const up = [...formats];
@@ -386,26 +494,32 @@ export default function UpsertCourse() {
     setFormats(up);
   };
   const addFormat = () => setFormats((p) => [...p, formatTemplate()]);
-  const removeFormat = (localId) =>
-    setFormats((p) => p.filter((f) => f.id !== localId));
+  const removeFormat = (localId) => setFormats((p) => p.filter((f) => f.id !== localId));
   const updateFormat = (localId, patch) =>
-    setFormats((p) =>
-      p.map((f) => (f.id === localId ? { ...f, ...patch } : f))
-    );
+    setFormats((p) => p.map((f) => (f.id === localId ? { ...f, ...patch } : f)));
+
+  // ✅ auto-defaults when sport changes
+  const onSportChange = (newSportCode) => {
+    const s = SPORTS.find((x) => x.code === newSportCode) || SPORTS[0];
+    setCourse((p) => ({
+      ...p,
+      sport_code: s.code,
+      discipline_code: "",
+      timing_mode: s.defaultTimingMode || "simple",
+      is_team_event: !!s.defaultIsTeamEvent,
+    }));
+  };
 
   useEffect(() => {
     (async () => {
       if (!isEdit) {
+        // création : on garde les defaults multi-sport
         setLoading(false);
         return;
       }
       setLoading(true);
 
-      const { data: c } = await supabase
-        .from("courses")
-        .select("*")
-        .eq("id", id)
-        .single();
+      const { data: c } = await supabase.from("courses").select("*").eq("id", id).single();
 
       const { data: fs } = await supabase
         .from("formats")
@@ -427,19 +541,13 @@ export default function UpsertCourse() {
           .order("ordre", { ascending: true });
         if (etapes) {
           etapesByFormat = etapes.reduce((acc, cur) => {
-            (acc[cur.format_id] ||= []).push({
-              ...cur,
-              _local_id: uuidv4(),
-            });
+            (acc[cur.format_id] ||= []).push({ ...cur, _local_id: uuidv4() });
             return acc;
           }, {});
         }
 
         // Options catalogue
-        const { data: opts } = await supabase
-          .from("options_catalogue")
-          .select("*")
-          .in("format_id", ids);
+        const { data: opts } = await supabase.from("options_catalogue").select("*").in("format_id", ids);
         if (opts) {
           optionsByFormat = opts.reduce((acc, cur) => {
             (acc[cur.format_id] ||= []).push({
@@ -449,14 +557,16 @@ export default function UpsertCourse() {
               price_eur: (cur.price_cents / 100).toString(),
               description: cur.description || "",
               is_active: cur.is_active,
-              max_qty_per_inscription:
-                cur.max_qty_per_inscription?.toString() || "1",
+              max_qty_per_inscription: cur.max_qty_per_inscription?.toString() || "1",
               image_url: cur.image_url || null,
             });
             return acc;
           }, {});
         }
       }
+
+      const sport_code = c?.sport_code || "trail";
+      const sportDef = SPORTS.find((s) => s.code === sport_code) || SPORTS[0];
 
       setCourse({
         nom: c?.nom || "",
@@ -466,6 +576,11 @@ export default function UpsertCourse() {
         presentation: c?.presentation || "",
         imageFile: null,
         image_url: c?.image_url || "",
+        // ✅ multi-sport load
+        sport_code: sport_code,
+        discipline_code: c?.discipline_code || "",
+        timing_mode: c?.timing_mode || sportDef.defaultTimingMode || "simple",
+        is_team_event: typeof c?.is_team_event === "boolean" ? c.is_team_event : !!sportDef.defaultIsTeamEvent,
       });
 
       setFormats(
@@ -479,11 +594,7 @@ export default function UpsertCourse() {
           presentation_parcours: f.presentation_parcours || "",
           gpx_url: f.gpx_url || null,
           reglement_pdf_url: f.reglement_pdf_url || null,
-          type_epreuve: ["trail", "rando", "route"].includes(
-            f.type_epreuve || ""
-          )
-            ? f.type_epreuve
-            : "trail",
+          type_epreuve: ["trail", "rando", "route"].includes(f.type_epreuve || "") ? f.type_epreuve : "trail",
           distance_km: f.distance_km ?? "",
           denivele_dplus: f.denivele_dplus ?? "",
           denivele_dmoins: f.denivele_dmoins ?? "",
@@ -520,16 +631,13 @@ export default function UpsertCourse() {
           options: optionsByFormat[f.id] || [],
         }))
       );
+
       setLoading(false);
     })();
   }, [id, isEdit]);
 
   const validate = () => {
-    if (
-      !course.nom?.trim() ||
-      !course.lieu?.trim() ||
-      !course.code_postal?.trim()
-    ) {
+    if (!course.nom?.trim() || !course.lieu?.trim() || !course.code_postal?.trim()) {
       alert("Renseigne nom, lieu et code postal.");
       return false;
     }
@@ -538,25 +646,15 @@ export default function UpsertCourse() {
         alert("Chaque format doit avoir un nom.");
         return false;
       }
-      if (
-        f.type_epreuve &&
-        !["trail", "rando", "route"].includes(f.type_epreuve)
-      ) {
-        alert(
-          `Type d'épreuve invalide pour "${f.nom}". Utilise trail | rando | route.`
-        );
+      if (f.type_epreuve && !["trail", "rando", "route"].includes(f.type_epreuve)) {
+        alert(`Type d'épreuve invalide pour "${f.nom}". Utilise trail | rando | route.`);
         return false;
       }
       if (f.type_format === "relais" && (!f.etapes || f.etapes.length < 2)) {
         alert(`"${f.nom}" est en relais : ajoute au moins 2 étapes.`);
         return false;
       }
-      if (
-        f.inscription_ouverture &&
-        f.inscription_fermeture &&
-        new Date(f.inscription_ouverture) >=
-          new Date(f.inscription_fermeture)
-      ) {
+      if (f.inscription_ouverture && f.inscription_fermeture && new Date(f.inscription_ouverture) >= new Date(f.inscription_fermeture)) {
         alert(`Fenêtre d'inscriptions invalide pour "${f.nom}".`);
         return false;
       }
@@ -568,6 +666,7 @@ export default function UpsertCourse() {
     e.preventDefault();
     if (!validate()) return;
     setSaving(true);
+
     try {
       const { data: sessionData } = await supabase.auth.getSession();
       const userId = sessionData?.session?.user?.id;
@@ -578,16 +677,11 @@ export default function UpsertCourse() {
           const resp = await fetch(
             `https://nominatim.openstreetmap.org/search?postalcode=${encodeURIComponent(
               postal || ""
-            )}&city=${encodeURIComponent(
-              ville || ""
-            )}&country=France&format=json&limit=1`
+            )}&city=${encodeURIComponent(ville || "")}&country=France&format=json&limit=1`
           );
           const d = await resp.json();
           if (d?.length)
-            return {
-              lat: parseFloat(d[0].lat),
-              lng: parseFloat(d[0].lon),
-            };
+            return { lat: parseFloat(d[0].lat), lng: parseFloat(d[0].lon) };
         } catch {}
         return { lat: null, lng: null };
       }
@@ -598,20 +692,13 @@ export default function UpsertCourse() {
 
         for (const opt of optionsArr || []) {
           const label = opt.label?.trim();
-          if (!label) continue; // ignore lignes vides
+          if (!label) continue;
 
-          const priceFloat = opt.price_eur
-            ? parseFloat(opt.price_eur.replace(",", "."))
-            : 0;
-          const price_cents = Number.isFinite(priceFloat)
-            ? Math.round(priceFloat * 100)
-            : 0;
-          const maxQtyInt = opt.max_qty_per_inscription
-            ? parseInt(opt.max_qty_per_inscription, 10)
-            : 10;
-          const max_qty_per_inscription = Number.isFinite(maxQtyInt)
-            ? maxQtyInt
-            : 10;
+          const priceFloat = opt.price_eur ? parseFloat(opt.price_eur.replace(",", ".")) : 0;
+          const price_cents = Number.isFinite(priceFloat) ? Math.round(priceFloat * 100) : 0;
+
+          const maxQtyInt = opt.max_qty_per_inscription ? parseInt(opt.max_qty_per_inscription, 10) : 10;
+          const max_qty_per_inscription = Number.isFinite(maxQtyInt) ? maxQtyInt : 10;
 
           const payloadOpt = {
             format_id: formatId,
@@ -620,12 +707,12 @@ export default function UpsertCourse() {
             description: opt.description || null,
             image_url: opt.image_url || null,
             is_active: opt.is_active !== false,
-            max_qty_per_inscription:
-              max_qty_per_inscription < 0 ? 0 : max_qty_per_inscription,
+            max_qty_per_inscription: max_qty_per_inscription < 0 ? 0 : max_qty_per_inscription,
           };
 
           let optionId = null;
           const looksUUID = typeof opt.id === "string" && opt.id.length > 20;
+
           if (looksUUID) {
             const { data: chkOpt } = await supabase
               .from("options_catalogue")
@@ -633,10 +720,7 @@ export default function UpsertCourse() {
               .eq("id", opt.id)
               .maybeSingle();
             if (chkOpt?.id) {
-              const { error: upErr } = await supabase
-                .from("options_catalogue")
-                .update(payloadOpt)
-                .eq("id", opt.id);
+              const { error: upErr } = await supabase.from("options_catalogue").update(payloadOpt).eq("id", opt.id);
               if (upErr) throw upErr;
               optionId = opt.id;
             } else {
@@ -661,11 +745,7 @@ export default function UpsertCourse() {
           keptOptionIds.push(optionId);
         }
 
-        // supprimer les options supprimées dans le formulaire
-        const { data: existingOpts } = await supabase
-          .from("options_catalogue")
-          .select("id")
-          .eq("format_id", formatId);
+        const { data: existingOpts } = await supabase.from("options_catalogue").select("id").eq("format_id", formatId);
         const toDelete = (existingOpts || [])
           .map((o) => o.id)
           .filter((oid) => !keptOptionIds.includes(oid));
@@ -681,14 +761,28 @@ export default function UpsertCourse() {
       if (course.imageFile) {
         const { data, error } = await supabase.storage
           .from("courses")
-          .upload(`course-${Date.now()}.jpg`, course.imageFile, {
-            upsert: false,
-          });
+          .upload(`course-${Date.now()}.jpg`, course.imageFile, { upsert: false });
         if (error) throw error;
-        imageCourseUrl = supabase.storage
-          .from("courses")
-          .getPublicUrl(data.path).data.publicUrl;
+        imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
       }
+
+      // ✅ payload multi-sport (courses)
+      const coursePayload = {
+        nom: course.nom,
+        lieu: course.lieu,
+        departement: course.departement,
+        code_postal: course.code_postal,
+        lat,
+        lng,
+        presentation: course.presentation,
+        image_url: imageCourseUrl,
+        // multi-sport
+        course_type: "chrono",
+        sport_code: course.sport_code || "trail",
+        discipline_code: course.discipline_code || null,
+        timing_mode: course.timing_mode || "simple",
+        is_team_event: !!course.is_team_event,
+      };
 
       // Upsert course
       let courseId = id;
@@ -696,14 +790,7 @@ export default function UpsertCourse() {
         const { data: cIns, error: cErr } = await supabase
           .from("courses")
           .insert({
-            nom: course.nom,
-            lieu: course.lieu,
-            departement: course.departement,
-            code_postal: course.code_postal,
-            lat,
-            lng,
-            presentation: course.presentation,
-            image_url: imageCourseUrl,
+            ...coursePayload,
             organisateur_id: userId,
           })
           .select("id")
@@ -714,14 +801,7 @@ export default function UpsertCourse() {
         const { error: cUpErr } = await supabase
           .from("courses")
           .update({
-            nom: course.nom,
-            lieu: course.lieu,
-            departement: course.departement,
-            code_postal: course.code_postal,
-            lat,
-            lng,
-            presentation: course.presentation,
-            image_url: imageCourseUrl,
+            ...coursePayload,
             updated_at: new Date().toISOString(),
           })
           .eq("id", courseId);
@@ -736,37 +816,28 @@ export default function UpsertCourse() {
         if (f.imageFile) {
           const { data, error } = await supabase.storage
             .from("formats")
-            .upload(`format-${Date.now()}-${f.nom || "sans-nom"}.jpg`, f.imageFile, {
-              upsert: false,
-            });
-          if (!error)
-            imageFormatUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+            .upload(`format-${Date.now()}-${f.nom || "sans-nom"}.jpg`, f.imageFile, { upsert: false });
+          if (!error) imageFormatUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
+
         let gpxUrl = f.gpx_url || null;
         if (f.gpx_urlFile) {
           const { data, error } = await supabase.storage
             .from("formats")
-            .upload(`gpx-${Date.now()}-${f.nom || "sans-nom"}.gpx`, f.gpx_urlFile, {
-              upsert: false,
-            });
-          if (!error)
-            gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+            .upload(`gpx-${Date.now()}-${f.nom || "sans-nom"}.gpx`, f.gpx_urlFile, { upsert: false });
+          if (!error) gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
+
         let reglementUrl = f.reglement_pdf_url || null;
         if (f.fichier_reglementFile) {
           const { data, error } = await supabase.storage
             .from("reglements")
-            .upload(
-              `reglement-${Date.now()}-${f.nom || "sans-nom"}.pdf`,
-              f.fichier_reglementFile,
-              { upsert: false }
-            );
-          if (!error)
-            reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
+            .upload(`reglement-${Date.now()}-${f.nom || "sans-nom"}.pdf`, f.fichier_reglementFile, { upsert: false });
+          if (!error) reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
         }
 
         const prix = f.prix ? parseFloat(f.prix) : 0;
-        const prix_total_inscription = prix; // repas supprimés, on ne les additionne plus
+        const prix_total_inscription = prix;
 
         const payload = {
           course_id: courseId,
@@ -776,16 +847,13 @@ export default function UpsertCourse() {
           heure_depart: f.heure_depart || null,
           presentation_parcours: f.presentation_parcours || null,
           gpx_url: gpxUrl,
-          type_epreuve: ["trail", "rando", "route"].includes(f.type_epreuve)
-            ? f.type_epreuve
-            : "trail",
+          type_epreuve: ["trail", "rando", "route"].includes(f.type_epreuve) ? f.type_epreuve : "trail",
           distance_km: f.distance_km ? parseFloat(f.distance_km) : null,
           denivele_dplus: f.denivele_dplus ? parseInt(f.denivele_dplus, 10) : null,
           denivele_dmoins: f.denivele_dmoins ? parseInt(f.denivele_dmoins, 10) : null,
           adresse_depart: f.adresse_depart || null,
           adresse_arrivee: f.adresse_arrivee || null,
           prix,
-          // repas : on force à 0, on garde les colonnes par compat
           stock_repas: 0,
           prix_repas: 0,
           prix_total_inscription,
@@ -810,12 +878,8 @@ export default function UpsertCourse() {
           nb_coureurs_min: f.nb_coureurs_min ? Number(f.nb_coureurs_min) : null,
           nb_coureurs_max: f.nb_coureurs_max ? Number(f.nb_coureurs_max) : null,
           prix_equipe: f.prix_equipe ? Number(f.prix_equipe) : null,
-          inscription_ouverture: f.inscription_ouverture
-            ? new Date(f.inscription_ouverture).toISOString()
-            : null,
-          inscription_fermeture: f.inscription_fermeture
-            ? new Date(f.inscription_fermeture).toISOString()
-            : null,
+          inscription_ouverture: f.inscription_ouverture ? new Date(f.inscription_ouverture).toISOString() : null,
+          inscription_fermeture: f.inscription_fermeture ? new Date(f.inscription_fermeture).toISOString() : null,
           fuseau_horaire: f.fuseau_horaire || "Europe/Paris",
           close_on_full: !!f.close_on_full,
           waitlist_enabled: !!f.waitlist_enabled,
@@ -824,6 +888,7 @@ export default function UpsertCourse() {
 
         let formatId = null;
         const looksUUID = typeof f.id === "string" && f.id.length > 20;
+
         if (isEdit && looksUUID) {
           const { data: chk } = await supabase.from("formats").select("id").eq("id", f.id).maybeSingle();
           if (chk?.id) {
@@ -831,20 +896,12 @@ export default function UpsertCourse() {
             if (upErr) throw upErr;
             formatId = f.id;
           } else {
-            const { data: ins, error: insErr } = await supabase
-              .from("formats")
-              .insert(payload)
-              .select("id")
-              .single();
+            const { data: ins, error: insErr } = await supabase.from("formats").insert(payload).select("id").single();
             if (insErr) throw insErr;
             formatId = ins.id;
           }
         } else {
-          const { data: ins, error: insErr } = await supabase
-            .from("formats")
-            .insert(payload)
-            .select("id")
-            .single();
+          const { data: ins, error: insErr } = await supabase.from("formats").insert(payload).select("id").single();
           if (insErr) throw insErr;
           formatId = ins.id;
         }
@@ -860,14 +917,11 @@ export default function UpsertCourse() {
                 titre: e.titre || null,
                 sport: e.sport || null,
                 distance_km: e.distance_km !== "" && e.distance_km != null ? Number(e.distance_km) : null,
-                denivele_dplus:
-                  e.denivele_dplus !== "" && e.denivele_dplus != null ? Number(e.denivele_dplus) : null,
-                denivele_dmoins:
-                  e.denivele_dmoins !== "" && e.denivele_dmoins != null ? Number(e.denivele_dmoins) : null,
+                denivele_dplus: e.denivele_dplus !== "" && e.denivele_dplus != null ? Number(e.denivele_dplus) : null,
+                denivele_dmoins: e.denivele_dmoins !== "" && e.denivele_dmoins != null ? Number(e.denivele_dmoins) : null,
                 gpx_url: e.gpx_url || null,
                 description: e.description || null,
-                cut_off_minutes:
-                  e.cut_off_minutes !== "" && e.cut_off_minutes != null ? Number(e.cut_off_minutes) : null,
+                cut_off_minutes: e.cut_off_minutes !== "" && e.cut_off_minutes != null ? Number(e.cut_off_minutes) : null,
               });
               if (eErr) throw eErr;
             }
@@ -884,9 +938,7 @@ export default function UpsertCourse() {
 
       if (isEdit) {
         const { data: existing } = await supabase.from("formats").select("id").eq("course_id", id);
-        const toDel = (existing || [])
-          .map((r) => r.id)
-          .filter((fid) => !keptIds.includes(fid));
+        const toDel = (existing || []).map((r) => r.id).filter((fid) => !keptIds.includes(fid));
         if (toDel.length) await supabase.from("formats").delete().in("id", toDel);
       }
 
@@ -901,11 +953,7 @@ export default function UpsertCourse() {
   };
 
   if (loading) {
-    return (
-      <div className="min-h-screen bg-neutral-50 text-neutral-900 p-8">
-        Chargement…
-      </div>
-    );
+    return <div className="min-h-screen bg-neutral-50 text-neutral-900 p-8">Chargement…</div>;
   }
 
   return (
@@ -920,7 +968,7 @@ export default function UpsertCourse() {
             </span>
           </h1>
 
-          {/* Lien vers le tuto (à placer juste sous le titre) */}
+          {/* Lien vers le tuto */}
           <div className="mt-3">
             <Link
               to="/help/creer-une-course"
@@ -931,22 +979,17 @@ export default function UpsertCourse() {
               <ArrowUpRight className="h-4 w-4 opacity-70" />
             </Link>
 
-            <p className="mt-1 text-xs text-neutral-500">
-              Étapes, checklist, options, chronométrage et publication.
-            </p>
+            <p className="mt-1 text-xs text-neutral-500">Étapes, checklist, options, chronométrage et publication.</p>
           </div>
 
           <p className="mt-2 text-neutral-600 text-base">
-            Renseignez les informations générales, ajoutez vos formats et leurs
-            options, puis publiez quand tout est prêt.
+            Renseignez les informations générales, ajoutez vos formats et leurs options, puis publiez quand tout est prêt.
           </p>
 
           {/* BADGE DEBUG TEMPORAIRE */}
           <div className="mt-4 inline-flex items-center gap-2 rounded-full bg-emerald-50 px-4 py-1 text-xs font-semibold text-emerald-700 ring-1 ring-emerald-200">
             <span>✅ UpsertCourse.jsx actif</span>
-            <span className="text-[10px] uppercase tracking-wide">
-              {isEdit ? "mode édition" : "mode création"}
-            </span>
+            <span className="text-[10px] uppercase tracking-wide">{isEdit ? "mode édition" : "mode création"}</span>
           </div>
         </div>
       </section>
@@ -957,40 +1000,108 @@ export default function UpsertCourse() {
           {/* Carte — Infos course */}
           <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
             <div className="p-5 border-b border-neutral-200">
-              <h2 className="text-lg sm:text-xl font-bold">
-                Informations générales
-              </h2>
-              <p className="mt-1 text-sm text-neutral-600">
-                Nom, lieu, présentation et visuel de l’épreuve.
-              </p>
+              <h2 className="text-lg sm:text-xl font-bold">Informations générales</h2>
+              <p className="mt-1 text-sm text-neutral-600">Nom, lieu, sport, présentation et visuel de l’épreuve.</p>
             </div>
+
             <div className="p-5 grid gap-4">
               <Field label="Nom de l'épreuve" required>
-                <Input
-                  name="nom"
-                  value={course.nom}
-                  onChange={handleCourseChange}
-                  placeholder="Ex. Trail des Aiguilles"
-                />
+                <Input name="nom" value={course.nom} onChange={handleCourseChange} placeholder="Ex. Trail des Aiguilles" />
               </Field>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <Field label="Lieu" required>
-                  <Input
-                    name="lieu"
-                    value={course.lieu}
-                    onChange={handleCourseChange}
-                    placeholder="Ex. Chamonix"
-                  />
+                  <Input name="lieu" value={course.lieu} onChange={handleCourseChange} placeholder="Ex. Chamonix" />
                 </Field>
                 <Field label="Code postal" required>
-                  <Input
-                    name="code_postal"
-                    value={course.code_postal}
-                    onChange={handleCourseChange}
-                    placeholder="Ex. 74400"
-                  />
+                  <Input name="code_postal" value={course.code_postal} onChange={handleCourseChange} placeholder="Ex. 74400" />
                 </Field>
               </div>
+
+              {/* ✅ Multi-sport block */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Sport (Tickrace multi-sport)" required>
+                  <select
+                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                    value={course.sport_code}
+                    onChange={(e) => onSportChange(e.target.value)}
+                  >
+                    {SPORTS.map((s) => (
+                      <option key={s.code} value={s.code}>
+                        {s.label}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="mt-1 text-xs text-neutral-500">
+                    Ce choix sert au filtre public (/courses) et au rendu (D+, GPX, etc.).
+                  </p>
+                </Field>
+
+                <Field label="Mode chrono">
+                  <select
+                    name="timing_mode"
+                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                    value={course.timing_mode}
+                    onChange={handleCourseChange}
+                  >
+                    {TIMING_MODES.map((m) => (
+                      <option key={m.code} value={m.code}>
+                        {m.label}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+              </div>
+
+              {availableDisciplines.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Discipline (optionnel)">
+                    <select
+                      name="discipline_code"
+                      className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                      value={course.discipline_code || ""}
+                      onChange={handleCourseChange}
+                    >
+                      <option value="">—</option>
+                      {availableDisciplines.map((d) => (
+                        <option key={d.code} value={d.code}>
+                          {d.label}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+
+                  <Field label="Épreuve en équipe ?">
+                    <div className="flex items-center h-[38px] gap-2">
+                      <input
+                        type="checkbox"
+                        name="is_team_event"
+                        checked={!!course.is_team_event}
+                        onChange={handleCourseChange}
+                      />
+                      <span className="text-sm text-neutral-700">
+                        Active si l’épreuve est majoritairement “par équipe” (swimrun, raid…)
+                      </span>
+                    </div>
+                  </Field>
+                </div>
+              )}
+
+              {availableDisciplines.length === 0 && (
+                <Field label="Épreuve en équipe ?">
+                  <div className="flex items-center h-[38px] gap-2">
+                    <input
+                      type="checkbox"
+                      name="is_team_event"
+                      checked={!!course.is_team_event}
+                      onChange={handleCourseChange}
+                    />
+                    <span className="text-sm text-neutral-700">
+                      Active si l’épreuve est majoritairement “par équipe” (swimrun, raid…)
+                    </span>
+                  </div>
+                </Field>
+              )}
 
               <Field label="Département">
                 <select
@@ -1003,28 +1114,20 @@ export default function UpsertCourse() {
                   <option value="01 - Ain">01 - Ain</option>
                   <option value="02 - Aisne">02 - Aisne</option>
                   <option value="03 - Allier">03 - Allier</option>
-                  <option value="04 - Alpes-de-Haute-Provence">
-                    04 - Alpes-de-Haute-Provence
-                  </option>
+                  <option value="04 - Alpes-de-Haute-Provence">04 - Alpes-de-Haute-Provence</option>
                   <option value="05 - Hautes-Alpes">05 - Hautes-Alpes</option>
-                  <option value="06 - Alpes-Maritimes">
-                    06 - Alpes-Maritimes
-                  </option>
+                  <option value="06 - Alpes-Maritimes">06 - Alpes-Maritimes</option>
                   <option value="07 - Ardèche">07 - Ardèche</option>
                   <option value="08 - Ardennes">08 - Ardennes</option>
                   <option value="09 - Ariège">09 - Ariège</option>
                   <option value="10 - Aube">10 - Aube</option>
                   <option value="11 - Aude">11 - Aude</option>
                   <option value="12 - Aveyron">12 - Aveyron</option>
-                  <option value="13 - Bouches-du-Rhône">
-                    13 - Bouches-du-Rhône
-                  </option>
+                  <option value="13 - Bouches-du-Rhône">13 - Bouches-du-Rhône</option>
                   <option value="14 - Calvados">14 - Calvados</option>
                   <option value="15 - Cantal">15 - Cantal</option>
                   <option value="16 - Charente">16 - Charente</option>
-                  <option value="17 - Charente-Maritime">
-                    17 - Charente-Maritime
-                  </option>
+                  <option value="17 - Charente-Maritime">17 - Charente-Maritime</option>
                   <option value="18 - Cher">18 - Cher</option>
                   <option value="19 - Corrèze">19 - Corrèze</option>
                   <option value="21 - Côte-d'Or">21 - Côte-d'Or</option>
@@ -1039,44 +1142,30 @@ export default function UpsertCourse() {
                   <option value="2A - Corse-du-Sud">2A - Corse-du-Sud</option>
                   <option value="2B - Haute-Corse">2B - Haute-Corse</option>
                   <option value="30 - Gard">30 - Gard</option>
-                  <option value="31 - Haute-Garonne">
-                    31 - Haute-Garonne
-                  </option>
+                  <option value="31 - Haute-Garonne">31 - Haute-Garonne</option>
                   <option value="32 - Gers">32 - Gers</option>
                   <option value="33 - Gironde">33 - Gironde</option>
                   <option value="34 - Hérault">34 - Hérault</option>
-                  <option value="35 - Ille-et-Vilaine">
-                    35 - Ille-et-Vilaine
-                  </option>
+                  <option value="35 - Ille-et-Vilaine">35 - Ille-et-Vilaine</option>
                   <option value="36 - Indre">36 - Indre</option>
-                  <option value="37 - Indre-et-Loire">
-                    37 - Indre-et-Loire
-                  </option>
+                  <option value="37 - Indre-et-Loire">37 - Indre-et-Loire</option>
                   <option value="38 - Isère">38 - Isère</option>
                   <option value="39 - Jura">39 - Jura</option>
                   <option value="40 - Landes">40 - Landes</option>
                   <option value="41 - Loir-et-Cher">41 - Loir-et-Cher</option>
                   <option value="42 - Loire">42 - Loire</option>
                   <option value="43 - Haute-Loire">43 - Haute-Loire</option>
-                  <option value="44 - Loire-Atlantique">
-                    44 - Loire-Atlantique
-                  </option>
+                  <option value="44 - Loire-Atlantique">44 - Loire-Atlantique</option>
                   <option value="45 - Loiret">45 - Loiret</option>
                   <option value="46 - Lot">46 - Lot</option>
-                  <option value="47 - Lot-et-Garonne">
-                    47 - Lot-et-Garonne
-                  </option>
+                  <option value="47 - Lot-et-Garonne">47 - Lot-et-Garonne</option>
                   <option value="48 - Lozère">48 - Lozère</option>
-                  <option value="49 - Maine-et-Loire">
-                    49 - Maine-et-Loire
-                  </option>
+                  <option value="49 - Maine-et-Loire">49 - Maine-et-Loire</option>
                   <option value="50 - Manche">50 - Manche</option>
                   <option value="51 - Marne">51 - Marne</option>
                   <option value="52 - Haute-Marne">52 - Haute-Marne</option>
                   <option value="53 - Mayenne">53 - Mayenne</option>
-                  <option value="54 - Meurthe-et-Moselle">
-                    54 - Meurthe-et-Moselle
-                  </option>
+                  <option value="54 - Meurthe-et-Moselle">54 - Meurthe-et-Moselle</option>
                   <option value="55 - Meuse">55 - Meuse</option>
                   <option value="56 - Morbihan">56 - Morbihan</option>
                   <option value="57 - Moselle">57 - Moselle</option>
@@ -1086,39 +1175,25 @@ export default function UpsertCourse() {
                   <option value="61 - Orne">61 - Orne</option>
                   <option value="62 - Pas-de-Calais">62 - Pas-de-Calais</option>
                   <option value="63 - Puy-de-Dôme">63 - Puy-de-Dôme</option>
-                  <option value="64 - Pyrénées-Atlantiques">
-                    64 - Pyrénées-Atlantiques
-                  </option>
-                  <option value="65 - Hautes-Pyrénées">
-                    65 - Hautes-Pyrénées
-                  </option>
-                  <option value="66 - Pyrénées-Orientales">
-                    66 - Pyrénées-Orientales
-                  </option>
+                  <option value="64 - Pyrénées-Atlantiques">64 - Pyrénées-Atlantiques</option>
+                  <option value="65 - Hautes-Pyrénées">65 - Hautes-Pyrénées</option>
+                  <option value="66 - Pyrénées-Orientales">66 - Pyrénées-Orientales</option>
                   <option value="67 - Bas-Rhin">67 - Bas-Rhin</option>
                   <option value="68 - Haut-Rhin">68 - Haut-Rhin</option>
                   <option value="69 - Rhône">69 - Rhône</option>
                   <option value="70 - Haute-Saône">70 - Haute-Saône</option>
-                  <option value="71 - Saône-et-Loire">
-                    71 - Saône-et-Loire
-                  </option>
+                  <option value="71 - Saône-et-Loire">71 - Saône-et-Loire</option>
                   <option value="72 - Sarthe">72 - Sarthe</option>
                   <option value="73 - Savoie">73 - Savoie</option>
                   <option value="74 - Haute-Savoie">74 - Haute-Savoie</option>
                   <option value="75 - Paris">75 - Paris</option>
-                  <option value="76 - Seine-Maritime">
-                    76 - Seine-Maritime
-                  </option>
-                  <option value="77 - Seine-et-Marne">
-                    77 - Seine-et-Marne
-                  </option>
+                  <option value="76 - Seine-Maritime">76 - Seine-Maritime</option>
+                  <option value="77 - Seine-et-Marne">77 - Seine-et-Marne</option>
                   <option value="78 - Yvelines">78 - Yvelines</option>
                   <option value="79 - Deux-Sèvres">79 - Deux-Sèvres</option>
                   <option value="80 - Somme">80 - Somme</option>
                   <option value="81 - Tarn">81 - Tarn</option>
-                  <option value="82 - Tarn-et-Garonne">
-                    82 - Tarn-et-Garonne
-                  </option>
+                  <option value="82 - Tarn-et-Garonne">82 - Tarn-et-Garonne</option>
                   <option value="83 - Var">83 - Var</option>
                   <option value="84 - Vaucluse">84 - Vaucluse</option>
                   <option value="85 - Vendée">85 - Vendée</option>
@@ -1126,16 +1201,10 @@ export default function UpsertCourse() {
                   <option value="87 - Haute-Vienne">87 - Haute-Vienne</option>
                   <option value="88 - Vosges">88 - Vosges</option>
                   <option value="89 - Yonne">89 - Yonne</option>
-                  <option value="90 - Territoire de Belfort">
-                    90 - Territoire de Belfort
-                  </option>
+                  <option value="90 - Territoire de Belfort">90 - Territoire de Belfort</option>
                   <option value="91 - Essonne">91 - Essonne</option>
-                  <option value="92 - Hauts-de-Seine">
-                    92 - Hauts-de-Seine
-                  </option>
-                  <option value="93 - Seine-Saint-Denis">
-                    93 - Seine-Saint-Denis
-                  </option>
+                  <option value="92 - Hauts-de-Seine">92 - Hauts-de-Seine</option>
+                  <option value="93 - Seine-Saint-Denis">93 - Seine-Saint-Denis</option>
                   <option value="94 - Val-de-Marne">94 - Val-de-Marne</option>
                   <option value="95 - Val-d'Oise">95 - Val-d'Oise</option>
                   <option value="971 - Guadeloupe">971 - Guadeloupe</option>
@@ -1154,6 +1223,7 @@ export default function UpsertCourse() {
                   placeholder="Décrivez votre épreuve, les paysages, l’ambiance, etc."
                 />
               </Field>
+
               <Field label="Image de l’épreuve">
                 <input
                   type="file"
@@ -1162,23 +1232,19 @@ export default function UpsertCourse() {
                   onChange={handleCourseChange}
                   className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
                 />
-                <p className="mt-1 text-xs text-neutral-500">
-                  JPEG/PNG recommandé, ~1600×900.
-                </p>
+                <p className="mt-1 text-xs text-neutral-500">JPEG/PNG recommandé, ~1600×900.</p>
               </Field>
             </div>
           </div>
 
+          {/* ====== Le reste de ton fichier (formats) : inchangé ====== */}
           {/* Carte — Formats */}
           <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
             <div className="p-5 border-b border-neutral-200 flex items-center justify-between">
               <div>
-                <h2 className="text-lg sm:text-xl font-bold">
-                  Formats de course
-                </h2>
+                <h2 className="text-lg sm:text-xl font-bold">Formats de course</h2>
                 <p className="mt-1 text-sm text-neutral-600">
-                  Ajoutez un ou plusieurs formats (10K, relais, rando, etc.),
-                  avec leurs options.
+                  Ajoutez un ou plusieurs formats (10K, relais, rando, etc.), avec leurs options.
                 </p>
               </div>
               <button
@@ -1192,14 +1258,9 @@ export default function UpsertCourse() {
 
             <div className="p-5 grid gap-6">
               {formats.map((f, index) => (
-                <div
-                  key={f.id}
-                  className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4"
-                >
+                <div key={f.id} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
                   <div className="mb-3 flex items-center justify-between">
-                    <div className="text-sm font-semibold text-neutral-700">
-                      Format #{index + 1}
-                    </div>
+                    <div className="text-sm font-semibold text-neutral-700">Format #{index + 1}</div>
                     <button
                       type="button"
                       onClick={() => removeFormat(f.id)}
@@ -1243,30 +1304,18 @@ export default function UpsertCourse() {
                         <select
                           className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
                           value={f.type_format}
-                          onChange={(e) =>
-                            updateFormat(f.id, {
-                              type_format: e.target.value,
-                            })
-                          }
+                          onChange={(e) => updateFormat(f.id, { type_format: e.target.value })}
                         >
                           <option value="individuel">Individuel</option>
-                          <option value="groupe">
-                            Groupe (paiement groupé)
-                          </option>
-                          <option value="relais">
-                            Relais / Ekiden / Multisport
-                          </option>
+                          <option value="groupe">Groupe (paiement groupé)</option>
+                          <option value="relais">Relais / Ekiden / Multisport</option>
                         </select>
                       </Field>
                       <Field label="Sport global (info)">
                         <select
                           className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
                           value={f.sport_global || ""}
-                          onChange={(e) =>
-                            updateFormat(f.id, {
-                              sport_global: e.target.value,
-                            })
-                          }
+                          onChange={(e) => updateFormat(f.id, { sport_global: e.target.value })}
                         >
                           <option value="">—</option>
                           <option>Course à pied</option>
@@ -1282,12 +1331,7 @@ export default function UpsertCourse() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <Field label="Date">
-                        <Input
-                          type="date"
-                          name="date"
-                          value={f.date}
-                          onChange={(e) => handleFormatChange(index, e)}
-                        />
+                        <Input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} />
                       </Field>
                       <Field label="Heure de départ">
                         <Input
@@ -1313,32 +1357,20 @@ export default function UpsertCourse() {
                         <Input
                           type="datetime-local"
                           value={f.inscription_ouverture}
-                          onChange={(e) =>
-                            updateFormat(f.id, {
-                              inscription_ouverture: e.target.value,
-                            })
-                          }
+                          onChange={(e) => updateFormat(f.id, { inscription_ouverture: e.target.value })}
                         />
                       </Field>
                       <Field label="Fermeture des inscriptions">
                         <Input
                           type="datetime-local"
                           value={f.inscription_fermeture}
-                          onChange={(e) =>
-                            updateFormat(f.id, {
-                              inscription_fermeture: e.target.value,
-                            })
-                          }
+                          onChange={(e) => updateFormat(f.id, { inscription_fermeture: e.target.value })}
                         />
                       </Field>
                       <Field label="Fuseau horaire">
                         <Input
                           value={f.fuseau_horaire}
-                          onChange={(e) =>
-                            updateFormat(f.id, {
-                              fuseau_horaire: e.target.value,
-                            })
-                          }
+                          onChange={(e) => updateFormat(f.id, { fuseau_horaire: e.target.value })}
                           placeholder="Europe/Paris"
                         />
                       </Field>
@@ -1350,11 +1382,7 @@ export default function UpsertCourse() {
                           <input
                             type="checkbox"
                             checked={!!f.close_on_full}
-                            onChange={(e) =>
-                              updateFormat(f.id, {
-                                close_on_full: e.target.checked,
-                              })
-                            }
+                            onChange={(e) => updateFormat(f.id, { close_on_full: e.target.checked })}
                           />
                         </div>
                       </Field>
@@ -1363,11 +1391,7 @@ export default function UpsertCourse() {
                           <input
                             type="checkbox"
                             checked={!!f.waitlist_enabled}
-                            onChange={(e) =>
-                              updateFormat(f.id, {
-                                waitlist_enabled: e.target.checked,
-                              })
-                            }
+                            onChange={(e) => updateFormat(f.id, { waitlist_enabled: e.target.checked })}
                           />
                         </div>
                       </Field>
@@ -1376,11 +1400,7 @@ export default function UpsertCourse() {
                           <Input
                             type="number"
                             value={f.quota_attente}
-                            onChange={(e) =>
-                              updateFormat(f.id, {
-                                quota_attente: Number(e.target.value),
-                              })
-                            }
+                            onChange={(e) => updateFormat(f.id, { quota_attente: Number(e.target.value) })}
                           />
                         </Field>
                       )}
@@ -1424,50 +1444,27 @@ export default function UpsertCourse() {
 
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <Field label="Adresse de départ">
-                        <Input
-                          name="adresse_depart"
-                          value={f.adresse_depart}
-                          onChange={(e) => handleFormatChange(index, e)}
-                        />
+                        <Input name="adresse_depart" value={f.adresse_depart} onChange={(e) => handleFormatChange(index, e)} />
                       </Field>
                       <Field label="Adresse d'arrivée">
-                        <Input
-                          name="adresse_arrivee"
-                          value={f.adresse_arrivee}
-                          onChange={(e) => handleFormatChange(index, e)}
-                        />
+                        <Input name="adresse_arrivee" value={f.adresse_arrivee} onChange={(e) => handleFormatChange(index, e)} />
                       </Field>
                     </div>
 
-                    {/* Tarifs – sans gestion spécifique des repas */}
+                    {/* Tarifs */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <Field label="Prix (€/pers.)">
-                        <Input
-                          name="prix"
-                          value={f.prix}
-                          onChange={(e) => handleFormatChange(index, e)}
-                          placeholder="Ex. 35"
-                        />
-
-                        {/* Aperçu gains organisateur (repliable) */}
-    <div className="mt-2">
-      <GainPreview
-        basePriceEUR={Number(f.prix || 0)}
-        defaultParticipants={Number(f.nb_max_coureurs || 200)}
-      />
-    </div>
+                        <Input name="prix" value={f.prix} onChange={(e) => handleFormatChange(index, e)} placeholder="Ex. 35" />
+                        <div className="mt-2">
+                          <GainPreview basePriceEUR={Number(f.prix || 0)} defaultParticipants={Number(f.nb_max_coureurs || 200)} />
+                        </div>
                       </Field>
-
 
                       {f.type_format !== "individuel" && (
                         <Field label="Prix équipe (optionnel)">
                           <Input
                             value={f.prix_equipe}
-                            onChange={(e) =>
-                              updateFormat(f.id, {
-                                prix_equipe: e.target.value,
-                              })
-                            }
+                            onChange={(e) => updateFormat(f.id, { prix_equipe: e.target.value })}
                             placeholder="Ex. 120"
                           />
                         </Field>
@@ -1504,11 +1501,7 @@ export default function UpsertCourse() {
                         {f.reglement_pdf_url && (
                           <div className="text-xs text-neutral-600 mt-1 break-all">
                             Actuel :{" "}
-                            <a
-                              href={f.reglement_pdf_url}
-                              target="_blank"
-                              rel="noreferrer"
-                            >
+                            <a href={f.reglement_pdf_url} target="_blank" rel="noreferrer">
                               {f.reglement_pdf_url}
                             </a>
                           </div>
@@ -1519,115 +1512,54 @@ export default function UpsertCourse() {
                     {/* Logistique */}
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <Field label="Ravitaillements">
-                        <Input
-                          name="ravitaillements"
-                          value={f.ravitaillements}
-                          onChange={(e) => handleFormatChange(index, e)}
-                          placeholder="Ex. 3 ravitos"
-                        />
+                        <Input name="ravitaillements" value={f.ravitaillements} onChange={(e) => handleFormatChange(index, e)} placeholder="Ex. 3 ravitos" />
                       </Field>
                       <Field label="Remise des dossards">
-                        <Input
-                          name="remise_dossards"
-                          value={f.remise_dossards}
-                          onChange={(e) => handleFormatChange(index, e)}
-                          placeholder="Ex. veille, 16–19h"
-                        />
+                        <Input name="remise_dossards" value={f.remise_dossards} onChange={(e) => handleFormatChange(index, e)} placeholder="Ex. veille, 16–19h" />
                       </Field>
                       <Field label="Dotation">
-                        <Input
-                          name="dotation"
-                          value={f.dotation}
-                          onChange={(e) => handleFormatChange(index, e)}
-                          placeholder="Ex. T-shirt finisher"
-                        />
+                        <Input name="dotation" value={f.dotation} onChange={(e) => handleFormatChange(index, e)} placeholder="Ex. T-shirt finisher" />
                       </Field>
                     </div>
 
                     <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                       <Field label="Âge minimum">
-                        <Input
-                          name="age_minimum"
-                          value={f.age_minimum}
-                          onChange={(e) => handleFormatChange(index, e)}
-                          placeholder="Ex. 18"
-                        />
+                        <Input name="age_minimum" value={f.age_minimum} onChange={(e) => handleFormatChange(index, e)} placeholder="Ex. 18" />
                       </Field>
                     </div>
 
                     <Field label="Hébergements (optionnel)">
-                      <Textarea
-                        name="hebergements"
-                        value={f.hebergements}
-                        onChange={(e) => handleFormatChange(index, e)}
-                        placeholder="Infos hébergements, partenaires, etc."
-                      />
+                      <Textarea name="hebergements" value={f.hebergements} onChange={(e) => handleFormatChange(index, e)} placeholder="Infos hébergements, partenaires, etc." />
                     </Field>
 
                     {/* Groupe/Relais */}
                     {f.type_format !== "individuel" && (
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <Field label="Nombre de coureurs (équipe)">
-                          <Input
-                            value={f.team_size}
-                            onChange={(e) =>
-                              updateFormat(f.id, {
-                                team_size: e.target.value,
-                              })
-                            }
-                            placeholder="Ex. 6"
-                          />
+                          <Input value={f.team_size} onChange={(e) => updateFormat(f.id, { team_size: e.target.value })} placeholder="Ex. 6" />
                         </Field>
                         <Field label="Taille min (optionnel)">
-                          <Input
-                            value={f.nb_coureurs_min}
-                            onChange={(e) =>
-                              updateFormat(f.id, {
-                                nb_coureurs_min: e.target.value,
-                              })
-                            }
-                          />
+                          <Input value={f.nb_coureurs_min} onChange={(e) => updateFormat(f.id, { nb_coureurs_min: e.target.value })} />
                         </Field>
                         <Field label="Taille max (optionnel)">
-                          <Input
-                            value={f.nb_coureurs_max}
-                            onChange={(e) =>
-                              updateFormat(f.id, {
-                                nb_coureurs_max: e.target.value,
-                              })
-                            }
-                          />
+                          <Input value={f.nb_coureurs_max} onChange={(e) => updateFormat(f.id, { nb_coureurs_max: e.target.value })} />
                         </Field>
                       </div>
                     )}
 
                     {f.type_format === "relais" && (
                       <div className="grid gap-3">
-                        <div className="text-sm font-semibold text-neutral-700">
-                          Étapes du relais
-                        </div>
-                        <EtapesRelaisEditor
-                          etapes={f.etapes}
-                          setEtapes={(next) =>
-                            updateFormat(f.id, { etapes: next })
-                          }
-                        />
+                        <div className="text-sm font-semibold text-neutral-700">Étapes du relais</div>
+                        <EtapesRelaisEditor etapes={f.etapes} setEtapes={(next) => updateFormat(f.id, { etapes: next })} />
                       </div>
                     )}
 
                     {/* Options catalogue */}
                     <div className="mt-4 pt-4 border-t border-dashed border-neutral-300 grid gap-3">
                       <div className="flex items-center justify-between">
-                        <div className="text-sm font-semibold text-neutral-700">
-                          Options (repas, tee-shirt, navette, etc.)
-                        </div>
+                        <div className="text-sm font-semibold text-neutral-700">Options (repas, tee-shirt, navette, etc.)</div>
                       </div>
-                      <OptionsEditor
-                        options={f.options || []}
-                        setOptions={(next) =>
-                          updateFormat(f.id, { options: next })
-                        }
-                      />
+                      <OptionsEditor options={f.options || []} setOptions={(next) => updateFormat(f.id, { options: next })} />
                     </div>
                   </div>
                 </div>
