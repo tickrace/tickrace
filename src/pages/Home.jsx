@@ -31,19 +31,14 @@ import {
 
 /* ----------------------------- UI helpers ----------------------------- */
 const Container = ({ children, className = "" }) => (
-  <div
-    className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}
-  >
+  <div className={`mx-auto w-full max-w-7xl px-4 sm:px-6 lg:px-8 ${className}`}>
     {children}
   </div>
 );
 
 const Card = ({ children, className = "" }) => (
   <div
-    className={[
-      "rounded-2xl bg-white ring-1 ring-neutral-200 shadow-sm",
-      className,
-    ].join(" ")}
+    className={["rounded-2xl bg-white ring-1 ring-neutral-200 shadow-sm", className].join(" ")}
   >
     {children}
   </div>
@@ -60,13 +55,7 @@ const Badge = ({ children, className = "" }) => (
   </span>
 );
 
-const CTA = ({
-  children,
-  to,
-  onClick,
-  variant = "primary",
-  className = "",
-}) => {
+const CTA = ({ children, to, onClick, variant = "primary", className = "" }) => {
   const base =
     "inline-flex items-center justify-center gap-2 rounded-2xl px-5 py-3 text-sm font-semibold transition active:translate-y-px focus:outline-none focus:ring-2";
   const styles =
@@ -124,9 +113,11 @@ export default function Home() {
   const [upcoming3, setUpcoming3] = useState([]);
   const [loadingUpcoming, setLoadingUpcoming] = useState(true);
 
-  // Recherche rapide (redirige vers /courses)
+  // Recherche rapide (redirige vers /courses) — multi-sports
   const [homeLieu, setHomeLieu] = useState("");
   const [homeDate, setHomeDate] = useState("");
+  const [homeSport, setHomeSport] = useState("trail");
+  const [homeDiscipline, setHomeDiscipline] = useState("");
   const [homeDist, setHomeDist] = useState("");
 
   // Simulateur (compact)
@@ -168,6 +159,148 @@ export default function Home() {
     };
   }, [simParticipants, simPrix, simExtras, simStripe]);
 
+  /* =========================
+     Recherche rapide multi-sport
+     ========================= */
+  const HOME_SPORTS = useMemo(
+    () => [
+      {
+        code: "trail",
+        label: "Trail",
+        disciplines: [],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<15", label: "< 15 km", distParam: "0-15" },
+          { value: "15-30", label: "15–30 km", distParam: "15-30" },
+          { value: "30-60", label: "30–60 km", distParam: "30+" },
+          { value: ">60", label: "> 60 km", distParam: "30+" },
+        ],
+      },
+      {
+        code: "running",
+        label: "Running / Route",
+        disciplines: [
+          { value: "5k", label: "5 km" },
+          { value: "10k", label: "10 km" },
+          { value: "hm", label: "Semi-marathon" },
+          { value: "marathon", label: "Marathon" },
+          { value: "track", label: "Piste" },
+          { value: "cross", label: "Cross" },
+        ],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<5", label: "< 5 km", distParam: "0-15" },
+          { value: "5-10", label: "5–10 km", distParam: "0-15" },
+          { value: "10-21", label: "10–21 km", distParam: "0-15" },
+          { value: "21-42", label: "21–42 km", distParam: "15-30" },
+          { value: ">42", label: "> 42 km", distParam: "30+" },
+        ],
+      },
+      {
+        code: "hiking",
+        label: "Rando / Marche",
+        disciplines: [
+          { value: "rando_chrono", label: "Rando chronométrée" },
+          { value: "marche_nordique", label: "Marche nordique" },
+        ],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<10", label: "< 10 km", distParam: "0-15" },
+          { value: "10-20", label: "10–20 km", distParam: "0-15" },
+          { value: "20-40", label: "20–40 km", distParam: "15-30" },
+          { value: ">40", label: "> 40 km", distParam: "30+" },
+        ],
+      },
+      {
+        code: "mtb",
+        label: "VTT",
+        disciplines: [
+          { value: "xc", label: "XC" },
+          { value: "marathon", label: "Marathon VTT" },
+          { value: "enduro", label: "Enduro" },
+          { value: "ebike", label: "E-bike" },
+        ],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<30", label: "< 30 km", distParam: "15-30" },
+          { value: "30-60", label: "30–60 km", distParam: "30+" },
+          { value: "60-100", label: "60–100 km", distParam: "30+" },
+          { value: ">100", label: "> 100 km", distParam: "30+" },
+        ],
+      },
+      {
+        code: "gravel",
+        label: "Gravel",
+        disciplines: [],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<60", label: "< 60 km", distParam: "30+" },
+          { value: "60-100", label: "60–100 km", distParam: "30+" },
+          { value: "100-150", label: "100–150 km", distParam: "30+" },
+          { value: ">150", label: "> 150 km", distParam: "30+" },
+        ],
+      },
+      {
+        code: "cycling_road",
+        label: "Cyclosportive / Route",
+        disciplines: [
+          { value: "cyclosportive", label: "Cyclosportive" },
+          { value: "tt", label: "Contre-la-montre" },
+        ],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<60", label: "< 60 km", distParam: "30+" },
+          { value: "60-100", label: "60–100 km", distParam: "30+" },
+          { value: "100-150", label: "100–150 km", distParam: "30+" },
+          { value: ">150", label: "> 150 km", distParam: "30+" },
+        ],
+      },
+      {
+        code: "triathlon",
+        label: "Triathlon",
+        disciplines: [
+          { value: "sprint", label: "Sprint" },
+          { value: "olympic", label: "Olympique" },
+          { value: "md", label: "M" },
+          { value: "ld", label: "L" },
+          { value: "xtri", label: "XTri" },
+        ],
+        distanceLabel: "Format",
+        distanceOptions: [{ value: "", label: "—", distParam: "" }],
+      },
+      {
+        code: "swimrun",
+        label: "Swimrun",
+        disciplines: [],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<20", label: "< 20 km", distParam: "0-15" },
+          { value: "20-40", label: "20–40 km", distParam: "15-30" },
+          { value: ">40", label: "> 40 km", distParam: "30+" },
+        ],
+      },
+      {
+        code: "raid_multisport",
+        label: "Raid multisport",
+        disciplines: [],
+        distanceLabel: "Distance",
+        distanceOptions: [
+          { value: "<4h", label: "< 4h", distParam: "" },
+          { value: "4-8h", label: "4–8h", distParam: "" },
+          { value: ">8h", label: "> 8h", distParam: "" },
+        ],
+      },
+    ],
+    []
+  );
+
+  const homeSportDef = useMemo(
+    () => HOME_SPORTS.find((s) => s.code === homeSport) || HOME_SPORTS[0],
+    [HOME_SPORTS, homeSport]
+  );
+  const homeDistanceOptions = homeSportDef.distanceOptions || [];
+  const homeDisciplines = homeSportDef.disciplines || [];
+
   /* -------- Charger les 3 prochaines épreuves (chrono) -------- */
   useEffect(() => {
     (async () => {
@@ -183,6 +316,10 @@ export default function Home() {
             departement,
             created_at,
             image_url,
+            sport_code,
+            discipline_code,
+            timing_mode,
+            is_team_event,
             formats (
               id,
               course_id,
@@ -292,14 +429,18 @@ export default function Home() {
 
   const onHomeSearch = () => {
     const sp = new URLSearchParams();
+
     if (homeLieu.trim()) sp.set("q", homeLieu.trim());
     if (homeDate) sp.set("from", homeDate);
 
-    // mapping simple vers buckets /courses
-    if (homeDist === "<10") sp.set("dist", "0-15");
-    if (homeDist === "10-20") sp.set("dist", "0-15");
-    if (homeDist === "20-40") sp.set("dist", "15-30");
-    if (homeDist === ">40") sp.set("dist", "30+");
+    // ✅ multi-sport
+    if (homeSport) sp.set("sport", homeSport);
+    if (homeDiscipline) sp.set("discipline", homeDiscipline);
+
+    // ✅ distance -> dist buckets (/courses)
+    const selected = homeDistanceOptions.find((o) => o.value === homeDist);
+    const distParam = selected?.distParam || "";
+    if (distParam) sp.set("dist", distParam);
 
     navigate(`/courses?${sp.toString()}`);
   };
@@ -329,36 +470,28 @@ export default function Home() {
               </div>
 
               <h1 className="text-4xl sm:text-5xl font-black leading-tight tracking-tight">
-                Trouve une course.{" "}
-                <span className="text-orange-600">Ou publie la tienne.</span>
+                Trouve une course. <span className="text-orange-600">Ou publie la tienne.</span>
               </h1>
 
               <p className="text-neutral-600 max-w-xl">
-                TickRace centralise la création d’épreuves, l’inscription, le
-                règlement, les messages coureurs, la gestion bénévoles et les
-                reversements automatiques.
+                TickRace centralise la création d’épreuves, l’inscription, le règlement, les messages coureurs, la
+                gestion bénévoles et les reversements automatiques.
               </p>
 
-              {/* ✅ Multi-sports (quelques lignes, discret) */}
+              {/* ✅ Multi-sports */}
               <Card className="p-4 bg-white/70 backdrop-blur">
-                <div className="text-xs font-black text-neutral-900">
-                  Multi-sports
-                </div>
+                <div className="text-xs font-black text-neutral-900">Multi-sports</div>
                 <p className="mt-1 text-sm text-neutral-700">
-                  Pensé pour le <strong>trail</strong>, TickRace s’adapte aussi à
-                  d’autres disciplines : <strong>route</strong>,{" "}
-                  <strong>VTT</strong>, <strong>triathlon</strong>,{" "}
-                  <strong>randonnée</strong>…
+                  Pensé pour le <strong>trail</strong>, TickRace s’adapte aussi à d’autres disciplines :{" "}
+                  <strong>route</strong>, <strong>VTT</strong>, <strong>triathlon</strong>, <strong>randonnée</strong>…
                   <span className="text-neutral-600"> (et plus à venir)</span>
                 </p>
                 <div className="mt-3 flex flex-wrap gap-2">
-                  {["Trail", "Route", "VTT", "Triathlon", "Randonnée"].map(
-                    (s) => (
-                      <Badge key={s} className="bg-neutral-50">
-                        {s}
-                      </Badge>
-                    )
-                  )}
+                  {["Trail", "Route", "VTT", "Triathlon", "Randonnée"].map((s) => (
+                    <Badge key={s} className="bg-neutral-50">
+                      {s}
+                    </Badge>
+                  ))}
                   <Badge className="bg-orange-50 text-orange-700 ring-orange-200">
                     Branding multi-sports
                   </Badge>
@@ -385,12 +518,12 @@ export default function Home() {
               </div>
 
               <div className="text-[11px] text-neutral-500">
-                Reversements indicatifs : acompte (50%) à partir de J+7 après
-                paiement, puis solde à partir de J+2 après la course.
+                Reversements indicatifs : acompte (50%) à partir de J+7 après paiement, puis solde à partir de J+2 après
+                la course.
               </div>
             </motion.div>
 
-            {/* Droite : À LA UNE (full height) */}
+            {/* Droite : À LA UNE */}
             <motion.div
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -398,7 +531,6 @@ export default function Home() {
               className="lg:col-span-7 flex"
             >
               <div className="relative w-full flex flex-col justify-center">
-                {/* Explorer (overlay) */}
                 <div className="absolute right-4 top-4 z-10">
                   <Link
                     to="/courses"
@@ -408,7 +540,6 @@ export default function Home() {
                   </Link>
                 </div>
 
-                {/* ✅ hauteur de référence + fill */}
                 <div className="min-h-[360px] sm:min-h-[420px] lg:min-h-[520px]">
                   <ALaUneSection fill className="h-full" />
                 </div>
@@ -418,25 +549,20 @@ export default function Home() {
         </Container>
       </section>
 
-      {/* Recherche + Prochaines épreuves (simple, premium) */}
+      {/* Recherche + Prochaines épreuves */}
       <section className="py-10 sm:py-14">
         <Container>
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
             {/* recherche */}
             <Card className="p-5 lg:col-span-5">
-              <div className="text-sm font-black text-neutral-900">
-                Recherche rapide
-              </div>
+              <div className="text-sm font-black text-neutral-900">Recherche rapide</div>
               <p className="mt-1 text-sm text-neutral-600">
-                Une recherche simple — puis tous les filtres avancés sur la page
-                Courses.
+                Une recherche simple — puis tous les filtres avancés sur la page Courses.
               </p>
 
               <div className="mt-4 space-y-3">
                 <div>
-                  <label className="text-xs font-semibold text-neutral-600">
-                    Lieu
-                  </label>
+                  <label className="text-xs font-semibold text-neutral-600">Lieu</label>
                   <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                     <MapPin className="h-4 w-4 text-neutral-400" />
                     <input
@@ -448,11 +574,30 @@ export default function Home() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* ✅ multi-sport : Sport + date + distance/format */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                   <div>
-                    <label className="text-xs font-semibold text-neutral-600">
-                      À partir du
-                    </label>
+                    <label className="text-xs font-semibold text-neutral-600">Sport</label>
+                    <select
+                      value={homeSport}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setHomeSport(v);
+                        setHomeDist("");
+                        setHomeDiscipline("");
+                      }}
+                      className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                    >
+                      {HOME_SPORTS.map((s) => (
+                        <option key={s.code} value={s.code}>
+                          {s.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-600">À partir du</label>
                     <div className="mt-1 flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2">
                       <CalendarDays className="h-4 w-4 text-neutral-400" />
                       <input
@@ -466,21 +611,57 @@ export default function Home() {
 
                   <div>
                     <label className="text-xs font-semibold text-neutral-600">
-                      Distance
+                      {homeSportDef.distanceLabel || "Distance"}
                     </label>
+
+                    {homeSport === "triathlon" ? (
+                      <select
+                        value={homeDiscipline}
+                        onChange={(e) => setHomeDiscipline(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">—</option>
+                        {homeDisciplines.map((d) => (
+                          <option key={d.value} value={d.value}>
+                            {d.label}
+                          </option>
+                        ))}
+                      </select>
+                    ) : (
+                      <select
+                        value={homeDist}
+                        onChange={(e) => setHomeDist(e.target.value)}
+                        className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+                      >
+                        <option value="">—</option>
+                        {homeDistanceOptions.map((o) => (
+                          <option key={o.value} value={o.value}>
+                            {o.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                  </div>
+                </div>
+
+                {/* Discipline optionnelle (running / vtt / rando / cyclosportive…) */}
+                {homeSport !== "triathlon" && homeDisciplines.length > 0 && (
+                  <div>
+                    <label className="text-xs font-semibold text-neutral-600">Discipline (optionnel)</label>
                     <select
-                      value={homeDist}
-                      onChange={(e) => setHomeDist(e.target.value)}
+                      value={homeDiscipline}
+                      onChange={(e) => setHomeDiscipline(e.target.value)}
                       className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
                     >
                       <option value="">—</option>
-                      <option value="<10">&lt; 10 km</option>
-                      <option value="10-20">10–20 km</option>
-                      <option value="20-40">20–40 km</option>
-                      <option value=">40">&gt; 40 km</option>
+                      {homeDisciplines.map((d) => (
+                        <option key={d.value} value={d.value}>
+                          {d.label}
+                        </option>
+                      ))}
                     </select>
                   </div>
-                </div>
+                )}
 
                 <div className="flex flex-wrap gap-2 pt-1">
                   <CTA onClick={onHomeSearch} variant="primary" className="flex-1">
@@ -490,6 +671,10 @@ export default function Home() {
                     Voir la carte
                   </CTA>
                 </div>
+
+                <div className="text-[11px] text-neutral-500">
+                  Astuce : choisis un sport pour adapter les distances (trail / route / VTT / gravel / triathlon…).
+                </div>
               </div>
             </Card>
 
@@ -497,17 +682,12 @@ export default function Home() {
             <div className="lg:col-span-7">
               <div className="flex items-end justify-between gap-3">
                 <div>
-                  <div className="text-sm font-black text-neutral-900">
-                    Prochaines épreuves
-                  </div>
+                  <div className="text-sm font-black text-neutral-900">Prochaines épreuves</div>
                   <p className="mt-1 text-sm text-neutral-600">
                     Les 3 prochaines courses à venir, triées par date.
                   </p>
                 </div>
-                <Link
-                  to="/courses"
-                  className="text-sm font-semibold text-neutral-800 hover:underline"
-                >
+                <Link to="/courses" className="text-sm font-semibold text-neutral-800 hover:underline">
                   Voir toutes →
                 </Link>
               </div>
@@ -552,12 +732,11 @@ export default function Home() {
                 <div className="flex items-start justify-between gap-3">
                   <div>
                     <h2 className="text-2xl sm:text-3xl font-black tracking-tight">
-                      Une suite organisateur{" "}
-                      <span className="text-orange-600">simple & pro</span>
+                      Une suite organisateur <span className="text-orange-600">simple & pro</span>
                     </h2>
                     <p className="mt-2 text-sm text-neutral-600">
-                      Tout est pensé pour réduire l’administratif : un flux clair,
-                      des outils intégrés, et une traçabilité propre.
+                      Tout est pensé pour réduire l’administratif : un flux clair, des outils intégrés, et une
+                      traçabilité propre.
                     </p>
                   </div>
                   <Badge className="bg-orange-50 text-orange-700 ring-orange-200">
@@ -620,11 +799,7 @@ export default function Home() {
 
                 <div className="mt-6 flex flex-wrap gap-2">
                   <CTA
-                    onClick={() =>
-                      session?.user
-                        ? navigate("/organisateur/mon-espace")
-                        : navigate("/login")
-                    }
+                    onClick={() => (session?.user ? navigate("/organisateur/mon-espace") : navigate("/login"))}
                     variant="dark"
                   >
                     <Settings className="h-4 w-4" /> Ouvrir l’espace
@@ -649,8 +824,8 @@ export default function Home() {
                     <Users className="h-4 w-4" /> Communauté
                   </div>
                   <p className="mt-2 text-sm text-neutral-700">
-                    Pose une question, organise un covoit’, et mentionne{" "}
-                    <span className="font-semibold">@IA</span> si besoin.
+                    Pose une question, organise un covoit’, et mentionne <span className="font-semibold">@IA</span> si
+                    besoin.
                   </p>
 
                   <div className="mt-4 flex gap-2">
@@ -687,15 +862,9 @@ export default function Home() {
                 </div>
 
                 <div className="mt-4 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-                  <div className="text-xs font-semibold text-neutral-500">
-                    Net organisateur (estimation)
-                  </div>
-                  <div className="mt-1 text-2xl font-black">
-                    {fmtEUR(sim.netOrganisateur)}
-                  </div>
-                  <div className="mt-1 text-xs text-neutral-500">
-                    ~ {fmtEUR(sim.netParInscrit)} / inscrit
-                  </div>
+                  <div className="text-xs font-semibold text-neutral-500">Net organisateur (estimation)</div>
+                  <div className="mt-1 text-2xl font-black">{fmtEUR(sim.netOrganisateur)}</div>
+                  <div className="mt-1 text-xs text-neutral-500">~ {fmtEUR(sim.netParInscrit)} / inscrit</div>
 
                   {showSimDetails && (
                     <div className="mt-4 space-y-3">
@@ -707,9 +876,7 @@ export default function Home() {
                             min={0}
                             step={10}
                             value={simParticipants}
-                            onChange={(e) =>
-                              setSimParticipants(Number(e.target.value || 0))
-                            }
+                            onChange={(e) => setSimParticipants(Number(e.target.value || 0))}
                             className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
                           />
                         </label>
@@ -720,9 +887,7 @@ export default function Home() {
                             min={0}
                             step={1}
                             value={simPrix}
-                            onChange={(e) =>
-                              setSimPrix(Number(e.target.value || 0))
-                            }
+                            onChange={(e) => setSimPrix(Number(e.target.value || 0))}
                             className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
                           />
                         </label>
@@ -735,9 +900,7 @@ export default function Home() {
                           min={0}
                           step={1}
                           value={simExtras}
-                          onChange={(e) =>
-                            setSimExtras(Number(e.target.value || 0))
-                          }
+                          onChange={(e) => setSimExtras(Number(e.target.value || 0))}
                           className="mt-1 w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
                         />
                       </label>
@@ -775,20 +938,12 @@ export default function Home() {
                           <span className="font-semibold">{fmtEUR(sim.brut)}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-neutral-600">
-                            Commission Tickrace (5%)
-                          </span>
-                          <span className="font-semibold">
-                            -{fmtEUR(sim.commissionTickrace)}
-                          </span>
+                          <span className="text-neutral-600">Commission Tickrace (5%)</span>
+                          <span className="font-semibold">-{fmtEUR(sim.commissionTickrace)}</span>
                         </div>
                         <div className="flex items-center justify-between">
-                          <span className="text-neutral-600">
-                            Frais paiement estimés
-                          </span>
-                          <span className="font-semibold">
-                            -{fmtEUR(sim.fraisStripe)}
-                          </span>
+                          <span className="text-neutral-600">Frais paiement estimés</span>
+                          <span className="font-semibold">-{fmtEUR(sim.fraisStripe)}</span>
                         </div>
                       </div>
                     </div>
@@ -814,17 +969,12 @@ export default function Home() {
         <Container>
           <div className="flex items-end justify-between gap-3">
             <div>
-              <div className="text-sm font-black text-neutral-900">
-                Les fondamentaux TickRace
-              </div>
+              <div className="text-sm font-black text-neutral-900">Les fondamentaux TickRace</div>
               <p className="mt-1 text-sm text-neutral-600">
                 Des briques simples, bien finies, qui couvrent le cœur du besoin.
               </p>
             </div>
-            <Link
-              to="/fonctionnalites"
-              className="text-sm font-semibold text-neutral-800 hover:underline"
-            >
+            <Link to="/fonctionnalites" className="text-sm font-semibold text-neutral-800 hover:underline">
               Tout voir →
             </Link>
           </div>
@@ -887,8 +1037,7 @@ function MiniFeature({ icon, title, desc, to, linkLabel }) {
 function CourseCardHome({ course }) {
   const soon =
     course.next_date &&
-    (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <=
-      14;
+    (parseDate(course.next_date).getTime() - new Date().getTime()) / 86400000 <= 14;
 
   return (
     <div className="group overflow-hidden rounded-2xl ring-1 ring-neutral-200 bg-white shadow-sm hover:shadow-md transition-shadow">
@@ -945,9 +1094,7 @@ function CourseCardHome({ course }) {
         </div>
 
         {course.next_date && (
-          <div className="mt-1 text-sm text-neutral-600">
-            📅 {fmtDate(course.next_date)}
-          </div>
+          <div className="mt-1 text-sm text-neutral-600">📅 {fmtDate(course.next_date)}</div>
         )}
 
         <div className="mt-3 text-sm text-neutral-700 space-y-1">
@@ -961,15 +1108,13 @@ function CourseCardHome({ course }) {
           {course.min_dplus != null && course.max_dplus != null && (
             <div>
               <strong>
-                {Math.round(course.min_dplus)}–{Math.round(course.max_dplus)} m
-                D+
+                {Math.round(course.min_dplus)}–{Math.round(course.max_dplus)} m D+
               </strong>
             </div>
           )}
           {course.min_prix != null && (
             <div className="text-neutral-700">
-              À partir de{" "}
-              <strong>{Number(course.min_prix).toFixed(2)} €</strong>
+              À partir de <strong>{Number(course.min_prix).toFixed(2)} €</strong>
             </div>
           )}
         </div>

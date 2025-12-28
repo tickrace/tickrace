@@ -45,9 +45,68 @@ function safeLocalStorageSet(key, value) {
 }
 
 /* ------------------- Multi-sport (compat) ------------------- */
+/**
+ * Objectif :
+ * - supporter les URLs home -> /courses?sport=trail&discipline=...
+ * - garder compat avec anciennes URLs -> ?type=Trail (ou autres)
+ * - supporter legacy formats.sport_global (label) et formats.type_epreuve
+ */
+
+const SPORT_LABELS = {
+  trail: "Trail",
+  running: "Course à pied",
+  road: "Course à pied",
+  hiking: "Randonnée",
+  mtb: "VTT",
+  gravel: "Gravel",
+  cycling_road: "Cyclisme route",
+  triathlon: "Triathlon",
+  swimrun: "Swimrun",
+  raid_multisport: "Raid multisport",
+};
+
+function normalizeSportCodeFromLabel(labelOrCode) {
+  const v = (labelOrCode || "").trim();
+  if (!v) return "";
+
+  const lower = v.toLowerCase();
+
+  // déjà un code
+  if (
+    [
+      "trail",
+      "running",
+      "road",
+      "hiking",
+      "mtb",
+      "gravel",
+      "cycling_road",
+      "triathlon",
+      "swimrun",
+      "raid_multisport",
+    ].includes(lower)
+  ) {
+    return lower;
+  }
+
+  // labels / variantes
+  if (lower === "trail") return "trail";
+  if (lower === "course à pied" || lower === "course a pied" || lower === "route") return "running";
+  if (lower === "randonnée" || lower === "randonnee" || lower === "rando") return "hiking";
+  if (lower === "vtt") return "mtb";
+  if (lower === "gravel") return "gravel";
+  if (lower === "cyclisme route" || lower === "cyclisme" || lower === "route vélo" || lower === "route velo")
+    return "cycling_road";
+  if (lower === "triathlon") return "triathlon";
+  if (lower === "swimrun") return "swimrun";
+  if (lower === "raid multisport" || lower === "raid") return "raid_multisport";
+
+  return "";
+}
+
 // ⚠️ Backward compat : si sport_global est vide (anciennes courses),
 // on déduit un sport depuis type_epreuve.
-function getFormatSport(f) {
+function getFormatSportLabel(f) {
   const sg = (f?.sport_global || "").trim();
   if (sg) return sg;
 
@@ -55,7 +114,34 @@ function getFormatSport(f) {
   if (te === "trail") return "Trail";
   if (te === "route") return "Course à pied";
   if (te === "rando") return "Randonnée";
+  if (te === "vtt") return "VTT";
+  if (te === "gravel") return "Gravel";
+  if (te === "triathlon") return "Triathlon";
   return "";
+}
+
+function getCourseSportCode(course) {
+  const sc = (course?.sport_code || "").trim().toLowerCase();
+  if (sc) return sc;
+
+  // fallback sur formats
+  const fList = Array.isArray(course?.formats) ? course.formats : [];
+  for (const f of fList) {
+    const label = getFormatSportLabel(f);
+    const code = normalizeSportCodeFromLabel(label);
+    if (code) return code;
+  }
+  return "";
+}
+
+function getCourseSportLabel(course) {
+  const code = getCourseSportCode(course);
+  if (code && SPORT_LABELS[code]) return SPORT_LABELS[code];
+
+  // fallback si on ne sait pas map
+  const fList = Array.isArray(course?.formats) ? course.formats : [];
+  const label = getFormatSportLabel(fList?.[0]);
+  return label || "";
 }
 
 /* ----------------------- Buckets filtres ------------------------- */
@@ -93,8 +179,9 @@ export default function Courses() {
 
     const dep = searchParams.get("dep") ?? "all";
 
-    // ✅ on garde le param URL "type" pour compat, mais il devient "sport"
-    const type = searchParams.get("type") ?? "all";
+    // ✅ new home uses ?sport=... ; compat old URLs: ?type=...
+    const sport = searchParams.get("sport") ?? searchParams.get("type") ?? "all";
+    const discipline = searchParams.get("discipline") ?? "all";
 
     const from = searchParams.get("from") ?? todayISO();
     const to = searchParams.get("to") ?? "";
@@ -109,7 +196,8 @@ export default function Courses() {
       q,
       view: VIEWS.has(view) ? view : "list",
       dep,
-      type, // (sport)
+      sport, // code ou label (normalisé plus bas)
+      discipline,
       from,
       to,
       dist: DIST_BUCKETS.some((b) => b.key === dist) ? dist : "all",
@@ -126,8 +214,13 @@ export default function Courses() {
   const [search, setSearch] = useState(initial.q);
   const [departement, setDepartement] = useState(initial.dep);
 
-  // ✅ "type" = sport (pour compat avec le reste du code)
-  const [type, setType] = useState(initial.type);
+  // ✅ sport (valeur stockée = code si possible)
+  const [sport, setSport] = useState(() => {
+    if (initial.sport === "all") return "all";
+    return normalizeSportCodeFromLabel(initial.sport) || initial.sport;
+  });
+
+  const [discipline, setDiscipline] = useState(initial.discipline);
 
   const [dateFrom, setDateFrom] = useState(initial.from);
   const [dateTo, setDateTo] = useState(initial.to);
@@ -159,8 +252,13 @@ export default function Courses() {
 
     if (departement !== "all") sp.set("dep", departement);
 
-    // ✅ on conserve ?type=... (mais c'est un sport)
-    if (type !== "all") sp.set("type", type);
+    // ✅ écrire sport (et garder type en miroir pour compat liens)
+    if (sport !== "all") {
+      sp.set("sport", sport);
+      sp.set("type", sport);
+    }
+
+    if (discipline !== "all" && discipline) sp.set("discipline", discipline);
 
     if (dateFrom) sp.set("from", dateFrom);
     if (dateTo) sp.set("to", dateTo);
@@ -178,7 +276,8 @@ export default function Courses() {
     search,
     viewMode,
     departement,
-    type,
+    sport,
+    discipline,
     dateFrom,
     dateTo,
     distKey,
@@ -193,7 +292,7 @@ export default function Courses() {
   useEffect(() => {
     setPage(1);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [departement, type, dateFrom, dateTo, distKey, dplusKey, sortBy, pageSize, viewMode]);
+  }, [departement, sport, discipline, dateFrom, dateTo, distKey, dplusKey, sortBy, pageSize, viewMode]);
 
   // Fetch courses + formats (avec nb_inscrits)
   const fetchAll = async () => {
@@ -213,6 +312,8 @@ export default function Courses() {
           image_url,
           lat,
           lng,
+          sport_code,
+          discipline_code,
           formats (
             id,
             course_id,
@@ -272,17 +373,56 @@ export default function Courses() {
     return Array.from(new Set(courses.map((c) => c.departement).filter(Boolean))).sort();
   }, [courses]);
 
-  // ✅ Sports disponibles (via sport_global + fallback type_epreuve)
-  const typesDisponibles = useMemo(() => {
-    const all = [];
-    courses.forEach((c) =>
-      (c.formats || []).forEach((f) => {
-        const s = getFormatSport(f);
-        if (s) all.push(s);
-      })
-    );
-    return Array.from(new Set(all)).sort();
+  // ✅ Sports disponibles : valeur = sport_code (si possible)
+  const sportsDisponibles = useMemo(() => {
+    const acc = [];
+    courses.forEach((c) => {
+      const code = getCourseSportCode(c);
+      const label = getCourseSportLabel(c);
+      if (code) acc.push({ code, label: SPORT_LABELS[code] || label || code });
+      else if (label) {
+        const fallbackCode = normalizeSportCodeFromLabel(label);
+        if (fallbackCode) acc.push({ code: fallbackCode, label: SPORT_LABELS[fallbackCode] || label });
+      }
+    });
+
+    const map = new Map();
+    for (const s of acc) {
+      if (!map.has(s.code)) map.set(s.code, s.label);
+    }
+
+    return Array.from(map.entries())
+      .map(([code, label]) => ({ code, label }))
+      .sort((a, b) => a.label.localeCompare(b.label, "fr"));
   }, [courses]);
+
+  // ✅ Disciplines disponibles : dynamiques depuis courses.discipline_code
+  const disciplinesDisponibles = useMemo(() => {
+    const set = new Set();
+    courses.forEach((c) => {
+      const sc = getCourseSportCode(c);
+      if (sport !== "all") {
+        // sport sélectionné peut être un code OU un label legacy
+        const wanted = normalizeSportCodeFromLabel(sport) || sport;
+        if (sc && wanted && sc !== wanted) return;
+        if (!sc && wanted) {
+          // fallback si sc absent : on teste via formats
+          const hasWanted = (c.formats || []).some((f) => {
+            const code = normalizeSportCodeFromLabel(getFormatSportLabel(f));
+            return code && code === wanted;
+          });
+          if (!hasWanted) return;
+        }
+      }
+
+      const dc = (c?.discipline_code || "").trim();
+      if (dc) set.add(dc);
+    });
+
+    return Array.from(set)
+      .sort((a, b) => a.localeCompare(b, "fr"))
+      .map((code) => ({ code, label: code })); // label = code (pas d'assumptions)
+  }, [courses, sport]);
 
   // ViewModel course (minimal + clean)
   const resume = useMemo(() => {
@@ -350,14 +490,32 @@ export default function Courses() {
 
   // Filtres + tri
   const filtered = useMemo(() => {
+    const wantedSportCode = sport === "all" ? "" : normalizeSportCodeFromLabel(sport) || sport;
+
     return resume
       .filter((c) => {
         if (departement !== "all" && c.departement !== departement) return false;
 
-        // ✅ Filtre sport (compat param "type")
-        if (type !== "all") {
-          const hasSport = (c.formats || []).some((f) => getFormatSport(f) === type);
-          if (!hasSport) return false;
+        // ✅ Filtre sport (supporte code ou label legacy)
+        if (sport !== "all") {
+          const courseCode = getCourseSportCode(c);
+          if (courseCode) {
+            if (courseCode !== wantedSportCode) return false;
+          } else {
+            // fallback via formats
+            const hasSport = (c.formats || []).some((f) => {
+              const code = normalizeSportCodeFromLabel(getFormatSportLabel(f));
+              if (!code) return false;
+              return code === wantedSportCode;
+            });
+            if (!hasSport) return false;
+          }
+        }
+
+        // ✅ Filtre discipline (sur courses.discipline_code)
+        if (discipline !== "all" && discipline) {
+          const dc = (c?.discipline_code || "").trim();
+          if (!dc || dc !== discipline) return false;
         }
 
         if (dateFrom || dateTo) {
@@ -390,7 +548,7 @@ export default function Courses() {
         if (sortBy === "dplus") return (a.max_dplus ?? Infinity) - (b.max_dplus ?? Infinity);
         return (parseDate(a.next_date)?.getTime() ?? Infinity) - (parseDate(b.next_date)?.getTime() ?? Infinity);
       });
-  }, [resume, departement, type, dateFrom, dateTo, distKey, dplusKey, sortBy]);
+  }, [resume, departement, sport, discipline, dateFrom, dateTo, distKey, dplusKey, sortBy]);
 
   // Pagination
   const total = filtered.length;
@@ -403,7 +561,8 @@ export default function Courses() {
   const resetFilters = () => {
     setSearch("");
     setDepartement("all");
-    setType("all");
+    setSport("all");
+    setDiscipline("all");
     setDateFrom(todayISO());
     setDateTo("");
     setDistKey("all");
@@ -465,11 +624,17 @@ export default function Courses() {
         {viewMode === "list" && (
           <FiltersBar
             departements={departements}
-            typesDisponibles={typesDisponibles}
+            sportsDisponibles={sportsDisponibles}
+            disciplinesDisponibles={disciplinesDisponibles}
             departement={departement}
             setDepartement={setDepartement}
-            type={type}
-            setType={setType}
+            sport={sport}
+            setSport={(v) => {
+              setSport(v);
+              setDiscipline("all"); // reset discipline quand sport change
+            }}
+            discipline={discipline}
+            setDiscipline={setDiscipline}
             dateFrom={dateFrom}
             setDateFrom={setDateFrom}
             dateTo={dateTo}
@@ -543,11 +708,14 @@ export default function Courses() {
 
 function FiltersBar({
   departements,
-  typesDisponibles,
+  sportsDisponibles,
+  disciplinesDisponibles,
   departement,
   setDepartement,
-  type,
-  setType,
+  sport,
+  setSport,
+  discipline,
+  setDiscipline,
   dateFrom,
   setDateFrom,
   dateTo,
@@ -598,16 +766,32 @@ function FiltersBar({
             ))}
           </select>
 
-          {/* ✅ label "sports" mais variable/param restent "type" pour compat */}
+          {/* ✅ sport (valeur = code) */}
           <select
-            value={type}
-            onChange={(e) => setType(e.target.value)}
+            value={sport}
+            onChange={(e) => setSport(e.target.value)}
             className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
           >
             <option value="all">Tous les sports</option>
-            {typesDisponibles.map((t) => (
-              <option key={t} value={t}>
-                {t}
+            {sportsDisponibles.map((s) => (
+              <option key={s.code} value={s.code}>
+                {s.label}
+              </option>
+            ))}
+          </select>
+
+          {/* ✅ discipline (si dispo) */}
+          <select
+            value={discipline}
+            onChange={(e) => setDiscipline(e.target.value)}
+            className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
+            disabled={disciplinesDisponibles.length === 0}
+            title={disciplinesDisponibles.length === 0 ? "Aucune discipline disponible pour ce sport" : ""}
+          >
+            <option value="all">{disciplinesDisponibles.length ? "Toutes les disciplines" : "Disciplines (—)"}</option>
+            {disciplinesDisponibles.map((d) => (
+              <option key={d.code} value={d.code}>
+                {d.label}
               </option>
             ))}
           </select>
