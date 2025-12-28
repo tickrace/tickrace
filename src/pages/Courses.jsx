@@ -44,6 +44,20 @@ function safeLocalStorageSet(key, value) {
   }
 }
 
+/* ------------------- Multi-sport (compat) ------------------- */
+// ⚠️ Backward compat : si sport_global est vide (anciennes courses),
+// on déduit un sport depuis type_epreuve.
+function getFormatSport(f) {
+  const sg = (f?.sport_global || "").trim();
+  if (sg) return sg;
+
+  const te = (f?.type_epreuve || "").trim().toLowerCase();
+  if (te === "trail") return "Trail";
+  if (te === "route") return "Course à pied";
+  if (te === "rando") return "Randonnée";
+  return "";
+}
+
 /* ----------------------- Buckets filtres ------------------------- */
 const DIST_BUCKETS = [
   { key: "all", label: "Distance (toutes)" },
@@ -78,7 +92,10 @@ export default function Courses() {
       "list";
 
     const dep = searchParams.get("dep") ?? "all";
+
+    // ✅ on garde le param URL "type" pour compat, mais il devient "sport"
     const type = searchParams.get("type") ?? "all";
+
     const from = searchParams.get("from") ?? todayISO();
     const to = searchParams.get("to") ?? "";
     const dist = searchParams.get("dist") ?? "all";
@@ -92,7 +109,7 @@ export default function Courses() {
       q,
       view: VIEWS.has(view) ? view : "list",
       dep,
-      type,
+      type, // (sport)
       from,
       to,
       dist: DIST_BUCKETS.some((b) => b.key === dist) ? dist : "all",
@@ -108,7 +125,10 @@ export default function Courses() {
   const [viewMode, setViewMode] = useState(initial.view);
   const [search, setSearch] = useState(initial.q);
   const [departement, setDepartement] = useState(initial.dep);
+
+  // ✅ "type" = sport (pour compat avec le reste du code)
   const [type, setType] = useState(initial.type);
+
   const [dateFrom, setDateFrom] = useState(initial.from);
   const [dateTo, setDateTo] = useState(initial.to);
   const [distKey, setDistKey] = useState(initial.dist);
@@ -138,6 +158,8 @@ export default function Courses() {
     sp.set("view", viewMode);
 
     if (departement !== "all") sp.set("dep", departement);
+
+    // ✅ on conserve ?type=... (mais c'est un sport)
     if (type !== "all") sp.set("type", type);
 
     if (dateFrom) sp.set("from", dateFrom);
@@ -196,6 +218,7 @@ export default function Courses() {
             course_id,
             nom,
             type_epreuve,
+            sport_global,
             date,
             prix,
             distance_km,
@@ -249,9 +272,15 @@ export default function Courses() {
     return Array.from(new Set(courses.map((c) => c.departement).filter(Boolean))).sort();
   }, [courses]);
 
+  // ✅ Sports disponibles (via sport_global + fallback type_epreuve)
   const typesDisponibles = useMemo(() => {
     const all = [];
-    courses.forEach((c) => (c.formats || []).forEach((f) => f.type_epreuve && all.push(f.type_epreuve)));
+    courses.forEach((c) =>
+      (c.formats || []).forEach((f) => {
+        const s = getFormatSport(f);
+        if (s) all.push(s);
+      })
+    );
     return Array.from(new Set(all)).sort();
   }, [courses]);
 
@@ -325,9 +354,10 @@ export default function Courses() {
       .filter((c) => {
         if (departement !== "all" && c.departement !== departement) return false;
 
+        // ✅ Filtre sport (compat param "type")
         if (type !== "all") {
-          const hasType = (c.formats || []).some((f) => f.type_epreuve === type);
-          if (!hasType) return false;
+          const hasSport = (c.formats || []).some((f) => getFormatSport(f) === type);
+          if (!hasSport) return false;
         }
 
         if (dateFrom || dateTo) {
@@ -394,7 +424,7 @@ export default function Courses() {
               <span className="text-orange-600">Tick</span>Race
             </span>
           </h1>
-          <p className="mt-2 text-neutral-600 text-base">Inscrivez-vous. Courez. Partagez.</p>
+          <p className="mt-2 text-neutral-600 text-base">Inscrivez-vous. Bougez. Partagez.</p>
 
           <div className="mt-4 max-w-2xl mx-auto">
             <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-2 flex flex-col md:flex-row gap-2">
@@ -458,9 +488,7 @@ export default function Courses() {
         {viewMode === "list" && (
           <div className="mb-4 flex items-center justify-between">
             <div className="text-sm text-neutral-600">
-              {loading
-                ? "Chargement…"
-                : `${total} épreuve${total > 1 ? "s" : ""} trouvée${total > 1 ? "s" : ""}`}
+              {loading ? "Chargement…" : `${total} épreuve${total > 1 ? "s" : ""} trouvée${total > 1 ? "s" : ""}`}
             </div>
             <div className="flex items-center gap-2">
               <span className="text-sm text-neutral-600">Par page</span>
@@ -570,12 +598,13 @@ function FiltersBar({
             ))}
           </select>
 
+          {/* ✅ label "sports" mais variable/param restent "type" pour compat */}
           <select
             value={type}
             onChange={(e) => setType(e.target.value)}
             className="rounded-xl border border-neutral-200 px-3 py-2 text-sm focus:ring-2 focus:ring-orange-300"
           >
-            <option value="all">Tous les types</option>
+            <option value="all">Tous les sports</option>
             {typesDisponibles.map((t) => (
               <option key={t} value={t}>
                 {t}
