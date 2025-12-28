@@ -186,9 +186,7 @@ export default function CourseDetail() {
 
       const { data: c, error: e1 } = await supabase
         .from("courses")
-        .select(
-          "id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at"
-        )
+        .select("id, nom, presentation, lieu, departement, image_url, en_ligne, organisateur_id, created_at")
         .eq("id", id)
         .maybeSingle();
 
@@ -199,9 +197,7 @@ export default function CourseDetail() {
         return;
       }
 
-      const isOwner = !!(
-        session?.user?.id && c.organisateur_id === session.user.id
-      );
+      const isOwner = !!(session?.user?.id && c.organisateur_id === session.user.id);
       if (!c.en_ligne && !isOwner) {
         setCourse(c);
         setError("Cette épreuve est hors-ligne.");
@@ -342,8 +338,7 @@ export default function CourseDetail() {
         }
       } catch (e) {
         console.error(e);
-        if (!cancelled)
-          setReglementError("Règlement indisponible pour le moment.");
+        if (!cancelled) setReglementError("Règlement indisponible pour le moment.");
       } finally {
         if (!cancelled) setReglementLoading(false);
       }
@@ -377,9 +372,7 @@ export default function CourseDetail() {
   const heroFormatWithCounts = useMemo(() => {
     if (!heroFormat) return null;
     const count =
-      countsByFormat === null
-        ? undefined
-        : Number(countsByFormat?.[heroFormat.id] || 0);
+      countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
     return { ...heroFormat, ...(count === undefined ? {} : { nb_inscrits: count }) };
   }, [heroFormat, countsByFormat]);
 
@@ -404,12 +397,8 @@ export default function CourseDetail() {
     }, Infinity);
     const min_prix = minPrix === Infinity ? null : minPrix;
 
-    const dists = fList
-      .map((f) => Number(f.distance_km))
-      .filter((n) => Number.isFinite(n));
-    const dplus = fList
-      .map((f) => Number(f.denivele_dplus))
-      .filter((n) => Number.isFinite(n));
+    const dists = fList.map((f) => Number(f.distance_km)).filter((n) => Number.isFinite(n));
+    const dplus = fList.map((f) => Number(f.denivele_dplus)).filter((n) => Number.isFinite(n));
 
     const min_dist = dists.length ? Math.min(...dists) : null;
     const max_dist = dists.length ? Math.max(...dists) : null;
@@ -437,10 +426,7 @@ export default function CourseDetail() {
     };
   }, [formats, countsByFormat, course?.created_at]);
 
-  const hasAnyGPX = useMemo(
-    () => (formats || []).some((f) => !!f.gpx_url),
-    [formats]
-  );
+  const hasAnyGPX = useMemo(() => (formats || []).some((f) => !!f.gpx_url), [formats]);
 
   // ✅ liste “onglet formats” (tri + filtre uniquement formats ouverts)
   const formatsForTab = useMemo(() => {
@@ -454,12 +440,8 @@ export default function CourseDetail() {
         return pa - pb;
       }
       if (formatsSortBy === "dplus") {
-        const da = Number.isFinite(Number(a.denivele_dplus))
-          ? Number(a.denivele_dplus)
-          : Infinity;
-        const db = Number.isFinite(Number(b.denivele_dplus))
-          ? Number(b.denivele_dplus)
-          : Infinity;
+        const da = Number.isFinite(Number(a.denivele_dplus)) ? Number(a.denivele_dplus) : Infinity;
+        const db = Number.isFinite(Number(b.denivele_dplus)) ? Number(b.denivele_dplus) : Infinity;
         return da - db;
       }
       const ta = parseDate(a.date)?.getTime() ?? Infinity;
@@ -485,9 +467,7 @@ export default function CourseDetail() {
       <div className="max-w-4xl mx-auto px-4 py-16 text-center">
         <AlertCircle className="w-8 h-8 text-rose-600 mx-auto mb-2" />
         <h1 className="text-xl font-semibold">Épreuve introuvable</h1>
-        <p className="text-neutral-600 mt-1">
-          Vérifiez le lien ou revenez à la liste.
-        </p>
+        <p className="text-neutral-600 mt-1">Vérifiez le lien ou revenez à la liste.</p>
         <Link
           to="/courses"
           className="inline-flex mt-4 items-center gap-2 rounded-xl border border-neutral-200 bg-white px-4 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
@@ -551,11 +531,7 @@ export default function CourseDetail() {
       {/* HERO */}
       <div className="relative h-[260px] sm:h-[360px] md:h-[420px] w-full overflow-hidden">
         {course.image_url ? (
-          <img
-            src={course.image_url}
-            alt={`Image de ${course.nom}`}
-            className="h-full w-full object-cover"
-          />
+          <img src={course.image_url} alt={`Image de ${course.nom}`} className="h-full w-full object-cover" />
         ) : (
           <div className="h-full w-full bg-neutral-200 flex items-center justify-center text-neutral-500">
             <Mountain className="w-10 h-10" />
@@ -602,8 +578,7 @@ export default function CourseDetail() {
 
               {aggregates.min_prix != null && (
                 <span className="inline-flex items-center gap-1">
-                  💶 À partir de{" "}
-                  <strong>{Number(aggregates.min_prix).toFixed(2)} €</strong>
+                  💶 À partir de <strong>{Number(aggregates.min_prix).toFixed(2)} €</strong>
                 </span>
               )}
 
@@ -625,9 +600,7 @@ export default function CourseDetail() {
                   to={heroCTA.to}
                   className={[
                     "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold hover:brightness-110",
-                    heroCTA.variant === "secondary"
-                      ? "bg-white/20 text-white"
-                      : "bg-orange-500 text-white",
+                    heroCTA.variant === "secondary" ? "bg-white/20 text-white" : "bg-orange-500 text-white",
                   ].join(" ")}
                 >
                   {heroCTA.label} <ArrowRight className="w-4 h-4" />
@@ -708,40 +681,15 @@ export default function CourseDetail() {
             {tab === "aperçu" && (
               <section className="mt-6 space-y-4">
                 {course.presentation ? (
-                  <p className="text-neutral-800 leading-relaxed whitespace-pre-line">
-                    {course.presentation}
-                  </p>
+                  <p className="text-neutral-800 leading-relaxed whitespace-pre-line">{course.presentation}</p>
                 ) : (
-                  <p className="text-neutral-500">
-                    La présentation de l’épreuve sera bientôt disponible.
-                  </p>
+                  <p className="text-neutral-500">La présentation de l’épreuve sera bientôt disponible.</p>
                 )}
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                  <Fact
-                    title="Distance"
-                    value={formatRange(
-                      aggregates.min_dist,
-                      aggregates.max_dist,
-                      " km"
-                    )}
-                  />
-                  <Fact
-                    title="D+"
-                    value={formatRange(
-                      aggregates.min_dplus,
-                      aggregates.max_dplus,
-                      " m"
-                    )}
-                  />
-                  <Fact
-                    title="Prochaine date"
-                    value={
-                      aggregates.next_date
-                        ? fmtDate(aggregates.next_date)
-                        : "À venir"
-                    }
-                  />
+                  <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
+                  <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
+                  <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "À venir"} />
                   <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
                 </div>
               </section>
@@ -776,9 +724,7 @@ export default function CourseDetail() {
                             onChange={(e) => setOnlyOpenFormats(e.target.checked)}
                             className="h-4 w-4 rounded border-neutral-300 text-orange-600 focus:ring-orange-300"
                           />
-                          <span className="text-sm text-neutral-700">
-                            Afficher uniquement les formats ouverts
-                          </span>
+                          <span className="text-sm text-neutral-700">Afficher uniquement les formats ouverts</span>
                         </label>
                       </div>
 
@@ -807,9 +753,7 @@ export default function CourseDetail() {
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="text-sm text-neutral-700">
-                        Choisir un format :
-                      </label>
+                      <label className="text-sm text-neutral-700">Choisir un format :</label>
                       <select
                         value={selectedFormatId || ""}
                         onChange={(e) => setSelectedFormatId(e.target.value)}
@@ -825,13 +769,7 @@ export default function CourseDetail() {
 
                     {selectedFormat?.gpx_url ? (
                       <div className="rounded-2xl border bg-white shadow-sm overflow-hidden">
-                        <Suspense
-                          fallback={
-                            <div className="p-4 text-neutral-600">
-                              Chargement de la carte…
-                            </div>
-                          }
-                        >
+                        <Suspense fallback={<div className="p-4 text-neutral-600">Chargement de la carte…</div>}>
                           <GPXViewer
                             gpxUrl={selectedFormat.gpx_url}
                             height={420}
@@ -848,9 +786,7 @@ export default function CourseDetail() {
                     )}
 
                     {selectedFormat?.presentation_parcours && (
-                      <p className="text-neutral-700">
-                        {selectedFormat.presentation_parcours}
-                      </p>
+                      <p className="text-neutral-700">{selectedFormat.presentation_parcours}</p>
                     )}
                   </>
                 )}
@@ -864,9 +800,7 @@ export default function CourseDetail() {
                 ) : (
                   <>
                     <div className="flex flex-wrap items-center gap-2">
-                      <label className="text-sm text-neutral-700">
-                        Choisir un format :
-                      </label>
+                      <label className="text-sm text-neutral-700">Choisir un format :</label>
                       <select
                         value={selectedFormatId || ""}
                         onChange={(e) => setSelectedFormatId(e.target.value)}
@@ -933,15 +867,10 @@ export default function CourseDetail() {
                         </InfoItem>
                       </SectionCard>
 
-                      <SectionCard
-                        title="Ravitaillements & dossards"
-                        subtitle="Ce qu’il faut savoir"
-                      >
+                      <SectionCard title="Ravitaillements & dossards" subtitle="Ce qu’il faut savoir">
                         {asList(selectedFormat?.ravitaillements).length > 0 ? (
                           <div className="mb-3">
-                            <div className="text-[13px] font-medium text-neutral-600 mb-1">
-                              Ravitaillements
-                            </div>
+                            <div className="text-[13px] font-medium text-neutral-600 mb-1">Ravitaillements</div>
                             <ul className="list-disc pl-5 text-sm text-neutral-800 space-y-1">
                               {asList(selectedFormat.ravitaillements).map((r, i) => (
                                 <li key={i}>{r}</li>
@@ -967,14 +896,9 @@ export default function CourseDetail() {
                       </SectionCard>
 
                       <div className="xl:col-span-2">
-                        <SectionCard
-                          title="Présentation du parcours"
-                          subtitle="Description de l’organisateur"
-                        >
+                        <SectionCard title="Présentation du parcours" subtitle="Description de l’organisateur">
                           <div className="text-sm text-neutral-800 whitespace-pre-line">
-                            {selectedFormat?.presentation_parcours ||
-                              course.presentation ||
-                              "—"}
+                            {selectedFormat?.presentation_parcours || course.presentation || "—"}
                           </div>
                         </SectionCard>
                       </div>
@@ -997,9 +921,7 @@ export default function CourseDetail() {
                   </div>
                 ) : reglementText ? (
                   <div className="rounded-2xl border bg-white shadow-sm p-5">
-                    <div className="text-sm text-neutral-500 mb-3">
-                      Règlement officiel de l’épreuve.
-                    </div>
+                    <div className="text-sm text-neutral-500 mb-3">Règlement officiel de l’épreuve.</div>
                     <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-800">
                       {reglementText}
                     </pre>
@@ -1020,9 +942,7 @@ export default function CourseDetail() {
             <section id="discussion" className="mt-8">
               <div className="rounded-2xl border bg-white shadow-sm">
                 <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
-                  <h2 className="text-lg font-semibold">
-                    Discuter sous l’épreuve
-                  </h2>
+                  <h2 className="text-lg font-semibold">Discuter sous l’épreuve</h2>
                   <a
                     href="#discussion"
                     className="text-sm text-neutral-500 hover:text-neutral-800"
@@ -1032,15 +952,9 @@ export default function CourseDetail() {
                   </a>
                 </div>
                 <div className="p-5">
-                  {course && (
-                    <Chat
-                      courseId={course.id}
-                      organisateurId={course.organisateur_id}
-                    />
-                  )}
+                  {course && <Chat courseId={course.id} organisateurId={course.organisateur_id} />}
                   <p className="text-neutral-600 text-sm mt-3">
-                    Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour
-                    poser une question à l’assistant.
+                    Le chat arrive bientôt. Mentionnez <strong>@IA</strong> pour poser une question à l’assistant.
                   </p>
                 </div>
               </div>
@@ -1057,18 +971,12 @@ export default function CourseDetail() {
                 <h3 className="text-lg font-semibold">S’inscrire</h3>
 
                 {formats.length === 0 ? (
-                  <p className="text-sm text-neutral-600 mt-2">
-                    Les formats seront publiés bientôt.
-                  </p>
+                  <p className="text-sm text-neutral-600 mt-2">Les formats seront publiés bientôt.</p>
                 ) : (
                   <div className="mt-3 space-y-2">
                     {formats.map((f) => {
-                      const inscrit =
-                        countsByFormat === null
-                          ? null
-                          : Number(countsByFormat?.[f.id] || 0);
-                      const fmtForBadges =
-                        inscrit == null ? f : { ...f, nb_inscrits: inscrit };
+                      const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
+                      const fmtForBadges = inscrit == null ? f : { ...f, nb_inscrits: inscrit };
 
                       const full = computeIsFullWithCounts(f, countsByFormat);
                       const cta = getCtaForFormat({
@@ -1091,21 +999,14 @@ export default function CourseDetail() {
                                     {f.heure_depart ? ` • ${f.heure_depart}` : ""}
                                   </span>
                                 )}
-                                {Number.isFinite(Number(f.distance_km)) && (
-                                  <span>{Number(f.distance_km)} km</span>
-                                )}
-                                {Number.isFinite(Number(f.denivele_dplus)) && (
-                                  <span>{Number(f.denivele_dplus)} m D+</span>
-                                )}
+                                {Number.isFinite(Number(f.distance_km)) && <span>{Number(f.distance_km)} km</span>}
+                                {Number.isFinite(Number(f.denivele_dplus)) && <span>{Number(f.denivele_dplus)} m D+</span>}
                               </div>
 
                               <div className="mt-1 text-sm text-neutral-800">
                                 {Number.isFinite(Number(f.prix)) ? (
                                   <>
-                                    Prix :{" "}
-                                    <strong>
-                                      {Number(f.prix).toFixed(2)} €
-                                    </strong>
+                                    Prix : <strong>{Number(f.prix).toFixed(2)} €</strong>
                                   </>
                                 ) : (
                                   <>Prix : —</>
@@ -1113,17 +1014,9 @@ export default function CourseDetail() {
                               </div>
 
                               <div className="mt-2 flex flex-wrap items-center gap-2">
-                                <InscriptionStatusBadge
-                                  format={fmtForBadges}
-                                  isFullOverride={full}
-                                  prefix="Inscriptions"
-                                />
+                                <InscriptionStatusBadge format={fmtForBadges} isFullOverride={full} prefix="Inscriptions" />
                                 {countsByFormat !== null && (
-                                  <InscriptionPlacesBadge
-                                    format={fmtForBadges}
-                                    style="soft"
-                                    label="Places"
-                                  />
+                                  <InscriptionPlacesBadge format={fmtForBadges} style="soft" label="Places" />
                                 )}
                               </div>
                             </div>
@@ -1134,9 +1027,7 @@ export default function CourseDetail() {
                                 to={cta.to}
                                 className={[
                                   "shrink-0 inline-flex items-center gap-2 rounded-xl px-3 py-2 text-sm font-semibold hover:brightness-110",
-                                  cta.variant === "secondary"
-                                    ? "bg-neutral-900 text-white"
-                                    : "bg-orange-500 text-white",
+                                  cta.variant === "secondary" ? "bg-neutral-900 text-white" : "bg-orange-500 text-white",
                                 ].join(" ")}
                               >
                                 {cta.label} <ArrowRight className="w-4 h-4" />
@@ -1165,8 +1056,7 @@ export default function CourseDetail() {
 
                 {countsByFormat === null && (
                   <div className="mt-3 text-xs text-neutral-500">
-                    ⚠️ Les places / complet peuvent être masqués (accès inscriptions
-                    restreint).
+                    ⚠️ Les places / complet peuvent être masqués (accès inscriptions restreint).
                   </div>
                 )}
               </div>
@@ -1175,26 +1065,9 @@ export default function CourseDetail() {
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">Faits rapides</h3>
                 <div className="mt-3 grid grid-cols-2 gap-3">
-                  <Fact
-                    title="Distance"
-                    value={formatRange(
-                      aggregates.min_dist,
-                      aggregates.max_dist,
-                      " km"
-                    )}
-                  />
-                  <Fact
-                    title="D+"
-                    value={formatRange(
-                      aggregates.min_dplus,
-                      aggregates.max_dplus,
-                      " m"
-                    )}
-                  />
-                  <Fact
-                    title="Prochaine date"
-                    value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"}
-                  />
+                  <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
+                  <Fact title="D+" value={formatRange(aggregates.min_dplus, aggregates.max_dplus, " m")} />
+                  <Fact title="Prochaine date" value={aggregates.next_date ? fmtDate(aggregates.next_date) : "—"} />
                   <Fact title="Formats" value={formats?.length ? `${formats.length}` : "—"} />
                 </div>
               </div>
@@ -1324,9 +1197,7 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
         return;
       }
 
-      onSuccess?.(
-        "✅ Inscription en liste d’attente enregistrée. Tu recevras un email si une place se libère."
-      );
+      onSuccess?.("✅ Inscription en liste d’attente enregistrée. Tu recevras un email si une place se libère.");
     } catch (e) {
       console.error(e);
       setMsg("Erreur lors de l’inscription en liste d’attente.");
@@ -1342,8 +1213,7 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
           <div className="min-w-0">
             <h3 className="text-lg font-semibold">Liste d’attente</h3>
             <p className="text-xs text-neutral-500 mt-0.5 truncate">
-              {format?.nom ? `${format.nom}` : "Format"}{" "}
-              {format?.date ? `— ${fmtDate(format.date)}` : ""}
+              {format?.nom ? `${format.nom}` : "Format"} {format?.date ? `— ${fmtDate(format.date)}` : ""}
             </p>
           </div>
           <button onClick={onClose} className="text-sm text-neutral-500 hover:text-neutral-800">
@@ -1388,7 +1258,11 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
             </div>
           </div>
 
-          {msg && <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{msg}</div>}
+          {msg && (
+            <div className="text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+              {msg}
+            </div>
+          )}
         </div>
 
         <div className="px-5 py-4 border-t border-neutral-200 bg-neutral-50 flex items-center justify-end gap-2">
@@ -1423,11 +1297,7 @@ function Badge({ text, color = "gray" }) {
     blue: "bg-blue-100/90 text-blue-800",
     gray: "bg-neutral-200/90 text-neutral-800",
   }[color];
-  return (
-    <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${bg}`}>
-      {text}
-    </span>
-  );
+  return <span className={`rounded-full px-3 py-1 text-[12px] font-medium ${bg}`}>{text}</span>;
 }
 
 function Fact({ title, value, Icon }) {
@@ -1474,8 +1344,7 @@ function FormatsTable({ courseId, formats, countsByFormat, onWaitlist }) {
 
         <tbody>
           {formats.map((f, idx) => {
-            const inscrit =
-              countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
+            const inscrit = countsByFormat === null ? null : Number(countsByFormat?.[f.id] || 0);
             const full = computeIsFullWithCounts(f, countsByFormat);
 
             const fmtForBadges = inscrit == null ? f : { ...f, nb_inscrits: inscrit };
