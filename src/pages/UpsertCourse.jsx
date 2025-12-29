@@ -223,24 +223,25 @@ const deriveDefaultAcceptedJustifs = (sportCode, policyAllowedTypes, catalogType
 };
 
 const normalizeFormatJustifConfig = (format, sportCode, justifPolicy, justifTypes) => {
-  const required =
-    typeof format?.justificatif_required === "boolean"
-      ? format.justificatif_required
-      : !!justifPolicy?.is_required;
+  const required = !!justifPolicy?.is_required;
 
-  const acceptedRaw = Array.isArray(format?.accepted_justificatifs) ? format.accepted_justificatifs : [];
-  const accepted =
-    acceptedRaw.length > 0
-      ? uniq(acceptedRaw)
-      : deriveDefaultAcceptedJustifs(sportCode, justifPolicy?.allowed_types, justifTypes);
+  const accepted = deriveDefaultAcceptedJustifs(
+    sportCode,
+    justifPolicy?.allowed_types,
+    justifTypes
+  );
 
-  const rules =
-    format?.justificatif_rules && typeof format.justificatif_rules === "object"
-      ? format.justificatif_rules
-      : {};
+  const rules = (justifPolicy?.rules && typeof justifPolicy.rules === "object")
+    ? justifPolicy.rules
+    : {};
 
-  return { justificatif_required: required, accepted_justificatifs: accepted, justificatif_rules: rules };
+  return {
+    justificatif_required: required,
+    accepted_justificatifs: accepted,
+    justificatif_rules: rules,
+  };
 };
+
 
 /* ---------- Éditeur d’étapes relais ---------- */
 function EtapesRelaisEditor({ etapes, setEtapes }) {
