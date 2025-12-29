@@ -177,6 +177,71 @@ function Textarea(props) {
   );
 }
 
+/* =========================
+   ✅ Justificatifs par format (helpers)
+   ========================= */
+const uniq = (arr) => Array.from(new Set((arr || []).filter(Boolean)));
+
+const deriveDefaultAcceptedJustifs = (sportCode, policyAllowedTypes, catalogTypes) => {
+  const policy = uniq(policyAllowedTypes);
+  if (policy.length) return policy;
+
+  const catalog = Array.isArray(catalogTypes) ? catalogTypes : [];
+  const codes = catalog.map((t) => t.code).filter(Boolean);
+
+  const has = (c) => codes.includes(c);
+  const findContains = (needle) => codes.find((c) => String(c).toLowerCase().includes(needle));
+
+  const add = (arr, code) => (code && !arr.includes(code) ? [...arr, code] : arr);
+
+  let out = [];
+  const s = String(sportCode || "").toLowerCase();
+
+  if (s === "trail" || s === "running") {
+    out = add(out, has("pps") ? "pps" : findContains("pps"));
+    out = add(out, has("licence_ffa") ? "licence_ffa" : findContains("ffa"));
+    out = add(out, findContains("certif") || findContains("medical"));
+  } else if (s === "hiking") {
+    // souvent pas de médical, mais si le catalogue en propose, on en prend 1-2
+    out = add(out, findContains("pps"));
+    out = add(out, findContains("certif") || findContains("medical"));
+  } else if (s === "triathlon" || s === "swimrun") {
+    out = add(out, findContains("fftri") || findContains("tri"));
+    out = add(out, findContains("certif") || findContains("medical"));
+    out = add(out, findContains("licence"));
+  } else {
+    // vélo / VTT / gravel / route
+    out = add(out, findContains("ffc") || findContains("velo") || findContains("cycl"));
+    out = add(out, findContains("certif") || findContains("medical"));
+    out = add(out, findContains("licence"));
+  }
+
+  out = out.filter(Boolean);
+
+  if (!out.length && codes.length) out = codes.slice(0, Math.min(2, codes.length));
+  return uniq(out);
+};
+
+const normalizeFormatJustifConfig = (format, sportCode, justifPolicy, justifTypes) => {
+  const required =
+    typeof format?.justificatif_required === "boolean"
+      ? format.justificatif_required
+      : !!justifPolicy?.is_required;
+
+  const acceptedRaw = Array.isArray(format?.accepted_justificatifs) ? format.accepted_justificatifs : [];
+  const accepted =
+    acceptedRaw.length > 0
+      ? uniq(acceptedRaw)
+      : deriveDefaultAcceptedJustifs(sportCode, justifPolicy?.allowed_types, justifTypes);
+
+  const rules =
+    format?.justificatif_rules && typeof format.justificatif_rules === "object"
+      ? format.justificatif_rules
+      : {};
+
+  return { justificatif_required: required, accepted_justificatifs: accepted, justificatif_rules: rules };
+};
+
 /* ---------- Éditeur d’étapes relais ---------- */
 function EtapesRelaisEditor({ etapes, setEtapes }) {
   const add = () =>
@@ -374,6 +439,141 @@ function OptionsEditor({ options, setOptions }) {
   );
 }
 
+/* =========================
+   ✅ UI Justificatifs par format
+   ========================= */
+function FormatJustificatifsSection({ format, sportCode, justifPolicy, justifTypes, justifGroups, onPatch }) {
+  const cfg = useMemo(
+    () => normalizeFormatJustifConfig(format, sportCode, justifPolicy, justifTypes),
+    [format, sportCode, justifPolicy, justifTypes]
+  );
+
+  const accepted = cfg.accepted_justificatifs || [];
+  const required = !!cfg.justificatif_required;
+
+  const toggle = (code) => {
+    const next = new Set(accepted);
+    if (next.has(code)) next.delete(code);
+    else next.add(code);
+    onPatch({
+      justificatif_required: required,
+      accepted_justificatifs: Array.from(next),
+      justificatif_rules: cfg.justificatif_rules || {},
+    });
+  };
+
+  const copyGlobal = () => {
+    const gl = uniq(justifPolicy?.allowed_types);
+    onPatch({
+      justificatif_required: typeof format.justificatif_required === "boolean" ? format.justificatif_required : !!justifPolicy?.is_required,
+      accepted_justificatifs: gl,
+      justificatif_rules: cfg.justificatif_rules || {},
+    });
+  };
+
+  const resetBySport = () => {
+    const def = deriveDefaultAcceptedJustifs(sportCode, [], justifTypes);
+    onPatch({
+      justificatif_required: typeof format.justificatif_required === "boolean" ? format.justificatif_required : !!justifPolicy?.is_required,
+      accepted_justificatifs: def,
+      justificatif_rules: cfg.justificatif_rules || {},
+    });
+  };
+
+  return (
+    <div className="mt-4 rounded-2xl border border-neutral-200 bg-white p-4">
+      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div>
+          <div className="text-sm font-semibold text-neutral-900">Justificatifs (par format)</div>
+          <div className="text-xs text-neutral-500">
+            Tu peux affiner par format (sinon: règle globale). Exemple: Gravel = licence FFC, Trail = PPS/FFA…
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={required}
+              onChange={(e) =>
+                onPatch({
+                  justificatif_required: e.target.checked,
+                  accepted_justificatifs: accepted,
+                  justificatif_rules: cfg.justificatif_rules || {},
+                })
+              }
+            />
+            Obligatoire
+          </label>
+
+          <button
+            type="button"
+            onClick={copyGlobal}
+            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
+          >
+            Copier la règle globale
+          </button>
+
+          <button
+            type="button"
+            onClick={resetBySport}
+            className="rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
+          >
+            Reset selon sport
+          </button>
+        </div>
+      </div>
+
+      <div className="mt-3 grid gap-4">
+        {justifGroups.map((g) => (
+          <div key={g.key} className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3">
+            <div className="text-xs font-semibold text-neutral-700">{g.title}</div>
+            <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {g.items.map((t) => {
+                const checked = accepted.includes(t.code);
+                return (
+                  <label key={t.code} className="flex items-start gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2">
+                    <input type="checkbox" checked={checked} onChange={() => toggle(t.code)} className="mt-1" />
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-neutral-800 leading-tight">{t.label}</div>
+                      <div className="text-[11px] text-neutral-500">
+                        code: <span className="font-mono">{t.code}</span>
+                        {t.input_mode ? (
+                          <>
+                            {" · "}
+                            mode: <span className="font-mono">{t.input_mode}</span>
+                          </>
+                        ) : null}
+                      </div>
+                    </div>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+
+        {(!justifGroups || justifGroups.length === 0) && (
+          <div className="text-sm text-neutral-600">
+            Aucun type trouvé dans <span className="font-mono">justificatif_types</span> (ou RLS bloque la lecture).
+          </div>
+        )}
+      </div>
+
+      <div className="mt-3 text-xs text-neutral-600">
+        Sélection format :{" "}
+        <span className="font-mono">{accepted.length ? accepted.join(", ") : "—"}</span>
+      </div>
+
+      {!justifPolicy?.allow_medical_upload && required && accepted.length === 0 ? (
+        <div className="mt-2 text-xs font-semibold text-red-700">
+          ⚠️ Obligatoire + upload médical désactivé + aucun type sélectionné → inscription impossible.
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 /* =============================
    Page UpsertCourse
    ============================= */
@@ -397,11 +597,24 @@ export default function UpsertCourse() {
     is_team_event: false,
   });
 
+  /* -----------------------------
+     ✅ Justificatifs (policy globale course)
+     ----------------------------- */
+  const [justifTypes, setJustifTypes] = useState([]);
+  const [justifPolicy, setJustifPolicy] = useState({
+    is_required: true,
+    allow_medical_upload: true,
+    allowed_types: [],
+    notes: "",
+  });
+
   const selectedSport = useMemo(() => SPORTS.find((s) => s.code === course.sport_code) || SPORTS[0], [course.sport_code]);
   const availableDisciplines = selectedSport?.disciplines || [];
 
   const formatTemplate = () => {
     const defaultSport = normalizeFormatSport(course?.sport_code) || "trail";
+    const justifDefault = deriveDefaultAcceptedJustifs(defaultSport, justifPolicy.allowed_types, justifTypes);
+
     return {
       id: uuidv4(),
       nom: "",
@@ -452,12 +665,55 @@ export default function UpsertCourse() {
 
       etapes: [],
       options: [],
+
+      // ✅ Justificatifs par format (nouveaux champs DB)
+      justificatif_required: !!justifPolicy.is_required,
+      accepted_justificatifs: justifDefault,
+      justificatif_rules: {},
     };
   };
 
   const [formats, setFormats] = useState([formatTemplate()]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+
+  const justifGroups = useMemo(() => {
+    const arr = Array.isArray(justifTypes) ? justifTypes : [];
+    const byFed = arr.reduce((acc, t) => {
+      const key = t.federation_code || "__GENERAL__";
+      (acc[key] ||= []).push(t);
+      return acc;
+    }, {});
+    // tri dans chaque groupe par sort_order puis label
+    Object.keys(byFed).forEach((k) => {
+      byFed[k] = byFed[k].slice().sort((a, b) => {
+        const sa = a.sort_order ?? 9999;
+        const sb = b.sort_order ?? 9999;
+        if (sa !== sb) return sa - sb;
+        return String(a.label || "").localeCompare(String(b.label || ""), "fr");
+      });
+    });
+    // ordre des groupes: général puis fédérations alpha
+    const keys = Object.keys(byFed).sort((a, b) => {
+      if (a === "__GENERAL__") return -1;
+      if (b === "__GENERAL__") return 1;
+      return a.localeCompare(b);
+    });
+    return keys.map((k) => ({
+      key: k,
+      title: k === "__GENERAL__" ? "Général" : `Fédération ${k}`,
+      items: byFed[k],
+    }));
+  }, [justifTypes]);
+
+  const toggleAllowedType = (code) => {
+    setJustifPolicy((p) => {
+      const set = new Set(p.allowed_types || []);
+      if (set.has(code)) set.delete(code);
+      else set.add(code);
+      return { ...p, allowed_types: Array.from(set) };
+    });
+  };
 
   const handleCourseChange = (e) => {
     const { name, value, files, type, checked } = e.target;
@@ -497,6 +753,45 @@ export default function UpsertCourse() {
     }));
   };
 
+  // ✅ Charger les types de justificatifs (catalogue)
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data, error } = await supabase
+          .from("justificatif_types")
+          .select("code,label,federation_code,input_mode,is_medical,sort_order,is_active")
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true });
+        if (error) throw error;
+        setJustifTypes(data || []);
+      } catch (err) {
+        console.error(err);
+        setJustifTypes([]);
+      }
+    })();
+  }, []);
+
+  // ✅ Si le catalogue arrive après coup: on ne touche pas aux formats déjà configurés,
+  // mais on injecte des defaults si accepted_justificatifs manquant/vide.
+  useEffect(() => {
+    setFormats((prev) =>
+      prev.map((f) => {
+        const sg = normalizeFormatSport(f.sport_global) || normalizeFormatSport(course.sport_code) || "trail";
+        const hasAccepted = Array.isArray(f.accepted_justificatifs) && f.accepted_justificatifs.length > 0;
+        if (hasAccepted) return f;
+
+        const def = deriveDefaultAcceptedJustifs(sg, justifPolicy.allowed_types, justifTypes);
+        return {
+          ...f,
+          justificatif_required: typeof f.justificatif_required === "boolean" ? f.justificatif_required : !!justifPolicy.is_required,
+          accepted_justificatifs: def,
+          justificatif_rules: f.justificatif_rules && typeof f.justificatif_rules === "object" ? f.justificatif_rules : {},
+        };
+      })
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [justifTypes]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -512,6 +807,30 @@ export default function UpsertCourse() {
 
         const { data: fs, error: fErr } = await supabase.from("formats").select("*").eq("course_id", id).order("created_at", { ascending: true });
         if (fErr) throw fErr;
+
+        // ✅ policy globale course (format_id IS NULL)
+        const { data: pol, error: pErr } = await supabase
+          .from("course_justificatif_policies")
+          .select("*")
+          .eq("course_id", id)
+          .is("format_id", null)
+          .maybeSingle();
+        if (pErr) throw pErr;
+
+        const policyLocal = {
+          is_required: true,
+          allow_medical_upload: true,
+          allowed_types: [],
+          notes: "",
+        };
+
+        if (pol?.id) {
+          policyLocal.is_required = pol.is_required !== false;
+          policyLocal.allow_medical_upload = !!pol.allow_medical_upload;
+          policyLocal.allowed_types = Array.isArray(pol.allowed_types) ? pol.allowed_types.filter(Boolean) : [];
+          policyLocal.notes = pol.notes || "";
+          setJustifPolicy(policyLocal);
+        }
 
         let etapesByFormat = {};
         let optionsByFormat = {};
@@ -578,8 +897,15 @@ export default function UpsertCourse() {
               fallbackSportFromTypeEpreuve(f.type_epreuve) ||
               "trail";
 
-            // ✅ te "correct" = toujours déduit du sport_global final (cohérence gravel/mtb/etc. => route)
+            // ✅ te "correct" = toujours déduit du sport_global final (cohérence gravel/mtb/etc. => route en DB)
             const te = typeEpreuveFromSport(sg);
+
+            const jcfg = normalizeFormatJustifConfig(
+              f,
+              sg,
+              pol?.id ? policyLocal : justifPolicy,
+              justifTypes
+            );
 
             return {
               ...formatTemplate(),
@@ -623,6 +949,11 @@ export default function UpsertCourse() {
               quota_attente: f.quota_attente ?? 0,
               etapes: etapesByFormat[f.id] || [],
               options: optionsByFormat[f.id] || [],
+
+              // ✅ Justificatifs par format (depuis DB si présents, sinon defaults)
+              justificatif_required: jcfg.justificatif_required,
+              accepted_justificatifs: jcfg.accepted_justificatifs,
+              justificatif_rules: jcfg.justificatif_rules,
             };
           })
         );
@@ -643,6 +974,13 @@ export default function UpsertCourse() {
       return false;
     }
 
+    // ✅ validate justificatifs policy (globale)
+    const allowed = Array.isArray(justifPolicy.allowed_types) ? justifPolicy.allowed_types.filter(Boolean) : [];
+    if (justifPolicy.is_required && !justifPolicy.allow_medical_upload && allowed.length === 0) {
+      alert("Justificatifs : si c’est obligatoire, sélectionne au moins un type OU active l’upload médical.");
+      return false;
+    }
+
     for (const f of formats) {
       if (!f.nom?.trim()) {
         alert("Chaque format doit avoir un nom.");
@@ -658,6 +996,13 @@ export default function UpsertCourse() {
       const te = typeEpreuveFromSport(sg);
       if (!["trail", "rando", "route"].includes(te)) {
         alert(`type_epreuve invalide pour "${f.nom}".`);
+        return false;
+      }
+
+      // ✅ validate justificatifs par format
+      const jcfg = normalizeFormatJustifConfig(f, sg, justifPolicy, justifTypes);
+      if (jcfg.justificatif_required && !justifPolicy.allow_medical_upload && (jcfg.accepted_justificatifs || []).length === 0) {
+        alert(`Justificatifs : "${f.nom}" → obligatoire, mais aucun type sélectionné (et upload médical désactivé).`);
         return false;
       }
 
@@ -754,6 +1099,39 @@ export default function UpsertCourse() {
         }
       }
 
+      // ✅ sync policy globale course
+      async function syncJustificatifPolicy(courseId) {
+        const cleanAllowed = Array.from(new Set((justifPolicy.allowed_types || []).filter(Boolean)));
+
+        const payload = {
+          course_id: courseId,
+          format_id: null,
+          is_required: justifPolicy.is_required !== false,
+          allow_medical_upload: !!justifPolicy.allow_medical_upload,
+          allowed_types: cleanAllowed,
+          notes: justifPolicy.notes?.trim() ? justifPolicy.notes.trim() : null,
+        };
+
+        const { data: existing, error: chkErr } = await supabase
+          .from("course_justificatif_policies")
+          .select("id")
+          .eq("course_id", courseId)
+          .is("format_id", null)
+          .maybeSingle();
+        if (chkErr) throw chkErr;
+
+        if (existing?.id) {
+          const { error: upErr } = await supabase
+            .from("course_justificatif_policies")
+            .update(payload)
+            .eq("id", existing.id);
+          if (upErr) throw upErr;
+        } else {
+          const { error: insErr } = await supabase.from("course_justificatif_policies").insert(payload);
+          if (insErr) throw insErr;
+        }
+      }
+
       const { lat, lng } = await geocode(course.code_postal, course.lieu);
 
       // Upload image course
@@ -799,6 +1177,9 @@ export default function UpsertCourse() {
         if (cUpErr) throw cUpErr;
       }
 
+      // ✅ policy globale (course)
+      await syncJustificatifPolicy(courseId);
+
       // Formats
       const keptIds = [];
 
@@ -832,8 +1213,11 @@ export default function UpsertCourse() {
           normalizeFormatSport(course.sport_code) ||
           "trail";
 
-        // ✅ te correctement rempli = déduit du sport_global (trail/hiking => rando, sinon route)
+        // ✅ te correctement rempli = déduit du sport_global (trail/hiking => rando, sinon route) — DB
         const te = typeEpreuveFromSport(sport_global_code);
+
+        // ✅ justificatifs par format (payload DB)
+        const jcfg = normalizeFormatJustifConfig(f, sport_global_code, justifPolicy, justifTypes);
 
         const payload = {
           course_id: courseId,
@@ -886,6 +1270,11 @@ export default function UpsertCourse() {
           close_on_full: !!f.close_on_full,
           waitlist_enabled: !!f.waitlist_enabled,
           quota_attente: f.quota_attente ?? 0,
+
+          // ✅ Nouveaux champs DB (formats)
+          justificatif_required: jcfg.justificatif_required,
+          accepted_justificatifs: uniq(jcfg.accepted_justificatifs),
+          justificatif_rules: jcfg.justificatif_rules || {},
         };
 
         let formatId = null;
@@ -1202,7 +1591,12 @@ export default function UpsertCourse() {
               </Field>
 
               <Field label="Présentation">
-                <Textarea name="presentation" value={course.presentation} onChange={handleCourseChange} placeholder="Décrivez votre épreuve, les paysages, l’ambiance, etc." />
+                <Textarea
+                  name="presentation"
+                  value={course.presentation}
+                  onChange={handleCourseChange}
+                  placeholder="Décrivez votre épreuve, les paysages, l’ambiance, etc."
+                />
               </Field>
 
               <Field label="Image de l’épreuve">
@@ -1214,6 +1608,109 @@ export default function UpsertCourse() {
                   className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
                 />
                 <p className="mt-1 text-xs text-neutral-500">JPEG/PNG recommandé, ~1600×900.</p>
+              </Field>
+            </div>
+          </div>
+
+          {/* ✅ Carte — Justificatifs (policy globale) */}
+          <div className="rounded-2xl bg-white shadow-lg shadow-neutral-900/5 ring-1 ring-neutral-200">
+            <div className="p-5 border-b border-neutral-200">
+              <h2 className="text-lg sm:text-xl font-bold">Justificatifs</h2>
+              <p className="mt-1 text-sm text-neutral-600">
+                Définissez les justificatifs acceptés pour s’inscrire (règle globale pour tous les formats).
+              </p>
+            </div>
+
+            <div className="p-5 grid gap-5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <Field label="Justificatif obligatoire ?">
+                  <div className="flex items-center h-[38px] gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!justifPolicy.is_required}
+                      onChange={(e) => setJustifPolicy((p) => ({ ...p, is_required: e.target.checked }))}
+                    />
+                    <span className="text-sm text-neutral-700">Bloquer l’inscription tant qu’aucun justificatif n’est fourni</span>
+                  </div>
+                </Field>
+
+                <Field label="Autoriser un certificat médical (upload)">
+                  <div className="flex items-center h-[38px] gap-2">
+                    <input
+                      type="checkbox"
+                      checked={!!justifPolicy.allow_medical_upload}
+                      onChange={(e) => setJustifPolicy((p) => ({ ...p, allow_medical_upload: e.target.checked }))}
+                    />
+                    <span className="text-sm text-neutral-700">Permettre l’import d’un justificatif médical (photo/PDF)</span>
+                  </div>
+                </Field>
+              </div>
+
+              <div className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
+                <div className="text-sm font-semibold text-neutral-800">Types acceptés</div>
+                <p className="mt-1 text-xs text-neutral-600">
+                  Cochez les justificatifs possibles (licence FFC/FFTRI, PPS, etc.). Vous pourrez ensuite créer les composants
+                  dédiés (JustificatifFfc.jsx, JustificatifFftri.jsx…) côté inscription.
+                </p>
+
+                <div className="mt-3 grid gap-4">
+                  {justifGroups.map((g) => (
+                    <div key={g.key} className="rounded-xl bg-white ring-1 ring-neutral-200 p-3">
+                      <div className="text-xs font-semibold text-neutral-700">{g.title}</div>
+
+                      <div className="mt-2 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {g.items.map((t) => {
+                          const checked = (justifPolicy.allowed_types || []).includes(t.code);
+                          return (
+                            <label key={t.code} className="flex items-start gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
+                              <input type="checkbox" checked={checked} onChange={() => toggleAllowedType(t.code)} className="mt-1" />
+                              <div className="min-w-0">
+                                <div className="text-sm font-semibold text-neutral-800 leading-tight">{t.label}</div>
+                                <div className="text-[11px] text-neutral-500">
+                                  code: <span className="font-mono">{t.code}</span>
+                                  {t.input_mode ? (
+                                    <>
+                                      {" · "}
+                                      mode: <span className="font-mono">{t.input_mode}</span>
+                                    </>
+                                  ) : null}
+                                  {t.is_medical ? (
+                                    <>
+                                      {" · "}
+                                      <span className="text-orange-700 font-semibold">médical</span>
+                                    </>
+                                  ) : null}
+                                </div>
+                              </div>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {(!justifGroups || justifGroups.length === 0) && (
+                    <div className="text-sm text-neutral-600">
+                      Aucun type trouvé dans <span className="font-mono">justificatif_types</span> (ou RLS bloque la lecture).
+                    </div>
+                  )}
+                </div>
+
+                <div className="mt-3 text-xs text-neutral-600">
+                  Sélection actuelle :{" "}
+                  <span className="font-mono">
+                    {(justifPolicy.allowed_types || []).length ? justifPolicy.allowed_types.join(", ") : "—"}
+                  </span>
+                </div>
+              </div>
+
+              <Field label="Consignes (optionnel)">
+                <Textarea
+                  rows={3}
+                  value={justifPolicy.notes || ""}
+                  onChange={(e) => setJustifPolicy((p) => ({ ...p, notes: e.target.value }))}
+                  placeholder="Ex. Licence obligatoire ou PPS valide. Certificat médical accepté si moins de 1 an."
+                />
               </Field>
             </div>
           </div>
@@ -1237,15 +1734,14 @@ export default function UpsertCourse() {
             <div className="p-5 grid gap-6">
               {formats.map((f, index) => {
                 const sportCode =
-  normalizeFormatSport(f.sport_global) ||
-  normalizeFormatSport(course.sport_code) ||
-  "trail";
+                  normalizeFormatSport(f.sport_global) ||
+                  normalizeFormatSport(course.sport_code) ||
+                  "trail";
 
-const sportLabel = SPORTS.find((s) => s.code === sportCode)?.label || sportCode;
+                const sportLabel = SPORTS.find((s) => s.code === sportCode)?.label || sportCode;
 
-// ✅ te = sport du format (comme tu veux)
-const te = sportLabel; // ou: const te = sportCode;
-
+                // ✅ affichage : sport du format (et non type_epreuve route/rando/trail)
+                const te = sportLabel;
 
                 return (
                   <div key={f.id} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
@@ -1275,9 +1771,18 @@ const te = sportLabel; // ou: const te = sportCode;
                             value={sportCode}
                             onChange={(e) => {
                               const nextSport = e.target.value;
+
+                              const hasAccepted =
+                                Array.isArray(f.accepted_justificatifs) && f.accepted_justificatifs.length > 0;
+
                               updateFormat(f.id, {
                                 sport_global: nextSport,
-                                type_epreuve: typeEpreuveFromSport(nextSport), // trail|rando|route
+                                type_epreuve: typeEpreuveFromSport(nextSport), // DB: trail|rando|route
+                                ...(hasAccepted
+                                  ? {}
+                                  : {
+                                      accepted_justificatifs: deriveDefaultAcceptedJustifs(nextSport, justifPolicy.allowed_types, justifTypes),
+                                    }),
                               });
                             }}
                           >
@@ -1288,9 +1793,8 @@ const te = sportLabel; // ou: const te = sportCode;
                             ))}
                           </select>
                           <p className="mt-1 text-[11px] text-neutral-500">
-  Sport du format : <span className="font-semibold">{te}</span>
-</p>
-
+                            Sport du format : <span className="font-semibold">{te}</span>
+                          </p>
                         </Field>
 
                         <Field label="Type d’inscription">
@@ -1305,11 +1809,20 @@ const te = sportLabel; // ou: const te = sportCode;
                           </select>
                         </Field>
 
-                       <Field label="(Auto) sport_global (format)">
-  <Input value={te} readOnly className="bg-neutral-100 text-neutral-700" />
-</Field>
-
+                        <Field label="(Auto) sport_global (format)">
+                          <Input value={te} readOnly className="bg-neutral-100 text-neutral-700" />
+                        </Field>
                       </div>
+
+                      {/* ✅ Justificatifs par format */}
+                      <FormatJustificatifsSection
+                        format={f}
+                        sportCode={sportCode}
+                        justifPolicy={justifPolicy}
+                        justifTypes={justifTypes}
+                        justifGroups={justifGroups}
+                        onPatch={(patch) => updateFormat(f.id, patch)}
+                      />
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <Field label="Date">

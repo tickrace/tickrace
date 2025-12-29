@@ -72,6 +72,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
   // Persistance dans inscriptions_options (pending) après création d’inscription
   async function persist(inscriptionId) {
     if (!supported || !inscriptionId) return;
+
     await supabase
       .from("inscriptions_options")
       .delete()
@@ -190,11 +191,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
                 <div className="text-xs text-neutral-500">Quantité autorisée : 0–{max}</div>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  className="rounded-lg border px-2 py-1 text-sm"
-                  onClick={() => dec(o)}
-                >
+                <button type="button" className="rounded-lg border px-2 py-1 text-sm" onClick={() => dec(o)}>
                   −
                 </button>
                 <input
@@ -205,11 +202,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
                   onChange={(e) => setQty(o, e.target.value)}
                   className="w-16 rounded-lg border px-2 py-1 text-sm text-center"
                 />
-                <button
-                  type="button"
-                  className="rounded-lg border px-2 py-1 text-sm"
-                  onClick={() => inc(o)}
-                >
+                <button type="button" className="rounded-lg border px-2 py-1 text-sm" onClick={() => inc(o)}>
                   +
                 </button>
               </div>
@@ -228,10 +221,22 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
+
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
   const [loading, setLoading] = useState(true);
+
   const [submitting, setSubmitting] = useState(false);
+
+  // ✅ Justificatifs (policy globale course)
+  const [justifPolicy, setJustifPolicy] = useState({
+    is_required: false,
+    allow_medical_upload: true,
+    allowed_types: [],
+    notes: "",
+  });
+  const [justifTypes, setJustifTypes] = useState([]);
+  const [justifUploading, setJustifUploading] = useState(false);
 
   // Formulaire coureur / payeur
   const [inscription, setInscription] = useState(defaultCoureur());
@@ -258,7 +263,7 @@ export default function InscriptionCourse() {
 
   const [teams, setTeams] = useState([defaultTeam("Équipe 1", 0)]);
 
-  // Filtres UI
+  // Filtres UI équipes
   const [teamFilter, setTeamFilter] = useState({
     q: "",
     category: "all",
@@ -278,6 +283,58 @@ export default function InscriptionCourse() {
     getSelectedOptionsRef.current = fn;
   }
 
+  // ---------- Helpers ----------
+  function defaultCoureur() {
+    return {
+      coureur_id: null,
+      format_id: "",
+      nom: "",
+      prenom: "",
+      genre: "",
+      date_naissance: "",
+      nationalite: "",
+      email: "",
+      telephone: "",
+      adresse: "",
+      adresse_complement: "",
+      code_postal: "",
+      ville: "",
+      pays: "",
+      apparaitre_resultats: true,
+      club: "",
+
+      // ✅ justificatifs
+      justificatif_type: "", // code (optionnel mais utile en admin)
+      numero_licence: "",
+      pps_identifier: "",
+      justificatif_url: "", // upload photo/pdf si autorisé
+
+      contact_urgence_nom: "",
+      contact_urgence_telephone: "",
+
+      // repas
+      nombre_repas: 0,
+      prix_total_repas: 0,
+      prix_total_coureur: 0, // base (inscription + repas) en €
+    };
+  }
+
+  function setField(name, value) {
+    setInscription((prev) => ({ ...prev, [name]: value }));
+  }
+
+  // ✅ capacité illimitée si nb_max_coureurs absent/0
+  function hasCapacity(f) {
+    const cap = Number(f?.nb_max_coureurs);
+    return Number.isFinite(cap) && cap > 0;
+  }
+  function isFullFormat(f) {
+    if (!f) return false;
+    if (!hasCapacity(f)) return false;
+    return Number(f.inscrits || 0) >= Number(f.nb_max_coureurs);
+  }
+
+  // ---------- Fetch ----------
   useEffect(() => {
     let mounted = true;
 
@@ -296,7 +353,7 @@ export default function InscriptionCourse() {
             team_size, nb_coureurs_min, nb_coureurs_max,
             inscription_ouverture, inscription_fermeture,
             fuseau_horaire, waitlist_enabled,
-            age_minimum          
+            age_minimum
           )
         `
         )
@@ -320,9 +377,43 @@ export default function InscriptionCourse() {
         setFormats(withCounts);
       }
 
+      // ✅ Policy globale justificatifs (course_justificatif_policies / format_id IS NULL)
+      try {
+        const { data: pol, error: polErr } = await supabase
+          .from("course_justificatif_policies")
+          .select("*")
+          .eq("course_id", courseId)
+          .is("format_id", null)
+          .maybeSingle();
+
+        if (!polErr && pol) {
+          setJustifPolicy({
+            is_required: pol.is_required !== false,
+            allow_medical_upload: !!pol.allow_medical_upload,
+            allowed_types: Array.isArray(pol.allowed_types) ? pol.allowed_types.filter(Boolean) : [],
+            notes: pol.notes || "",
+          });
+        }
+      } catch (e) {
+        console.error("❌ load justif policy:", e);
+      }
+
+      // ✅ Catalogue types (labels / règles)
+      try {
+        const { data: jt, error: jtErr } = await supabase
+          .from("justificatif_types")
+          .select("code,label,federation_code,input_mode,is_medical,sort_order,is_active")
+          .eq("is_active", true)
+          .order("sort_order", { ascending: true });
+        if (!jtErr) setJustifTypes(jt || []);
+      } catch (e) {
+        console.error("❌ load justificatif_types:", e);
+      }
+
       // Préremplir profil si connecté
       const session = await supabase.auth.getSession();
       const user = session.data?.session?.user;
+
       if (user) {
         const { data: profil } = await supabase
           .from("profils_utilisateurs")
@@ -346,17 +437,20 @@ export default function InscriptionCourse() {
             ville: profil.ville ?? "",
             pays: profil.pays ?? "",
             apparaitre_resultats:
-              typeof profil.apparaitre_resultats === "boolean"
-                ? profil.apparaitre_resultats
-                : true,
+              typeof profil.apparaitre_resultats === "boolean" ? profil.apparaitre_resultats : true,
             club: profil.club ?? "",
+
             justificatif_type: profil.justificatif_type ?? "",
             numero_licence: profil.numero_licence ?? "",
             pps_identifier: profil.pps_identifier ?? "",
+
             contact_urgence_nom: profil.contact_urgence_nom ?? "",
             contact_urgence_telephone: profil.contact_urgence_telephone ?? "",
             coureur_id: user.id,
           }));
+        } else {
+          // au minimum on garde l’ID coureur
+          setInscription((prev) => ({ ...prev, coureur_id: user.id, email: prev.email || user.email || "" }));
         }
       }
 
@@ -369,36 +463,6 @@ export default function InscriptionCourse() {
     };
   }, [courseId]);
 
-  // Helpers
-  function defaultCoureur() {
-    return {
-      coureur_id: null,
-      format_id: "",
-      nom: "",
-      prenom: "",
-      genre: "",
-      date_naissance: "",
-      nationalite: "",
-      email: "",
-      telephone: "",
-      adresse: "",
-      adresse_complement: "",
-      code_postal: "",
-      ville: "",
-      pays: "",
-      apparaitre_resultats: true,
-      club: "",
-      justificatif_type: "",
-      numero_licence: "",
-      pps_identifier: "",
-      contact_urgence_nom: "",
-      contact_urgence_telephone: "",
-      nombre_repas: 0,
-      prix_total_repas: 0,
-      prix_total_coureur: 0, // base (inscription + repas) en €
-    };
-  }
-
   const selectedFormat = useMemo(
     () => formats.find((f) => f.id === inscription.format_id),
     [formats, inscription.format_id]
@@ -408,22 +472,11 @@ export default function InscriptionCourse() {
   const registrationWindow = useMemo(() => {
     if (!selectedFormat) return { isOpen: true, reason: "" };
     const now = new Date();
-    const openAt = selectedFormat.inscription_ouverture
-      ? new Date(selectedFormat.inscription_ouverture)
-      : null;
-    const closeAt = selectedFormat.inscription_fermeture
-      ? new Date(selectedFormat.inscription_fermeture)
-      : null;
-    if (openAt && now < openAt)
-      return {
-        isOpen: false,
-        reason: `Ouvre le ${openAt.toLocaleString()}`,
-      };
-    if (closeAt && now > closeAt)
-      return {
-        isOpen: false,
-        reason: `Fermé depuis le ${closeAt.toLocaleString()}`,
-      };
+    const openAt = selectedFormat.inscription_ouverture ? new Date(selectedFormat.inscription_ouverture) : null;
+    const closeAt = selectedFormat.inscription_fermeture ? new Date(selectedFormat.inscription_fermeture) : null;
+
+    if (openAt && now < openAt) return { isOpen: false, reason: `Ouvre le ${openAt.toLocaleString()}` };
+    if (closeAt && now > closeAt) return { isOpen: false, reason: `Fermé depuis le ${closeAt.toLocaleString()}` };
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
 
@@ -437,6 +490,7 @@ export default function InscriptionCourse() {
     const prixInscription = Number(selectedFormat.prix || 0);
     const totalRepas = prixRepas * Number(inscription.nombre_repas || 0);
     const total = prixInscription + totalRepas;
+
     setInscription((prev) => ({
       ...prev,
       prix_total_repas: totalRepas,
@@ -449,16 +503,8 @@ export default function InscriptionCourse() {
     if (!selectedFormat || mode === "individuel") return 0;
     const fee = Number(selectedFormat.prix_equipe || 0) || 0;
     const prixUnitaire = Number(selectedFormat.prix || 0) || 0;
-    const sum = teams.reduce(
-      (acc, t) => acc + (t.team_size || 0) * prixUnitaire + fee,
-      0
-    );
-    return sum;
+    return teams.reduce((acc, t) => acc + (t.team_size || 0) * prixUnitaire + fee, 0);
   }, [selectedFormat, mode, teams]);
-
-  function setField(name, value) {
-    setInscription((prev) => ({ ...prev, [name]: value }));
-  }
 
   // ----- Gestion équipes -----
   const minTeam = selectedFormat?.nb_coureurs_min || selectedFormat?.team_size || 1;
@@ -471,11 +517,7 @@ export default function InscriptionCourse() {
       const t = { ...copy[index] };
       t.team_size = size;
       const cur = t.members.length;
-      if (size > cur)
-        t.members = [
-          ...t.members,
-          ...Array.from({ length: size - cur }, () => emptyMember()),
-        ];
+      if (size > cur) t.members = [...t.members, ...Array.from({ length: size - cur }, () => emptyMember())];
       if (size < cur) t.members = t.members.slice(0, size);
       copy[index] = t;
       return copy;
@@ -504,10 +546,7 @@ export default function InscriptionCourse() {
 
   function addTeam() {
     const n = teams.length + 1;
-    setTeams((prev) => [
-      ...prev,
-      defaultTeam("Équipe " + n, selectedFormat?.team_size || minTeam),
-    ]);
+    setTeams((prev) => [...prev, defaultTeam("Équipe " + n, selectedFormat?.team_size || minTeam)]);
   }
 
   function removeTeam(idx) {
@@ -528,14 +567,13 @@ export default function InscriptionCourse() {
 
   function isTeamComplete(team) {
     if (!team.team_size || (team.members?.length || 0) !== team.team_size) return false;
-    // N° licence / PPS requis
     return team.members.every(
       (m) =>
         m.nom?.trim() &&
         m.prenom?.trim() &&
         m.genre &&
         m.date_naissance &&
-        !!(m.numero_licence && m.numero_licence.trim())
+        !!(m.numero_licence && m.numero_licence.trim()) // licence OU PPS saisi ici
     );
   }
 
@@ -547,10 +585,87 @@ export default function InscriptionCourse() {
     const today = new Date();
     let age = today.getFullYear() - dob.getFullYear();
     const m = today.getMonth() - dob.getMonth();
-    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) {
-      age--;
-    }
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
     return age;
+  }
+
+  // ✅ UI : libellés des types autorisés
+  const allowedTypeLabels = useMemo(() => {
+    const map = new Map((justifTypes || []).map((t) => [t.code, t.label]));
+    const codes = Array.isArray(justifPolicy.allowed_types) ? justifPolicy.allowed_types : [];
+    return codes.map((c) => ({ code: c, label: map.get(c) || c }));
+  }, [justifTypes, justifPolicy.allowed_types]);
+
+  // ✅ heuristique : afficher le composant FFA/PPS si types incluent pps/ffa, ou si aucune config
+  const showFfaPps = useMemo(() => {
+    const codes = Array.isArray(justifPolicy.allowed_types) ? justifPolicy.allowed_types : [];
+    if (codes.length === 0) return true;
+    return codes.some((c) => /pps|ffa/i.test(String(c)));
+  }, [justifPolicy.allowed_types]);
+
+  // ✅ satisfaction justificatif (individuel)
+  const justifStatus = useMemo(() => {
+    const hasLicence = !!String(inscription.numero_licence || "").trim();
+    const hasPps = !!String(inscription.pps_identifier || "").trim();
+    const hasUpload = !!String(inscription.justificatif_url || "").trim();
+
+    const ok = hasLicence || hasPps || (justifPolicy.allow_medical_upload && hasUpload);
+    return {
+      ok,
+      hasLicence,
+      hasPps,
+      hasUpload,
+    };
+  }, [inscription.numero_licence, inscription.pps_identifier, inscription.justificatif_url, justifPolicy.allow_medical_upload]);
+
+  // ✅ Upload justificatif (photo/pdf)
+  async function handleUploadJustificatif(file) {
+    if (!file) return;
+    if (!justifPolicy.allow_medical_upload) return;
+
+    // petites gardes-fous
+    const maxBytes = 10 * 1024 * 1024; // 10 MB
+    const isAllowedType = file.type?.startsWith("image/") || file.type === "application/pdf";
+    if (!isAllowedType) {
+      alert("Format non supporté. Merci d’envoyer une image ou un PDF.");
+      return;
+    }
+    if (file.size > maxBytes) {
+      alert("Fichier trop volumineux (max 10 Mo).");
+      return;
+    }
+
+    setJustifUploading(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const user = sess?.session?.user;
+      if (!user) {
+        alert("Connecte-toi pour importer un justificatif.");
+        return;
+      }
+
+      const bucket = "ppsjustificatifs";
+
+      const safeName = String(file.name || "justificatif")
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(0, 80);
+
+      const path = `justif/${courseId}/${user.id}/${Date.now()}-${safeName}`;
+
+      const { data, error } = await supabase.storage.from(bucket).upload(path, file, {
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+      if (error) throw error;
+
+      const publicUrl = supabase.storage.from(bucket).getPublicUrl(data.path).data.publicUrl;
+      setField("justificatif_url", publicUrl);
+    } catch (e) {
+      console.error("❌ upload justificatif:", e);
+      alert("Erreur lors de l’upload du justificatif.");
+    } finally {
+      setJustifUploading(false);
+    }
   }
 
   // ----- Paiement -----
@@ -577,39 +692,39 @@ export default function InscriptionCourse() {
         setSubmitting(false);
         return;
       }
-      const ageMin = selectedFormat?.age_minimum
-        ? Number(selectedFormat.age_minimum)
-        : null;
 
-      // ----- Contrôle âge minimum : individuel -----
+      const ageMin = selectedFormat?.age_minimum ? Number(selectedFormat.age_minimum) : null;
+
+      // ---- Contrôle âge minimum ----
       if (mode === "individuel" && ageMin) {
         if (!inscription.date_naissance) {
-          alert(
-            `Veuillez renseigner votre date de naissance pour vérifier l'âge minimum (${ageMin} ans).`
-          );
+          alert(`Veuillez renseigner votre date de naissance pour vérifier l'âge minimum (${ageMin} ans).`);
           setSubmitting(false);
           return;
         }
         const age = calculerAge(inscription.date_naissance);
         if (age === null || age < ageMin) {
-          alert(
-            `L'âge minimum pour ce format est de ${ageMin} ans. (Âge calculé : ${
-              age ?? "inconnu"
-            })`
-          );
+          alert(`L'âge minimum pour ce format est de ${ageMin} ans. (Âge calculé : ${age ?? "inconnu"})`);
           setSubmitting(false);
           return;
         }
       }
 
-      const full =
-        selectedFormat &&
-        Number(selectedFormat.inscrits || 0) >=
-          Number(selectedFormat.nb_max_coureurs || 0);
+      // ✅ Contrôle justificatifs (individuel) selon policy globale
+      if (mode === "individuel" && justifPolicy?.is_required) {
+        if (!justifStatus.ok) {
+          alert("Justificatif obligatoire : renseigne un N° licence/PPS ou importe un justificatif.");
+          setSubmitting(false);
+          return;
+        }
+      }
+
+      // ✅ Capacité (utilise la logique “illimitée” si cap absent)
+      const isFull = selectedFormat ? isFullFormat(selectedFormat) : false;
 
       // ===== INDIVIDUEL =====
       if (mode === "individuel") {
-        if (full && !selectedFormat?.waitlist_enabled) {
+        if (isFull && !selectedFormat?.waitlist_enabled) {
           alert(`Le format ${selectedFormat.nom} est complet.`);
           setSubmitting(false);
           return;
@@ -617,18 +732,26 @@ export default function InscriptionCourse() {
 
         const trace_id = uuidv4();
 
+        const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
+        if (!payerEmail) {
+          alert("Veuillez renseigner un email.");
+          setSubmitting(false);
+          return;
+        }
+
         // Inscription “en attente”
+        const payload = {
+          ...inscription,
+          coureur_id: inscription.coureur_id || user.id,
+          course_id: courseId,
+          format_id: inscription.format_id,
+          statut: "en attente",
+          paiement_trace_id: trace_id,
+        };
+
         const { data: inserted, error: insertErr } = await supabase
           .from("inscriptions")
-          .insert([
-            {
-              ...inscription,
-              course_id: courseId,
-              format_id: inscription.format_id,
-              statut: "en attente",
-              paiement_trace_id: trace_id,
-            },
-          ])
+          .insert([payload])
           .select()
           .single();
 
@@ -644,30 +767,18 @@ export default function InscriptionCourse() {
           await persistOptionsFnRef.current(inserted.id);
         }
 
-        const payerEmail =
-          inscription.email || user.email || user.user_metadata?.email || "";
-        if (!payerEmail) {
-          alert("Veuillez renseigner un email.");
-          setSubmitting(false);
-          return;
-        }
-
-        const { data, error: fnError } = await supabase.functions.invoke(
-          "create-checkout-session",
-          {
-            body: {
-              user_id: user.id,
-              course_id: courseId,
-              inscription_id: inserted.id,
-              email: payerEmail,
-              trace_id,
-              successUrl: "https://www.tickrace.com/merci",
-              cancelUrl: "https://www.tickrace.com/paiement-annule",
-              options_total_eur: (totalOptionsCents || 0) / 100, // filet de sécurité
-              // on pourrait aussi envoyer selected_options ici si besoin
-            },
-          }
-        );
+        const { data, error: fnError } = await supabase.functions.invoke("create-checkout-session", {
+          body: {
+            user_id: user.id,
+            course_id: courseId,
+            inscription_id: inserted.id,
+            email: payerEmail,
+            trace_id,
+            successUrl: "https://www.tickrace.com/merci",
+            cancelUrl: "https://www.tickrace.com/paiement-annule",
+            options_total_eur: (totalOptionsCents || 0) / 100,
+          },
+        });
 
         if (fnError || !data?.url) {
           console.error("❌ create-checkout-session error:", fnError, data);
@@ -675,12 +786,18 @@ export default function InscriptionCourse() {
           setSubmitting(false);
           return;
         }
+
         window.location.href = data.url;
         return;
       }
 
       // ===== GROUPE / RELAIS =====
-      // Validation basique des équipes
+      if (selectedFormat && isFullFormat(selectedFormat) && !selectedFormat.waitlist_enabled) {
+        alert(`Le format ${selectedFormat.nom} est complet.`);
+        setSubmitting(false);
+        return;
+      }
+
       for (const [idx, team] of teams.entries()) {
         if (!team.team_name || !team.team_size) {
           alert(`Équipe #${idx + 1} : nom et taille requis.`);
@@ -688,19 +805,18 @@ export default function InscriptionCourse() {
           return;
         }
         if (team.members.length !== team.team_size) {
-          alert(
-            `Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`
-          );
+          alert(`Équipe #${idx + 1} : le nombre de membres doit être ${team.team_size}.`);
           setSubmitting(false);
           return;
         }
+
         const bad = team.members.find(
           (m) =>
             !m.nom?.trim() ||
             !m.prenom?.trim() ||
             !m.genre ||
             !m.date_naissance ||
-            !(m.numero_licence && m.numero_licence.trim()) // N° licence / PPS requis
+            !(m.numero_licence && m.numero_licence.trim())
         );
         if (bad) {
           alert(
@@ -709,25 +825,21 @@ export default function InscriptionCourse() {
           setSubmitting(false);
           return;
         }
-        // Contrôle âge minimum pour chaque membre
+
         if (ageMin) {
           const jeune = team.members.find((m) => {
             const age = calculerAge(m.date_naissance);
             return age !== null && age < ageMin;
           });
-
           if (jeune) {
-            alert(
-              `Équipe #${idx + 1} : un membre ne respecte pas l'âge minimum de ${ageMin} ans.`
-            );
+            alert(`Équipe #${idx + 1} : un membre ne respecte pas l'âge minimum de ${ageMin} ans.`);
             setSubmitting(false);
             return;
           }
         }
       }
 
-      const payerEmail =
-        inscription.email || user.email || user.user_metadata?.email || "";
+      const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
         setSubmitting(false);
@@ -741,13 +853,10 @@ export default function InscriptionCourse() {
         members: t.members,
       }));
 
-      // Options sélectionnées pour création côté backend (pending par inscription)
-      const selected_options = getSelectedOptionsRef.current
-        ? getSelectedOptionsRef.current()
-        : [];
+      const selected_options = getSelectedOptionsRef.current ? getSelectedOptionsRef.current() : [];
 
       let body = {
-        mode, // 'groupe' | 'relais'
+        mode,
         format_id: inscription.format_id,
         user_id: user.id,
         course_id: courseId,
@@ -755,7 +864,7 @@ export default function InscriptionCourse() {
         successUrl: "https://www.tickrace.com/merci",
         cancelUrl: "https://www.tickrace.com/paiement-annule",
         options_total_eur: (totalOptionsCents || 0) / 100,
-        selected_options, // 👈 important pour groupe/relais
+        selected_options,
       };
 
       if (teams.length > 1) {
@@ -770,10 +879,7 @@ export default function InscriptionCourse() {
         };
       }
 
-      const { data, error: fnError } = await supabase.functions.invoke(
-        "create-checkout-session",
-        { body }
-      );
+      const { data, error: fnError } = await supabase.functions.invoke("create-checkout-session", { body });
 
       if (fnError || !data?.url) {
         console.error("❌ create-checkout-session error:", fnError, data);
@@ -813,22 +919,19 @@ export default function InscriptionCourse() {
   }
 
   const placesRestantes = selectedFormat
-    ? Math.max(
-        0,
-        Number(selectedFormat.nb_max_coureurs || 0) -
-          Number(selectedFormat.inscrits || 0)
-      )
+    ? hasCapacity(selectedFormat)
+      ? Math.max(0, Number(selectedFormat.nb_max_coureurs) - Number(selectedFormat.inscrits || 0))
+      : null
     : null;
+
+  const selectedIsFull = selectedFormat ? isFullFormat(selectedFormat) : false;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
         <div>
-          <Link
-            to={`/courses/${courseId}`}
-            className="text-sm text-neutral-500 hover:text-neutral-800"
-          >
+          <Link to={`/courses/${courseId}`} className="text-sm text-neutral-500 hover:text-neutral-800">
             ← Retour à la course
           </Link>
           <h1 className="text-2xl sm:text-3xl font-bold mt-1">{course.nom}</h1>
@@ -838,27 +941,15 @@ export default function InscriptionCourse() {
               : mode === "groupe"
               ? "Inscription en groupe"
               : "Inscription relais"}
-            {selectedFormat?.inscription_ouverture ||
-            selectedFormat?.inscription_fermeture ? (
+            {selectedFormat?.inscription_ouverture || selectedFormat?.inscription_fermeture ? (
               <>
                 {" • "}
                 <span className="text-neutral-700">
                   {selectedFormat.inscription_ouverture && (
-                    <>
-                      Ouverture :{" "}
-                      {new Date(
-                        selectedFormat.inscription_ouverture
-                      ).toLocaleString()}{" "}
-                    </>
+                    <>Ouverture : {new Date(selectedFormat.inscription_ouverture).toLocaleString()} </>
                   )}
                   {selectedFormat.inscription_fermeture && (
-                    <>
-                      {" "}
-                      / Fermeture :{" "}
-                      {new Date(
-                        selectedFormat.inscription_fermeture
-                      ).toLocaleString()}{" "}
-                    </>
+                    <> / Fermeture : {new Date(selectedFormat.inscription_fermeture).toLocaleString()} </>
                   )}
                 </span>
               </>
@@ -875,10 +966,10 @@ export default function InscriptionCourse() {
             <div className="p-5 border-b border-neutral-100">
               <h2 className="text-lg font-semibold">Choix du format</h2>
               <p className="text-sm text-neutral-500">
-                Sélectionne le format. La capacité affichée tient compte des inscriptions
-                existantes.
+                Sélectionne le format. La capacité affichée tient compte des inscriptions existantes.
               </p>
             </div>
+
             <div className="p-5 space-y-4">
               <label className="block text-sm font-medium mb-1">Format</label>
               <select
@@ -906,21 +997,11 @@ export default function InscriptionCourse() {
               >
                 <option value="">-- Sélectionnez un format --</option>
                 {formats.map((f) => {
-                  const full =
-                    Number(f.inscrits) >= Number(f.nb_max_coureurs || 0);
+                  const full = isFullFormat(f);
                   return (
-                    <option
-                      key={f.id}
-                      value={f.id}
-                      disabled={full && !f.waitlist_enabled}
-                    >
-                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m
-                      D+{" "}
-                      {full
-                        ? f.waitlist_enabled
-                          ? " (liste d’attente)"
-                          : " (complet)"
-                        : ""}
+                    <option key={f.id} value={f.id} disabled={full && !f.waitlist_enabled}>
+                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+
+                      {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
                     </option>
                   );
                 })}
@@ -928,32 +1009,29 @@ export default function InscriptionCourse() {
 
               {selectedFormat && (
                 <div className="text-sm text-neutral-600">
-                  Capacité : {selectedFormat.inscrits}/
-                  {selectedFormat.nb_max_coureurs} —{" "}
+                  Capacité :{" "}
+                  {hasCapacity(selectedFormat)
+                    ? `${selectedFormat.inscrits}/${selectedFormat.nb_max_coureurs}`
+                    : `${selectedFormat.inscrits}/∞`}{" "}
+                  —{" "}
                   <span className="font-medium">
-                    {placesRestantes} place
-                    {placesRestantes > 1 ? "s" : ""} restante
-                    {placesRestantes > 1 ? "s" : ""}
+                    {placesRestantes === null
+                      ? "Places illimitées"
+                      : `${placesRestantes} place${placesRestantes > 1 ? "s" : ""} restante${
+                          placesRestantes > 1 ? "s" : ""
+                        }`}
                   </span>
                   {selectedFormat.waitlist_enabled && placesRestantes === 0 && (
-                    <span className="ml-2 text-amber-700">
-                      (Liste d’attente possible)
-                    </span>
+                    <span className="ml-2 text-amber-700">(Liste d’attente possible)</span>
                   )}
-                  {!registrationWindow.isOpen && (
-                    <span className="ml-2 text-red-600">
-                      — {registrationWindow.reason}
-                    </span>
-                  )}
+                  {!registrationWindow.isOpen && <span className="ml-2 text-red-600">— {registrationWindow.reason}</span>}
                 </div>
               )}
 
               {/* Sélecteur de mode (si format le permet) */}
               {selectedFormat && selectedFormat.type_format !== "individuel" && (
                 <div className="mt-3">
-                  <div className="text-sm font-medium mb-1">
-                    Type d’inscription
-                  </div>
+                  <div className="text-sm font-medium mb-1">Type d’inscription</div>
                   <div className="flex gap-2">
                     <button
                       type="button"
@@ -971,9 +1049,7 @@ export default function InscriptionCourse() {
                         type="button"
                         onClick={() => setMode("groupe")}
                         className={`px-3 py-1.5 rounded-xl border text-sm ${
-                          mode === "groupe"
-                            ? "bg-black text-white border-black"
-                            : "bg-white hover:bg-neutral-50"
+                          mode === "groupe" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
                         }`}
                       >
                         Groupe
@@ -984,9 +1060,7 @@ export default function InscriptionCourse() {
                         type="button"
                         onClick={() => setMode("relais")}
                         className={`px-3 py-1.5 rounded-xl border text-sm ${
-                          mode === "relais"
-                            ? "bg-black text-white border-black"
-                            : "bg-white hover:bg-neutral-50"
+                          mode === "relais" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
                         }`}
                       >
                         Relais
@@ -1003,12 +1077,9 @@ export default function InscriptionCourse() {
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                 <div>
-                  <h2 className="text-lg font-semibold">
-                    {mode === "groupe" ? "Équipe" : "Équipes relais"}
-                  </h2>
+                  <h2 className="text-lg font-semibold">{mode === "groupe" ? "Équipe" : "Équipes relais"}</h2>
                   <p className="text-sm text-neutral-500">
-                    Renseigne le nom de l’équipe, la taille et les membres
-                    (champs requis marqués d’un astérisque).
+                    Renseigne le nom de l’équipe, la taille et les membres (champs requis marqués d’un astérisque).
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -1030,16 +1101,12 @@ export default function InscriptionCourse() {
                   className="rounded-xl border border-neutral-300 px-3 py-2"
                   placeholder="Rechercher une équipe…"
                   value={teamFilter.q}
-                  onChange={(e) =>
-                    setTeamFilter((p) => ({ ...p, q: e.target.value }))
-                  }
+                  onChange={(e) => setTeamFilter((p) => ({ ...p, q: e.target.value }))}
                 />
                 <select
                   className="rounded-xl border border-neutral-300 px-3 py-2"
                   value={teamFilter.category}
-                  onChange={(e) =>
-                    setTeamFilter((p) => ({ ...p, category: e.target.value }))
-                  }
+                  onChange={(e) => setTeamFilter((p) => ({ ...p, category: e.target.value }))}
                 >
                   <option value="all">Toutes catégories</option>
                   <option value="masculine">Équipe masculine</option>
@@ -1050,12 +1117,7 @@ export default function InscriptionCourse() {
                   <input
                     type="checkbox"
                     checked={teamFilter.completeOnly}
-                    onChange={(e) =>
-                      setTeamFilter((p) => ({
-                        ...p,
-                        completeOnly: e.target.checked,
-                      }))
-                    }
+                    onChange={(e) => setTeamFilter((p) => ({ ...p, completeOnly: e.target.checked }))}
                   />
                   Afficher uniquement les équipes complètes
                 </label>
@@ -1065,25 +1127,12 @@ export default function InscriptionCourse() {
                 {teams
                   .map((t) => ({ ...t, category: computeTeamCategory(t) }))
                   .filter((t) =>
-                    teamFilter.q
-                      ? (t.team_name || "")
-                          .toLowerCase()
-                          .includes(teamFilter.q.toLowerCase())
-                      : true
+                    teamFilter.q ? (t.team_name || "").toLowerCase().includes(teamFilter.q.toLowerCase()) : true
                   )
-                  .filter((t) =>
-                    teamFilter.category === "all"
-                      ? true
-                      : t.category === teamFilter.category
-                  )
-                  .filter((t) =>
-                    !teamFilter.completeOnly ? true : isTeamComplete(t)
-                  )
+                  .filter((t) => (teamFilter.category === "all" ? true : t.category === teamFilter.category))
+                  .filter((t) => (!teamFilter.completeOnly ? true : isTeamComplete(t)))
                   .map((team, tIdx) => (
-                    <div
-                      key={tIdx}
-                      className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4"
-                    >
+                    <div key={tIdx} className="rounded-xl ring-1 ring-neutral-200 bg-neutral-50 p-4">
                       <div className="flex items-center justify-between mb-3">
                         <div className="font-medium flex items-center gap-2">
                           {team.team_name || `Équipe ${tIdx + 1}`}
@@ -1119,36 +1168,25 @@ export default function InscriptionCourse() {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
                         <div>
-                          <label className="text-sm font-medium">
-                            Nom d’équipe
-                          </label>
+                          <label className="text-sm font-medium">Nom d’équipe</label>
                           <input
                             className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
                             value={team.team_name}
-                            onChange={(e) =>
-                              setTeamNameAt(tIdx, e.target.value)
-                            }
+                            onChange={(e) => setTeamNameAt(tIdx, e.target.value)}
                             placeholder={`Équipe ${tIdx + 1}`}
                           />
                         </div>
                         <div>
                           <label className="text-sm font-medium">
-                            Taille de l’équipe{" "}
-                            {selectedFormat?.team_size
-                              ? `(par défaut ${selectedFormat.team_size})`
-                              : ""}
+                            Taille de l’équipe {selectedFormat?.team_size ? `(par défaut ${selectedFormat.team_size})` : ""}
                           </label>
                           <input
                             type="number"
                             className="mt-1 rounded-xl border border-neutral-300 px-3 py-2 w-full"
-                            value={
-                              team.team_size || selectedFormat?.team_size || 0
-                            }
+                            value={team.team_size || selectedFormat?.team_size || 0}
                             min={minTeam}
                             max={maxTeam}
-                            onChange={(e) =>
-                              setTeamSizeAt(tIdx, e.target.value)
-                            }
+                            onChange={(e) => setTeamSizeAt(tIdx, e.target.value)}
                           />
                           <p className="text-xs text-neutral-500 mt-1">
                             Min {minTeam} — Max {maxTeam}
@@ -1165,15 +1203,9 @@ export default function InscriptionCourse() {
                               <th className="py-2 pr-3">Nom *</th>
                               <th className="py-2 pr-3">Prénom *</th>
                               <th className="py-2 pr-3">Sexe *</th>
-                              <th className="py-2 pr-3">
-                                Date de naissance *
-                              </th>
-                              <th className="py-2 pr-3">
-                                N° licence / PPS *
-                              </th>
-                              <th className="py-2 pr-3">
-                                Email (optionnel)
-                              </th>
+                              <th className="py-2 pr-3">Date de naissance *</th>
+                              <th className="py-2 pr-3">N° licence / PPS *</th>
+                              <th className="py-2 pr-3">Email (optionnel)</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -1184,14 +1216,7 @@ export default function InscriptionCourse() {
                                   <input
                                     className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                     value={m.nom}
-                                    onChange={(e) =>
-                                      setMemberAt(
-                                        tIdx,
-                                        mIdx,
-                                        "nom",
-                                        e.target.value
-                                      )
-                                    }
+                                    onChange={(e) => setMemberAt(tIdx, mIdx, "nom", e.target.value)}
                                     placeholder="Nom"
                                   />
                                 </td>
@@ -1199,14 +1224,7 @@ export default function InscriptionCourse() {
                                   <input
                                     className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                     value={m.prenom}
-                                    onChange={(e) =>
-                                      setMemberAt(
-                                        tIdx,
-                                        mIdx,
-                                        "prenom",
-                                        e.target.value
-                                      )
-                                    }
+                                    onChange={(e) => setMemberAt(tIdx, mIdx, "prenom", e.target.value)}
                                     placeholder="Prénom"
                                   />
                                 </td>
@@ -1214,14 +1232,7 @@ export default function InscriptionCourse() {
                                   <select
                                     className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                     value={m.genre || ""}
-                                    onChange={(e) =>
-                                      setMemberAt(
-                                        tIdx,
-                                        mIdx,
-                                        "genre",
-                                        e.target.value
-                                      )
-                                    }
+                                    onChange={(e) => setMemberAt(tIdx, mIdx, "genre", e.target.value)}
                                   >
                                     <option value="">Sélectionner</option>
                                     <option value="Homme">Homme</option>
@@ -1233,28 +1244,14 @@ export default function InscriptionCourse() {
                                     type="date"
                                     className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                     value={m.date_naissance || ""}
-                                    onChange={(e) =>
-                                      setMemberAt(
-                                        tIdx,
-                                        mIdx,
-                                        "date_naissance",
-                                        e.target.value
-                                      )
-                                    }
+                                    onChange={(e) => setMemberAt(tIdx, mIdx, "date_naissance", e.target.value)}
                                   />
                                 </td>
                                 <td className="py-2 pr-3">
                                   <input
                                     className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                     value={m.numero_licence || ""}
-                                    onChange={(e) =>
-                                      setMemberAt(
-                                        tIdx,
-                                        mIdx,
-                                        "numero_licence",
-                                        e.target.value
-                                      )
-                                    }
+                                    onChange={(e) => setMemberAt(tIdx, mIdx, "numero_licence", e.target.value)}
                                     placeholder="Numéro de licence ou PPS"
                                   />
                                 </td>
@@ -1262,14 +1259,7 @@ export default function InscriptionCourse() {
                                   <input
                                     className="w-full rounded-xl border border-neutral-300 px-3 py-2"
                                     value={m.email || ""}
-                                    onChange={(e) =>
-                                      setMemberAt(
-                                        tIdx,
-                                        mIdx,
-                                        "email",
-                                        e.target.value
-                                      )
-                                    }
+                                    onChange={(e) => setMemberAt(tIdx, mIdx, "email", e.target.value)}
                                     placeholder="email@exemple.com"
                                   />
                                 </td>
@@ -1277,12 +1267,8 @@ export default function InscriptionCourse() {
                             ))}
                             {team.team_size === 0 && (
                               <tr>
-                                <td
-                                  colSpan={7}
-                                  className="py-2 text-neutral-500"
-                                >
-                                  Indique une taille d’équipe pour générer les
-                                  lignes.
+                                <td colSpan={7} className="py-2 text-neutral-500">
+                                  Indique une taille d’équipe pour générer les lignes.
                                 </td>
                               </tr>
                             )}
@@ -1301,6 +1287,7 @@ export default function InscriptionCourse() {
               <div className="p-5 border-b border-neutral-100">
                 <h2 className="text-lg font-semibold">Informations coureur</h2>
               </div>
+
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <input
@@ -1367,9 +1354,7 @@ export default function InscriptionCourse() {
                     name="adresse_complement"
                     placeholder="Complément adresse"
                     value={inscription.adresse_complement}
-                    onChange={(e) =>
-                      setField("adresse_complement", e.target.value)
-                    }
+                    onChange={(e) => setField("adresse_complement", e.target.value)}
                   />
                   <input
                     className="rounded-xl border border-neutral-300 px-3 py-2"
@@ -1402,18 +1387,14 @@ export default function InscriptionCourse() {
                 </div>
 
                 <div className="space-y-2">
-                  <p className="text-sm font-medium">
-                    Affichage des résultats
-                  </p>
+                  <p className="text-sm font-medium">Affichage des résultats</p>
                   <div className="flex gap-4 text-sm text-neutral-700">
                     <label className="inline-flex items-center gap-2">
                       <input
                         type="radio"
                         name="apparaitre_resultats"
                         checked={inscription.apparaitre_resultats === true}
-                        onChange={() =>
-                          setField("apparaitre_resultats", true)
-                        }
+                        onChange={() => setField("apparaitre_resultats", true)}
                       />
                       Oui
                     </label>
@@ -1422,42 +1403,147 @@ export default function InscriptionCourse() {
                         type="radio"
                         name="apparaitre_resultats"
                         checked={inscription.apparaitre_resultats === false}
-                        onChange={() =>
-                          setField("apparaitre_resultats", false)
-                        }
+                        onChange={() => setField("apparaitre_resultats", false)}
                       />
                       Non
                     </label>
                   </div>
                 </div>
 
-                {/* Justificatif FFA / PPS - contrôle de format uniquement */}
+                {/* ✅ Justificatifs (policy globale) */}
                 <div className="pt-4 border-t border-neutral-200">
-                  <JustificatifFfaPps
-                    key={inscription.coureur_id || "no-user"}
-                    licenceFfa={inscription.numero_licence || ""}
-                    ppsCode={inscription.pps_identifier || ""}
-                    onChange={({ licenceFfa, ppsCode }) => {
-                      // On met à jour simplement les champs existants de l'inscription
-                      setField("numero_licence", licenceFfa);
-                      setField("pps_identifier", ppsCode);
-                    }}
-                  />
+                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <div className="text-sm font-semibold text-neutral-900 flex items-center gap-2">
+                          Justificatifs
+                          {justifPolicy.is_required ? (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-red-100 text-red-700">
+                              obligatoire
+                            </span>
+                          ) : (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-200 text-neutral-800">
+                              optionnel
+                            </span>
+                          )}
+                          {justifPolicy.is_required ? (
+                            justifStatus.ok ? (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                OK
+                              </span>
+                            ) : (
+                              <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                manquant
+                              </span>
+                            )
+                          ) : null}
+                        </div>
+                        <div className="text-xs text-neutral-600">
+                          {justifPolicy.allow_medical_upload ? "Upload autorisé" : "Upload désactivé"}
+                        </div>
+                      </div>
+
+                      {allowedTypeLabels.length > 0 && (
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {allowedTypeLabels.slice(0, 6).map((t) => (
+                            <span
+                              key={t.code}
+                              className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200"
+                            >
+                              {t.label}
+                            </span>
+                          ))}
+                          {allowedTypeLabels.length > 6 && (
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
+                              +{allowedTypeLabels.length - 6}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {justifPolicy.notes ? (
+                      <div className="mt-2 text-xs text-neutral-700 whitespace-pre-wrap">{justifPolicy.notes}</div>
+                    ) : null}
+
+                    {/* Petit select (utile en admin / export) */}
+                    {allowedTypeLabels.length > 0 && (
+                      <div className="mt-3">
+                        <div className="text-sm font-medium text-neutral-800">Type de justificatif</div>
+                        <select
+                          className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                          value={inscription.justificatif_type || ""}
+                          onChange={(e) => setField("justificatif_type", e.target.value)}
+                        >
+                          <option value="">—</option>
+                          {allowedTypeLabels.map((t) => (
+                            <option key={t.code} value={t.code}>
+                              {t.label}
+                            </option>
+                          ))}
+                        </select>
+                        <div className="mt-1 text-xs text-neutral-500">
+                          (Optionnel, mais conseillé pour faciliter le contrôle par l’organisateur.)
+                        </div>
+                      </div>
+                    )}
+
+                    {/* FFA/PPS (affiché si pertinent) */}
+                    {showFfaPps && (
+                      <div className="mt-3">
+                        <JustificatifFfaPps
+                          key={inscription.coureur_id || "no-user"}
+                          licenceFfa={inscription.numero_licence || ""}
+                          ppsCode={inscription.pps_identifier || ""}
+                          onChange={({ licenceFfa, ppsCode }) => {
+                            setField("numero_licence", licenceFfa);
+                            setField("pps_identifier", ppsCode);
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    {/* Upload (si autorisé) */}
+                    {justifPolicy.allow_medical_upload && (
+                      <div className="mt-4">
+                        <div className="text-sm font-medium text-neutral-800">Importer un justificatif (photo/PDF)</div>
+                        <div className="mt-2 flex items-center gap-3">
+                          <input
+                            type="file"
+                            accept="image/*,application/pdf"
+                            onChange={(e) => handleUploadJustificatif(e.target.files?.[0])}
+                            className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
+                            disabled={justifUploading}
+                          />
+                        </div>
+
+                        {inscription.justificatif_url ? (
+                          <div className="mt-2 text-xs text-neutral-700 break-all">
+                            Fichier importé :{" "}
+                            <a className="underline" href={inscription.justificatif_url} target="_blank" rel="noreferrer">
+                              {inscription.justificatif_url}
+                            </a>
+                          </div>
+                        ) : (
+                          <div className="mt-1 text-xs text-neutral-500">Formats acceptés : image ou PDF (max 10 Mo).</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </div>
             </section>
           )}
 
           {/* Options payantes */}
-          {selectedFormat &&
-            (mode === "individuel" || mode === "groupe" || mode === "relais") && (
-              <OptionsPayantesPicker
-                formatId={selectedFormat.id}
-                onTotalCentsChange={(c) => setTotalOptionsCents(c)}
-                registerPersist={registerPersist}
-                registerGetSelected={registerGetSelected}
-              />
-            )}
+          {selectedFormat && (
+            <OptionsPayantesPicker
+              formatId={selectedFormat.id}
+              onTotalCentsChange={(c) => setTotalOptionsCents(c)}
+              registerPersist={registerPersist}
+              registerGetSelected={registerGetSelected}
+            />
+          )}
         </div>
 
         {/* Résumé / paiement */}
@@ -1465,98 +1551,81 @@ export default function InscriptionCourse() {
           <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm sticky top-6">
             <div className="p-5 border-b border-neutral-100">
               <h3 className="text-lg font-semibold">Résumé</h3>
-              <p className="text-sm text-neutral-500">
-                Vérifie les informations puis procède au paiement.
-              </p>
+              <p className="text-sm text-neutral-500">Vérifie les informations puis procède au paiement.</p>
             </div>
 
             <div className="p-5 space-y-3 text-sm">
               <div className="flex justify-between">
                 <span className="text-neutral-600">Format</span>
-                <span className="font-medium">
-                  {selectedFormat ? selectedFormat.nom : "—"}
-                </span>
+                <span className="font-medium">{selectedFormat ? selectedFormat.nom : "—"}</span>
               </div>
+
+              {selectedFormat && (
+                <div className="flex justify-between">
+                  <span className="text-neutral-600">Capacité</span>
+                  <span className="font-medium">
+                    {hasCapacity(selectedFormat)
+                      ? `${selectedFormat.inscrits}/${selectedFormat.nb_max_coureurs}`
+                      : `${selectedFormat.inscrits}/∞`}
+                  </span>
+                </div>
+              )}
 
               {/* Résumé équipes */}
               {mode !== "individuel" && (
-                <>
-                  <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3">
-                    {(() => {
-                      const teamsWithCat = teams.map((t) => ({
-                        ...t,
-                        category: computeTeamCategory(t),
-                      }));
-                      const totals = {
-                        count: teams.length,
-                        participants: teams.reduce(
-                          (acc, t) => acc + (t.team_size || 0),
-                          0
-                        ),
-                        masculine: teamsWithCat.filter(
-                          (t) => t.category === "masculine"
-                        ).length,
-                        feminine: teamsWithCat.filter(
-                          (t) => t.category === "feminine"
-                        ).length,
-                        mixte: teamsWithCat.filter(
-                          (t) => t.category === "mixte"
-                        ).length,
-                        completes: teamsWithCat.filter((t) =>
-                          isTeamComplete(t)
-                        ).length,
-                      };
-                      return (
-                        <div className="space-y-1">
-                          <div className="flex justify-between">
-                            <span>Équipes</span>
-                            <b>{totals.count}</b>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Participants</span>
-                            <b>{totals.participants}</b>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Masculines</span>
-                            <b>{totals.masculine}</b>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Féminines</span>
-                            <b>{totals.feminine}</b>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Mixtes</span>
-                            <b>{totals.mixte}</b>
-                          </div>
-                          <div className="flex justify-between">
-                            <span>Équipes complètes</span>
-                            <b>{totals.completes}</b>
-                          </div>
+                <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3">
+                  {(() => {
+                    const teamsWithCat = teams.map((t) => ({ ...t, category: computeTeamCategory(t) }));
+                    const totals = {
+                      count: teams.length,
+                      participants: teams.reduce((acc, t) => acc + (t.team_size || 0), 0),
+                      masculine: teamsWithCat.filter((t) => t.category === "masculine").length,
+                      feminine: teamsWithCat.filter((t) => t.category === "feminine").length,
+                      mixte: teamsWithCat.filter((t) => t.category === "mixte").length,
+                      completes: teamsWithCat.filter((t) => isTeamComplete(t)).length,
+                    };
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex justify-between">
+                          <span>Équipes</span>
+                          <b>{totals.count}</b>
                         </div>
-                      );
-                    })()}
-                  </div>
-                </>
+                        <div className="flex justify-between">
+                          <span>Participants</span>
+                          <b>{totals.participants}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Masculines</span>
+                          <b>{totals.masculine}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Féminines</span>
+                          <b>{totals.feminine}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Mixtes</span>
+                          <b>{totals.mixte}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Équipes complètes</span>
+                          <b>{totals.completes}</b>
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
               )}
 
               {mode === "individuel" ? (
                 <>
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Inscription</span>
-                    <span className="font-medium">
-                      {selectedFormat
-                        ? Number(selectedFormat.prix || 0).toFixed(2)
-                        : "0.00"}{" "}
-                      €
-                    </span>
+                    <span className="font-medium">{selectedFormat ? Number(selectedFormat.prix || 0).toFixed(2) : "0.00"} €</span>
                   </div>
-                  {/* Ligne options payantes */}
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
                       <span className="text-neutral-600">Options payantes</span>
-                      <span className="font-medium">
-                        {(totalOptionsCents / 100).toFixed(2)} €
-                      </span>
+                      <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
                     </div>
                   )}
                 </>
@@ -1568,36 +1637,24 @@ export default function InscriptionCourse() {
                         {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
                       </span>
                       <span className="font-medium">
-                        ~
-                        {(
-                          Number(selectedFormat?.prix || 0) *
-                            (t.team_size || 0) +
+                        ~{(
+                          Number(selectedFormat?.prix || 0) * (t.team_size || 0) +
                           (Number(selectedFormat?.prix_equipe || 0) || 0)
                         ).toFixed(2)}{" "}
                         €
                       </span>
                     </div>
                   ))}
-                  {/* Ligne options */}
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
                       <span className="text-neutral-600">Options payantes</span>
-                      <span className="font-medium">
-                        {(totalOptionsCents / 100).toFixed(2)} €
-                      </span>
+                      <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
                     </div>
                   )}
                   <div className="h-px bg-neutral-200 my-2" />
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Sous-total estimé</span>
-                    <span className="font-medium">
-                      ~
-                      {(
-                        Number(estimationEquipe || 0) +
-                        totalOptionsCents / 100
-                      ).toFixed(2)}{" "}
-                      €
-                    </span>
+                    <span className="font-medium">~{(Number(estimationEquipe || 0) + totalOptionsCents / 100).toFixed(2)} €</span>
                   </div>
                 </>
               )}
@@ -1608,17 +1665,20 @@ export default function InscriptionCourse() {
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
                   {mode === "individuel"
-                    ? (
-                        Number(inscription.prix_total_coureur || 0) +
-                        totalOptionsCents / 100
-                      ).toFixed(2)
-                    : `~${(
-                        Number(estimationEquipe || 0) +
-                        totalOptionsCents / 100
-                      ).toFixed(2)}`}{" "}
+                    ? (Number(inscription.prix_total_coureur || 0) + totalOptionsCents / 100).toFixed(2)
+                    : `~${(Number(estimationEquipe || 0) + totalOptionsCents / 100).toFixed(2)}`}{" "}
                   €
                 </span>
               </div>
+
+              {/* rappel justificatif si requis */}
+              {mode === "individuel" && justifPolicy.is_required && (
+                <div className={`mt-2 rounded-xl border p-3 text-xs ${justifStatus.ok ? "bg-emerald-50 border-emerald-200 text-emerald-800" : "bg-amber-50 border-amber-200 text-amber-800"}`}>
+                  {justifStatus.ok
+                    ? "Justificatif : OK"
+                    : "Justificatif requis : renseigne une licence/PPS ou importe un justificatif."}
+                </div>
+              )}
             </div>
 
             <div className="p-5">
@@ -1629,45 +1689,26 @@ export default function InscriptionCourse() {
                   submitting ||
                   !inscription.format_id ||
                   !registrationWindow.isOpen ||
-                  (mode === "individuel" &&
-                    selectedFormat &&
-                    !selectedFormat.waitlist_enabled &&
-                    Number(selectedFormat.inscrits) >=
-                      Number(selectedFormat.nb_max_coureurs || 0))
+                  (selectedFormat && isFullFormat(selectedFormat) && !selectedFormat.waitlist_enabled)
                 }
                 className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition
-                  ${
-                    submitting
-                      ? "bg-neutral-400 cursor-not-allowed"
-                      : "bg-neutral-900 hover:bg-black"
-                  }`}
+                  ${submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"}`}
               >
-                {submitting
-                  ? "Redirection vers Stripe…"
-                  : mode === "individuel"
-                  ? "Confirmer et payer"
-                  : "Payer les équipes"}
+                {submitting ? "Redirection vers Stripe…" : mode === "individuel" ? "Confirmer et payer" : "Payer les équipes"}
               </button>
 
-              {selectedFormat &&
-                Number(selectedFormat.inscrits) >=
-                  Number(selectedFormat.nb_max_coureurs || 0) && (
-                  <p className="text-xs text-amber-700 mt-2">
-                    {selectedFormat.waitlist_enabled
-                      ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
-                      : "Ce format est complet."}
-                  </p>
-                )}
-
-              {!registrationWindow.isOpen && (
-                <p className="text-xs text-red-600 mt-2">
-                  {registrationWindow.reason}
+              {selectedFormat && selectedIsFull && (
+                <p className="text-xs text-amber-700 mt-2">
+                  {selectedFormat.waitlist_enabled
+                    ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
+                    : "Ce format est complet."}
                 </p>
               )}
 
+              {!registrationWindow.isOpen && <p className="text-xs text-red-600 mt-2">{registrationWindow.reason}</p>}
+
               <p className="text-xs text-neutral-500 mt-3">
-                En confirmant, vous acceptez les conditions de l’épreuve et de
-                Tickrace.
+                En confirmant, vous acceptez les conditions de l’épreuve et de Tickrace.
               </p>
             </div>
           </div>
