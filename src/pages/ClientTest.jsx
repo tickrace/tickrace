@@ -1,402 +1,479 @@
-import React, { useMemo, useState } from "react";
+// src/pages/ClientTest.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
-import {
-  computeJustificatifRules,
-  TYPE_PPS,
-  TYPE_LICENCE_FFA,
-  TYPE_LICENCE_AUTRE,
-  TYPE_CERTIF_MEDICAL,
-  TYPE_AUTRE_DOC,
-} from "../components/JustificatifRulesEngine";
+import { useJustificatifConfig } from "../hooks/useJustificatifConfig";
 
-/* ------------------------------ UI helpers ------------------------------ */
-const Card = ({ title, subtitle, children }) => (
-  <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
-    <div className="p-5 border-b border-neutral-100">
-      <h2 className="text-lg font-semibold">{title}</h2>
-      {subtitle ? <p className="text-sm text-neutral-500 mt-1">{subtitle}</p> : null}
-    </div>
-    <div className="p-5">{children}</div>
-  </section>
+const Container = ({ children }) => (
+  <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-8">{children}</div>
 );
 
-const Badge = ({ children }) => (
-  <span className="inline-flex items-center rounded-full border border-neutral-200 bg-neutral-50 px-2.5 py-1 text-[11px] font-medium text-neutral-700">
+const Card = ({ children }) => (
+  <div className="rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">{children}</div>
+);
+
+const Label = ({ children }) => (
+  <div className="text-xs font-semibold text-neutral-600">{children}</div>
+);
+
+const Input = (props) => (
+  <input
+    {...props}
+    className={[
+      "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none",
+      "focus:ring-2 focus:ring-orange-300",
+      props.className || "",
+    ].join(" ")}
+  />
+);
+
+const Textarea = (props) => (
+  <textarea
+    {...props}
+    className={[
+      "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none",
+      "focus:ring-2 focus:ring-orange-300 min-h-[96px]",
+      props.className || "",
+    ].join(" ")}
+  />
+);
+
+const Button = ({ children, className = "", ...props }) => (
+  <button
+    {...props}
+    className={[
+      "inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition",
+      "bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed",
+      className,
+    ].join(" ")}
+  >
+    {children}
+  </button>
+);
+
+const Pill = ({ children }) => (
+  <span className="inline-flex items-center rounded-full bg-orange-50 text-orange-800 ring-1 ring-orange-200 px-2.5 py-1 text-xs font-semibold">
     {children}
   </span>
 );
 
-const Field = ({ label, children, hint }) => (
-  <label className="block">
-    <div className="text-xs font-semibold text-neutral-600">{label}</div>
-    <div className="mt-1">{children}</div>
-    {hint ? <div className="mt-1 text-xs text-neutral-500">{hint}</div> : null}
-  </label>
-);
+function normalizeCode(v) {
+  return String(v || "").trim().toLowerCase();
+}
 
-/* ------------------------------ Page ------------------------------ */
+async function uploadToBucket({ file, bucket = "ppsjustificatifs" }) {
+  if (!file) throw new Error("Aucun fichier");
+
+  const { data: userRes } = await supabase.auth.getUser();
+  const userId = userRes?.user?.id || "public";
+
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_");
+  const path = `justificatifs/${userId}/${Date.now()}_${safeName}`;
+
+  const { error: upErr } = await supabase.storage.from(bucket).upload(path, file, {
+    cacheControl: "3600",
+    upsert: true,
+  });
+  if (upErr) throw upErr;
+
+  // Si bucket privé, on tente un signed URL ; sinon publicUrl peut suffire
+  const { data: signed, error: sErr } = await supabase.storage.from(bucket).createSignedUrl(path, 60 * 60 * 24 * 7);
+  if (!sErr && signed?.signedUrl) {
+    return { path, url: signed.signedUrl, bucket };
+  }
+
+  const { data: pub } = supabase.storage.from(bucket).getPublicUrl(path);
+  return { path, url: pub?.publicUrl || null, bucket };
+}
+
 export default function ClientTest() {
-  // Contexte (simule course/format)
-  const [ctx, setCtx] = useState({
-    country: "FR",
-    sportCode: "trail",
-    federationCode: "FFA",
-    age: 30,
-  });
+  const [courseId, setCourseId] = useState("");
+  const [formatId, setFormatId] = useState("");
 
-  // Policy (simule course_justificatif_policies + overrides format)
-  const [policy, setPolicy] = useState({
-    require_justificatif: true,
-    enable_upload: true,
-    allow_certif_medical: false, // safe par défaut
-    allow_other_doc: true,
-    require_expiry_for_pps: false,
-    minor_requires_parental_doc: false,
-    accepted_types: null, // si tu mets un array => override dur
-  });
+  const [course, setCourse] = useState(null);
+  const [formats, setFormats] = useState([]);
+  const [format, setFormat] = useState(null);
 
-  // Valeur “inscription” (simule table inscriptions)
-  const [value, setValue] = useState({
+  const [loadErr, setLoadErr] = useState(null);
+  const [loadingEntity, setLoadingEntity] = useState(false);
+
+  // état “inscription justificatif”
+  const [j, setJ] = useState({
     justificatif_type: "",
     pps_identifier: "",
     pps_expiry_date: "",
     numero_licence: "",
     federation_code: "",
     justificatif_url: "",
+    justificatif_bucket: "ppsjustificatifs",
+    justificatif_path: "",
   });
 
-  const rules = useMemo(() => computeJustificatifRules({ ...ctx, policy }), [ctx, policy]);
-  const allowed = rules.allowedTypes || [];
-  const primaryType = rules.recommendations?.primaryType || allowed[0] || "";
-
-  const chosenType = value.justificatif_type || primaryType || "";
-
-  const validation = useMemo(() => rules.validate(value), [rules, value]);
-
-  function setField(name, v) {
-    setValue((p) => ({ ...p, [name]: v }));
-  }
-
-  function setType(t) {
-    // nettoyage léger quand on change de type (évite mélanges)
-    setValue((prev) => {
-      const next = { ...prev, justificatif_type: t };
-      if (t === TYPE_PPS) {
-        next.numero_licence = "";
-        next.federation_code = "";
-        next.justificatif_url = "";
-      } else if (t === TYPE_LICENCE_FFA) {
-        next.pps_identifier = "";
-        next.pps_expiry_date = "";
-        next.federation_code = "";
-        next.justificatif_url = "";
-      } else if (t === TYPE_LICENCE_AUTRE) {
-        next.pps_identifier = "";
-        next.pps_expiry_date = "";
-        next.justificatif_url = "";
-      } else if (t === TYPE_CERTIF_MEDICAL || t === TYPE_AUTRE_DOC) {
-        next.pps_identifier = "";
-        next.pps_expiry_date = "";
-        next.numero_licence = "";
-        next.federation_code = "";
-        // justificatif_url conservé
-      }
-      return next;
+  const { loading, error, catalogue, allowedTypes, isRequired, notes, allowMedicalUpload, debug, refresh } =
+    useJustificatifConfig({
+      course,
+      format,
+      courseId: course?.id || courseId || null,
+      formatId: format?.id || formatId || null,
+      enabled: Boolean(course?.id || courseId),
+      defaults: { required: false, allowMedicalUpload: false, allowedTypes: [] },
     });
-  }
 
-  async function uploadFile(file) {
-    if (!file) return;
+  const catalogueActive = useMemo(
+    () => (catalogue || []).filter((t) => t.is_active !== false),
+    [catalogue]
+  );
 
+  const allowedSet = useMemo(() => new Set((allowedTypes || []).map(normalizeCode)), [allowedTypes]);
+
+  const filteredCatalogue = useMemo(() => {
+    // Si allowedTypes vide → on laisse tout (mais ton hook remplace normalement par activeCodes)
+    if (!allowedTypes || !allowedTypes.length) return catalogueActive;
+    return catalogueActive.filter((t) => allowedSet.has(normalizeCode(t.code)));
+  }, [catalogueActive, allowedTypes, allowedSet]);
+
+  // type sélectionné : défaut = 1er type autorisé
+  useEffect(() => {
+    if (!j.justificatif_type) {
+      const first = (allowedTypes && allowedTypes[0]) || (filteredCatalogue[0]?.code || "");
+      if (first) setJ((p) => ({ ...p, justificatif_type: first }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowedTypes, filteredCatalogue]);
+
+  async function loadCourseAndFormats() {
+    setLoadErr(null);
+    setLoadingEntity(true);
     try {
-      // bucket que tu as déjà : ppsjustificatifs
-      const bucket = "ppsjustificatifs";
-      const safeName = String(file.name || "justificatif").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
-      const path = `test/justif/${Date.now()}-${safeName}`;
+      if (!courseId) throw new Error("Renseigne un courseId");
+      const { data: c, error: cErr } = await supabase.from("courses").select("*").eq("id", courseId).single();
+      if (cErr) throw cErr;
+      setCourse(c);
 
-      const { data, error } = await supabase.storage.from(bucket).upload(path, file, {
-        upsert: false,
-        contentType: file.type || undefined,
-      });
+      const { data: fs, error: fErr } = await supabase
+        .from("formats")
+        .select("*")
+        .eq("course_id", courseId)
+        .order("created_at", { ascending: true });
+      if (fErr) throw fErr;
+      setFormats(fs || []);
 
-      if (error) throw error;
-
-      const publicUrl = supabase.storage.from(bucket).getPublicUrl(data.path).data.publicUrl;
-      setField("justificatif_url", publicUrl);
+      // auto-select 1er format si aucun
+      if (!formatId && (fs || []).length) {
+        setFormatId(fs[0].id);
+      }
     } catch (e) {
-      console.error("❌ uploadFile:", e);
-      alert("Upload impossible (vérifie bucket/RLS). Tu peux aussi coller une URL manuellement.");
+      setLoadErr(e);
+    } finally {
+      setLoadingEntity(false);
     }
   }
 
-  const typeLabel = (t) => {
-    switch (t) {
-      case TYPE_PPS:
-        return "PPS";
-      case TYPE_LICENCE_FFA:
-        return "Licence FFA";
-      case TYPE_LICENCE_AUTRE:
-        return "Licence autre fédé";
-      case TYPE_CERTIF_MEDICAL:
-        return "Certificat médical (upload)";
-      case TYPE_AUTRE_DOC:
-        return "Autre document (upload)";
-      default:
-        return t;
+  async function loadFormat() {
+    setLoadErr(null);
+    setLoadingEntity(true);
+    try {
+      if (!formatId) {
+        setFormat(null);
+        return;
+      }
+      const { data: f, error: fErr } = await supabase.from("formats").select("*").eq("id", formatId).single();
+      if (fErr) throw fErr;
+      setFormat(f);
+    } catch (e) {
+      setLoadErr(e);
+    } finally {
+      setLoadingEntity(false);
     }
-  };
+  }
+
+  useEffect(() => {
+    if (courseId) loadCourseAndFormats();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (formatId) loadFormat();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formatId]);
+
+  const selectedType = normalizeCode(j.justificatif_type);
+
+  const typeRow = useMemo(() => {
+    const code = normalizeCode(j.justificatif_type);
+    return (filteredCatalogue || []).find((t) => normalizeCode(t.code) === code) || null;
+  }, [filteredCatalogue, j.justificatif_type]);
+
+  const inputMode = typeRow?.input_mode || "text"; // "upload" vs "text" (selon ta table justificatif_types)
+  const isUpload = inputMode === "upload";
+
+  const missingReason = useMemo(() => {
+    if (!isRequired) return null;
+
+    if (!selectedType) return "Type requis.";
+    if (isUpload) return j.justificatif_url ? null : "Document requis.";
+    // mode text : PPS ou licence etc.
+    if (selectedType.includes("pps")) return j.pps_identifier?.trim() ? null : "Code PPS requis.";
+    if (selectedType.includes("licence")) return j.numero_licence?.trim() ? null : "Numéro de licence requis.";
+    return null;
+  }, [isRequired, selectedType, isUpload, j]);
+
+  async function onUploadFile(file) {
+    try {
+      const out = await uploadToBucket({ file, bucket: "ppsjustificatifs" });
+      setJ((p) => ({
+        ...p,
+        justificatif_bucket: out.bucket,
+        justificatif_path: out.path,
+        justificatif_url: out.url || "",
+      }));
+    } catch (e) {
+      alert(e?.message || String(e));
+    }
+  }
+
+  const payloadPreview = useMemo(() => {
+    return {
+      course_id: course?.id || courseId || null,
+      format_id: format?.id || formatId || null,
+      // ce que tu copieras dans inscriptions :
+      justificatif_type: j.justificatif_type,
+      pps_identifier: j.pps_identifier || null,
+      pps_expiry_date: j.pps_expiry_date || null,
+      numero_licence: j.numero_licence || null,
+      federation_code: j.federation_code || null,
+      justificatif_url: j.justificatif_url || null,
+      // debug upload
+      _bucket: j.justificatif_bucket,
+      _path: j.justificatif_path,
+      // contexte policy
+      policy: { isRequired, allowedTypes, allowMedicalUpload, notes },
+      debug,
+    };
+  }, [course, format, courseId, formatId, j, isRequired, allowedTypes, allowMedicalUpload, notes, debug]);
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
-      <div>
-        <h1 className="text-2xl sm:text-3xl font-bold">ClientTest — Justificatifs</h1>
-        <p className="text-neutral-600 mt-1">
-          Sandbox pour tester les règles, les types autorisés, la validation et l’upload (sans la partie inscription/paiement).
-        </p>
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Col gauche : contexte + policy */}
-        <div className="lg:col-span-1 space-y-6">
-          <Card title="Contexte" subtitle="Simule course/format (sport, pays, fédé, âge).">
-            <div className="space-y-4">
-              <Field label="Pays">
-                <select
-                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                  value={ctx.country}
-                  onChange={(e) => setCtx((p) => ({ ...p, country: e.target.value }))}
-                >
-                  <option value="FR">FR</option>
-                  <option value="ES">ES</option>
-                  <option value="IT">IT</option>
-                  <option value="US">US</option>
-                </select>
-              </Field>
-
-              <Field label="Sport (sportCode)">
-                <select
-                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                  value={ctx.sportCode}
-                  onChange={(e) => setCtx((p) => ({ ...p, sportCode: e.target.value }))}
-                >
-                  <option value="trail">trail</option>
-                  <option value="running">running</option>
-                  <option value="route">route</option>
-                  <option value="vtt">vtt</option>
-                  <option value="cycling">cycling</option>
-                  <option value="triathlon">triathlon</option>
-                </select>
-              </Field>
-
-              <Field label="Fédération (federationCode)">
-                <input
-                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                  value={ctx.federationCode}
-                  onChange={(e) => setCtx((p) => ({ ...p, federationCode: e.target.value }))}
-                  placeholder="FFA / FFC / FFTRI / ..."
-                />
-              </Field>
-
-              <Field label="Âge">
-                <input
-                  type="number"
-                  min={0}
-                  className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                  value={ctx.age}
-                  onChange={(e) => setCtx((p) => ({ ...p, age: Number(e.target.value || 0) }))}
-                />
-              </Field>
-            </div>
-          </Card>
-
-          <Card title="Policy (override)" subtitle="Simule ce que l’orga configure côté course/format.">
-            <div className="space-y-3 text-sm">
-              {[
-                ["require_justificatif", "Justificatif requis"],
-                ["enable_upload", "Upload autorisé (global)"],
-                ["allow_certif_medical", "Autoriser certificat médical (upload)"],
-                ["allow_other_doc", "Autoriser autre document (upload)"],
-                ["require_expiry_for_pps", "PPS doit avoir une date d’expiration"],
-                ["minor_requires_parental_doc", "Mineur : doc parental recommandé"],
-              ].map(([key, label]) => (
-                <label key={key} className="flex items-center gap-2">
-                  <input
-                    type="checkbox"
-                    checked={!!policy[key]}
-                    onChange={(e) => setPolicy((p) => ({ ...p, [key]: e.target.checked }))}
-                  />
-                  {label}
-                </label>
-              ))}
-
-              <div className="mt-3 rounded-xl border border-neutral-200 bg-neutral-50 p-3">
-                <div className="text-xs font-semibold text-neutral-700">Override dur des types (optionnel)</div>
-                <div className="text-xs text-neutral-500 mb-2">
-                  Si tu remplis ce champ (JSON array), ça remplace totalement le calcul automatique.
-                </div>
-                <textarea
-                  className="w-full rounded-xl border border-neutral-300 px-3 py-2 text-xs font-mono"
-                  rows={3}
-                  value={policy.accepted_types ? JSON.stringify(policy.accepted_types) : ""}
-                  onChange={(e) => {
-                    const raw = e.target.value.trim();
-                    if (!raw) return setPolicy((p) => ({ ...p, accepted_types: null }));
-                    try {
-                      const arr = JSON.parse(raw);
-                      if (Array.isArray(arr)) setPolicy((p) => ({ ...p, accepted_types: arr }));
-                    } catch {
-                      // ignore
-                    }
-                  }}
-                  placeholder='Ex: ["PPS","LICENCE_FFA"]'
-                />
-              </div>
-            </div>
-          </Card>
+    <Container>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <div className="text-sm font-semibold text-orange-600">TEST</div>
+          <h1 className="text-2xl font-extrabold tracking-tight text-neutral-900">ClientTest — Justificatifs</h1>
+          <p className="mt-1 text-sm text-neutral-600">
+            Simule la partie justificatif de <span className="font-semibold">InscriptionCourse</span>.
+          </p>
         </div>
 
-        {/* Col milieu : formulaire justificatif */}
-        <div className="lg:col-span-2 space-y-6">
-          <Card
-            title="Justificatif (simulation)"
-            subtitle="Le type proposé + champs dépendent du contexte et des règles."
-          >
-            <div className="flex flex-wrap gap-2 mb-4">
-              <Badge>Allowed: {allowed.length ? allowed.map(typeLabel).join(", ") : "aucun"}</Badge>
-              <Badge>Primary: {primaryType ? typeLabel(primaryType) : "—"}</Badge>
+        <div className="flex items-center gap-2">
+          <Button onClick={refresh} className="bg-white text-neutral-900 ring-1 ring-neutral-200 hover:bg-neutral-50">
+            Recharger config
+          </Button>
+        </div>
+      </div>
+
+      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+        {/* Left: load course/format */}
+        <Card>
+          <div className="p-5">
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-neutral-900">Contexte</div>
+              <div className="flex gap-2">
+                {loading && <Pill>config…</Pill>}
+                {loadingEntity && <Pill>load…</Pill>}
+              </div>
             </div>
 
-            {allowed.length === 0 ? (
-              <div className="text-sm text-neutral-600">Aucun justificatif requis / autorisé (selon policy).</div>
-            ) : (
-              <div className="space-y-4">
-                <Field label="Type de justificatif">
+            <div className="mt-4 grid gap-4">
+              <div>
+                <Label>Course ID</Label>
+                <div className="mt-1 flex gap-2">
+                  <Input value={courseId} onChange={(e) => setCourseId(e.target.value)} placeholder="uuid course_id" />
+                  <Button onClick={loadCourseAndFormats} disabled={!courseId}>
+                    Charger
+                  </Button>
+                </div>
+              </div>
+
+              <div>
+                <Label>Format</Label>
+                <div className="mt-1">
                   <select
-                    className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                    value={chosenType}
-                    onChange={(e) => setType(e.target.value)}
+                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                    value={formatId}
+                    onChange={(e) => setFormatId(e.target.value)}
+                    disabled={!formats.length}
                   >
-                    {allowed.map((t) => (
-                      <option key={t} value={t}>
-                        {typeLabel(t)}
+                    {formats.length === 0 && <option value="">(aucun format chargé)</option>}
+                    {formats.map((f) => (
+                      <option key={f.id} value={f.id}>
+                        {f.nom} — {f.id.slice(0, 8)}
                       </option>
                     ))}
                   </select>
-                </Field>
+                </div>
+              </div>
 
-                {(chosenType === TYPE_PPS) && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Field label="Code PPS" hint="Ex: PPS-XXXX-XXXX (format libre ici)">
-                      <input
-                        className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                        value={value.pps_identifier}
-                        onChange={(e) => setField("pps_identifier", e.target.value)}
-                      />
-                    </Field>
+              {(loadErr || error) && (
+                <div className="rounded-xl bg-red-50 ring-1 ring-red-200 p-3 text-sm text-red-800">
+                  {String(loadErr?.message || error?.message || loadErr || error)}
+                </div>
+              )}
 
-                    <Field label="Date d’expiration PPS (si requis)">
-                      <input
-                        type="date"
-                        className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                        value={value.pps_expiry_date}
-                        onChange={(e) => setField("pps_expiry_date", e.target.value)}
-                      />
-                    </Field>
+              <div className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3 text-xs text-neutral-700">
+                <div className="font-semibold">Policy résolue</div>
+                <div className="mt-1 flex flex-wrap gap-2">
+                  <Pill>required: {String(isRequired)}</Pill>
+                  <Pill>allowUpload: {String(allowMedicalUpload)}</Pill>
+                  <Pill>allowed: {(allowedTypes || []).length}</Pill>
+                </div>
+                {notes ? <div className="mt-2 text-neutral-600">{notes}</div> : null}
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* Right: justificatif form */}
+        <Card>
+          <div className="p-5">
+            <div className="flex items-center justify-between">
+              <div className="font-bold text-neutral-900">Justificatif</div>
+              {missingReason ? <Pill>⚠ {missingReason}</Pill> : <Pill>OK</Pill>}
+            </div>
+
+            <div className="mt-4 grid gap-4">
+              <div>
+                <Label>Type</Label>
+                <div className="mt-1">
+                  <select
+                    className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
+                    value={j.justificatif_type}
+                    onChange={(e) =>
+                      setJ((p) => ({
+                        ...p,
+                        justificatif_type: e.target.value,
+                        // mini “sanitize”
+                        pps_identifier: "",
+                        pps_expiry_date: "",
+                        numero_licence: "",
+                        federation_code: "",
+                        justificatif_url: "",
+                        justificatif_path: "",
+                      }))
+                    }
+                  >
+                    {filteredCatalogue.map((t) => (
+                      <option key={t.code} value={t.code}>
+                        {t.label} ({t.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {typeRow?.description ? (
+                  <div className="mt-1 text-xs text-neutral-500">{typeRow.description}</div>
+                ) : null}
+              </div>
+
+              {/* Mode text : PPS / licence */}
+              {!isUpload && (
+                <>
+                  {selectedType.includes("pps") && (
+                    <>
+                      <div>
+                        <Label>Code PPS</Label>
+                        <div className="mt-1">
+                          <Input
+                            value={j.pps_identifier}
+                            onChange={(e) => setJ((p) => ({ ...p, pps_identifier: e.target.value }))}
+                            placeholder="ex: PPS-XXXX-XXXX"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label>Date d’expiration (optionnel)</Label>
+                        <div className="mt-1">
+                          <Input
+                            type="date"
+                            value={j.pps_expiry_date}
+                            onChange={(e) => setJ((p) => ({ ...p, pps_expiry_date: e.target.value }))}
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {selectedType.includes("licence") && (
+                    <>
+                      <div>
+                        <Label>Numéro de licence</Label>
+                        <div className="mt-1">
+                          <Input
+                            value={j.numero_licence}
+                            onChange={(e) => setJ((p) => ({ ...p, numero_licence: e.target.value }))}
+                            placeholder="ex: 1234567"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <Label>Fédération (optionnel selon type)</Label>
+                        <div className="mt-1">
+                          <Input
+                            value={j.federation_code}
+                            onChange={(e) => setJ((p) => ({ ...p, federation_code: e.target.value }))}
+                            placeholder="ex: FFA / FFC / FFTRI"
+                          />
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+
+              {/* Mode upload */}
+              {isUpload && (
+                <>
+                  <div className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3 text-sm text-neutral-700">
+                    Upload dans <span className="font-semibold">ppsjustificatifs</span>
+                    {!allowMedicalUpload && (
+                      <div className="mt-1 text-xs text-neutral-500">
+                        (allowMedicalUpload=false : tu peux quand même tester ici, mais tu le bloqueras côté UI finale)
+                      </div>
+                    )}
                   </div>
-                )}
 
-                {(chosenType === TYPE_LICENCE_FFA) && (
-                  <Field label="Numéro de licence FFA">
-                    <input
-                      className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                      value={value.numero_licence}
-                      onChange={(e) => setField("numero_licence", e.target.value)}
-                      placeholder="N° licence"
-                    />
-                  </Field>
-                )}
-
-                {(chosenType === TYPE_LICENCE_AUTRE) && (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Field label="Numéro de licence">
-                      <input
-                        className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                        value={value.numero_licence}
-                        onChange={(e) => setField("numero_licence", e.target.value)}
-                        placeholder="N° licence"
-                      />
-                    </Field>
-                    <Field label="Code fédération (ex: FFC, FFTRI)">
-                      <input
-                        className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                        value={value.federation_code}
-                        onChange={(e) => setField("federation_code", e.target.value)}
-                        placeholder="FFC / FFTRI / ..."
-                      />
-                    </Field>
-                  </div>
-                )}
-
-                {(chosenType === TYPE_CERTIF_MEDICAL || chosenType === TYPE_AUTRE_DOC) && (
-                  <div className="space-y-3">
-                    <Field label="Uploader un fichier (bucket ppsjustificatifs)">
-                      <input
+                  <div>
+                    <Label>Fichier</Label>
+                    <div className="mt-1 flex items-center gap-3">
+                      <Input
                         type="file"
-                        accept="image/*,application/pdf"
-                        className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
-                        onChange={(e) => uploadFile(e.target.files?.[0])}
+                        onChange={(e) => {
+                          const f = e.target.files?.[0];
+                          if (f) onUploadFile(f);
+                        }}
                       />
-                    </Field>
+                    </div>
 
-                    <Field label="…ou coller une URL (si upload bloqué)">
-                      <input
-                        className="w-full rounded-xl border border-neutral-300 px-3 py-2"
-                        value={value.justificatif_url}
-                        onChange={(e) => setField("justificatif_url", e.target.value)}
-                        placeholder="https://..."
-                      />
-                    </Field>
-
-                    {value.justificatif_url ? (
-                      <div className="text-xs text-neutral-700 break-all">
-                        URL :{" "}
-                        <a className="underline" href={value.justificatif_url} target="_blank" rel="noreferrer">
-                          {value.justificatif_url}
+                    {j.justificatif_url ? (
+                      <div className="mt-2 text-xs text-neutral-600 break-all">
+                        <div className="font-semibold">URL</div>
+                        <a className="text-orange-700 underline" href={j.justificatif_url} target="_blank" rel="noreferrer">
+                          {j.justificatif_url}
                         </a>
                       </div>
                     ) : null}
                   </div>
-                )}
+                </>
+              )}
 
-                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-                  <div className="text-sm font-semibold">Validation</div>
-                  {validation.ok ? (
-                    <div className="mt-1 text-sm text-emerald-700">✅ OK</div>
-                  ) : (
-                    <div className="mt-1 text-sm text-red-700">
-                      ❌ {validation.errors?.length ? validation.errors.join(" · ") : "Invalide"}
-                    </div>
-                  )}
-                  {rules.recommendations?.notes?.length ? (
-                    <div className="mt-2 text-xs text-neutral-600">
-                      {rules.recommendations.notes.map((n, i) => (
-                        <div key={i}>• {n}</div>
-                      ))}
-                    </div>
-                  ) : null}
+              <div>
+                <Label>Debug payload (ce que tu copieras dans inscriptions)</Label>
+                <div className="mt-1">
+                  <Textarea readOnly value={JSON.stringify(payloadPreview, null, 2)} />
                 </div>
-
-                <details className="rounded-xl border border-neutral-200 bg-white p-4">
-                  <summary className="cursor-pointer text-sm font-semibold">Debug JSON</summary>
-                  <pre className="mt-3 text-xs bg-neutral-50 border border-neutral-200 rounded-xl p-3 overflow-auto">
-{JSON.stringify({ ctx, policy, rules: { allowedTypes: allowed, primaryType }, value }, null, 2)}
-                  </pre>
-                </details>
               </div>
-            )}
-          </Card>
-        </div>
+            </div>
+          </div>
+        </Card>
       </div>
-    </div>
+    </Container>
   );
 }

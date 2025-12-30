@@ -52,6 +52,8 @@ function extractPolicyFromEntity(entity) {
     "allowed_justificatif_types",
     "allowed_types",
     "justificatifs_allowed_types",
+    // ✅ schema Tickrace
+    "justificatifs_autorises",
   ]);
 
   const requiredRaw = pick(entity, [
@@ -59,9 +61,11 @@ function extractPolicyFromEntity(entity) {
     "justificatifs_required",
     "is_justificatif_required",
     "required_justificatif",
+    // ✅ schema Tickrace (course_justificatif_policies)
+    "is_required",
   ]);
 
-  const notesRaw = pick(entity, ["justificatif_notes", "justificatifs_notes", "notes_justificatif"]);
+  const notesRaw = pick(entity, ["justificatif_notes", "justificatifs_notes", "notes_justificatif", "notes"]);
 
   const allowUploadRaw = pick(entity, [
     "allow_medical_upload",
@@ -71,6 +75,7 @@ function extractPolicyFromEntity(entity) {
   ]);
 
   const allowedTypes = toArray(allowedFromJson ?? allowedRaw);
+
   const required =
     typeof (requiredFromJson ?? requiredRaw) === "boolean"
       ? requiredFromJson ?? requiredRaw
@@ -102,11 +107,9 @@ function mergePolicies(base, next) {
 }
 
 async function tryLoadCatalogue() {
-  // On teste plusieurs noms de tables possibles (au mieux)
+  // Ta table existe déjà: justificatif_types
   const candidates = [
-    // recommandé
     "justificatif_types",
-    // variantes probables
     "justificatifs_types",
     "justificatif_catalogue",
     "justificatifs_catalogue",
@@ -121,7 +124,6 @@ async function tryLoadCatalogue() {
       .order("created_at", { ascending: true });
 
     if (!error && data) {
-      // normalisation minimaliste: code/label/is_active
       const rows = (data || [])
         .map((r) => {
           const code = normalizeCode(r.code ?? r.type_code ?? r.slug ?? r.id);
@@ -134,16 +136,49 @@ async function tryLoadCatalogue() {
 
       return { table, rows };
     }
-
-    // table inexistante => on tente la suivante
-    // (on évite de spammer la console)
   }
 
   return { table: null, rows: [] };
 }
 
+async function loadPolicyCourseJustif({ courseId, formatId }) {
+  // ✅ table réelle (ton schéma)
+  const table = "course_justificatif_policies";
+
+  if (!courseId) return { table: null, row: null };
+
+  // 1) si on a un formatId, on tente policy format (course_id + format_id)
+  if (formatId) {
+    const { data, error } = await supabase
+      .from(table)
+      .select("*")
+      .eq("course_id", courseId)
+      .eq("format_id", formatId)
+      .maybeSingle();
+
+    if (!error && data) return { table, row: data };
+    // sinon fallback global course
+  }
+
+  // 2) policy globale course (format_id IS NULL)
+  const { data: globalRow, error: globalErr } = await supabase
+    .from(table)
+    .select("*")
+    .eq("course_id", courseId)
+    .is("format_id", null)
+    .maybeSingle();
+
+  if (!globalErr && globalRow) return { table, row: globalRow };
+
+  return { table, row: null };
+}
+
 async function tryLoadDbPolicy({ courseId, formatId }) {
-  // table(s) candidates pour policy
+  // ✅ priorité à la table Tickrace
+  const res = await loadPolicyCourseJustif({ courseId, formatId });
+  if (res.table) return res;
+
+  // fallback (si un jour tu changes)
   const candidates = ["justificatif_policies", "justificatifs_policies", "justificatif_policy"];
 
   for (const table of candidates) {
@@ -154,9 +189,7 @@ async function tryLoadDbPolicy({ courseId, formatId }) {
     else continue;
 
     const { data, error } = await q.maybeSingle();
-
     if (!error && data) return { table, row: data };
-    // table inexistante ou pas de row => continue
   }
 
   return { table: null, row: null };
@@ -193,7 +226,7 @@ export function useJustificatifConfig({
       setCatalogueTable(cat.table);
       setCatalogue(cat.rows || []);
 
-      // 2) Policy en base (optionnelle)
+      // 2) Policy en base (Tickrace: course_justificatif_policies)
       const pol = await tryLoadDbPolicy({
         courseId: courseId || course?.id || null,
         formatId: formatId || format?.id || null,
@@ -215,9 +248,10 @@ export function useJustificatifConfig({
 
   const resolved = useMemo(() => {
     // Defaults (si tu ne passes rien)
+    // ✅ safe-by-default : ne bloque pas si aucune policy n’existe
     const baseDefaults = {
       allowedTypes: [], // vide = "tous les types actifs"
-      required: true,
+      required: false,
       notes: "",
       allowMedicalUpload: false,
       ...(defaults || {}),
