@@ -1,4 +1,6 @@
 // src/App.jsx
+
+
 import React, { useEffect, useMemo, useState } from "react";
 import { BrowserRouter, Routes, Route, useLocation, Navigate } from "react-router-dom";
 import Contact from "./pages/Contact";
@@ -21,7 +23,11 @@ import CourseDetail from "./pages/CourseDetail";
 import ListeFormats from "./pages/ListeFormats";
 import Fonctionnalites from "./pages/Fonctionnalites";
 import CreerUneCourse from "./pages/help/CreerUneCourse";
-
+//TEST 
+import IndexTest from "./pages/IndexTest";
+import AdminTest from "./pages/AdminTest";
+import OrganisateurTest from "./pages/OrganisateurTest";
+import ClientTest from "./pages/ClientTest";
 // Auth
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -131,6 +137,11 @@ function AppContent() {
           <Route path="/paiement-annule" element={<PaiementAnnule />} />
 
           {/* Bénévoles (public) */}
+          <Route path="/test" element={<IndexTest />} />
+<Route path="/admintest" element={<AdminTest />} />
+<Route path="/organisateurtest" element={<OrganisateurTest />} />
+<Route path="/clienttest" element={<ClientTest />} />
+
           <Route path="/benevoles/:courseId" element={<BenevoleInscription />} />
 
           {/* ============================== AUTH ============================== */}

@@ -88,6 +88,9 @@ export default function Footer() {
                 La plateforme moderne pour créer, gérer et partager des événements sportifs —
                 inscriptions, options, paiements et communauté.
               </p>
+<Link to="/test" className="text-sm font-semibold text-neutral-700 hover:text-black">
+  Tests
+</Link>
 
               <div className="flex items-center gap-2 pt-1">
                 <IconBtn href="https://instagram.com" label="Instagram">
