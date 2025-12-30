@@ -101,7 +101,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
 
   useEffect(() => {
     registerPersist?.(persist);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerPersist, options, quantites, supported]);
 
   // Getter des options sélectionnées (pour groupe/relais)
@@ -116,7 +115,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
   }
   useEffect(() => {
     registerGetSelected?.(getSelected);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerGetSelected, options, quantites]);
 
   const dec = (o) => {
@@ -215,49 +213,6 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
   );
 }
 
-/* ---------------- Helpers ---------------- */
-function defaultCoureur() {
-  return {
-    coureur_id: null,
-    format_id: "",
-    nom: "",
-    prenom: "",
-    genre: "",
-    date_naissance: "",
-    nationalite: "",
-    email: "",
-    telephone: "",
-    adresse: "",
-    adresse_complement: "",
-    code_postal: "",
-    ville: "",
-    pays: "",
-    apparaitre_resultats: true,
-    club: "",
-    justificatif_type: "",
-    numero_licence: "",
-    pps_identifier: "",
-    justificatif_url: "",
-    contact_urgence_nom: "",
-    contact_urgence_telephone: "",
-    nombre_repas: 0,
-    prix_total_repas: 0,
-    prix_total_coureur: 0, // base (inscription + repas) en €
-  };
-}
-
-function calculerAge(dateNaissanceStr) {
-  if (!dateNaissanceStr) return null;
-  const dob = new Date(dateNaissanceStr);
-  if (Number.isNaN(dob.getTime())) return null;
-
-  const today = new Date();
-  let age = today.getFullYear() - dob.getFullYear();
-  const m = today.getMonth() - dob.getMonth();
-  if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
-  return age;
-}
-
 /* -------------------------------------------------------------------------- */
 
 export default function InscriptionCourse() {
@@ -287,10 +242,14 @@ export default function InscriptionCourse() {
   const emptyMember = () => ({
     nom: "",
     prenom: "",
-    genre: "",
-    date_naissance: "",
+    genre: "", // "Homme" | "Femme"
+    date_naissance: "", // YYYY-MM-DD
+    email: "", // optionnel
+
+    // ✅ justificatifs par membre (comme individuel)
     numero_licence: "",
-    email: "",
+    pps_identifier: "",
+    justificatif_url: "", // (prévu, pas d’UI upload en équipe pour l’instant)
   });
 
   const defaultTeam = (name = "", size = 0) => ({
@@ -322,9 +281,44 @@ export default function InscriptionCourse() {
     getSelectedOptionsRef.current = fn;
   }
 
+  // Helpers
+  function defaultCoureur() {
+    return {
+      coureur_id: null,
+      format_id: "",
+      nom: "",
+      prenom: "",
+      genre: "",
+      date_naissance: "",
+      nationalite: "",
+      email: "",
+      telephone: "",
+      adresse: "",
+      adresse_complement: "",
+      code_postal: "",
+      ville: "",
+      pays: "",
+      apparaitre_resultats: true,
+      club: "",
+      justificatif_type: "",
+      numero_licence: "",
+      pps_identifier: "",
+      justificatif_url: "", // ✅ upload “médical/photo/pdf” si autorisé
+      contact_urgence_nom: "",
+      contact_urgence_telephone: "",
+    };
+  }
+
   function setField(name, value) {
     setInscription((prev) => ({ ...prev, [name]: value }));
   }
+
+  const hasJustificatif = (obj) => {
+    const hasLicence = !!String(obj?.numero_licence || "").trim();
+    const hasPps = !!String(obj?.pps_identifier || "").trim();
+    const hasUpload = !!String(obj?.justificatif_url || "").trim();
+    return hasLicence || hasPps || (justifPolicy?.allow_medical_upload && hasUpload);
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -340,7 +334,7 @@ export default function InscriptionCourse() {
           *,
           formats (
             id, nom, prix, prix_equipe, date, distance_km, denivele_dplus,
-            nb_max_coureurs, stock_repas, prix_repas, type_format,
+            nb_max_coureurs, type_format,
             team_size, nb_coureurs_min, nb_coureurs_max,
             inscription_ouverture, inscription_fermeture,
             fuseau_horaire, waitlist_enabled,
@@ -425,7 +419,8 @@ export default function InscriptionCourse() {
             code_postal: profil.code_postal ?? "",
             ville: profil.ville ?? "",
             pays: profil.pays ?? "",
-            apparaitre_resultats: typeof profil.apparaitre_resultats === "boolean" ? profil.apparaitre_resultats : true,
+            apparaitre_resultats:
+              typeof profil.apparaitre_resultats === "boolean" ? profil.apparaitre_resultats : true,
             club: profil.club ?? "",
             justificatif_type: profil.justificatif_type ?? "",
             numero_licence: profil.numero_licence ?? "",
@@ -461,57 +456,6 @@ export default function InscriptionCourse() {
     if (closeAt && now > closeAt) return { isOpen: false, reason: `Fermé depuis le ${closeAt.toLocaleString()}` };
     return { isOpen: true, reason: "" };
   }, [selectedFormat]);
-
-  // ✅ Repas: format "propose" si prix_repas > 0 OU stock_repas > 0
-  const repasEnabled = useMemo(() => {
-    if (!selectedFormat) return false;
-    const prix = Number(selectedFormat.prix_repas || 0);
-    const stock = selectedFormat.stock_repas == null ? 0 : Number(selectedFormat.stock_repas || 0);
-    return prix > 0 || stock > 0;
-  }, [selectedFormat]);
-
-  // Clamp nombre_repas sur stock si stock renseigné
-  useEffect(() => {
-    if (!selectedFormat) return;
-
-    if (!repasEnabled) {
-      // reset si le format ne propose pas de repas
-      setInscription((p) => ({
-        ...p,
-        nombre_repas: 0,
-        prix_total_repas: 0,
-      }));
-      return;
-    }
-
-    const stock = selectedFormat.stock_repas == null ? null : Number(selectedFormat.stock_repas || 0);
-    if (stock == null) return;
-
-    setInscription((p) => {
-      const cur = Number(p.nombre_repas || 0);
-      const clamped = Math.max(0, Math.min(stock, cur));
-      if (clamped === cur) return p;
-      return { ...p, nombre_repas: clamped };
-    });
-  }, [selectedFormat, repasEnabled]);
-
-  // Recalcul prix (individuel) — BASE : inscription + repas (en €)
-  useEffect(() => {
-    if (!selectedFormat || mode !== "individuel") {
-      setInscription((p) => ({ ...p, prix_total_repas: 0, prix_total_coureur: 0 }));
-      return;
-    }
-    const prixRepas = Number(selectedFormat.prix_repas || 0);
-    const prixInscription = Number(selectedFormat.prix || 0);
-    const totalRepas = repasEnabled ? prixRepas * Number(inscription.nombre_repas || 0) : 0;
-    const total = prixInscription + totalRepas;
-
-    setInscription((prev) => ({
-      ...prev,
-      prix_total_repas: totalRepas,
-      prix_total_coureur: total,
-    }));
-  }, [selectedFormat, inscription.nombre_repas, mode, repasEnabled]);
 
   // Estimation équipes (multi)
   const estimationEquipe = useMemo(() => {
@@ -581,9 +525,24 @@ export default function InscriptionCourse() {
 
   function isTeamComplete(team) {
     if (!team.team_size || (team.members?.length || 0) !== team.team_size) return false;
-    return team.members.every(
-      (m) => m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance && !!(m.numero_licence && m.numero_licence.trim())
-    );
+    return team.members.every((m) => {
+      const baseOk = m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance;
+      if (!baseOk) return false;
+      if (!justifPolicy?.is_required) return true;
+      return hasJustificatif(m);
+    });
+  }
+
+  function calculerAge(dateNaissanceStr) {
+    if (!dateNaissanceStr) return null;
+    const dob = new Date(dateNaissanceStr);
+    if (Number.isNaN(dob.getTime())) return null;
+
+    const today = new Date();
+    let age = today.getFullYear() - dob.getFullYear();
+    const m = today.getMonth() - dob.getMonth();
+    if (m < 0 || (m === 0 && today.getDate() < dob.getDate())) age--;
+    return age;
   }
 
   // ✅ UI : libellés des types autorisés
@@ -600,7 +559,7 @@ export default function InscriptionCourse() {
     return codes.some((c) => /pps|ffa/i.test(String(c)));
   }, [justifPolicy.allowed_types]);
 
-  // ✅ Upload justificatif (photo/pdf) — stockage
+  // ✅ Upload justificatif (photo/pdf) — stockage (INDIVIDUEL)
   async function handleUploadJustificatif(file) {
     if (!file) return;
     setJustifUploading(true);
@@ -613,7 +572,10 @@ export default function InscriptionCourse() {
       }
 
       const bucket = "ppsjustificatifs";
-      const safeName = String(file.name || "justificatif").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+      const safeName = String(file.name || "justificatif")
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(0, 80);
+
       const path = `justif/${courseId}/${user.id}/${Date.now()}-${safeName}`;
 
       const { data, error } = await supabase.storage.from(bucket).upload(path, file, {
@@ -676,11 +638,7 @@ export default function InscriptionCourse() {
 
       // ✅ Contrôle justificatifs (individuel) selon policy globale
       if (mode === "individuel" && justifPolicy?.is_required) {
-        const hasLicence = !!String(inscription.numero_licence || "").trim();
-        const hasPps = !!String(inscription.pps_identifier || "").trim();
-        const hasUpload = !!String(inscription.justificatif_url || "").trim();
-
-        if (!hasLicence && !hasPps && !(justifPolicy.allow_medical_upload && hasUpload)) {
+        if (!hasJustificatif(inscription)) {
           alert("Justificatif obligatoire : renseigne un N° licence/PPS ou importe un justificatif.");
           setSubmitting(false);
           return;
@@ -688,24 +646,13 @@ export default function InscriptionCourse() {
       }
 
       const full =
-        selectedFormat && Number(selectedFormat.inscrits || 0) >= Number(selectedFormat.nb_max_coureurs || 0);
+        selectedFormat &&
+        Number(selectedFormat.inscrits || 0) >= Number(selectedFormat.nb_max_coureurs || 0);
 
       // ===== INDIVIDUEL =====
       if (mode === "individuel") {
         if (full && !selectedFormat?.waitlist_enabled) {
           alert(`Le format ${selectedFormat.nom} est complet.`);
-          setSubmitting(false);
-          return;
-        }
-
-        // mini contrôle champs
-        if (!inscription.nom?.trim() || !inscription.prenom?.trim()) {
-          alert("Renseigne au minimum ton nom et ton prénom.");
-          setSubmitting(false);
-          return;
-        }
-        if (!inscription.email?.trim()) {
-          alert("Renseigne un email.");
           setSubmitting(false);
           return;
         }
@@ -781,19 +728,23 @@ export default function InscriptionCourse() {
           setSubmitting(false);
           return;
         }
-        const bad = team.members.find(
-          (m) =>
-            !m.nom?.trim() ||
-            !m.prenom?.trim() ||
-            !m.genre ||
-            !m.date_naissance ||
-            !(m.numero_licence && m.numero_licence.trim())
-        );
+
+        const bad = team.members.find((m) => {
+          const baseOk = m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance;
+          if (!baseOk) return true;
+          if (justifPolicy?.is_required && !hasJustificatif(m)) return true;
+          return false;
+        });
+
         if (bad) {
-          alert(`Équipe #${idx + 1} : chaque membre doit avoir nom, prénom, sexe, date de naissance et N° licence / PPS.`);
+          alert(
+            `Équipe #${idx + 1} : chaque coureur doit avoir nom, prénom, sexe, date de naissance` +
+              (justifPolicy?.is_required ? " et un justificatif (PPS / licence)." : ".")
+          );
           setSubmitting(false);
           return;
         }
+
         if (ageMin) {
           const jeune = team.members.find((m) => {
             const age = calculerAge(m.date_naissance);
@@ -891,8 +842,7 @@ export default function InscriptionCourse() {
     ? Math.max(0, Number(selectedFormat.nb_max_coureurs || 0) - Number(selectedFormat.inscrits || 0))
     : null;
 
-  const stockRepas = selectedFormat?.stock_repas == null ? null : Number(selectedFormat.stock_repas || 0);
-  const prixRepas = Number(selectedFormat?.prix_repas || 0);
+  const basePriceIndivEUR = selectedFormat ? Number(selectedFormat.prix || 0) : 0;
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -946,11 +896,8 @@ export default function InscriptionCourse() {
                     setTeams([defaultTeam("Équipe 1", def)]);
                   }
 
-                  // Reset options payantes au changement de format
+                  // Reset des options payantes au changement de format
                   setTotalOptionsCents(0);
-
-                  // Reset repas si format change
-                  setInscription((p) => ({ ...p, nombre_repas: 0, prix_total_repas: 0 }));
                 }}
                 className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
                 required
@@ -960,7 +907,8 @@ export default function InscriptionCourse() {
                   const full = Number(f.inscrits) >= Number(f.nb_max_coureurs || 0);
                   return (
                     <option key={f.id} value={f.id} disabled={full && !f.waitlist_enabled}>
-                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+ {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
+                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+{" "}
+                      {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
                     </option>
                   );
                 })}
@@ -1019,17 +967,23 @@ export default function InscriptionCourse() {
             </div>
           </section>
 
-          {/* Équipes (groupe/relais) */}
+          {/* Équipes (groupe/relais) — présentation "comme individuel" */}
           {selectedFormat && mode !== "individuel" && (
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold">{mode === "groupe" ? "Équipe" : "Équipes relais"}</h2>
-                  <p className="text-sm text-neutral-500">Renseigne le nom de l’équipe, la taille et les membres.</p>
+                  <p className="text-sm text-neutral-500">
+                    Renseigne le nom de l’équipe, la taille, puis chaque coureur (avec justificatif si obligatoire).
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   {mode !== "groupe" && (
-                    <button type="button" onClick={addTeam} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
+                    <button
+                      type="button"
+                      onClick={addTeam}
+                      className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                    >
                       + Ajouter une équipe
                     </button>
                   )}
@@ -1085,9 +1039,13 @@ export default function InscriptionCourse() {
                             </span>
                           )}
                           {isTeamComplete(team) ? (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">complète</span>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                              complète
+                            </span>
                           ) : (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">incomplète</span>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                              incomplète
+                            </span>
                           )}
                         </div>
                         {teams.length > 1 && (
@@ -1125,57 +1083,122 @@ export default function InscriptionCourse() {
                         </div>
                       </div>
 
-                      {/* Membres */}
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-sm">
-                          <thead>
-                            <tr className="text-left text-neutral-600">
-                              <th className="py-2 pr-3">#</th>
-                              <th className="py-2 pr-3">Nom *</th>
-                              <th className="py-2 pr-3">Prénom *</th>
-                              <th className="py-2 pr-3">Sexe *</th>
-                              <th className="py-2 pr-3">Date de naissance *</th>
-                              <th className="py-2 pr-3">N° licence / PPS *</th>
-                              <th className="py-2 pr-3">Email (optionnel)</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {team.members.map((m, mIdx) => (
-                              <tr key={mIdx} className="border-t">
-                                <td className="py-2 pr-3 w-10">{mIdx + 1}</td>
-                                <td className="py-2 pr-3">
-                                  <input className="w-full rounded-xl border border-neutral-300 px-3 py-2" value={m.nom} onChange={(e) => setMemberAt(tIdx, mIdx, "nom", e.target.value)} placeholder="Nom" />
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <input className="w-full rounded-xl border border-neutral-300 px-3 py-2" value={m.prenom} onChange={(e) => setMemberAt(tIdx, mIdx, "prenom", e.target.value)} placeholder="Prénom" />
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <select className="w-full rounded-xl border border-neutral-300 px-3 py-2" value={m.genre || ""} onChange={(e) => setMemberAt(tIdx, mIdx, "genre", e.target.value)}>
-                                    <option value="">Sélectionner</option>
-                                    <option value="Homme">Homme</option>
-                                    <option value="Femme">Femme</option>
-                                  </select>
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <input type="date" className="w-full rounded-xl border border-neutral-300 px-3 py-2" value={m.date_naissance || ""} onChange={(e) => setMemberAt(tIdx, mIdx, "date_naissance", e.target.value)} />
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <input className="w-full rounded-xl border border-neutral-300 px-3 py-2" value={m.numero_licence || ""} onChange={(e) => setMemberAt(tIdx, mIdx, "numero_licence", e.target.value)} placeholder="Numéro de licence ou PPS" />
-                                </td>
-                                <td className="py-2 pr-3">
-                                  <input className="w-full rounded-xl border border-neutral-300 px-3 py-2" value={m.email || ""} onChange={(e) => setMemberAt(tIdx, mIdx, "email", e.target.value)} placeholder="email@exemple.com" />
-                                </td>
-                              </tr>
-                            ))}
-                            {team.team_size === 0 && (
-                              <tr>
-                                <td colSpan={7} className="py-2 text-neutral-500">
-                                  Indique une taille d’équipe pour générer les lignes.
-                                </td>
-                              </tr>
-                            )}
-                          </tbody>
-                        </table>
+                      {/* Coureurs (comme individuel) */}
+                      <div className="space-y-4">
+                        {(team.members || []).map((m, mIdx) => {
+                          const okBase = m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance;
+                          const okJustif = !justifPolicy?.is_required ? true : hasJustificatif(m);
+
+                          return (
+                            <div key={mIdx} className="rounded-xl border border-neutral-200 bg-white p-4">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="font-semibold text-neutral-900">Coureur {mIdx + 1}</div>
+                                <div className="flex items-center gap-2">
+                                  {okBase && okJustif ? (
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                                      ok
+                                    </span>
+                                  ) : (
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                                      à compléter
+                                    </span>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <input
+                                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.nom}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "nom", e.target.value)}
+                                  placeholder="Nom *"
+                                />
+                                <input
+                                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.prenom}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "prenom", e.target.value)}
+                                  placeholder="Prénom *"
+                                />
+                                <select
+                                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.genre || ""}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "genre", e.target.value)}
+                                >
+                                  <option value="">Genre *</option>
+                                  <option value="Homme">Homme</option>
+                                  <option value="Femme">Femme</option>
+                                </select>
+                                <input
+                                  type="date"
+                                  className="rounded-xl border border-neutral-300 px-3 py-2"
+                                  value={m.date_naissance || ""}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "date_naissance", e.target.value)}
+                                />
+                                <input
+                                  className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2"
+                                  value={m.email || ""}
+                                  onChange={(e) => setMemberAt(tIdx, mIdx, "email", e.target.value)}
+                                  placeholder="Email (optionnel)"
+                                />
+                              </div>
+
+                              {/* Justificatifs par coureur */}
+                              <div className="mt-4 pt-4 border-t border-neutral-200">
+                                <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+                                  <div className="flex items-start justify-between gap-3">
+                                    <div>
+                                      <div className="text-sm font-semibold text-neutral-900">Justificatif</div>
+                                      <div className="text-xs text-neutral-600">
+                                        {justifPolicy.is_required ? "Obligatoire" : "Optionnel"}
+                                      </div>
+                                    </div>
+
+                                    {allowedTypeLabels.length > 0 && (
+                                      <div className="flex flex-wrap justify-end gap-1">
+                                        {allowedTypeLabels.slice(0, 6).map((t) => (
+                                          <span
+                                            key={t.code}
+                                            className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200"
+                                          >
+                                            {t.label}
+                                          </span>
+                                        ))}
+                                        {allowedTypeLabels.length > 6 && (
+                                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
+                                            +{allowedTypeLabels.length - 6}
+                                          </span>
+                                        )}
+                                      </div>
+                                    )}
+                                  </div>
+
+                                  {showFfaPps && (
+                                    <div className="mt-3">
+                                      <JustificatifFfaPps
+                                        licenceFfa={m.numero_licence || ""}
+                                        ppsCode={m.pps_identifier || ""}
+                                        onChange={({ licenceFfa, ppsCode }) => {
+                                          setMemberAt(tIdx, mIdx, "numero_licence", licenceFfa);
+                                          setMemberAt(tIdx, mIdx, "pps_identifier", ppsCode);
+                                        }}
+                                      />
+                                    </div>
+                                  )}
+
+                                  <div className="mt-2 text-xs text-neutral-500">
+                                    (Upload par coureur en équipe : on pourra l’ajouter ensuite si besoin.)
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })}
+
+                        {team.team_size === 0 && (
+                          <div className="text-sm text-neutral-500">
+                            Indique une taille d’équipe pour générer les coureurs.
+                          </div>
+                        )}
                       </div>
                     </div>
                   ))}
@@ -1189,7 +1212,6 @@ export default function InscriptionCourse() {
               <div className="p-5 border-b border-neutral-100">
                 <h2 className="text-lg font-semibold">Informations coureur</h2>
               </div>
-
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                   <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nom" placeholder="Nom" value={inscription.nom} onChange={(e) => setField("nom", e.target.value)} />
@@ -1225,84 +1247,6 @@ export default function InscriptionCourse() {
                   </div>
                 </div>
 
-                {/* ✅ Contact urgence (manquait dans l’UI) */}
-                <div className="pt-4 border-t border-neutral-200">
-                  <div className="text-sm font-semibold text-neutral-900 mb-2">Contact d’urgence</div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <input
-                      className="rounded-xl border border-neutral-300 px-3 py-2"
-                      placeholder="Nom du contact d’urgence"
-                      value={inscription.contact_urgence_nom || ""}
-                      onChange={(e) => setField("contact_urgence_nom", e.target.value)}
-                    />
-                    <input
-                      className="rounded-xl border border-neutral-300 px-3 py-2"
-                      placeholder="Téléphone du contact d’urgence"
-                      value={inscription.contact_urgence_telephone || ""}
-                      onChange={(e) => setField("contact_urgence_telephone", e.target.value)}
-                    />
-                  </div>
-                </div>
-
-                {/* ✅ Repas (manquait dans l’UI) */}
-                {selectedFormat && repasEnabled && (
-                  <div className="pt-4 border-t border-neutral-200">
-                    <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-semibold text-neutral-900">Repas</div>
-                          <div className="text-xs text-neutral-600">
-                            Prix unitaire : <b>{prixRepas.toFixed(2)} €</b>
-                            {stockRepas != null ? (
-                              <>
-                                {" "}
-                                · Stock : <b>{stockRepas}</b>
-                              </>
-                            ) : null}
-                          </div>
-                        </div>
-
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            className="rounded-lg border px-2 py-1 text-sm bg-white"
-                            onClick={() => setField("nombre_repas", Math.max(0, Number(inscription.nombre_repas || 0) - 1))}
-                          >
-                            −
-                          </button>
-                          <input
-                            type="number"
-                            min={0}
-                            max={stockRepas == null ? undefined : stockRepas}
-                            value={Number(inscription.nombre_repas || 0)}
-                            onChange={(e) => {
-                              const v = Number(e.target.value || 0);
-                              const clamped = stockRepas == null ? Math.max(0, v) : Math.max(0, Math.min(stockRepas, v));
-                              setField("nombre_repas", Number.isFinite(clamped) ? clamped : 0);
-                            }}
-                            className="w-20 rounded-lg border px-2 py-1 text-sm text-center"
-                          />
-                          <button
-                            type="button"
-                            className="rounded-lg border px-2 py-1 text-sm bg-white"
-                            onClick={() => {
-                              const cur = Number(inscription.nombre_repas || 0);
-                              const next = stockRepas == null ? cur + 1 : Math.min(stockRepas, cur + 1);
-                              setField("nombre_repas", next);
-                            }}
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="mt-2 text-right text-sm text-neutral-700">
-                        Total repas : <b>{Number(inscription.prix_total_repas || 0).toFixed(2)} €</b>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
                 {/* ✅ Justificatifs (policy globale) */}
                 <div className="pt-4 border-t border-neutral-200">
                   <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
@@ -1332,6 +1276,7 @@ export default function InscriptionCourse() {
 
                     {justifPolicy.notes ? <div className="mt-2 text-xs text-neutral-700 whitespace-pre-wrap">{justifPolicy.notes}</div> : null}
 
+                    {/* FFA/PPS */}
                     {showFfaPps && (
                       <div className="mt-3">
                         <JustificatifFfaPps
@@ -1346,6 +1291,7 @@ export default function InscriptionCourse() {
                       </div>
                     )}
 
+                    {/* Upload (si autorisé) */}
                     {justifPolicy.allow_medical_upload && (
                       <div className="mt-4">
                         <div className="text-sm font-medium text-neutral-800">Importer un justificatif (photo/PDF)</div>
@@ -1376,7 +1322,7 @@ export default function InscriptionCourse() {
             </section>
           )}
 
-          {/* Options payantes */}
+          {/* Options payantes (en bas) */}
           {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
             <OptionsPayantesPicker
               formatId={selectedFormat.id}
@@ -1401,20 +1347,39 @@ export default function InscriptionCourse() {
                 <span className="font-medium">{selectedFormat ? selectedFormat.nom : "—"}</span>
               </div>
 
+              {/* Résumé équipes */}
+              {mode !== "individuel" && (
+                <div className="rounded-xl bg-neutral-50 border border-neutral-200 p-3">
+                  {(() => {
+                    const teamsWithCat = teams.map((t) => ({ ...t, category: computeTeamCategory(t) }));
+                    const totals = {
+                      count: teams.length,
+                      participants: teams.reduce((acc, t) => acc + (t.team_size || 0), 0),
+                      masculine: teamsWithCat.filter((t) => t.category === "masculine").length,
+                      feminine: teamsWithCat.filter((t) => t.category === "feminine").length,
+                      mixte: teamsWithCat.filter((t) => t.category === "mixte").length,
+                      completes: teamsWithCat.filter((t) => isTeamComplete(t)).length,
+                    };
+                    return (
+                      <div className="space-y-1">
+                        <div className="flex justify-between"><span>Équipes</span><b>{totals.count}</b></div>
+                        <div className="flex justify-between"><span>Participants</span><b>{totals.participants}</b></div>
+                        <div className="flex justify-between"><span>Masculines</span><b>{totals.masculine}</b></div>
+                        <div className="flex justify-between"><span>Féminines</span><b>{totals.feminine}</b></div>
+                        <div className="flex justify-between"><span>Mixtes</span><b>{totals.mixte}</b></div>
+                        <div className="flex justify-between"><span>Équipes complètes</span><b>{totals.completes}</b></div>
+                      </div>
+                    );
+                  })()}
+                </div>
+              )}
+
               {mode === "individuel" ? (
                 <>
                   <div className="flex justify-between">
                     <span className="text-neutral-600">Inscription</span>
                     <span className="font-medium">{selectedFormat ? Number(selectedFormat.prix || 0).toFixed(2) : "0.00"} €</span>
                   </div>
-
-                  {repasEnabled && Number(inscription.nombre_repas || 0) > 0 && (
-                    <div className="flex justify-between">
-                      <span className="text-neutral-600">Repas</span>
-                      <span className="font-medium">{Number(inscription.prix_total_repas || 0).toFixed(2)} €</span>
-                    </div>
-                  )}
-
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
                       <span className="text-neutral-600">Options payantes</span>
@@ -1426,9 +1391,7 @@ export default function InscriptionCourse() {
                 <>
                   {teams.map((t, i) => (
                     <div key={i} className="flex justify-between">
-                      <span className="text-neutral-600">
-                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
-                      </span>
+                      <span className="text-neutral-600">{t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.</span>
                       <span className="font-medium">
                         ~{(Number(selectedFormat?.prix || 0) * (t.team_size || 0) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
                       </span>
@@ -1454,7 +1417,7 @@ export default function InscriptionCourse() {
                 <span className="font-semibold">Total</span>
                 <span className="font-bold">
                   {mode === "individuel"
-                    ? (Number(inscription.prix_total_coureur || 0) + totalOptionsCents / 100).toFixed(2)
+                    ? (basePriceIndivEUR + totalOptionsCents / 100).toFixed(2)
                     : `~${(Number(estimationEquipe || 0) + totalOptionsCents / 100).toFixed(2)}`}{" "}
                   €
                 </span>
@@ -1474,16 +1437,17 @@ export default function InscriptionCourse() {
                     !selectedFormat.waitlist_enabled &&
                     Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0))
                 }
-                className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition ${
-                  submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"
-                }`}
+                className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition
+                  ${submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"}`}
               >
                 {submitting ? "Redirection vers Stripe…" : mode === "individuel" ? "Confirmer et payer" : "Payer les équipes"}
               </button>
 
               {selectedFormat && Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0) && (
                 <p className="text-xs text-amber-700 mt-2">
-                  {selectedFormat.waitlist_enabled ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise." : "Ce format est complet."}
+                  {selectedFormat.waitlist_enabled
+                    ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
+                    : "Ce format est complet."}
                 </p>
               )}
 
