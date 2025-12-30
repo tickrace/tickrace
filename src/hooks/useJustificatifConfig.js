@@ -12,7 +12,6 @@ function toArray(v) {
   if (!v) return [];
   if (Array.isArray(v)) return v.filter(Boolean).map(normalizeCode);
   if (typeof v === "string") {
-    // accepte: "a,b,c" ou "a; b; c" ou JSON '["a","b"]'
     const s = v.trim();
     if (!s) return [];
     try {
@@ -36,6 +35,8 @@ function pick(obj, keys) {
 }
 
 function extractPolicyFromEntity(entity) {
+  if (!entity) return { allowedTypes: [], required: undefined, notes: undefined, allowMedicalUpload: undefined };
+
   // Supporte plusieurs conventions de champs
   const jp =
     pick(entity, ["justificatif_policy", "justificatifs_policy", "policy_justificatif"]) || null;
@@ -47,28 +48,31 @@ function extractPolicyFromEntity(entity) {
     jp?.allow_medical_upload ?? jp?.allowUpload ?? jp?.allow_upload ?? null;
 
   const allowedRaw = pick(entity, [
+    // course_justificatif_policies
+    "allowed_types",
+    // variantes
     "justificatif_allowed_types",
     "justificatif_types_allowed",
     "allowed_justificatif_types",
-    "allowed_types",
     "justificatifs_allowed_types",
-    // ✅ schema Tickrace
-    "justificatifs_autorises",
   ]);
 
   const requiredRaw = pick(entity, [
+    // course_justificatif_policies
+    "is_required",
+    // variantes
     "justificatif_required",
     "justificatifs_required",
     "is_justificatif_required",
     "required_justificatif",
-    // ✅ schema Tickrace (course_justificatif_policies)
-    "is_required",
   ]);
 
-  const notesRaw = pick(entity, ["justificatif_notes", "justificatifs_notes", "notes_justificatif", "notes"]);
+  const notesRaw = pick(entity, ["notes", "justificatif_notes", "justificatifs_notes", "notes_justificatif"]);
 
   const allowUploadRaw = pick(entity, [
+    // course_justificatif_policies
     "allow_medical_upload",
+    // variantes
     "justificatif_allow_upload",
     "justificatif_upload_allowed",
     "allow_upload",
@@ -88,26 +92,19 @@ function extractPolicyFromEntity(entity) {
       ? allowUploadFromJson ?? allowUploadRaw
       : allowUploadFromJson ?? allowUploadRaw ?? undefined;
 
-  return {
-    allowedTypes,
-    required,
-    notes,
-    allowMedicalUpload,
-  };
+  return { allowedTypes, required, notes, allowMedicalUpload };
 }
 
 function mergePolicies(base, next) {
-  // next écrase base si défini
   const out = { ...(base || {}) };
   if (next?.allowedTypes && next.allowedTypes.length) out.allowedTypes = next.allowedTypes;
   if (typeof next?.required === "boolean") out.required = next.required;
   if (typeof next?.allowMedicalUpload === "boolean") out.allowMedicalUpload = next.allowMedicalUpload;
-  if (next?.notes) out.notes = next.notes;
+  if (typeof next?.notes === "string") out.notes = next.notes;
   return out;
 }
 
 async function tryLoadCatalogue() {
-  // Ta table existe déjà: justificatif_types
   const candidates = [
     "justificatif_types",
     "justificatifs_types",
@@ -141,54 +138,39 @@ async function tryLoadCatalogue() {
   return { table: null, rows: [] };
 }
 
-async function loadPolicyCourseJustif({ courseId, formatId }) {
-  // ✅ table réelle (ton schéma)
-  const table = "course_justificatif_policies";
+async function tryLoadDbPolicy({ courseId, formatId }) {
+  // ✅ TA TABLE RÉELLE EN PREMIER
+  const candidates = [
+    "course_justificatif_policies",
+    // fallback legacy
+    "justificatif_policies",
+    "justificatifs_policies",
+    "justificatif_policy",
+  ];
 
-  if (!courseId) return { table: null, row: null };
+  for (const table of candidates) {
+    if (!courseId) continue;
 
-  // 1) si on a un formatId, on tente policy format (course_id + format_id)
-  if (formatId) {
+    // 1) Policy format (si formatId)
+    if (formatId) {
+      const { data, error } = await supabase
+        .from(table)
+        .select("*")
+        .eq("course_id", courseId)
+        .eq("format_id", formatId)
+        .maybeSingle();
+
+      if (!error && data) return { table, row: data };
+    }
+
+    // 2) Policy globale course (format_id IS NULL)
     const { data, error } = await supabase
       .from(table)
       .select("*")
       .eq("course_id", courseId)
-      .eq("format_id", formatId)
+      .is("format_id", null)
       .maybeSingle();
 
-    if (!error && data) return { table, row: data };
-    // sinon fallback global course
-  }
-
-  // 2) policy globale course (format_id IS NULL)
-  const { data: globalRow, error: globalErr } = await supabase
-    .from(table)
-    .select("*")
-    .eq("course_id", courseId)
-    .is("format_id", null)
-    .maybeSingle();
-
-  if (!globalErr && globalRow) return { table, row: globalRow };
-
-  return { table, row: null };
-}
-
-async function tryLoadDbPolicy({ courseId, formatId }) {
-  // ✅ priorité à la table Tickrace
-  const res = await loadPolicyCourseJustif({ courseId, formatId });
-  if (res.table) return res;
-
-  // fallback (si un jour tu changes)
-  const candidates = ["justificatif_policies", "justificatifs_policies", "justificatif_policy"];
-
-  for (const table of candidates) {
-    let q = supabase.from(table).select("*").limit(1);
-
-    if (formatId) q = q.eq("format_id", formatId);
-    else if (courseId) q = q.eq("course_id", courseId);
-    else continue;
-
-    const { data, error } = await q.maybeSingle();
     if (!error && data) return { table, row: data };
   }
 
@@ -226,7 +208,7 @@ export function useJustificatifConfig({
       setCatalogueTable(cat.table);
       setCatalogue(cat.rows || []);
 
-      // 2) Policy en base (Tickrace: course_justificatif_policies)
+      // 2) Policy DB (optionnelle)
       const pol = await tryLoadDbPolicy({
         courseId: courseId || course?.id || null,
         formatId: formatId || format?.id || null,
@@ -247,11 +229,9 @@ export function useJustificatifConfig({
   }, [refresh]);
 
   const resolved = useMemo(() => {
-    // Defaults (si tu ne passes rien)
-    // ✅ safe-by-default : ne bloque pas si aucune policy n’existe
     const baseDefaults = {
       allowedTypes: [], // vide = "tous les types actifs"
-      required: false,
+      required: true,
       notes: "",
       allowMedicalUpload: false,
       ...(defaults || {}),
@@ -259,16 +239,13 @@ export function useJustificatifConfig({
 
     const coursePol = extractPolicyFromEntity(course);
     const formatPol = extractPolicyFromEntity(format);
-
-    // DB policy (si existante)
     const dbPol = dbPolicyRow ? extractPolicyFromEntity(dbPolicyRow) : null;
 
-    // Priorité: defaults < course < format < db
+    // Priorité : defaults < course < format < db
     let policy = mergePolicies(baseDefaults, coursePol);
     policy = mergePolicies(policy, formatPol);
     policy = mergePolicies(policy, dbPol);
 
-    // allowedTypes effectifs:
     const activeCodes = (catalogue || [])
       .filter((t) => t.is_active !== false)
       .map((t) => normalizeCode(t.code))

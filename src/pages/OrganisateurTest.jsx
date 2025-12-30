@@ -1,464 +1,325 @@
 // src/pages/OrganisateurTest.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase";
-
-const Container = ({ children }) => (
-  <div className="mx-auto w-full max-w-5xl px-4 sm:px-6 lg:px-8 py-8">{children}</div>
-);
-
-const Card = ({ children }) => (
-  <div className="rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200">{children}</div>
-);
-
-const Label = ({ children }) => (
-  <div className="text-xs font-semibold text-neutral-600">{children}</div>
-);
-
-const Input = (props) => (
-  <input
-    {...props}
-    className={[
-      "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none",
-      "focus:ring-2 focus:ring-orange-300",
-      props.className || "",
-    ].join(" ")}
-  />
-);
-
-const Textarea = (props) => (
-  <textarea
-    {...props}
-    className={[
-      "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none",
-      "focus:ring-2 focus:ring-orange-300 min-h-[110px]",
-      props.className || "",
-    ].join(" ")}
-  />
-);
-
-const Button = ({ children, className = "", ...props }) => (
-  <button
-    {...props}
-    className={[
-      "inline-flex items-center justify-center rounded-xl px-4 py-2 text-sm font-semibold transition",
-      "bg-neutral-900 text-white hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed",
-      className,
-    ].join(" ")}
-  >
-    {children}
-  </button>
-);
-
-const Pill = ({ children }) => (
-  <span className="inline-flex items-center rounded-full bg-orange-50 text-orange-800 ring-1 ring-orange-200 px-2.5 py-1 text-xs font-semibold">
-    {children}
-  </span>
-);
-
-function normalizeCode(v) {
-  return String(v || "").trim().toLowerCase();
-}
-
-function csvToArray(s) {
-  if (!s) return [];
-  return String(s)
-    .split(/[;,]/g)
-    .map((x) => normalizeCode(x))
-    .filter(Boolean);
-}
+import { useJustificatifConfig } from "../hooks/useJustificatifConfig";
 
 export default function OrganisateurTest() {
   const [courseId, setCourseId] = useState("");
-  const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
-
-  // scope de policy: "course" (format_id null) ou "format"
-  const [scope, setScope] = useState("course");
-  const [formatId, setFormatId] = useState("");
-
-  const [catalogue, setCatalogue] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [loadErr, setLoadErr] = useState(null);
-
-  const [policyRow, setPolicyRow] = useState(null);
+  const [formatId, setFormatId] = useState(""); // "" = global course
   const [saving, setSaving] = useState(false);
+  const [status, setStatus] = useState("");
 
+  // Hook config (utilisé surtout pour catalogue + debug)
+  const { loading, catalogue, allowedTypes, isRequired, allowMedicalUpload, notes, refresh, debug } =
+    useJustificatifConfig({
+      courseId: courseId || null,
+      formatId: formatId || null,
+      enabled: Boolean(courseId),
+      defaults: { required: true, allowMedicalUpload: false, allowedTypes: [] },
+    });
+
+  // Local editable state (pour ne pas écraser le hook)
   const [form, setForm] = useState({
     is_required: true,
     allow_medical_upload: false,
-    allowed_types_csv: "",
+    allowed_types: [],
     notes: "",
   });
 
-  const effectiveFormatId = scope === "format" ? (formatId || null) : null;
+  const activeCatalogue = useMemo(
+    () => (catalogue || []).filter((t) => t.is_active !== false),
+    [catalogue]
+  );
 
-  async function loadAll() {
-    setLoadErr(null);
-    setLoading(true);
-    try {
-      if (!courseId) throw new Error("Renseigne un courseId");
-
-      const { data: c, error: cErr } = await supabase.from("courses").select("*").eq("id", courseId).single();
-      if (cErr) throw cErr;
-      setCourse(c);
-
-      const { data: fs, error: fErr } = await supabase
-        .from("formats")
-        .select("*")
-        .eq("course_id", courseId)
-        .order("created_at", { ascending: true });
-      if (fErr) throw fErr;
-      setFormats(fs || []);
-      if (!formatId && (fs || []).length) setFormatId(fs[0].id);
-
-      const { data: cat, error: catErr } = await supabase
-        .from("justificatif_types")
-        .select("*")
-        .order("sort_order", { ascending: true })
-        .order("created_at", { ascending: true });
-      if (catErr) throw catErr;
-
-      const rows = (cat || [])
-        .map((r) => ({
-          ...r,
-          code: normalizeCode(r.code),
-          label: r.label || r.code,
-          is_active: r.is_active !== false,
-        }))
-        .filter((r) => r.code);
-      setCatalogue(rows);
-    } catch (e) {
-      setLoadErr(e);
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  async function loadPolicy() {
-    setLoadErr(null);
-    setLoading(true);
-    try {
+  // Charger formats de la course (pour dropdown)
+  useEffect(() => {
+    let abort = false;
+    async function loadFormats() {
+      setFormats([]);
       if (!courseId) return;
 
-      let q = supabase
-        .from("course_justificatif_policies")
-        .select("*")
+      const { data, error } = await supabase
+        .from("formats")
+        .select("id, nom, type_epreuve, date")
         .eq("course_id", courseId)
-        .limit(1);
+        .order("created_at", { ascending: true });
 
-      if (effectiveFormatId) q = q.eq("format_id", effectiveFormatId);
-      else q = q.is("format_id", null);
-
-      const { data, error } = await q.maybeSingle();
-      if (error) throw error;
-
-      setPolicyRow(data || null);
-
-      // hydrate form
-      if (data) {
-        setForm({
-          is_required: Boolean(data.is_required),
-          allow_medical_upload: Boolean(data.allow_medical_upload),
-          allowed_types_csv: Array.isArray(data.allowed_types) ? data.allowed_types.join(",") : "",
-          notes: data.notes || "",
-        });
-      } else {
-        // default “vide”
-        setForm({
-          is_required: true,
-          allow_medical_upload: false,
-          allowed_types_csv: "",
-          notes: "",
-        });
+      if (abort) return;
+      if (error) {
+        console.error("OrganisateurTest load formats error:", error);
+        return;
       }
-    } catch (e) {
-      setLoadErr(e);
-    } finally {
-      setLoading(false);
+      setFormats(data || []);
     }
-  }
+    loadFormats();
+    return () => {
+      abort = true;
+    };
+  }, [courseId]);
 
+  // Sync local form quand la config change (hook)
   useEffect(() => {
-    if (courseId) loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    if (!courseId) return;
+    setForm({
+      is_required: Boolean(isRequired),
+      allow_medical_upload: Boolean(allowMedicalUpload),
+      allowed_types: Array.isArray(allowedTypes) ? allowedTypes : [],
+      notes: notes || "",
+    });
+  }, [courseId, formatId, isRequired, allowMedicalUpload, allowedTypes, notes]);
 
-  useEffect(() => {
-    if (courseId) loadPolicy();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [courseId, scope, formatId]);
+  const toggleAllowed = (code) => {
+    setForm((p) => {
+      const set = new Set(p.allowed_types || []);
+      if (set.has(code)) set.delete(code);
+      else set.add(code);
+      return { ...p, allowed_types: Array.from(set) };
+    });
+  };
 
-  const activeCatalogue = useMemo(() => catalogue.filter((t) => t.is_active), [catalogue]);
-  const selectedSet = useMemo(() => new Set(csvToArray(form.allowed_types_csv)), [form.allowed_types_csv]);
-
-  function toggleType(code) {
-    const c = normalizeCode(code);
-    const next = new Set(selectedSet);
-    if (next.has(c)) next.delete(c);
-    else next.add(c);
-    setForm((p) => ({ ...p, allowed_types_csv: Array.from(next).join(",") }));
-  }
-
-  async function savePolicy() {
+  async function handleSave() {
+    if (!courseId) {
+      alert("Renseigne un courseId.");
+      return;
+    }
     setSaving(true);
-    setLoadErr(null);
+    setStatus("");
+
     try {
-      if (!courseId) throw new Error("courseId manquant");
+      // 1) cherche si row existe déjà (format spécifique ou global)
+      let existing = null;
+
+      if (formatId) {
+        const { data } = await supabase
+          .from("course_justificatif_policies")
+          .select("id")
+          .eq("course_id", courseId)
+          .eq("format_id", formatId)
+          .maybeSingle();
+        existing = data || null;
+      } else {
+        const { data } = await supabase
+          .from("course_justificatif_policies")
+          .select("id")
+          .eq("course_id", courseId)
+          .is("format_id", null)
+          .maybeSingle();
+        existing = data || null;
+      }
 
       const payload = {
         course_id: courseId,
-        format_id: effectiveFormatId, // null => global course
+        format_id: formatId || null,
         is_required: Boolean(form.is_required),
         allow_medical_upload: Boolean(form.allow_medical_upload),
-        allowed_types: csvToArray(form.allowed_types_csv),
-        notes: form.notes || null,
+        allowed_types: Array.isArray(form.allowed_types) ? form.allowed_types.filter(Boolean) : [],
+        notes: form.notes || "",
         updated_at: new Date().toISOString(),
       };
 
-      // upsert sur (course_id, format_id) => pas de contrainte unique dans ton schéma dump,
-      // donc on fait: delete+insert “safe” pour les tests, ou update/insert selon présence.
-      if (policyRow?.id) {
+      if (existing?.id) {
         const { error } = await supabase
           .from("course_justificatif_policies")
           .update(payload)
-          .eq("id", policyRow.id);
+          .eq("id", existing.id);
+
         if (error) throw error;
+        setStatus("✅ Policy mise à jour.");
       } else {
-        const { data, error } = await supabase
-          .from("course_justificatif_policies")
-          .insert(payload)
-          .select("*")
-          .single();
+        const { error } = await supabase.from("course_justificatif_policies").insert([payload]);
         if (error) throw error;
-        setPolicyRow(data);
+        setStatus("✅ Policy créée.");
       }
 
-      await loadPolicy();
+      await refresh?.();
     } catch (e) {
-      setLoadErr(e);
+      console.error("OrganisateurTest save error:", e);
+      setStatus("❌ Erreur lors de l’enregistrement (console).");
     } finally {
       setSaving(false);
     }
   }
 
-  const preview = useMemo(
-    () => ({
-      scope,
-      course_id: courseId || null,
-      format_id: effectiveFormatId,
-      is_required: form.is_required,
-      allow_medical_upload: form.allow_medical_upload,
-      allowed_types: csvToArray(form.allowed_types_csv),
-      notes: form.notes,
-    }),
-    [scope, courseId, effectiveFormatId, form]
-  );
-
   return (
-    <Container>
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="text-sm font-semibold text-orange-600">TEST</div>
-          <h1 className="text-2xl font-extrabold tracking-tight text-neutral-900">
-            OrganisateurTest — Policy justificatifs
-          </h1>
-          <p className="mt-1 text-sm text-neutral-600">
-            Simule la config “organisateur” de <span className="font-semibold">UpsertCourse</span>.
-          </p>
-        </div>
+    <div className="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+      <h1 className="text-2xl font-bold">OrganisateurTest — Justificatifs (config)</h1>
+      <p className="text-sm text-neutral-600 mt-1">
+        Cette page simule la config justificatifs côté organisateur (UpsertCourse), en écrivant dans{" "}
+        <code className="px-1 rounded bg-neutral-100">course_justificatif_policies</code>.
+      </p>
 
-        <div className="flex items-center gap-2">
-          {loading && <Pill>load…</Pill>}
-          <Button
-            onClick={savePolicy}
-            disabled={!courseId || saving}
-            className={saving ? "bg-neutral-700" : ""}
-          >
-            {saving ? "Enregistrement…" : "Enregistrer policy"}
-          </Button>
-        </div>
-      </div>
-
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
-        <Card>
-          <div className="p-5">
-            <div className="font-bold text-neutral-900">Contexte</div>
-
-            <div className="mt-4 grid gap-4">
+      <div className="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 space-y-6">
+          <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="p-5 border-b border-neutral-100">
+              <h2 className="text-lg font-semibold">Ciblage</h2>
+              <p className="text-sm text-neutral-500">
+                Global course (format vide) ou spécifique à un format.
+              </p>
+            </div>
+            <div className="p-5 space-y-3">
               <div>
-                <Label>Course ID</Label>
-                <div className="mt-1 flex gap-2">
-                  <Input value={courseId} onChange={(e) => setCourseId(e.target.value)} placeholder="uuid course_id" />
-                  <Button onClick={loadAll} disabled={!courseId}>
-                    Charger
-                  </Button>
-                </div>
-              </div>
-
-              <div className="rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3 text-xs text-neutral-700">
-                <div className="font-semibold">Course</div>
-                <div className="mt-1">
-                  {course ? (
-                    <>
-                      <div className="font-semibold text-neutral-900">{course.nom}</div>
-                      <div className="text-neutral-600">{course.lieu}</div>
-                      <div className="text-neutral-500">sport_code: {course.sport_code}</div>
-                    </>
-                  ) : (
-                    <div className="text-neutral-500">Aucune course chargée.</div>
-                  )}
-                </div>
+                <label className="text-sm font-medium">courseId</label>
+                <input
+                  value={courseId}
+                  onChange={(e) => setCourseId(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                  placeholder="uuid course"
+                />
               </div>
 
               <div>
-                <Label>Scope policy</Label>
-                <div className="mt-1 flex gap-2">
-                  <button
-                    className={[
-                      "rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition",
-                      scope === "course"
-                        ? "bg-neutral-900 text-white ring-neutral-900"
-                        : "bg-white text-neutral-900 ring-neutral-200 hover:bg-neutral-50",
-                    ].join(" ")}
-                    onClick={() => setScope("course")}
-                  >
-                    Global course
-                  </button>
-                  <button
-                    className={[
-                      "rounded-xl px-3 py-2 text-sm font-semibold ring-1 transition",
-                      scope === "format"
-                        ? "bg-neutral-900 text-white ring-neutral-900"
-                        : "bg-white text-neutral-900 ring-neutral-200 hover:bg-neutral-50",
-                    ].join(" ")}
-                    onClick={() => setScope("format")}
-                  >
-                    Par format
-                  </button>
-                </div>
+                <label className="text-sm font-medium">format</label>
+                <select
+                  value={formatId}
+                  onChange={(e) => setFormatId(e.target.value)}
+                  className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+                  disabled={!courseId}
+                >
+                  <option value="">(Global course)</option>
+                  {formats.map((f) => (
+                    <option key={f.id} value={f.id}>
+                      {f.nom} {f.type_epreuve ? `— ${f.type_epreuve}` : ""} {f.date ? `— ${f.date}` : ""}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-neutral-500 mt-1">
+                  Astuce : commence par global course, puis override un format si besoin.
+                </p>
               </div>
 
-              {scope === "format" && (
-                <div>
-                  <Label>Format</Label>
-                  <div className="mt-1">
-                    <select
-                      className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-300"
-                      value={formatId}
-                      onChange={(e) => setFormatId(e.target.value)}
-                      disabled={!formats.length}
-                    >
-                      {formats.length === 0 && <option value="">(aucun format chargé)</option>}
-                      {formats.map((f) => (
-                        <option key={f.id} value={f.id}>
-                          {f.nom} — {f.id.slice(0, 8)}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-              )}
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => refresh?.()}
+                  disabled={!courseId || loading}
+                  className="rounded-xl border px-4 py-2 text-sm font-semibold hover:bg-neutral-50 disabled:opacity-50"
+                >
+                  Recharger
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={!courseId || saving}
+                  className="rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:bg-black disabled:opacity-50"
+                >
+                  {saving ? "Enregistrement…" : "Enregistrer"}
+                </button>
+              </div>
 
-              {(loadErr) && (
-                <div className="rounded-xl bg-red-50 ring-1 ring-red-200 p-3 text-sm text-red-800">
-                  {String(loadErr?.message || loadErr)}
+              {status && (
+                <div className="text-sm mt-2">
+                  {status}
                 </div>
               )}
             </div>
-          </div>
-        </Card>
+          </section>
 
-        <Card>
-          <div className="p-5">
-            <div className="flex items-center justify-between">
-              <div className="font-bold text-neutral-900">Édition policy</div>
-              {policyRow ? <Pill>DB: trouvé</Pill> : <Pill>DB: absent</Pill>}
+          <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <div className="p-5 border-b border-neutral-100">
+              <h2 className="text-lg font-semibold">Policy</h2>
+              <p className="text-sm text-neutral-500">Ces valeurs alimentent le client (Inscription).</p>
             </div>
 
-            <div className="mt-4 grid gap-4">
-              <div className="flex items-center justify-between rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3">
-                <div>
-                  <div className="text-sm font-semibold text-neutral-900">Justificatif requis</div>
-                  <div className="text-xs text-neutral-500">is_required</div>
-                </div>
+            <div className="p-5 space-y-4">
+              <label className="inline-flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  className="h-5 w-5 accent-orange-600"
-                  checked={Boolean(form.is_required)}
+                  checked={!!form.is_required}
                   onChange={(e) => setForm((p) => ({ ...p, is_required: e.target.checked }))}
                 />
-              </div>
+                Justificatif requis
+              </label>
 
-              <div className="flex items-center justify-between rounded-xl bg-neutral-50 ring-1 ring-neutral-200 p-3">
-                <div>
-                  <div className="text-sm font-semibold text-neutral-900">Autoriser upload médical</div>
-                  <div className="text-xs text-neutral-500">allow_medical_upload</div>
-                </div>
+              <label className="inline-flex items-center gap-2 text-sm">
                 <input
                   type="checkbox"
-                  className="h-5 w-5 accent-orange-600"
-                  checked={Boolean(form.allow_medical_upload)}
+                  checked={!!form.allow_medical_upload}
                   onChange={(e) => setForm((p) => ({ ...p, allow_medical_upload: e.target.checked }))}
                 />
-              </div>
+                Autoriser l’upload (photo/PDF)
+              </label>
 
               <div>
-                <Label>Types autorisés (allowed_types)</Label>
-                <div className="mt-2 grid grid-cols-2 gap-2">
+                <div className="text-sm font-medium">Types autorisés (allowed_types)</div>
+                <p className="text-xs text-neutral-500">
+                  Si vide → “tous les types actifs” côté client (comportement du hook).
+                </p>
+
+                <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
                   {activeCatalogue.map((t) => {
-                    const checked = selectedSet.has(normalizeCode(t.code));
+                    const c = String(t.code || "").toLowerCase();
+                    const checked = (form.allowed_types || []).includes(c);
                     return (
-                      <button
-                        key={t.code}
-                        type="button"
-                        onClick={() => toggleType(t.code)}
-                        className={[
-                          "rounded-xl px-3 py-2 text-left text-sm ring-1 transition",
-                          checked
-                            ? "bg-neutral-900 text-white ring-neutral-900"
-                            : "bg-white text-neutral-900 ring-neutral-200 hover:bg-neutral-50",
-                        ].join(" ")}
+                      <label
+                        key={c}
+                        className="flex items-start gap-2 rounded-xl border border-neutral-200 p-3 bg-neutral-50"
                       >
-                        <div className="font-semibold">{t.label}</div>
-                        <div className="text-xs opacity-80">{t.code}</div>
-                      </button>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleAllowed(c)}
+                          className="mt-1"
+                        />
+                        <div>
+                          <div className="text-sm font-semibold">{t.label || c}</div>
+                          <div className="text-xs text-neutral-600">{c}</div>
+                          {t.description ? <div className="text-xs text-neutral-500 mt-1">{t.description}</div> : null}
+                        </div>
+                      </label>
                     );
                   })}
                 </div>
-
-                <div className="mt-2">
-                  <Label>Édition rapide CSV (optionnel)</Label>
-                  <div className="mt-1">
-                    <Input
-                      value={form.allowed_types_csv}
-                      onChange={(e) => setForm((p) => ({ ...p, allowed_types_csv: e.target.value }))}
-                      placeholder="ex: pps, licence_ffa, certificat_medical"
-                    />
-                  </div>
-                </div>
               </div>
 
               <div>
-                <Label>Notes</Label>
-                <div className="mt-1">
-                  <Textarea
-                    value={form.notes}
-                    onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
-                    placeholder="message d’aide affichable côté inscription"
-                  />
-                </div>
+                <div className="text-sm font-medium">Notes</div>
+                <textarea
+                  value={form.notes || ""}
+                  onChange={(e) => setForm((p) => ({ ...p, notes: e.target.value }))}
+                  className="mt-1 w-full min-h-[110px] rounded-xl border border-neutral-300 px-3 py-2"
+                  placeholder="Texte d’aide affiché côté coureur…"
+                />
               </div>
+            </div>
+          </section>
+        </div>
 
-              <div>
-                <Label>Preview payload</Label>
-                <div className="mt-1">
-                  <Textarea readOnly value={JSON.stringify(preview, null, 2)} />
-                </div>
+        <aside className="lg:col-span-1">
+          <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm sticky top-6">
+            <div className="p-5 border-b border-neutral-100">
+              <h3 className="text-lg font-semibold">Debug</h3>
+              <p className="text-sm text-neutral-500">Infos utiles pour vérifier la config.</p>
+            </div>
+
+            <div className="p-5 text-sm space-y-2">
+              <div className="flex justify-between">
+                <span className="text-neutral-600">Catalogue</span>
+                <b>{debug?.catalogueTable || "—"}</b>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-neutral-600">Policy DB</span>
+                <b>{debug?.dbPolicyTable || "—"}</b>
+              </div>
+              <div className="h-px bg-neutral-200 my-2" />
+              <div className="text-xs text-neutral-600">Allowed types effectifs</div>
+              <div className="flex flex-wrap gap-1">
+                {(allowedTypes || []).slice(0, 12).map((c) => (
+                  <span key={c} className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 border">
+                    {c}
+                  </span>
+                ))}
+                {(allowedTypes || []).length > 12 && (
+                  <span className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 border">
+                    +{(allowedTypes || []).length - 12}
+                  </span>
+                )}
               </div>
             </div>
           </div>
-        </Card>
+        </aside>
       </div>
-    </Container>
+    </div>
   );
 }
