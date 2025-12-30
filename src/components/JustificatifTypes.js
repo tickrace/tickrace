@@ -11,6 +11,13 @@ import {
   TYPE_CERTIF_MEDICAL,
   TYPE_AUTRE_DOC,
 } from "./JustificatifRulesEngine";
+export const JUSTIF_TYPES = Object.freeze({
+  PPS: TYPE_PPS,
+  LICENCE_FFA: TYPE_LICENCE_FFA,
+  LICENCE_AUTRE: TYPE_LICENCE_AUTRE,
+  CERTIF_MEDICAL: TYPE_CERTIF_MEDICAL,
+  AUTRE_DOC: TYPE_AUTRE_DOC,
+});
 
 export const JUSTIFICATIF_TYPES = [
   {
