@@ -1,185 +1,318 @@
 // src/components/inscription/JustificatifInscriptionBlock.jsx
-import React, { useMemo } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { supabase } from "../../supabase";
 
 /**
- * Props:
- * - policy: { is_required, allow_medical_upload, allowed_types, notes }
- * - types:  [{ code, label, input_mode, is_medical, ... }] (table justificatif_types)
- * - value:  objet inscription / membre (doit contenir: justificatif_type, numero_licence, pps_identifier, justificatif_url)
- * - onPatch: (patchObj) => void
- * - onUploadFile?: async (file) => void (si upload géré côté page)
- * - uploading?: boolean
- * - disableUpload?: boolean (ex: équipe)
+ * Props (compat + nouvelle logique)
+ * - courseId: uuid (recommandé) => le composant lit directement la table courses
+ * - course: optionnel => si tu as déjà l’objet course en parent
+ * - policy/types: optionnel => compat avec ancienne logique (course_justificatif_policies + justificatif_types)
+ *
+ * - value: objet (inscription ou member) contenant au minimum :
+ *   { justificatif_type, numero_licence, pps_identifier, justificatif_url }
+ * - onPatch(patch): (required) => patch atomique {field: value}
+ *
+ * Upload:
+ * - disableUpload: bool (default false)
+ * - onUploadFile(file): optionnel => si fourni, le composant délègue l’upload au parent
+ * - uploading: optionnel => état d’upload venant du parent
+ *
+ * UI:
+ * - title: string
  */
 export default function JustificatifInscriptionBlock({
+  courseId,
+  course: courseProp,
   policy,
   types,
   value,
   onPatch,
-  onUploadFile,
-  uploading = false,
-  disableUpload = false,
   title = "Justificatif",
+  disableUpload = false,
+  onUploadFile,
+  uploading: uploadingProp,
 }) {
-  const v = value || {};
-  const pol = policy || { is_required: false, allow_medical_upload: true, allowed_types: [], notes: "" };
+  const [course, setCourse] = useState(courseProp || null);
+  const [loadingCourse, setLoadingCourse] = useState(false);
+  const [uploadingLocal, setUploadingLocal] = useState(false);
 
-  const allowed = useMemo(() => {
-    const codes = Array.isArray(pol.allowed_types) ? pol.allowed_types.filter(Boolean) : [];
-    return codes.map(String);
-  }, [pol.allowed_types]);
+  // ---------- Load course if needed ----------
+  useEffect(() => {
+    let abort = false;
 
-  const activeTypes = useMemo(() => {
-    const rows = Array.isArray(types) ? types : [];
-    const map = new Map(rows.map((t) => [String(t.code), t]));
-    const list = allowed.length ? allowed.map((c) => map.get(c)).filter(Boolean) : rows;
-    // fallback minimal si table vide
-    return list.length
-      ? list
-      : [
-          { code: "pps", label: "PPS" },
-          { code: "ffa_licence", label: "Licence FFA" },
-          { code: "medical_certificate", label: "Certificat médical" },
-        ];
-  }, [types, allowed]);
+    async function loadCourse() {
+      if (courseProp) {
+        setCourse(courseProp);
+        return;
+      }
+      if (!courseId) return;
 
-  const selectedType = String(v.justificatif_type || "").trim();
+      setLoadingCourse(true);
+      const { data, error } = await supabase
+        .from("courses")
+        .select("id, justif_block_if_missing, justif_type_1, justif_type_2, justif_type_3, parent_authorization_enabled")
+        .eq("id", courseId)
+        .maybeSingle();
 
-  const typeMeta = useMemo(() => {
-    const map = new Map(activeTypes.map((t) => [String(t.code), t]));
-    return map.get(selectedType) || null;
-  }, [activeTypes, selectedType]);
+      if (abort) return;
 
-  // heuristiques simples par code (robuste même si input_mode pas rempli)
-  const isPps = /pps/i.test(selectedType);
-  const isLicence = /licen|ffa/i.test(selectedType);
-  const isMedical = !!typeMeta?.is_medical || /medical|certif/i.test(selectedType);
+      if (error) {
+        console.error("❌ JustificatifInscriptionBlock: load course error", error);
+        setCourse(null);
+      } else {
+        setCourse(data || null);
+      }
+      setLoadingCourse(false);
+    }
 
-  const canUpload = !!pol.allow_medical_upload && !disableUpload;
+    loadCourse();
+    return () => {
+      abort = true;
+    };
+  }, [courseId, courseProp]);
 
-  const showTypeSelect = allowed.length > 0; // si allowed_types est configuré, on force un type
+  // ---------- Labels ----------
+  const LABEL_FALLBACK = useMemo(
+    () => ({
+      FFA_PPS: "FFA / PPS",
+      FFA_LICENCE: "Licence FFA",
+      MEDICAL_CERT: "Certificat médical",
+      OTHER: "Autre justificatif",
+      AUTRE: "Autre justificatif",
+      PPS: "PPS",
+    }),
+    []
+  );
 
-  const typeLabel = (code) => {
-    const t = activeTypes.find((x) => String(x.code) === String(code));
-    return t?.label || code;
+  const typesLabelMap = useMemo(() => {
+    const map = new Map();
+    (types || []).forEach((t) => {
+      if (t?.code) map.set(String(t.code), t.label || t.code);
+    });
+    return map;
+  }, [types]);
+
+  const labelOf = (code) => {
+    if (!code) return "";
+    const c = String(code);
+    return typesLabelMap.get(c) || LABEL_FALLBACK[c] || c;
   };
 
+  // ---------- Source of truth : policy OR course columns ----------
+  const effectiveRequired = useMemo(() => {
+    if (policy && typeof policy.is_required === "boolean") return policy.is_required;
+    if (course && typeof course.justif_block_if_missing === "boolean") return course.justif_block_if_missing;
+    return false;
+  }, [policy, course]);
+
+  const effectiveAllowedTypes = useMemo(() => {
+    // 1) policy.allowed_types si fourni
+    if (policy && Array.isArray(policy.allowed_types) && policy.allowed_types.length > 0) {
+      return policy.allowed_types.map(String).filter(Boolean);
+    }
+    // 2) courses.justif_type_1/2/3
+    const arr = [course?.justif_type_1, course?.justif_type_2, course?.justif_type_3]
+      .map((x) => (x ? String(x) : ""))
+      .filter(Boolean);
+    // si rien => fallback (ne bloque pas l’UI)
+    return arr.length > 0 ? arr : ["FFA_PPS", "MEDICAL_CERT"];
+  }, [policy, course]);
+
+  const allowUpload = useMemo(() => {
+    // si policy existe, elle décide; sinon on autorise l’upload (tu veux pouvoir uploader le certif médical)
+    if (policy && typeof policy.allow_medical_upload === "boolean") return policy.allow_medical_upload;
+    return true;
+  }, [policy]);
+
+  const uploading = Boolean(uploadingProp || uploadingLocal);
+
+  // ---------- Current values ----------
+  const currentType = String(value?.justificatif_type || "").trim();
+  const currentLicence = String(value?.numero_licence || "").trim();
+  const currentPps = String(value?.pps_identifier || "").trim();
+  const currentUrl = String(value?.justificatif_url || "").trim();
+
+  // ---------- Helpers ----------
+  const typeIsAllowed = (t) => effectiveAllowedTypes.includes(String(t));
+
+  // si un type n’est pas choisi mais obligatoire + 1 seul type => auto-select
+  useEffect(() => {
+    if (!effectiveRequired) return;
+    if (currentType) return;
+    if ((effectiveAllowedTypes || []).length === 1) {
+      onPatch?.({ justificatif_type: effectiveAllowedTypes[0] });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [effectiveRequired, effectiveAllowedTypes]);
+
+  // ---------- Upload ----------
+  async function uploadViaComponent(file) {
+    if (!file) return;
+    if (!courseId) {
+      alert("Upload impossible : courseId manquant.");
+      return;
+    }
+    setUploadingLocal(true);
+    try {
+      const { data: sess } = await supabase.auth.getSession();
+      const user = sess?.session?.user;
+      if (!user) {
+        alert("Connecte-toi pour importer un justificatif.");
+        return;
+      }
+
+      const bucket = "ppsjustificatifs";
+      const safeName = String(file.name || "justificatif").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+      const path = `justif/${courseId}/${user.id}/${Date.now()}-${safeName}`;
+
+      const { data, error } = await supabase.storage.from(bucket).upload(path, file, {
+        upsert: false,
+        contentType: file.type || undefined,
+      });
+      if (error) throw error;
+
+      const publicUrl = supabase.storage.from(bucket).getPublicUrl(data.path).data.publicUrl;
+      onPatch?.({ justificatif_url: publicUrl });
+    } catch (e) {
+      console.error("❌ upload justificatif (block):", e);
+      alert("Erreur lors de l’upload du justificatif.");
+    } finally {
+      setUploadingLocal(false);
+    }
+  }
+
+  const canShowUpload = useMemo(() => {
+    if (disableUpload) return false;
+    if (!allowUpload) return false;
+
+    // On veut explicitement permettre l’upload du certificat médical :
+    // => on l’affiche si MEDICAL_CERT est autorisé, ou si aucun type choisi mais MEDICAL_CERT existe
+    if (typeIsAllowed("MEDICAL_CERT")) return true;
+
+    // si le parcours autorise upload mais pas MEDICAL_CERT dans la liste,
+    // on reste conservateur => on n'affiche pas (évite incohérences)
+    return false;
+  }, [disableUpload, allowUpload, effectiveAllowedTypes]);
+
+  const hint = useMemo(() => {
+    const chips = (effectiveAllowedTypes || []).slice(0, 6).map((c) => labelOf(c));
+    return chips.join(" · ");
+  }, [effectiveAllowedTypes, typesLabelMap]);
+
+  // ---------- Render ----------
   return (
     <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-sm font-semibold text-neutral-900">{title}</div>
-          <div className="text-xs text-neutral-600">
-            {pol.is_required ? "Obligatoire" : "Optionnel"}
-            {pol.allow_medical_upload ? " · Upload autorisé" : " · Upload désactivé"}
-          </div>
+          <div className="text-xs text-neutral-600">{effectiveRequired ? "Obligatoire" : "Optionnel"}</div>
+          {hint ? <div className="mt-1 text-xs text-neutral-500">{hint}</div> : null}
         </div>
+        {(loadingCourse || !courseId) && !policy ? (
+          <div className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200 text-neutral-700">
+            {loadingCourse ? "Chargement…" : ""}
+          </div>
+        ) : null}
+      </div>
 
-        {allowed.length > 0 && (
-          <div className="flex flex-wrap justify-end gap-1">
-            {allowed.slice(0, 6).map((c) => (
-              <span key={c} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
-                {typeLabel(c)}
-              </span>
-            ))}
-            {allowed.length > 6 && (
-              <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
-                +{allowed.length - 6}
-              </span>
+      {/* Choix du type */}
+      <div className="mt-3">
+        <label className="text-sm font-medium text-neutral-800">Type de justificatif {effectiveRequired ? "*" : ""}</label>
+        <select
+          className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
+          value={currentType}
+          onChange={(e) => {
+            const t = e.target.value;
+            onPatch?.({
+              justificatif_type: t,
+              // reset des champs si on change de type
+              numero_licence: t === "FFA_LICENCE" ? currentLicence : "",
+              pps_identifier: t === "FFA_PPS" ? currentPps : "",
+              justificatif_url: t === "MEDICAL_CERT" ? currentUrl : "",
+            });
+          }}
+        >
+          <option value="">{effectiveRequired ? "-- Choisir un type * --" : "-- Choisir un type --"}</option>
+          {effectiveAllowedTypes.map((t) => (
+            <option key={t} value={t}>
+              {labelOf(t)}
+            </option>
+          ))}
+        </select>
+        {effectiveRequired && effectiveAllowedTypes.length > 0 && currentType && !typeIsAllowed(currentType) ? (
+          <div className="mt-2 text-xs text-red-600">Type non autorisé pour cette course.</div>
+        ) : null}
+      </div>
+
+      {/* Champs selon type */}
+      <div className="mt-4 space-y-3">
+        {(currentType === "FFA_PPS" || (!currentType && effectiveAllowedTypes.includes("FFA_PPS"))) && (
+          <div>
+            <label className="text-sm font-medium text-neutral-800">Code PPS</label>
+            <input
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+              placeholder="Ex : ABCD-1234-EFGH-5678"
+              value={currentPps}
+              onChange={(e) => onPatch?.({ pps_identifier: e.target.value })}
+            />
+            <div className="mt-1 text-xs text-neutral-500">Renseigne le code PPS si tu choisis “FFA / PPS”.</div>
+          </div>
+        )}
+
+        {(currentType === "FFA_LICENCE" || (!currentType && effectiveAllowedTypes.includes("FFA_LICENCE"))) && (
+          <div>
+            <label className="text-sm font-medium text-neutral-800">N° licence FFA</label>
+            <input
+              className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2"
+              placeholder="Ex : 123456"
+              value={currentLicence}
+              onChange={(e) => onPatch?.({ numero_licence: e.target.value })}
+            />
+            <div className="mt-1 text-xs text-neutral-500">Renseigne ton numéro de licence si tu choisis “Licence FFA”.</div>
+          </div>
+        )}
+
+        {/* Upload certificat médical */}
+        {canShowUpload && (
+          <div className="rounded-xl border border-neutral-200 bg-white p-3">
+            <div className="text-sm font-medium text-neutral-800">Importer un certificat médical (photo/PDF)</div>
+            <div className="mt-2">
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                disabled={uploading || disableUpload}
+                onChange={(e) => {
+                  const file = e.target.files?.[0];
+                  if (!file) return;
+                  if (onUploadFile) onUploadFile(file);
+                  else uploadViaComponent(file);
+                }}
+                className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
+              />
+            </div>
+
+            {currentUrl ? (
+              <div className="mt-2 text-xs text-neutral-700 break-all">
+                Fichier importé :{" "}
+                <a className="underline" href={currentUrl} target="_blank" rel="noreferrer">
+                  {currentUrl}
+                </a>
+              </div>
+            ) : (
+              <div className="mt-2 text-xs text-neutral-500">Formats acceptés : image ou PDF.</div>
             )}
+
+            {uploading ? <div className="mt-2 text-xs text-neutral-500">Upload en cours…</div> : null}
           </div>
         )}
       </div>
 
-      {pol.notes ? <div className="mt-2 text-xs text-neutral-700 whitespace-pre-wrap">{pol.notes}</div> : null}
-
-      {/* Type (si policy configurée) */}
-      {showTypeSelect && (
-        <div className="mt-3">
-          <label className="text-xs font-semibold text-neutral-700">Type</label>
-          <select
-            className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm"
-            value={selectedType}
-            onChange={(e) => {
-              const next = e.target.value || "";
-              // reset champs non pertinents à changement de type
-              onPatch?.({
-                justificatif_type: next,
-                ...( /pps/i.test(next) ? {} : { pps_identifier: "" } ),
-                ...( /licen|ffa/i.test(next) ? {} : { numero_licence: "" } ),
-              });
-            }}
-          >
-            <option value="">{pol.is_required ? "— Sélectionner —" : "— Aucun —"}</option>
-            {activeTypes.map((t) => (
-              <option key={t.code} value={t.code}>
-                {t.label || t.code}
-              </option>
-            ))}
-          </select>
-
-          {pol.is_required && !selectedType && (
-            <div className="mt-1 text-xs text-red-600">Sélectionne un type de justificatif.</div>
-          )}
+      {/* Petit rappel si obligatoire */}
+      {effectiveRequired ? (
+        <div className="mt-3 text-xs text-neutral-600">
+          Le justificatif est requis : choisis un type et renseigne le champ correspondant (ou importe le certificat si “Certificat médical”).
         </div>
-      )}
-
-      {/* PPS / Licence : affichage si (type sélectionné) OU (pas de select => fallback) */}
-      {(!showTypeSelect || (showTypeSelect && selectedType && isPps)) && (
-        <div className="mt-3">
-          <label className="text-xs font-semibold text-neutral-700">Code PPS</label>
-          <input
-            className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm"
-            placeholder="PPS (ex: ABCD-1234…)"
-            value={v.pps_identifier || ""}
-            onChange={(e) => onPatch?.({ pps_identifier: e.target.value })}
-          />
-        </div>
-      )}
-
-      {(!showTypeSelect || (showTypeSelect && selectedType && isLicence)) && (
-        <div className="mt-3">
-          <label className="text-xs font-semibold text-neutral-700">Numéro de licence</label>
-          <input
-            className="mt-1 w-full rounded-xl border border-neutral-300 bg-white px-3 py-2 text-sm"
-            placeholder="Licence"
-            value={v.numero_licence || ""}
-            onChange={(e) => onPatch?.({ numero_licence: e.target.value })}
-          />
-        </div>
-      )}
-
-      {/* Upload */}
-      {canUpload && (!showTypeSelect || (selectedType && (isMedical || !isPps || !isLicence))) && (
-        <div className="mt-4">
-          <div className="text-xs font-semibold text-neutral-700">Importer un justificatif (photo/PDF)</div>
-          <div className="mt-2 flex items-center gap-3">
-            <input
-              type="file"
-              accept="image/*,application/pdf"
-              onChange={(e) => onUploadFile?.(e.target.files?.[0])}
-              className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
-              disabled={uploading}
-            />
-          </div>
-
-          {v.justificatif_url ? (
-            <div className="mt-2 text-xs text-neutral-700 break-all">
-              Fichier importé :{" "}
-              <a className="underline" href={v.justificatif_url} target="_blank" rel="noreferrer">
-                {v.justificatif_url}
-              </a>
-            </div>
-          ) : (
-            <div className="mt-1 text-xs text-neutral-500">Formats acceptés : image ou PDF.</div>
-          )}
-        </div>
-      )}
-
-      {/* Hint si upload désactivé */}
-      {disableUpload && pol.allow_medical_upload && (
-        <div className="mt-2 text-xs text-neutral-500">(Upload désactivé pour les équipes dans cette V1.)</div>
-      )}
+      ) : null}
     </div>
   );
 }
