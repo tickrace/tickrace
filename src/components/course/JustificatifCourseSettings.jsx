@@ -1,313 +1,182 @@
 // src/components/course/JustificatifCourseSettings.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { supabase } from "../../supabase";
-import { JUSTIF_TYPES, mergeJustificatifState, normalizeJustificatifState } from "../../lib/justificatifs";
 
-/**
- * Paramétrage des justificatifs pour une course (policy globale) ou un format (optionnel).
- *
- * DB attendue:
- * - table course_justificatif_policies:
- *   course_id uuid
- *   format_id uuid null
- *   is_required bool
- *   allow_medical_upload bool
- *   allowed_types text[]
- *   notes text
- */
-export default function JustificatifCourseSettings({
-  courseId,
-  formatId = null, // null => policy globale course
-  title = "Justificatifs",
-  className = "",
-  onSaved,
-}) {
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [err, setErr] = useState("");
-  const [typesDb, setTypesDb] = useState([]);
-  const [policy, setPolicy] = useState(
-    normalizeJustificatifState({
-      is_required: false,
-      allow_medical_upload: true,
-      allowed_types: [],
-      notes: "",
-    })
-  );
+const FALLBACK_TYPES = [
+  { code: "pps", label: "PPS (France)" },
+  { code: "ffa_licence", label: "Licence FFA" },
+  { code: "medical_certificate", label: "Certificat médical" },
+  { code: "licence_autre", label: "Licence / fédération (autre)" },
+];
 
-  const typesCatalogue = useMemo(() => {
-    const rows = (typesDb && typesDb.length > 0 ? typesDb : JUSTIF_TYPES)
-      .filter((t) => t?.code)
-      .map((t) => ({
-        code: String(t.code),
-        label: t.label || t.code,
-        federation_code: t.federation_code ?? null,
-        input_mode: t.input_mode ?? null,
-        is_medical: !!t.is_medical,
-        sort_order: Number(t.sort_order ?? 999),
-      }))
-      .sort((a, b) => a.sort_order - b.sort_order);
+export default function JustificatifCourseSettings({ value, onChange }) {
+  const course = value || {};
+  const patch = (p) => onChange?.({ ...course, ...p });
 
-    // dédoublonnage par code
-    const seen = new Set();
-    return rows.filter((r) => {
-      if (seen.has(r.code)) return false;
-      seen.add(r.code);
-      return true;
-    });
-  }, [typesDb]);
-
-  const allowed = useMemo(() => new Set(policy.allowed_types || []), [policy.allowed_types]);
+  const [types, setTypes] = useState(FALLBACK_TYPES);
+  const [loadingTypes, setLoadingTypes] = useState(true);
+  const [loadError, setLoadError] = useState(null);
 
   useEffect(() => {
-    let mounted = true;
+    let alive = true;
 
     async function load() {
-      if (!courseId) return;
-
-      setLoading(true);
-      setErr("");
-
-      // 1) types actifs (DB)
+      setLoadingTypes(true);
+      setLoadError(null);
       try {
-        const { data: jt, error: jtErr } = await supabase
+        const { data, error } = await supabase
           .from("justificatif_types")
-          .select("code,label,federation_code,input_mode,is_medical,sort_order,is_active")
+          .select("code,label,is_active,sort_order")
           .eq("is_active", true)
           .order("sort_order", { ascending: true });
 
-        if (!jtErr && mounted) setTypesDb(jt || []);
-      } catch (e) {
-        // fallback silencieux sur JUSTIF_TYPES
-      }
+        if (!alive) return;
 
-      // 2) policy
-      try {
-        const q = supabase
-          .from("course_justificatif_policies")
-          .select("*")
-          .eq("course_id", courseId);
-
-        const { data: pol, error: polErr } = formatId ? await q.eq("format_id", formatId).maybeSingle() : await q.is("format_id", null).maybeSingle();
-
-        if (polErr) throw polErr;
-
-        if (mounted) {
-          if (pol) {
-            setPolicy(
-              normalizeJustificatifState({
-                is_required: pol.is_required !== false,
-                allow_medical_upload: !!pol.allow_medical_upload,
-                allowed_types: Array.isArray(pol.allowed_types) ? pol.allowed_types.filter(Boolean) : [],
-                notes: pol.notes || "",
-              })
-            );
-          } else {
-            // defaults si pas de ligne
-            setPolicy(
-              normalizeJustificatifState({
-                is_required: false,
-                allow_medical_upload: true,
-                allowed_types: [],
-                notes: "",
-              })
-            );
-          }
+        if (error) {
+          // RLS / table absente / etc -> fallback
+          console.warn("JustificatifCourseSettings: load justificatif_types failed:", error);
+          setLoadError(error.message || "Erreur de chargement");
+          setTypes(FALLBACK_TYPES);
+          return;
         }
+
+        const rows = (data || [])
+          .map((r) => ({
+            code: r.code,
+            label: r.label || r.code,
+          }))
+          .filter((r) => r.code);
+
+        // Si table vide -> fallback
+        setTypes(rows.length ? rows : FALLBACK_TYPES);
       } catch (e) {
-        if (mounted) setErr("Impossible de charger la configuration des justificatifs.");
+        if (!alive) return;
+        console.warn("JustificatifCourseSettings: exception:", e);
+        setLoadError(e?.message || "Erreur");
+        setTypes(FALLBACK_TYPES);
       } finally {
-        if (mounted) setLoading(false);
+        if (alive) setLoadingTypes(false);
       }
     }
 
     load();
     return () => {
-      mounted = false;
+      alive = false;
     };
-  }, [courseId, formatId]);
+  }, []);
 
-  function toggleAllowed(code) {
-    setPolicy((prev) => {
-      const p = normalizeJustificatifState(prev);
-      const cur = new Set(p.allowed_types || []);
-      if (cur.has(code)) cur.delete(code);
-      else cur.add(code);
-      return mergeJustificatifState(p, { allowed_types: Array.from(cur) });
+  const options = useMemo(() => {
+    // Sécurise l’unicité des codes
+    const map = new Map();
+    (types || []).forEach((t) => {
+      if (!t?.code) return;
+      map.set(t.code, t.label || t.code);
     });
-  }
-
-  function setField(name, value) {
-    setPolicy((prev) => mergeJustificatifState(prev, { [name]: value }));
-  }
-
-  async function save() {
-    if (!courseId) return;
-    setSaving(true);
-    setErr("");
-
-    try {
-      const payload = {
-        course_id: courseId,
-        format_id: formatId,
-        is_required: policy.is_required !== false,
-        allow_medical_upload: !!policy.allow_medical_upload,
-        allowed_types: Array.isArray(policy.allowed_types) ? policy.allowed_types.filter(Boolean) : [],
-        notes: policy.notes || "",
-      };
-
-      // upsert sur (course_id, format_id)
-      const { error } = await supabase.from("course_justificatif_policies").upsert(payload, {
-        onConflict: "course_id,format_id",
-      });
-
-      if (error) throw error;
-
-      onSaved?.(payload);
-    } catch (e) {
-      console.error("❌ save justificatif policy:", e);
-      setErr("Erreur lors de l’enregistrement.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  const presets = [
-    {
-      label: "Aucun",
-      apply: () => setPolicy(normalizeJustificatifState({ is_required: false, allow_medical_upload: true, allowed_types: [], notes: "" })),
-    },
-    {
-      label: "FFA (PPS + licence) + upload",
-      apply: () =>
-        setPolicy(
-          normalizeJustificatifState({
-            is_required: true,
-            allow_medical_upload: true,
-            allowed_types: ["pps", "licence_ffa", "certificat_medical"],
-            notes: "",
-          })
-        ),
-    },
-    {
-      label: "PPS uniquement",
-      apply: () =>
-        setPolicy(
-          normalizeJustificatifState({
-            is_required: true,
-            allow_medical_upload: false,
-            allowed_types: ["pps"],
-            notes: "",
-          })
-        ),
-    },
-  ];
-
-  if (loading) {
-    return (
-      <section className={`rounded-2xl border border-neutral-200 bg-white shadow-sm ${className}`}>
-        <div className="p-5 border-b border-neutral-100">
-          <h2 className="text-lg font-semibold">{title}</h2>
-        </div>
-        <div className="p-5 text-sm text-neutral-500">Chargement…</div>
-      </section>
-    );
-  }
+    return Array.from(map.entries()).map(([code, label]) => ({ code, label }));
+  }, [types]);
 
   return (
-    <section className={`rounded-2xl border border-neutral-200 bg-white shadow-sm ${className}`}>
-      <div className="p-5 border-b border-neutral-100 flex items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold">{title}</h2>
-          <p className="text-sm text-neutral-500">
-            Configure si un justificatif est requis (PPS / licence / upload). (Policy {formatId ? "format" : "course"})
-          </p>
-        </div>
+    <section className="mt-6 rounded-2xl border border-neutral-200 bg-white shadow-sm">
+      <div className="p-5 border-b border-neutral-100">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-lg font-semibold">Justificatifs</h3>
+            <p className="text-sm text-neutral-500">
+              Configuration globale (au niveau de l’épreuve).{" "}
+              <span className="text-neutral-600">Pas de règles par format.</span>
+            </p>
+          </div>
 
-        <button
-          type="button"
-          onClick={save}
-          disabled={saving}
-          className={`rounded-xl px-4 py-2 text-sm font-semibold text-white ${saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"}`}
-        >
-          {saving ? "Enregistrement…" : "Enregistrer"}
-        </button>
+          <div className="text-right">
+            {loadingTypes ? (
+              <div className="text-xs text-neutral-500">Chargement des types…</div>
+            ) : loadError ? (
+              <div className="text-xs text-amber-700">Fallback activé</div>
+            ) : (
+              <div className="text-xs text-emerald-700">Types chargés</div>
+            )}
+          </div>
+        </div>
       </div>
 
       <div className="p-5 space-y-5">
-        {err ? <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">{err}</div> : null}
-
-        {/* Presets */}
-        <div className="flex flex-wrap gap-2">
-          {presets.map((p) => (
-            <button
-              key={p.label}
-              type="button"
-              onClick={p.apply}
-              className="rounded-full border border-neutral-200 bg-white px-3 py-1.5 text-xs font-semibold text-neutral-800 hover:bg-neutral-50"
-            >
-              {p.label}
-            </button>
-          ))}
-        </div>
-
-        {/* Required + Upload */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-          <label className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 p-3">
-            <div>
-              <div className="text-sm font-semibold text-neutral-900">Justificatif requis</div>
-              <div className="text-xs text-neutral-600">Si activé, un PPS/licence (ou upload si autorisé) sera demandé.</div>
-            </div>
-            <input type="checkbox" checked={policy.is_required} onChange={(e) => setField("is_required", e.target.checked)} />
-          </label>
-
-          <label className="flex items-center justify-between gap-3 rounded-xl border border-neutral-200 p-3">
-            <div>
-              <div className="text-sm font-semibold text-neutral-900">Upload médical autorisé</div>
-              <div className="text-xs text-neutral-600">Permet l’import d’un fichier (photo/PDF) si nécessaire.</div>
-            </div>
-            <input type="checkbox" checked={policy.allow_medical_upload} onChange={(e) => setField("allow_medical_upload", e.target.checked)} />
-          </label>
-        </div>
-
-        {/* Allowed types */}
-        <div>
-          <div className="text-sm font-semibold text-neutral-900">Types autorisés</div>
-          <div className="text-xs text-neutral-600">
-            Laisse vide pour “auto” (PPS + licence par défaut côté UI). Sinon, coche précisément les types acceptés.
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2">
-            {typesCatalogue.map((t) => {
-              const active = allowed.has(t.code);
-              return (
-                <button
-                  key={t.code}
-                  type="button"
-                  onClick={() => toggleAllowed(t.code)}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-semibold ${
-                    active ? "border-neutral-900 bg-neutral-900 text-white" : "border-neutral-200 bg-white text-neutral-800 hover:bg-neutral-50"
-                  }`}
-                >
-                  {t.label}
-                  {t.federation_code ? <span className="ml-2 opacity-80">({t.federation_code})</span> : null}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Notes */}
-        <div>
-          <div className="text-sm font-semibold text-neutral-900">Notes / instructions</div>
-          <div className="text-xs text-neutral-600">Affichées aux coureurs au moment de l’inscription.</div>
-          <textarea
-            className="mt-2 w-full min-h-[90px] rounded-xl border border-neutral-300 px-3 py-2 text-sm"
-            value={policy.notes || ""}
-            onChange={(e) => setField("notes", e.target.value)}
-            placeholder="Ex: PPS obligatoire (QR code) ou licence FFA valide. Aucun certificat médical accepté…"
+        {/* Bloquer si manquant */}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={!!course.justif_block_if_missing}
+            onChange={(e) => patch({ justif_block_if_missing: e.target.checked })}
           />
+          <span className="font-medium">Bloquer l’inscription si justificatif manquant</span>
+        </label>
+
+        {/* Types autorisés (jusqu’à 3) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+          <div>
+            <div className="text-xs font-semibold text-neutral-600 mb-1">Type 1</div>
+            <select
+              className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+              value={course.justif_type_1 || ""}
+              onChange={(e) => patch({ justif_type_1: e.target.value || "" })}
+            >
+              <option value="">— Aucun —</option>
+              {options.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-neutral-600 mb-1">Type 2</div>
+            <select
+              className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+              value={course.justif_type_2 || ""}
+              onChange={(e) => patch({ justif_type_2: e.target.value || "" })}
+            >
+              <option value="">— Aucun —</option>
+              {options.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div>
+            <div className="text-xs font-semibold text-neutral-600 mb-1">Type 3</div>
+            <select
+              className="w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm"
+              value={course.justif_type_3 || ""}
+              onChange={(e) => patch({ justif_type_3: e.target.value || "" })}
+            >
+              <option value="">— Aucun —</option>
+              {options.map((t) => (
+                <option key={t.code} value={t.code}>
+                  {t.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
+
+        {/* Autorisation parentale */}
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={!!course.parent_authorization_enabled}
+            onChange={(e) => patch({ parent_authorization_enabled: e.target.checked })}
+          />
+          <span className="font-medium">Activer l’autorisation parentale (mineurs)</span>
+        </label>
+
+        {loadError ? (
+          <div className="text-xs text-neutral-500">
+            Note : impossible de charger <code className="px-1 py-0.5 rounded bg-neutral-100">justificatif_types</code>{" "}
+            ({String(loadError)}). Le bloc utilise une liste fallback.
+          </div>
+        ) : null}
       </div>
     </section>
   );
