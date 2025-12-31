@@ -6,6 +6,9 @@ import { supabase } from "../supabase";
 import { BookOpen, ArrowUpRight } from "lucide-react";
 import GainPreview from "../components/GainPreview";
 
+// ✅ NEW
+import JustificatifCourseSettings from "../components/course/JustificatifCourseSettings";
+
 /* =========================
    Multi-sport (courses)
    ========================= */
@@ -390,24 +393,19 @@ export default function UpsertCourse() {
     presentation: "",
     imageFile: null,
     image_url: "",
+
     // multi-sport (courses)
     sport_code: "trail",
     discipline_code: "",
     timing_mode: "splits",
     is_team_event: false,
-  });
 
-  /* =============================
-     ✅ Justificatifs (au niveau COURSE)
-     - stored in course_justificatif_policies (format_id NULL)
-     ============================= */
-  const [justifCatalogue, setJustifCatalogue] = useState([]);
-  const [policyRowId, setPolicyRowId] = useState(null);
-  const [justifPolicy, setJustifPolicy] = useState({
-    is_required: true,
-    allow_medical_upload: false,
-    allowed_types: [], // [] => "tous les types actifs"
-    notes: "",
+    // ✅ NEW justificatifs (courses)
+    justif_block_if_missing: false,
+    justif_type_1: "",
+    justif_type_2: "",
+    justif_type_3: "",
+    parent_authorization_enabled: false,
   });
 
   const selectedSport = useMemo(
@@ -518,14 +516,6 @@ export default function UpsertCourse() {
       try {
         setLoading(true);
 
-        // ✅ Catalogue justificatifs (1x)
-        const { data: cat, error: catErr } = await supabase
-          .from("justificatif_types")
-          .select("*")
-          .order("sort_order", { ascending: true })
-          .order("created_at", { ascending: true });
-        if (!catErr && cat) setJustifCatalogue(cat);
-
         if (!isEdit) {
           setLoading(false);
           return;
@@ -535,26 +525,30 @@ export default function UpsertCourse() {
         const { data: c, error: cErr } = await supabase.from("courses").select("*").eq("id", id).single();
         if (cErr) throw cErr;
 
-        // ✅ Policy justificatifs course (format_id NULL)
-        const { data: pol, error: polErr } = await supabase
-          .from("course_justificatif_policies")
-          .select("*")
-          .eq("course_id", id)
-          .is("format_id", null)
-          .maybeSingle();
+        const sport_code = c?.sport_code || "trail";
+        const sportDef = SPORTS.find((s) => s.code === sport_code) || SPORTS[0];
 
-        if (!polErr && pol) {
-          setPolicyRowId(pol.id || null);
-          setJustifPolicy({
-            is_required: typeof pol.is_required === "boolean" ? pol.is_required : true,
-            allow_medical_upload: typeof pol.allow_medical_upload === "boolean" ? pol.allow_medical_upload : false,
-            allowed_types: Array.isArray(pol.allowed_types) ? pol.allowed_types : [],
-            notes: pol.notes || "",
-          });
-        } else {
-          setPolicyRowId(null);
-          setJustifPolicy((p) => ({ ...p }));
-        }
+        setCourse((prev) => ({
+          ...prev,
+          nom: c?.nom || "",
+          lieu: c?.lieu || "",
+          departement: c?.departement || "",
+          code_postal: c?.code_postal || "",
+          presentation: c?.presentation || "",
+          imageFile: null,
+          image_url: c?.image_url || "",
+          sport_code,
+          discipline_code: c?.discipline_code || "",
+          timing_mode: c?.timing_mode || sportDef.defaultTimingMode || "simple",
+          is_team_event: typeof c?.is_team_event === "boolean" ? c.is_team_event : !!sportDef.defaultIsTeamEvent,
+
+          // ✅ NEW justificatifs (courses)
+          justif_block_if_missing: !!c?.justif_block_if_missing,
+          justif_type_1: c?.justif_type_1 || "",
+          justif_type_2: c?.justif_type_2 || "",
+          justif_type_3: c?.justif_type_3 || "",
+          parent_authorization_enabled: !!c?.parent_authorization_enabled,
+        }));
 
         // Formats
         const { data: fs, error: fErr } = await supabase
@@ -603,23 +597,6 @@ export default function UpsertCourse() {
             }, {});
           }
         }
-
-        const sport_code = c?.sport_code || "trail";
-        const sportDef = SPORTS.find((s) => s.code === sport_code) || SPORTS[0];
-
-        setCourse({
-          nom: c?.nom || "",
-          lieu: c?.lieu || "",
-          departement: c?.departement || "",
-          code_postal: c?.code_postal || "",
-          presentation: c?.presentation || "",
-          imageFile: null,
-          image_url: c?.image_url || "",
-          sport_code,
-          discipline_code: c?.discipline_code || "",
-          timing_mode: c?.timing_mode || sportDef.defaultTimingMode || "simple",
-          is_team_event: typeof c?.is_team_event === "boolean" ? c.is_team_event : !!sportDef.defaultIsTeamEvent,
-        });
 
         setFormats(
           (fs || []).map((f) => {
@@ -812,6 +789,7 @@ export default function UpsertCourse() {
         imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
       }
 
+      // ✅ coursePayload inclut maintenant la config justificatifs directement dans courses
       const coursePayload = {
         nom: course.nom,
         lieu: course.lieu,
@@ -827,6 +805,13 @@ export default function UpsertCourse() {
         discipline_code: course.discipline_code || null,
         timing_mode: course.timing_mode || "simple",
         is_team_event: !!course.is_team_event,
+
+        // ✅ NEW justificatifs (courses)
+        justif_block_if_missing: !!course.justif_block_if_missing,
+        justif_type_1: course.justif_type_1 || null,
+        justif_type_2: course.justif_type_2 || null,
+        justif_type_3: course.justif_type_3 || null,
+        parent_authorization_enabled: !!course.parent_authorization_enabled,
       };
 
       // Upsert course
@@ -845,48 +830,6 @@ export default function UpsertCourse() {
           .update({ ...coursePayload, updated_at: new Date().toISOString() })
           .eq("id", courseId);
         if (cUpErr) throw cUpErr;
-      }
-
-      /* =============================
-         ✅ Save JUSTIFICATIF POLICY (course-level only)
-         - one row in course_justificatif_policies where format_id IS NULL
-         ============================= */
-      const allowed = Array.isArray(justifPolicy.allowed_types) ? justifPolicy.allowed_types.filter(Boolean) : [];
-      const policyPayload = {
-        course_id: courseId,
-        format_id: null,
-        is_required: !!justifPolicy.is_required,
-        allow_medical_upload: !!justifPolicy.allow_medical_upload,
-        allowed_types: allowed, // [] => "tous"
-        notes: justifPolicy.notes ? String(justifPolicy.notes) : null,
-        updated_at: new Date().toISOString(),
-      };
-
-      // update if known id, otherwise find-or-insert
-      if (policyRowId) {
-        const { error: pUpErr } = await supabase.from("course_justificatif_policies").update(policyPayload).eq("id", policyRowId);
-        if (pUpErr) throw pUpErr;
-      } else {
-        const { data: existingPol, error: polFindErr } = await supabase
-          .from("course_justificatif_policies")
-          .select("id")
-          .eq("course_id", courseId)
-          .is("format_id", null)
-          .maybeSingle();
-
-        if (!polFindErr && existingPol?.id) {
-          setPolicyRowId(existingPol.id);
-          const { error: pUpErr2 } = await supabase.from("course_justificatif_policies").update(policyPayload).eq("id", existingPol.id);
-          if (pUpErr2) throw pUpErr2;
-        } else {
-          const { data: pIns, error: pInsErr } = await supabase
-            .from("course_justificatif_policies")
-            .insert({ ...policyPayload })
-            .select("id")
-            .single();
-          if (pInsErr) throw pInsErr;
-          setPolicyRowId(pIns?.id || null);
-        }
       }
 
       // Formats
@@ -1048,9 +991,6 @@ export default function UpsertCourse() {
     return <div className="min-h-screen bg-neutral-50 text-neutral-900 p-8">Chargement…</div>;
   }
 
-  const activeJustifs = (justifCatalogue || []).filter((t) => t.is_active !== false);
-  const allowedAll = !justifPolicy.allowed_types || justifPolicy.allowed_types.length === 0;
-
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
       {/* Header */}
@@ -1194,7 +1134,6 @@ export default function UpsertCourse() {
                   <option value="84 - Vaucluse">84 - Vaucluse</option>
                   <option value="46 - Lot">46 - Lot</option>
                   <option value="48 - Lozère">48 - Lozère</option>
-                  {/* ... (garde ta liste complète si tu veux, je n’ai pas touché le reste) */}
                 </select>
               </Field>
 
@@ -1218,114 +1157,11 @@ export default function UpsertCourse() {
                 <p className="mt-1 text-xs text-neutral-500">JPEG/PNG recommandé, ~1600×900.</p>
               </Field>
 
-              {/* ✅ NEW: Justificatifs (course-level) */}
-              <div className="mt-2 rounded-2xl bg-neutral-50 ring-1 ring-neutral-200 p-4">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <div className="text-sm font-semibold text-neutral-900">Justificatifs (au niveau de l’épreuve)</div>
-                    <p className="mt-1 text-xs text-neutral-600">
-                      Configuration unique pour toute l’épreuve. Les formats héritent automatiquement (pas de réglage par format).
-                    </p>
-                  </div>
-                  <div className="text-xs text-neutral-500">
-                    Table: <span className="font-mono">course_justificatif_policies</span>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <Field label="Justificatif obligatoire ?">
-                    <div className="flex items-center h-[38px] gap-2">
-                      <input
-                        type="checkbox"
-                        checked={!!justifPolicy.is_required}
-                        onChange={(e) => setJustifPolicy((p) => ({ ...p, is_required: e.target.checked }))}
-                      />
-                      <span className="text-sm text-neutral-700">Bloque l’inscription si manquant</span>
-                    </div>
-                  </Field>
-
-                  <Field label="Autoriser l’upload de certificat/document ?">
-                    <div className="flex items-center h-[38px] gap-2">
-                      <input
-                        type="checkbox"
-                        checked={!!justifPolicy.allow_medical_upload}
-                        onChange={(e) => setJustifPolicy((p) => ({ ...p, allow_medical_upload: e.target.checked }))}
-                      />
-                      <span className="text-sm text-neutral-700">Active les types “upload” si présents dans la liste</span>
-                    </div>
-                  </Field>
-                </div>
-
-                <div className="mt-4">
-                  <div className="text-xs font-semibold text-neutral-600">Types autorisés</div>
-                  <div className="mt-2 flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={allowedAll}
-                      onChange={(e) => {
-                        if (e.target.checked) setJustifPolicy((p) => ({ ...p, allowed_types: [] }));
-                        else {
-                          const first = activeJustifs?.[0]?.code ? [activeJustifs[0].code] : [];
-                          setJustifPolicy((p) => ({ ...p, allowed_types: first }));
-                        }
-                      }}
-                    />
-                    <span className="text-sm text-neutral-700">
-                      Tous les types actifs ({activeJustifs.length})
-                    </span>
-                    <span className="text-xs text-neutral-500">(allowed_types vide = tous)</span>
-                  </div>
-
-                  {!allowedAll && (
-                    <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
-                      {(activeJustifs || []).map((t) => {
-                        const code = t.code;
-                        const label = t.label || code;
-                        const checked = (justifPolicy.allowed_types || []).includes(code);
-                        return (
-                          <label key={code} className="flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm">
-                            <input
-                              type="checkbox"
-                              checked={checked}
-                              onChange={(e) => {
-                                setJustifPolicy((p) => {
-                                  const cur = Array.isArray(p.allowed_types) ? p.allowed_types : [];
-                                  if (e.target.checked) return { ...p, allowed_types: Array.from(new Set([...cur, code])) };
-                                  return { ...p, allowed_types: cur.filter((x) => x !== code) };
-                                });
-                              }}
-                            />
-                            <span className="font-semibold text-neutral-800">{label}</span>
-                            {t.input_mode && (
-                              <span className="ml-auto text-[11px] text-neutral-500">
-                                {t.input_mode}
-                              </span>
-                            )}
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {activeJustifs.length === 0 && (
-                    <p className="mt-2 text-xs text-red-600">
-                      Aucun type actif trouvé dans <span className="font-mono">justificatif_types</span>.
-                    </p>
-                  )}
-                </div>
-
-                <div className="mt-4">
-                  <Field label="Note / aide (optionnel)">
-                    <Textarea
-                      rows={2}
-                      value={justifPolicy.notes || ""}
-                      onChange={(e) => setJustifPolicy((p) => ({ ...p, notes: e.target.value }))}
-                      placeholder="Ex: PPS obligatoire sauf licence FFA. Certificat accepté uniquement si règlement le permet."
-                    />
-                  </Field>
-                </div>
-              </div>
-              {/* /Justificatifs */}
+              {/* ✅ NEW: Justificatifs (courses only) */}
+              <JustificatifCourseSettings
+                value={course}
+                onChange={(next) => setCourse(next)}
+              />
             </div>
           </div>
 
@@ -1419,8 +1255,11 @@ export default function UpsertCourse() {
                         </Field>
                       </div>
 
-                      {/* ... (le reste inchangé : dates, fenêtre, tarifs, fichiers, logistique, relais, options...) */}
+                      {/* ... le reste inchangé ... */}
+                      {/* (j’ai conservé tout ton bloc formats tel quel) */}
 
+                      {/* (le reste de ton JSX formats est identique à ce que tu avais) */}
+                      {/* ↓↓↓ */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <Field label="Date">
                           <Input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} />
@@ -1590,6 +1429,7 @@ export default function UpsertCourse() {
                         </div>
                         <OptionsEditor options={f.options || []} setOptions={(next) => updateFormat(f.id, { options: next })} />
                       </div>
+                      {/* ↑↑↑ */}
                     </div>
                   </div>
                 );

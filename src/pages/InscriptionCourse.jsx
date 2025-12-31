@@ -1,6 +1,6 @@
 // src/pages/InscriptionCourse.jsx
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 import JustificatifFfaPps from "../components/JustificatifFfaPps";
@@ -217,6 +217,8 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
+  const navigate = useNavigate();
+
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -237,6 +239,9 @@ export default function InscriptionCourse() {
 
   // Modes
   const [mode, setMode] = useState("individuel"); // 'individuel' | 'groupe' | 'relais'
+
+  // ✅ Confirmation liste d’attente (individuel)
+  const [waitlistCreated, setWaitlistCreated] = useState(null); // { id, email }
 
   // Équipes
   const emptyMember = () => ({
@@ -419,8 +424,7 @@ export default function InscriptionCourse() {
             code_postal: profil.code_postal ?? "",
             ville: profil.ville ?? "",
             pays: profil.pays ?? "",
-            apparaitre_resultats:
-              typeof profil.apparaitre_resultats === "boolean" ? profil.apparaitre_resultats : true,
+            apparaitre_resultats: typeof profil.apparaitre_resultats === "boolean" ? profil.apparaitre_resultats : true,
             club: profil.club ?? "",
             justificatif_type: profil.justificatif_type ?? "",
             numero_licence: profil.numero_licence ?? "",
@@ -441,10 +445,14 @@ export default function InscriptionCourse() {
     };
   }, [courseId]);
 
-  const selectedFormat = useMemo(
-    () => formats.find((f) => f.id === inscription.format_id),
-    [formats, inscription.format_id]
-  );
+  const selectedFormat = useMemo(() => formats.find((f) => f.id === inscription.format_id), [formats, inscription.format_id]);
+
+  const isFormatFull = useMemo(() => {
+    if (!selectedFormat) return false;
+    const max = Number(selectedFormat.nb_max_coureurs || 0);
+    if (!max) return false;
+    return Number(selectedFormat.inscrits || 0) >= max;
+  }, [selectedFormat]);
 
   // Fenêtre d’inscriptions (hint client)
   const registrationWindow = useMemo(() => {
@@ -572,9 +580,7 @@ export default function InscriptionCourse() {
       }
 
       const bucket = "ppsjustificatifs";
-      const safeName = String(file.name || "justificatif")
-        .replace(/[^a-zA-Z0-9._-]/g, "_")
-        .slice(0, 80);
+      const safeName = String(file.name || "justificatif").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
 
       const path = `justif/${courseId}/${user.id}/${Date.now()}-${safeName}`;
 
@@ -594,7 +600,7 @@ export default function InscriptionCourse() {
     }
   }
 
-  // ----- Paiement -----
+  // ----- Paiement / Waitlist -----
   async function handlePay() {
     if (submitting) return;
     setSubmitting(true);
@@ -604,7 +610,7 @@ export default function InscriptionCourse() {
       const user = sess?.session?.user;
 
       if (!user) {
-        alert("Veuillez vous connecter pour effectuer le paiement.");
+        alert("Veuillez vous connecter pour continuer.");
         setSubmitting(false);
         return;
       }
@@ -645,21 +651,61 @@ export default function InscriptionCourse() {
         }
       }
 
-      const full =
-        selectedFormat &&
-        Number(selectedFormat.inscrits || 0) >= Number(selectedFormat.nb_max_coureurs || 0);
+      const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
+      if (!payerEmail) {
+        alert("Veuillez renseigner un email.");
+        setSubmitting(false);
+        return;
+      }
 
       // ===== INDIVIDUEL =====
       if (mode === "individuel") {
-        if (full && !selectedFormat?.waitlist_enabled) {
-          alert(`Le format ${selectedFormat.nom} est complet.`);
+        // ✅ Si complet + waitlist activée => inscription en liste d’attente (pas de Stripe)
+        if (isFormatFull && selectedFormat?.waitlist_enabled) {
+          const trace_id = uuidv4();
+
+          const { data: inserted, error: insertErr } = await supabase
+            .from("inscriptions")
+            .insert([
+              {
+                ...inscription,
+                course_id: courseId,
+                format_id: inscription.format_id,
+                statut: "liste_attente",
+                is_waitlist: true,
+                paiement_trace_id: trace_id,
+              },
+            ])
+            .select()
+            .single();
+
+          if (insertErr || !inserted) {
+            console.error("❌ Erreur insertion waitlist :", insertErr);
+            alert("Erreur lors de l'enregistrement en liste d'attente.");
+            setSubmitting(false);
+            return;
+          }
+
+          // On persiste quand même les options en pending (elles pourront être reprises à l’acceptation)
+          if (persistOptionsFnRef.current) {
+            await persistOptionsFnRef.current(inserted.id);
+          }
+
+          setWaitlistCreated({ id: inserted.id, email: payerEmail });
+          setSubmitting(false);
+          return;
+        }
+
+        // Si complet et pas de waitlist
+        if (isFormatFull && !selectedFormat?.waitlist_enabled) {
+          alert(`Le format ${selectedFormat?.nom || ""} est complet.`);
           setSubmitting(false);
           return;
         }
 
         const trace_id = uuidv4();
 
-        // Inscription “en attente”
+        // Inscription “en attente” (paiement)
         const { data: inserted, error: insertErr } = await supabase
           .from("inscriptions")
           .insert([
@@ -686,13 +732,6 @@ export default function InscriptionCourse() {
           await persistOptionsFnRef.current(inserted.id);
         }
 
-        const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
-        if (!payerEmail) {
-          alert("Veuillez renseigner un email.");
-          setSubmitting(false);
-          return;
-        }
-
         const { data, error: fnError } = await supabase.functions.invoke("create-checkout-session", {
           body: {
             user_id: user.id,
@@ -717,6 +756,16 @@ export default function InscriptionCourse() {
       }
 
       // ===== GROUPE / RELAIS =====
+      // (inchangé : paiement direct via edge function)
+      const full = isFormatFull;
+
+      // si complet et pas de waitlist : blocage (pour éviter surcapacité côté client)
+      if (full && !selectedFormat?.waitlist_enabled) {
+        alert(`Le format ${selectedFormat?.nom || ""} est complet.`);
+        setSubmitting(false);
+        return;
+      }
+
       for (const [idx, team] of teams.entries()) {
         if (!team.team_name || !team.team_size) {
           alert(`Équipe #${idx + 1} : nom et taille requis.`);
@@ -756,13 +805,6 @@ export default function InscriptionCourse() {
             return;
           }
         }
-      }
-
-      const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
-      if (!payerEmail) {
-        alert("Veuillez renseigner un email.");
-        setSubmitting(false);
-        return;
       }
 
       const teamsForPayload = teams.map((t) => ({
@@ -810,7 +852,7 @@ export default function InscriptionCourse() {
 
       window.location.href = data.url;
     } finally {
-      // submitting reste true jusqu'à la redirection
+      // submitting reste true jusqu'à la redirection (ou reset en cas de waitlist/erreur)
     }
   }
 
@@ -844,6 +886,8 @@ export default function InscriptionCourse() {
 
   const basePriceIndivEUR = selectedFormat ? Number(selectedFormat.prix || 0) : 0;
 
+  const indivWaitlistMode = mode === "individuel" && !!selectedFormat?.waitlist_enabled && isFormatFull;
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -868,6 +912,35 @@ export default function InscriptionCourse() {
         </div>
       </div>
 
+      {/* ✅ Confirmation liste d’attente */}
+      {waitlistCreated && (
+        <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
+          <div className="font-semibold text-emerald-900">✅ Inscription enregistrée en liste d’attente</div>
+          <div className="mt-1 text-sm text-emerald-900/80">
+            Tu seras contacté(e) à <b>{waitlistCreated.email}</b> si une place se libère.
+          </div>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => navigate(`/courses/${courseId}`)}
+              className="rounded-xl bg-emerald-700 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+            >
+              Retour à la course
+            </button>
+            <button
+              type="button"
+              onClick={() => setWaitlistCreated(null)}
+              className="rounded-xl border border-emerald-200 bg-white px-4 py-2 text-sm font-semibold text-emerald-900 hover:bg-emerald-100/40"
+            >
+              Nouvelle inscription
+            </button>
+          </div>
+          <div className="mt-3 text-xs text-emerald-900/70">
+            (Aucun paiement n’a été demandé : la place devra être acceptée avant de payer.)
+          </div>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Formulaire */}
         <div className="lg:col-span-2 space-y-6">
@@ -884,6 +957,10 @@ export default function InscriptionCourse() {
                 value={inscription.format_id}
                 onChange={(e) => {
                   setField("format_id", e.target.value);
+
+                  // reset waitlist success banner
+                  setWaitlistCreated(null);
+
                   const f = formats.find((ff) => ff.id === e.target.value);
                   const newMode = f?.type_format || "individuel";
                   setMode(newMode);
@@ -904,7 +981,8 @@ export default function InscriptionCourse() {
               >
                 <option value="">-- Sélectionnez un format --</option>
                 {formats.map((f) => {
-                  const full = Number(f.inscrits) >= Number(f.nb_max_coureurs || 0);
+                  const max = Number(f.nb_max_coureurs || 0);
+                  const full = max ? Number(f.inscrits) >= max : false;
                   return (
                     <option key={f.id} value={f.id} disabled={full && !f.waitlist_enabled}>
                       {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+{" "}
@@ -933,9 +1011,7 @@ export default function InscriptionCourse() {
                     <button
                       type="button"
                       onClick={() => setMode("individuel")}
-                      className={`px-3 py-1.5 rounded-xl border text-sm ${
-                        mode === "individuel" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
-                      }`}
+                      className={`px-3 py-1.5 rounded-xl border text-sm ${mode === "individuel" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
                     >
                       Individuel
                     </button>
@@ -943,9 +1019,7 @@ export default function InscriptionCourse() {
                       <button
                         type="button"
                         onClick={() => setMode("groupe")}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${
-                          mode === "groupe" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
-                        }`}
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${mode === "groupe" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
                       >
                         Groupe
                       </button>
@@ -954,9 +1028,7 @@ export default function InscriptionCourse() {
                       <button
                         type="button"
                         onClick={() => setMode("relais")}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${
-                          mode === "relais" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
-                        }`}
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${mode === "relais" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
                       >
                         Relais
                       </button>
@@ -973,9 +1045,7 @@ export default function InscriptionCourse() {
               <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold">{mode === "groupe" ? "Équipe" : "Équipes relais"}</h2>
-                  <p className="text-sm text-neutral-500">
-                    Renseigne le nom de l’équipe, la taille, puis chaque coureur (avec justificatif si obligatoire).
-                  </p>
+                  <p className="text-sm text-neutral-500">Renseigne le nom de l’équipe, la taille, puis chaque coureur (avec justificatif si obligatoire).</p>
                 </div>
                 <div className="flex gap-2">
                   {mode !== "groupe" && (
@@ -1039,13 +1109,9 @@ export default function InscriptionCourse() {
                             </span>
                           )}
                           {isTeamComplete(team) ? (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                              complète
-                            </span>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">complète</span>
                           ) : (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                              incomplète
-                            </span>
+                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">incomplète</span>
                           )}
                         </div>
                         {teams.length > 1 && (
@@ -1095,13 +1161,9 @@ export default function InscriptionCourse() {
                                 <div className="font-semibold text-neutral-900">Coureur {mIdx + 1}</div>
                                 <div className="flex items-center gap-2">
                                   {okBase && okJustif ? (
-                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                                      ok
-                                    </span>
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">ok</span>
                                   ) : (
-                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                                      à compléter
-                                    </span>
+                                    <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">à compléter</span>
                                   )}
                                 </div>
                               </div>
@@ -1148,18 +1210,13 @@ export default function InscriptionCourse() {
                                   <div className="flex items-start justify-between gap-3">
                                     <div>
                                       <div className="text-sm font-semibold text-neutral-900">Justificatif</div>
-                                      <div className="text-xs text-neutral-600">
-                                        {justifPolicy.is_required ? "Obligatoire" : "Optionnel"}
-                                      </div>
+                                      <div className="text-xs text-neutral-600">{justifPolicy.is_required ? "Obligatoire" : "Optionnel"}</div>
                                     </div>
 
                                     {allowedTypeLabels.length > 0 && (
                                       <div className="flex flex-wrap justify-end gap-1">
                                         {allowedTypeLabels.slice(0, 6).map((t) => (
-                                          <span
-                                            key={t.code}
-                                            className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200"
-                                          >
+                                          <span key={t.code} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
                                             {t.label}
                                           </span>
                                         ))}
@@ -1185,9 +1242,7 @@ export default function InscriptionCourse() {
                                     </div>
                                   )}
 
-                                  <div className="mt-2 text-xs text-neutral-500">
-                                    (Upload par coureur en équipe : on pourra l’ajouter ensuite si besoin.)
-                                  </div>
+                                  <div className="mt-2 text-xs text-neutral-500">(Upload par coureur en équipe : on pourra l’ajouter ensuite si besoin.)</div>
                                 </div>
                               </div>
                             </div>
@@ -1195,9 +1250,7 @@ export default function InscriptionCourse() {
                         })}
 
                         {team.team_size === 0 && (
-                          <div className="text-sm text-neutral-500">
-                            Indique une taille d’équipe pour générer les coureurs.
-                          </div>
+                          <div className="text-sm text-neutral-500">Indique une taille d’équipe pour générer les coureurs.</div>
                         )}
                       </div>
                     </div>
@@ -1338,7 +1391,9 @@ export default function InscriptionCourse() {
           <div className="rounded-2xl border border-neutral-200 bg-white shadow-sm sticky top-6">
             <div className="p-5 border-b border-neutral-100">
               <h3 className="text-lg font-semibold">Résumé</h3>
-              <p className="text-sm text-neutral-500">Vérifie les informations puis procède au paiement.</p>
+              <p className="text-sm text-neutral-500">
+                {indivWaitlistMode ? "Format complet : inscription en liste d’attente (sans paiement)." : "Vérifie les informations puis procède au paiement."}
+              </p>
             </div>
 
             <div className="p-5 space-y-3 text-sm">
@@ -1377,12 +1432,12 @@ export default function InscriptionCourse() {
               {mode === "individuel" ? (
                 <>
                   <div className="flex justify-between">
-                    <span className="text-neutral-600">Inscription</span>
+                    <span className="text-neutral-600">{indivWaitlistMode ? "Montant (estimation)" : "Inscription"}</span>
                     <span className="font-medium">{selectedFormat ? Number(selectedFormat.prix || 0).toFixed(2) : "0.00"} €</span>
                   </div>
                   {totalOptionsCents > 0 && (
                     <div className="flex justify-between">
-                      <span className="text-neutral-600">Options payantes</span>
+                      <span className="text-neutral-600">{indivWaitlistMode ? "Options (estimation)" : "Options payantes"}</span>
                       <span className="font-medium">{(totalOptionsCents / 100).toFixed(2)} €</span>
                     </div>
                   )}
@@ -1391,7 +1446,9 @@ export default function InscriptionCourse() {
                 <>
                   {teams.map((t, i) => (
                     <div key={i} className="flex justify-between">
-                      <span className="text-neutral-600">{t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.</span>
+                      <span className="text-neutral-600">
+                        {t.team_name || `Équipe ${i + 1}`} — {t.team_size} pers.
+                      </span>
                       <span className="font-medium">
                         ~{(Number(selectedFormat?.prix || 0) * (t.team_size || 0) + (Number(selectedFormat?.prix_equipe || 0) || 0)).toFixed(2)} €
                       </span>
@@ -1414,7 +1471,7 @@ export default function InscriptionCourse() {
               <div className="h-px bg-neutral-200 my-2" />
 
               <div className="flex justify-between text-base">
-                <span className="font-semibold">Total</span>
+                <span className="font-semibold">{indivWaitlistMode ? "Estimation" : "Total"}</span>
                 <span className="font-bold">
                   {mode === "individuel"
                     ? (basePriceIndivEUR + totalOptionsCents / 100).toFixed(2)
@@ -1422,6 +1479,12 @@ export default function InscriptionCourse() {
                   €
                 </span>
               </div>
+
+              {indivWaitlistMode && (
+                <div className="text-xs text-amber-800">
+                  Paiement non demandé maintenant : il sera proposé uniquement si l’organisateur accepte une place.
+                </div>
+              )}
             </div>
 
             <div className="p-5">
@@ -1432,21 +1495,24 @@ export default function InscriptionCourse() {
                   submitting ||
                   !inscription.format_id ||
                   !registrationWindow.isOpen ||
-                  (mode === "individuel" &&
-                    selectedFormat &&
-                    !selectedFormat.waitlist_enabled &&
-                    Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0))
+                  (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && isFormatFull)
                 }
                 className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition
                   ${submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"}`}
               >
-                {submitting ? "Redirection vers Stripe…" : mode === "individuel" ? "Confirmer et payer" : "Payer les équipes"}
+                {submitting
+                  ? "Traitement…"
+                  : indivWaitlistMode
+                  ? "S’inscrire en liste d’attente"
+                  : mode === "individuel"
+                  ? "Confirmer et payer"
+                  : "Payer les équipes"}
               </button>
 
-              {selectedFormat && Number(selectedFormat.inscrits) >= Number(selectedFormat.nb_max_coureurs || 0) && (
+              {selectedFormat && isFormatFull && (
                 <p className="text-xs text-amber-700 mt-2">
                   {selectedFormat.waitlist_enabled
-                    ? "Capacité atteinte : vous serez placé(e) en liste d’attente si l’organisateur l’autorise."
+                    ? "Capacité atteinte : en individuel, vous pouvez vous inscrire en liste d’attente."
                     : "Ce format est complet."}
                 </p>
               )}
