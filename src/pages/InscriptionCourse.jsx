@@ -1,9 +1,11 @@
-// src/pages/InscriptionCourse.jsx
+
+
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
-import JustificatifFfaPps from "../components/JustificatifFfaPps";
+import JustificatifInscriptionBlock from "../components/inscription/JustificatifInscriptionBlock";
+
 
 /* ---------------- Options payantes ---------------- */
 function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, registerGetSelected }) {
@@ -245,18 +247,16 @@ export default function InscriptionCourse() {
 
   // Équipes
   const emptyMember = () => ({
-    nom: "",
-    prenom: "",
-    genre: "", // "Homme" | "Femme"
-    date_naissance: "", // YYYY-MM-DD
-    email: "", // optionnel
-
-    // ✅ justificatifs par membre (comme individuel)
-    numero_licence: "",
-    pps_identifier: "",
-    justificatif_url: "", // (prévu, pas d’UI upload en équipe pour l’instant)
-  });
-
+  nom: "",
+  prenom: "",
+  genre: "",
+  date_naissance: "",
+  email: "",
+  justificatif_type: "",     // ✅ ajouté
+  numero_licence: "",
+  pps_identifier: "",
+  justificatif_url: "",
+});
   const defaultTeam = (name = "", size = 0) => ({
     team_name: name,
     team_size: size,
@@ -319,11 +319,26 @@ export default function InscriptionCourse() {
   }
 
   const hasJustificatif = (obj) => {
-    const hasLicence = !!String(obj?.numero_licence || "").trim();
-    const hasPps = !!String(obj?.pps_identifier || "").trim();
-    const hasUpload = !!String(obj?.justificatif_url || "").trim();
-    return hasLicence || hasPps || (justifPolicy?.allow_medical_upload && hasUpload);
-  };
+  const type = String(obj?.justificatif_type || "").trim();
+
+  // si la course impose une liste de types => il faut choisir un type
+  const allowed = Array.isArray(justifPolicy?.allowed_types) ? justifPolicy.allowed_types.map(String) : [];
+  if (justifPolicy?.is_required && allowed.length > 0) {
+    if (!type) return false;
+    if (!allowed.includes(type)) return false;
+  }
+
+  const hasLicence = !!String(obj?.numero_licence || "").trim();
+  const hasPps = !!String(obj?.pps_identifier || "").trim();
+  const hasUpload = !!String(obj?.justificatif_url || "").trim();
+
+  // upload uniquement si autorisé
+  if (justifPolicy?.allow_medical_upload) {
+    return hasLicence || hasPps || hasUpload;
+  }
+  return hasLicence || hasPps;
+};
+
 
   useEffect(() => {
     let mounted = true;
@@ -1229,18 +1244,26 @@ export default function InscriptionCourse() {
                                     )}
                                   </div>
 
-                                  {showFfaPps && (
-                                    <div className="mt-3">
-                                      <JustificatifFfaPps
-                                        licenceFfa={m.numero_licence || ""}
-                                        ppsCode={m.pps_identifier || ""}
-                                        onChange={({ licenceFfa, ppsCode }) => {
-                                          setMemberAt(tIdx, mIdx, "numero_licence", licenceFfa);
-                                          setMemberAt(tIdx, mIdx, "pps_identifier", ppsCode);
-                                        }}
-                                      />
-                                    </div>
-                                  )}
+                                 <JustificatifInscriptionBlock
+  policy={justifPolicy}
+  types={justifTypes}
+  value={m}
+  onPatch={(p) => {
+    // patch atomique du membre
+    setTeams((prev) => {
+      const copy = [...prev];
+      const team = { ...copy[tIdx] };
+      const members = [...team.members];
+      members[mIdx] = { ...members[mIdx], ...p };
+      team.members = members;
+      copy[tIdx] = team;
+      return copy;
+    });
+  }}
+  // upload équipe désactivé pour l’instant
+  disableUpload={true}
+  title="Justificatif"
+/>
 
                                   <div className="mt-2 text-xs text-neutral-500">(Upload par coureur en équipe : on pourra l’ajouter ensuite si besoin.)</div>
                                 </div>
@@ -1302,78 +1325,18 @@ export default function InscriptionCourse() {
 
                 {/* ✅ Justificatifs (policy globale) */}
                 <div className="pt-4 border-t border-neutral-200">
-                  <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-                    <div className="flex items-start justify-between gap-3">
-                      <div>
-                        <div className="text-sm font-semibold text-neutral-900">Justificatifs</div>
-                        <div className="text-xs text-neutral-600">
-                          {justifPolicy.is_required ? "Obligatoire" : "Optionnel"}
-                          {justifPolicy.allow_medical_upload ? " · Upload autorisé" : " · Upload désactivé"}
-                        </div>
-                      </div>
-                      {allowedTypeLabels.length > 0 && (
-                        <div className="flex flex-wrap justify-end gap-1">
-                          {allowedTypeLabels.slice(0, 6).map((t) => (
-                            <span key={t.code} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
-                              {t.label}
-                            </span>
-                          ))}
-                          {allowedTypeLabels.length > 6 && (
-                            <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
-                              +{allowedTypeLabels.length - 6}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
+  <JustificatifInscriptionBlock
+    policy={justifPolicy}
+    types={justifTypes}
+    value={inscription}
+    onPatch={(p) => setInscription((prev) => ({ ...prev, ...p }))}
+    onUploadFile={justifPolicy.allow_medical_upload ? handleUploadJustificatif : undefined}
+    uploading={justifUploading}
+    disableUpload={!justifPolicy.allow_medical_upload}
+    title="Justificatifs"
+  />
+</div>
 
-                    {justifPolicy.notes ? <div className="mt-2 text-xs text-neutral-700 whitespace-pre-wrap">{justifPolicy.notes}</div> : null}
-
-                    {/* FFA/PPS */}
-                    {showFfaPps && (
-                      <div className="mt-3">
-                        <JustificatifFfaPps
-                          key={inscription.coureur_id || "no-user"}
-                          licenceFfa={inscription.numero_licence || ""}
-                          ppsCode={inscription.pps_identifier || ""}
-                          onChange={({ licenceFfa, ppsCode }) => {
-                            setField("numero_licence", licenceFfa);
-                            setField("pps_identifier", ppsCode);
-                          }}
-                        />
-                      </div>
-                    )}
-
-                    {/* Upload (si autorisé) */}
-                    {justifPolicy.allow_medical_upload && (
-                      <div className="mt-4">
-                        <div className="text-sm font-medium text-neutral-800">Importer un justificatif (photo/PDF)</div>
-                        <div className="mt-2 flex items-center gap-3">
-                          <input
-                            type="file"
-                            accept="image/*,application/pdf"
-                            onChange={(e) => handleUploadJustificatif(e.target.files?.[0])}
-                            className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
-                            disabled={justifUploading}
-                          />
-                        </div>
-                        {inscription.justificatif_url ? (
-                          <div className="mt-2 text-xs text-neutral-700 break-all">
-                            Fichier importé :{" "}
-                            <a className="underline" href={inscription.justificatif_url} target="_blank" rel="noreferrer">
-                              {inscription.justificatif_url}
-                            </a>
-                          </div>
-                        ) : (
-                          <div className="mt-1 text-xs text-neutral-500">Formats acceptés : image ou PDF.</div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </section>
-          )}
 
           {/* Options payantes (en bas) */}
           {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
