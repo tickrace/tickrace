@@ -1,11 +1,9 @@
-
-
+// src/pages/InscriptionCourse.jsx
 import React, { useEffect, useMemo, useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 import JustificatifInscriptionBlock from "../components/inscription/JustificatifInscriptionBlock";
-
 
 /* ---------------- Options payantes ---------------- */
 function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, registerGetSelected }) {
@@ -74,11 +72,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
   // Persistance dans inscriptions_options (pending) après création d’inscription
   async function persist(inscriptionId) {
     if (!supported || !inscriptionId) return;
-    await supabase
-      .from("inscriptions_options")
-      .delete()
-      .eq("inscription_id", inscriptionId)
-      .eq("status", "pending");
+    await supabase.from("inscriptions_options").delete().eq("inscription_id", inscriptionId).eq("status", "pending");
 
     const rows = [];
     for (const o of options) {
@@ -247,16 +241,17 @@ export default function InscriptionCourse() {
 
   // Équipes
   const emptyMember = () => ({
-  nom: "",
-  prenom: "",
-  genre: "",
-  date_naissance: "",
-  email: "",
-  justificatif_type: "",     // ✅ ajouté
-  numero_licence: "",
-  pps_identifier: "",
-  justificatif_url: "",
-});
+    nom: "",
+    prenom: "",
+    genre: "",
+    date_naissance: "",
+    email: "",
+    justificatif_type: "",
+    numero_licence: "",
+    pps_identifier: "",
+    justificatif_url: "",
+  });
+
   const defaultTeam = (name = "", size = 0) => ({
     team_name: name,
     team_size: size,
@@ -308,7 +303,7 @@ export default function InscriptionCourse() {
       justificatif_type: "",
       numero_licence: "",
       pps_identifier: "",
-      justificatif_url: "", // ✅ upload “médical/photo/pdf” si autorisé
+      justificatif_url: "",
       contact_urgence_nom: "",
       contact_urgence_telephone: "",
     };
@@ -319,26 +314,21 @@ export default function InscriptionCourse() {
   }
 
   const hasJustificatif = (obj) => {
-  const type = String(obj?.justificatif_type || "").trim();
+    const type = String(obj?.justificatif_type || "").trim();
 
-  // si la course impose une liste de types => il faut choisir un type
-  const allowed = Array.isArray(justifPolicy?.allowed_types) ? justifPolicy.allowed_types.map(String) : [];
-  if (justifPolicy?.is_required && allowed.length > 0) {
-    if (!type) return false;
-    if (!allowed.includes(type)) return false;
-  }
+    const allowed = Array.isArray(justifPolicy?.allowed_types) ? justifPolicy.allowed_types.map(String) : [];
+    if (justifPolicy?.is_required && allowed.length > 0) {
+      if (!type) return false;
+      if (!allowed.includes(type)) return false;
+    }
 
-  const hasLicence = !!String(obj?.numero_licence || "").trim();
-  const hasPps = !!String(obj?.pps_identifier || "").trim();
-  const hasUpload = !!String(obj?.justificatif_url || "").trim();
+    const hasLicence = !!String(obj?.numero_licence || "").trim();
+    const hasPps = !!String(obj?.pps_identifier || "").trim();
+    const hasUpload = !!String(obj?.justificatif_url || "").trim();
 
-  // upload uniquement si autorisé
-  if (justifPolicy?.allow_medical_upload) {
-    return hasLicence || hasPps || hasUpload;
-  }
-  return hasLicence || hasPps;
-};
-
+    if (justifPolicy?.allow_medical_upload) return hasLicence || hasPps || hasUpload;
+    return hasLicence || hasPps;
+  };
 
   useEffect(() => {
     let mounted = true;
@@ -418,11 +408,7 @@ export default function InscriptionCourse() {
       const session = await supabase.auth.getSession();
       const user = session.data?.session?.user;
       if (user) {
-        const { data: profil } = await supabase
-          .from("profils_utilisateurs")
-          .select("*")
-          .eq("user_id", user.id)
-          .maybeSingle();
+        const { data: profil } = await supabase.from("profils_utilisateurs").select("*").eq("user_id", user.id).maybeSingle();
 
         if (profil) {
           setInscription((prev) => ({
@@ -444,6 +430,7 @@ export default function InscriptionCourse() {
             justificatif_type: profil.justificatif_type ?? "",
             numero_licence: profil.numero_licence ?? "",
             pps_identifier: profil.pps_identifier ?? "",
+            justificatif_url: profil.justificatif_url ?? "",
             contact_urgence_nom: profil.contact_urgence_nom ?? "",
             contact_urgence_telephone: profil.contact_urgence_telephone ?? "",
             coureur_id: user.id,
@@ -568,20 +555,6 @@ export default function InscriptionCourse() {
     return age;
   }
 
-  // ✅ UI : libellés des types autorisés
-  const allowedTypeLabels = useMemo(() => {
-    const map = new Map((justifTypes || []).map((t) => [t.code, t.label]));
-    const codes = Array.isArray(justifPolicy.allowed_types) ? justifPolicy.allowed_types : [];
-    return codes.map((c) => ({ code: c, label: map.get(c) || c }));
-  }, [justifTypes, justifPolicy.allowed_types]);
-
-  // ✅ heuristique : afficher le composant FFA/PPS si les types incluent pps/ffa, ou si aucun type n’est configuré
-  const showFfaPps = useMemo(() => {
-    const codes = Array.isArray(justifPolicy.allowed_types) ? justifPolicy.allowed_types : [];
-    if (codes.length === 0) return true;
-    return codes.some((c) => /pps|ffa/i.test(String(c)));
-  }, [justifPolicy.allowed_types]);
-
   // ✅ Upload justificatif (photo/pdf) — stockage (INDIVIDUEL)
   async function handleUploadJustificatif(file) {
     if (!file) return;
@@ -595,7 +568,9 @@ export default function InscriptionCourse() {
       }
 
       const bucket = "ppsjustificatifs";
-      const safeName = String(file.name || "justificatif").replace(/[^a-zA-Z0-9._-]/g, "_").slice(0, 80);
+      const safeName = String(file.name || "justificatif")
+        .replace(/[^a-zA-Z0-9._-]/g, "_")
+        .slice(0, 80);
 
       const path = `justif/${courseId}/${user.id}/${Date.now()}-${safeName}`;
 
@@ -660,7 +635,7 @@ export default function InscriptionCourse() {
       // ✅ Contrôle justificatifs (individuel) selon policy globale
       if (mode === "individuel" && justifPolicy?.is_required) {
         if (!hasJustificatif(inscription)) {
-          alert("Justificatif obligatoire : renseigne un N° licence/PPS ou importe un justificatif.");
+          alert("Justificatif obligatoire : choisis un type + renseigne un N° licence/PPS ou importe un justificatif.");
           setSubmitting(false);
           return;
         }
@@ -771,10 +746,8 @@ export default function InscriptionCourse() {
       }
 
       // ===== GROUPE / RELAIS =====
-      // (inchangé : paiement direct via edge function)
       const full = isFormatFull;
 
-      // si complet et pas de waitlist : blocage (pour éviter surcapacité côté client)
       if (full && !selectedFormat?.waitlist_enabled) {
         alert(`Le format ${selectedFormat?.nom || ""} est complet.`);
         setSubmitting(false);
@@ -803,7 +776,7 @@ export default function InscriptionCourse() {
         if (bad) {
           alert(
             `Équipe #${idx + 1} : chaque coureur doit avoir nom, prénom, sexe, date de naissance` +
-              (justifPolicy?.is_required ? " et un justificatif (PPS / licence)." : ".")
+              (justifPolicy?.is_required ? " et un justificatif conforme." : ".")
           );
           setSubmitting(false);
           return;
@@ -829,7 +802,6 @@ export default function InscriptionCourse() {
         members: t.members,
       }));
 
-      // Options sélectionnées (groupe/relais)
       const selected_options = getSelectedOptionsRef.current ? getSelectedOptionsRef.current() : [];
 
       let body = {
@@ -900,7 +872,6 @@ export default function InscriptionCourse() {
     : null;
 
   const basePriceIndivEUR = selectedFormat ? Number(selectedFormat.prix || 0) : 0;
-
   const indivWaitlistMode = mode === "individuel" && !!selectedFormat?.waitlist_enabled && isFormatFull;
 
   return (
@@ -950,9 +921,7 @@ export default function InscriptionCourse() {
               Nouvelle inscription
             </button>
           </div>
-          <div className="mt-3 text-xs text-emerald-900/70">
-            (Aucun paiement n’a été demandé : la place devra être acceptée avant de payer.)
-          </div>
+          <div className="mt-3 text-xs text-emerald-900/70">(Aucun paiement n’a été demandé : la place devra être acceptée avant de payer.)</div>
         </div>
       )}
 
@@ -972,15 +941,12 @@ export default function InscriptionCourse() {
                 value={inscription.format_id}
                 onChange={(e) => {
                   setField("format_id", e.target.value);
-
-                  // reset waitlist success banner
                   setWaitlistCreated(null);
 
                   const f = formats.find((ff) => ff.id === e.target.value);
                   const newMode = f?.type_format || "individuel";
                   setMode(newMode);
 
-                  // Init équipes
                   if (newMode === "individuel") {
                     setTeams([defaultTeam("Équipe 1", 0)]);
                   } else {
@@ -988,7 +954,6 @@ export default function InscriptionCourse() {
                     setTeams([defaultTeam("Équipe 1", def)]);
                   }
 
-                  // Reset des options payantes au changement de format
                   setTotalOptionsCents(0);
                 }}
                 className="w-full rounded-xl border border-neutral-300 px-3 py-2 outline-none focus:ring-2 focus:ring-black"
@@ -1000,8 +965,7 @@ export default function InscriptionCourse() {
                   const full = max ? Number(f.inscrits) >= max : false;
                   return (
                     <option key={f.id} value={f.id} disabled={full && !f.waitlist_enabled}>
-                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+{" "}
-                      {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
+                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+ {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
                     </option>
                   );
                 })}
@@ -1018,7 +982,7 @@ export default function InscriptionCourse() {
                 </div>
               )}
 
-              {/* Sélecteur de mode (si format le permet) */}
+              {/* Sélecteur de mode */}
               {selectedFormat && selectedFormat.type_format !== "individuel" && (
                 <div className="mt-3">
                   <div className="text-sm font-medium mb-1">Type d’inscription</div>
@@ -1026,7 +990,9 @@ export default function InscriptionCourse() {
                     <button
                       type="button"
                       onClick={() => setMode("individuel")}
-                      className={`px-3 py-1.5 rounded-xl border text-sm ${mode === "individuel" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
+                      className={`px-3 py-1.5 rounded-xl border text-sm ${
+                        mode === "individuel" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
+                      }`}
                     >
                       Individuel
                     </button>
@@ -1034,7 +1000,9 @@ export default function InscriptionCourse() {
                       <button
                         type="button"
                         onClick={() => setMode("groupe")}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${mode === "groupe" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${
+                          mode === "groupe" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
+                        }`}
                       >
                         Groupe
                       </button>
@@ -1043,7 +1011,9 @@ export default function InscriptionCourse() {
                       <button
                         type="button"
                         onClick={() => setMode("relais")}
-                        className={`px-3 py-1.5 rounded-xl border text-sm ${mode === "relais" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"}`}
+                        className={`px-3 py-1.5 rounded-xl border text-sm ${
+                          mode === "relais" ? "bg-black text-white border-black" : "bg-white hover:bg-neutral-50"
+                        }`}
                       >
                         Relais
                       </button>
@@ -1054,13 +1024,15 @@ export default function InscriptionCourse() {
             </div>
           </section>
 
-          {/* Équipes (groupe/relais) — présentation "comme individuel" */}
+          {/* Équipes (groupe/relais) */}
           {selectedFormat && mode !== "individuel" && (
             <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
               <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold">{mode === "groupe" ? "Équipe" : "Équipes relais"}</h2>
-                  <p className="text-sm text-neutral-500">Renseigne le nom de l’équipe, la taille, puis chaque coureur (avec justificatif si obligatoire).</p>
+                  <p className="text-sm text-neutral-500">
+                    Renseigne le nom de l’équipe, la taille, puis chaque coureur (avec justificatif si obligatoire).
+                  </p>
                 </div>
                 <div className="flex gap-2">
                   {mode !== "groupe" && (
@@ -1164,7 +1136,7 @@ export default function InscriptionCourse() {
                         </div>
                       </div>
 
-                      {/* Coureurs (comme individuel) */}
+                      {/* Coureurs */}
                       <div className="space-y-4">
                         {(team.members || []).map((m, mIdx) => {
                           const okBase = m.nom?.trim() && m.prenom?.trim() && m.genre && m.date_naissance;
@@ -1219,62 +1191,36 @@ export default function InscriptionCourse() {
                                 />
                               </div>
 
-                              {/* Justificatifs par coureur */}
+                              {/* Justificatif par coureur */}
                               <div className="mt-4 pt-4 border-t border-neutral-200">
                                 <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
-                                  <div className="flex items-start justify-between gap-3">
-                                    <div>
-                                      <div className="text-sm font-semibold text-neutral-900">Justificatif</div>
-                                      <div className="text-xs text-neutral-600">{justifPolicy.is_required ? "Obligatoire" : "Optionnel"}</div>
-                                    </div>
-
-                                    {allowedTypeLabels.length > 0 && (
-                                      <div className="flex flex-wrap justify-end gap-1">
-                                        {allowedTypeLabels.slice(0, 6).map((t) => (
-                                          <span key={t.code} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
-                                            {t.label}
-                                          </span>
-                                        ))}
-                                        {allowedTypeLabels.length > 6 && (
-                                          <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
-                                            +{allowedTypeLabels.length - 6}
-                                          </span>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-
-                                 <JustificatifInscriptionBlock
-  policy={justifPolicy}
-  types={justifTypes}
-  value={m}
-  onPatch={(p) => {
-    // patch atomique du membre
-    setTeams((prev) => {
-      const copy = [...prev];
-      const team = { ...copy[tIdx] };
-      const members = [...team.members];
-      members[mIdx] = { ...members[mIdx], ...p };
-      team.members = members;
-      copy[tIdx] = team;
-      return copy;
-    });
-  }}
-  // upload équipe désactivé pour l’instant
-  disableUpload={true}
-  title="Justificatif"
-/>
-
-                                  <div className="mt-2 text-xs text-neutral-500">(Upload par coureur en équipe : on pourra l’ajouter ensuite si besoin.)</div>
+                                  <JustificatifInscriptionBlock
+                                    policy={justifPolicy}
+                                    types={justifTypes}
+                                    value={m}
+                                    onPatch={(p) => {
+                                      setTeams((prev) => {
+                                        const copy = [...prev];
+                                        const team2 = { ...copy[tIdx] };
+                                        const members2 = [...team2.members];
+                                        members2[mIdx] = { ...members2[mIdx], ...p };
+                                        team2.members = members2;
+                                        copy[tIdx] = team2;
+                                        return copy;
+                                      });
+                                    }}
+                                    // upload équipe désactivé
+                                    disableUpload={true}
+                                    title="Justificatif"
+                                  />
+                                  <div className="mt-2 text-xs text-neutral-500">(Upload en équipe désactivé pour l’instant.)</div>
                                 </div>
                               </div>
                             </div>
                           );
                         })}
 
-                        {team.team_size === 0 && (
-                          <div className="text-sm text-neutral-500">Indique une taille d’équipe pour générer les coureurs.</div>
-                        )}
+                        {team.team_size === 0 && <div className="text-sm text-neutral-500">Indique une taille d’équipe pour générer les coureurs.</div>}
                       </div>
                     </div>
                   ))}
@@ -1288,36 +1234,124 @@ export default function InscriptionCourse() {
               <div className="p-5 border-b border-neutral-100">
                 <h2 className="text-lg font-semibold">Informations coureur</h2>
               </div>
+
               <div className="p-5 space-y-4">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nom" placeholder="Nom" value={inscription.nom} onChange={(e) => setField("nom", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="prenom" placeholder="Prénom" value={inscription.prenom} onChange={(e) => setField("prenom", e.target.value)} />
-                  <select className="rounded-xl border border-neutral-300 px-3 py-2" name="genre" value={inscription.genre} onChange={(e) => setField("genre", e.target.value)}>
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="nom"
+                    placeholder="Nom"
+                    value={inscription.nom}
+                    onChange={(e) => setField("nom", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="prenom"
+                    placeholder="Prénom"
+                    value={inscription.prenom}
+                    onChange={(e) => setField("prenom", e.target.value)}
+                  />
+                  <select
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="genre"
+                    value={inscription.genre}
+                    onChange={(e) => setField("genre", e.target.value)}
+                  >
                     <option value="">Genre</option>
                     <option value="Homme">Homme</option>
                     <option value="Femme">Femme</option>
                   </select>
-                  <input type="date" className="rounded-xl border border-neutral-300 px-3 py-2" name="date_naissance" value={inscription.date_naissance} onChange={(e) => setField("date_naissance", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="nationalite" placeholder="Nationalité" value={inscription.nationalite} onChange={(e) => setField("nationalite", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="email" placeholder="Email" value={inscription.email} onChange={(e) => setField("email", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="telephone" placeholder="Téléphone" value={inscription.telephone} onChange={(e) => setField("telephone", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2" name="adresse" placeholder="Adresse" value={inscription.adresse} onChange={(e) => setField("adresse", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="adresse_complement" placeholder="Complément adresse" value={inscription.adresse_complement} onChange={(e) => setField("adresse_complement", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="code_postal" placeholder="Code postal" value={inscription.code_postal} onChange={(e) => setField("code_postal", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="ville" placeholder="Ville" value={inscription.ville} onChange={(e) => setField("ville", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="pays" placeholder="Pays" value={inscription.pays} onChange={(e) => setField("pays", e.target.value)} />
-                  <input className="rounded-xl border border-neutral-300 px-3 py-2" name="club" placeholder="Club" value={inscription.club} onChange={(e) => setField("club", e.target.value)} />
+                  <input
+                    type="date"
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="date_naissance"
+                    value={inscription.date_naissance}
+                    onChange={(e) => setField("date_naissance", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="nationalite"
+                    placeholder="Nationalité"
+                    value={inscription.nationalite}
+                    onChange={(e) => setField("nationalite", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="email"
+                    placeholder="Email"
+                    value={inscription.email}
+                    onChange={(e) => setField("email", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="telephone"
+                    placeholder="Téléphone"
+                    value={inscription.telephone}
+                    onChange={(e) => setField("telephone", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2 md:col-span-2"
+                    name="adresse"
+                    placeholder="Adresse"
+                    value={inscription.adresse}
+                    onChange={(e) => setField("adresse", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="adresse_complement"
+                    placeholder="Complément adresse"
+                    value={inscription.adresse_complement}
+                    onChange={(e) => setField("adresse_complement", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="code_postal"
+                    placeholder="Code postal"
+                    value={inscription.code_postal}
+                    onChange={(e) => setField("code_postal", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="ville"
+                    placeholder="Ville"
+                    value={inscription.ville}
+                    onChange={(e) => setField("ville", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="pays"
+                    placeholder="Pays"
+                    value={inscription.pays}
+                    onChange={(e) => setField("pays", e.target.value)}
+                  />
+                  <input
+                    className="rounded-xl border border-neutral-300 px-3 py-2"
+                    name="club"
+                    placeholder="Club"
+                    value={inscription.club}
+                    onChange={(e) => setField("club", e.target.value)}
+                  />
                 </div>
 
                 <div className="space-y-2">
                   <p className="text-sm font-medium">Affichage des résultats</p>
                   <div className="flex gap-4 text-sm text-neutral-700">
                     <label className="inline-flex items-center gap-2">
-                      <input type="radio" name="apparaitre_resultats" checked={inscription.apparaitre_resultats === true} onChange={() => setField("apparaitre_resultats", true)} />
+                      <input
+                        type="radio"
+                        name="apparaitre_resultats"
+                        checked={inscription.apparaitre_resultats === true}
+                        onChange={() => setField("apparaitre_resultats", true)}
+                      />
                       Oui
                     </label>
                     <label className="inline-flex items-center gap-2">
-                      <input type="radio" name="apparaitre_resultats" checked={inscription.apparaitre_resultats === false} onChange={() => setField("apparaitre_resultats", false)} />
+                      <input
+                        type="radio"
+                        name="apparaitre_resultats"
+                        checked={inscription.apparaitre_resultats === false}
+                        onChange={() => setField("apparaitre_resultats", false)}
+                      />
                       Non
                     </label>
                   </div>
@@ -1325,18 +1359,20 @@ export default function InscriptionCourse() {
 
                 {/* ✅ Justificatifs (policy globale) */}
                 <div className="pt-4 border-t border-neutral-200">
-  <JustificatifInscriptionBlock
-    policy={justifPolicy}
-    types={justifTypes}
-    value={inscription}
-    onPatch={(p) => setInscription((prev) => ({ ...prev, ...p }))}
-    onUploadFile={justifPolicy.allow_medical_upload ? handleUploadJustificatif : undefined}
-    uploading={justifUploading}
-    disableUpload={!justifPolicy.allow_medical_upload}
-    title="Justificatifs"
-  />
-</div>
-
+                  <JustificatifInscriptionBlock
+                    policy={justifPolicy}
+                    types={justifTypes}
+                    value={inscription}
+                    onPatch={(p) => setInscription((prev) => ({ ...prev, ...p }))}
+                    onUploadFile={justifPolicy.allow_medical_upload ? handleUploadJustificatif : undefined}
+                    uploading={justifUploading}
+                    disableUpload={!justifPolicy.allow_medical_upload}
+                    title="Justificatifs"
+                  />
+                </div>
+              </div>
+            </section>
+          )}
 
           {/* Options payantes (en bas) */}
           {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
@@ -1380,12 +1416,30 @@ export default function InscriptionCourse() {
                     };
                     return (
                       <div className="space-y-1">
-                        <div className="flex justify-between"><span>Équipes</span><b>{totals.count}</b></div>
-                        <div className="flex justify-between"><span>Participants</span><b>{totals.participants}</b></div>
-                        <div className="flex justify-between"><span>Masculines</span><b>{totals.masculine}</b></div>
-                        <div className="flex justify-between"><span>Féminines</span><b>{totals.feminine}</b></div>
-                        <div className="flex justify-between"><span>Mixtes</span><b>{totals.mixte}</b></div>
-                        <div className="flex justify-between"><span>Équipes complètes</span><b>{totals.completes}</b></div>
+                        <div className="flex justify-between">
+                          <span>Équipes</span>
+                          <b>{totals.count}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Participants</span>
+                          <b>{totals.participants}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Masculines</span>
+                          <b>{totals.masculine}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Féminines</span>
+                          <b>{totals.feminine}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Mixtes</span>
+                          <b>{totals.mixte}</b>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Équipes complètes</span>
+                          <b>{totals.completes}</b>
+                        </div>
                       </div>
                     );
                   })()}
@@ -1460,8 +1514,9 @@ export default function InscriptionCourse() {
                   !registrationWindow.isOpen ||
                   (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && isFormatFull)
                 }
-                className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition
-                  ${submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"}`}
+                className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition ${
+                  submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"
+                }`}
               >
                 {submitting
                   ? "Traitement…"
