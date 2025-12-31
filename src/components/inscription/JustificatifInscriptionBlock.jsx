@@ -1,228 +1,156 @@
-import React, { useEffect, useMemo, useState } from "react";
-import { getAllowedCourseJustifs, getJustifMeta } from "../../lib/justificatifs";
-import { supabase } from "../../supabase";
+// src/components/inscription/JustificatifInscriptionBlock.jsx
+import React, { useMemo } from "react";
 
-const JUSTIF_BUCKET = "ppsjustificatifs"; // ✅ tu peux renommer plus tard si tu veux un bucket "justificatifs"
-
-const Field = ({ label, children, hint }) => (
-  <div className="space-y-1">
-    <div className="text-sm font-semibold text-neutral-800">{label}</div>
-    {children}
-    {hint ? <div className="text-xs text-neutral-500">{hint}</div> : null}
-  </div>
-);
-
-const Select = (props) => (
-  <select
-    {...props}
-    className={`w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-200 ${props.className || ""}`}
-  />
-);
-
-const Input = (props) => (
-  <input
-    {...props}
-    className={`w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-orange-200 ${props.className || ""}`}
-  />
-);
-
-function isMinor(dateNaissance) {
-  if (!dateNaissance) return false;
-  const d = new Date(dateNaissance);
-  if (Number.isNaN(d.getTime())) return false;
-  const now = new Date();
-  const age = now.getFullYear() - d.getFullYear() - (now < new Date(now.getFullYear(), d.getMonth(), d.getDate()) ? 1 : 0);
-  return age < 18;
-}
-
+/**
+ * Bloc d’UI pour la saisie justificatif côté inscription
+ *
+ * Props attendues :
+ * - policy: { is_required, allow_medical_upload, allowed_types[], notes }
+ * - allowedTypeLabels: [{code,label}] (optionnel)
+ * - showFfaPps: bool (optionnel) => sinon auto via allowed_types
+ * - value: { numero_licence, pps_identifier, justificatif_url }
+ * - onChange: (patch) => void
+ * - onUpload: (file) => Promise<void> | void
+ * - uploading: bool
+ * - title: string
+ */
 export default function JustificatifInscriptionBlock({
-  course,
-  form,
-  setForm,
-  dateNaissance, // string YYYY-MM-DD
-  onValidityChange,
+  policy,
+  allowedTypeLabels = [],
+  showFfaPps,
+  value,
+  onChange,
+  onUpload,
+  uploading = false,
+  title = "Justificatifs",
 }) {
-  const allowed = useMemo(() => getAllowedCourseJustifs(course), [course]);
-  const mustBlock = !!course?.justif_block_if_missing;
+  const p = policy || { is_required: false, allow_medical_upload: true, allowed_types: [], notes: "" };
+  const v = value || {};
 
-  const minor = useMemo(() => !!course?.parent_authorization_enabled && isMinor(dateNaissance), [course, dateNaissance]);
+  const allowedCodes = useMemo(() => (Array.isArray(p.allowed_types) ? p.allowed_types : []), [p.allowed_types]);
 
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const inferredShowFfaPps = useMemo(() => {
+    if (typeof showFfaPps === "boolean") return showFfaPps;
+    if (!allowedCodes || allowedCodes.length === 0) return true;
+    return allowedCodes.some((c) => /pps|ffa|licence/i.test(String(c)));
+  }, [showFfaPps, allowedCodes]);
 
-  const selectedMeta = useMemo(() => getJustifMeta(form?.justificatif_type || ""), [form?.justificatif_type]);
+  const hasLicence = !!String(v.numero_licence || "").trim();
+  const hasPps = !!String(v.pps_identifier || "").trim();
+  const hasUpload = !!String(v.justificatif_url || "").trim();
 
-  const canValidate = useMemo(() => {
-    // Si aucun type configuré -> rien à fournir
-    if (!allowed.length) return true;
+  const ok = useMemo(() => {
+    if (!p.is_required) return true;
+    if (hasLicence || hasPps) return true;
+    if (p.allow_medical_upload && hasUpload) return true;
+    return false;
+  }, [p.is_required, p.allow_medical_upload, hasLicence, hasPps, hasUpload]);
 
-    // Si l’orga ne bloque pas, on considère valide même si vide
-    if (!mustBlock) return true;
+  const badge = ok ? (
+    <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800">ok</span>
+  ) : (
+    <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-100 text-amber-800">à compléter</span>
+  );
 
-    // Si blocage: il faut un type choisi + la donnée requise
-    if (!form?.justificatif_type) return false;
-
-    if (selectedMeta.requiresUpload && !form?.justificatif_url) return false;
-    if (selectedMeta.requiresLicence && !form?.justificatif_licence_numero) return false;
-
-    if (minor && !form?.autorisation_parentale_url) return false;
-
-    return true;
-  }, [allowed.length, mustBlock, form, selectedMeta, minor]);
-
-  useEffect(() => {
-    onValidityChange?.(canValidate);
-  }, [canValidate, onValidityChange]);
-
-  const uploadFile = async (file, kind) => {
-    setError("");
-    setBusy(true);
-    try {
-      const ext = (file.name.split(".").pop() || "bin").toLowerCase();
-      const path = `justificatifs/${course?.id || "course"}/${crypto.randomUUID()}.${ext}`;
-
-      const { error: upErr } = await supabase.storage.from(JUSTIF_BUCKET).upload(path, file, {
-        cacheControl: "3600",
-        upsert: false,
-      });
-      if (upErr) throw upErr;
-
-      const { data } = supabase.storage.from(JUSTIF_BUCKET).getPublicUrl(path);
-      const url = data?.publicUrl || "";
-
-      if (kind === "main") {
-        setForm((p) => ({ ...p, justificatif_url: url, justificatif_path: path }));
-      } else if (kind === "parent") {
-        setForm((p) => ({ ...p, autorisation_parentale_url: url, autorisation_parentale_path: path }));
-      }
-    } catch (e) {
-      setError(e?.message || "Upload impossible.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  if (!allowed.length && !course?.parent_authorization_enabled) {
-    return (
-      <div className="rounded-3xl bg-white shadow-sm ring-1 ring-neutral-200 p-5">
-        <div className="text-lg font-extrabold text-neutral-900">Justificatif</div>
-        <div className="text-sm text-neutral-600 mt-2">Aucun justificatif n’est demandé pour cette épreuve.</div>
-      </div>
-    );
-  }
+  const canUpload = !!p.allow_medical_upload;
 
   return (
-    <div className="rounded-3xl bg-white shadow-sm ring-1 ring-neutral-200 p-5">
-      <div className="flex items-start justify-between gap-4">
-        <div>
-          <div className="text-lg font-extrabold text-neutral-900">Justificatif</div>
-          <div className="text-sm text-neutral-600 mt-1">
-            Choisis un type accepté par l’organisateur et renseigne le document demandé.
+    <div className="pt-4 border-t border-neutral-200">
+      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <div className="text-sm font-semibold text-neutral-900">{title}</div>
+              {badge}
+            </div>
+            <div className="text-xs text-neutral-600">
+              {p.is_required ? "Obligatoire" : "Optionnel"}
+              {canUpload ? " · Upload autorisé" : " · Upload désactivé"}
+            </div>
           </div>
-        </div>
-        {busy ? (
-          <div className="text-xs font-semibold text-orange-700 rounded-full bg-orange-50 ring-1 ring-orange-200 px-3 py-1">
-            Upload en cours…
-          </div>
-        ) : null}
-      </div>
 
-      {allowed.length ? (
-        <div className="mt-4 grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <Field label="Type de justificatif">
-            <Select
-              value={form?.justificatif_type || ""}
-              onChange={(e) =>
-                setForm((p) => ({
-                  ...p,
-                  justificatif_type: e.target.value,
-                  // reset des champs dépendants
-                  justificatif_url: "",
-                  justificatif_path: "",
-                  justificatif_licence_numero: "",
-                }))
-              }
-            >
-              <option value="">— Sélectionner —</option>
-              {allowed.map((v) => (
-                <option key={v} value={v}>
-                  {getJustifMeta(v).label}
-                </option>
+          {allowedTypeLabels.length > 0 && (
+            <div className="flex flex-wrap justify-end gap-1">
+              {allowedTypeLabels.slice(0, 6).map((t) => (
+                <span key={t.code} className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
+                  {t.label}
+                </span>
               ))}
-            </Select>
-          </Field>
+              {allowedTypeLabels.length > 6 && (
+                <span className="text-[11px] px-2 py-0.5 rounded-full bg-white border border-neutral-200">
+                  +{allowedTypeLabels.length - 6}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
 
-          {selectedMeta.requiresLicence ? (
-            <Field label="Numéro de licence">
-              <Input
-                value={form?.justificatif_licence_numero || ""}
-                onChange={(e) => setForm((p) => ({ ...p, justificatif_licence_numero: e.target.value }))}
-                placeholder="Ex: 123456"
+        {p.notes ? <div className="mt-2 text-xs text-neutral-700 whitespace-pre-wrap">{p.notes}</div> : null}
+
+        {/* PPS / Licence */}
+        {inferredShowFfaPps && (
+          <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold text-neutral-700">N° licence (ex: FFA)</label>
+              <input
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+                value={v.numero_licence || ""}
+                onChange={(e) => onChange?.({ numero_licence: e.target.value })}
+                placeholder="Ex: 1234567A"
               />
-            </Field>
-          ) : null}
+              <div className="mt-1 text-[11px] text-neutral-500">Optionnel si PPS ou upload.</div>
+            </div>
 
-          {selectedMeta.requiresUpload ? (
-            <Field
-              label="Fichier (PDF / JPG / PNG)"
-              hint="Le fichier sera envoyé à l’organisateur."
-            >
-              <Input
+            <div>
+              <label className="text-xs font-semibold text-neutral-700">Code PPS</label>
+              <input
+                className="mt-1 w-full rounded-xl border border-neutral-300 px-3 py-2 text-sm"
+                value={v.pps_identifier || ""}
+                onChange={(e) => onChange?.({ pps_identifier: e.target.value })}
+                placeholder="Ex: ABCD-1234-EFGH"
+              />
+              <div className="mt-1 text-[11px] text-neutral-500">Optionnel si licence ou upload.</div>
+            </div>
+          </div>
+        )}
+
+        {/* Upload */}
+        {canUpload && (
+          <div className="mt-4">
+            <div className="text-sm font-medium text-neutral-800">Importer un justificatif (photo/PDF)</div>
+
+            <div className="mt-2 flex items-center gap-3">
+              <input
                 type="file"
-                accept=".pdf,image/*"
-                disabled={!form?.justificatif_type || busy}
-                onChange={(e) => {
-                  const f = e.target.files?.[0];
-                  if (f) uploadFile(f, "main");
-                }}
+                accept="image/*,application/pdf"
+                onChange={(e) => onUpload?.(e.target.files?.[0])}
+                className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
+                disabled={uploading}
               />
-              {form?.justificatif_url ? (
-                <div className="text-xs text-neutral-600 mt-2 break-all">
-                  ✅ Fichier ajouté : {form.justificatif_url}
-                </div>
+              {v.justificatif_url ? (
+                <button
+                  type="button"
+                  onClick={() => onChange?.({ justificatif_url: "" })}
+                  className="shrink-0 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-xs font-semibold hover:bg-neutral-50"
+                >
+                  Retirer
+                </button>
               ) : null}
-            </Field>
-          ) : null}
-        </div>
-      ) : null}
+            </div>
 
-      {minor ? (
-        <div className="mt-5 rounded-2xl border border-neutral-200 bg-neutral-50 p-4">
-          <div className="text-sm font-bold text-neutral-900">Autorisation parentale (mineur)</div>
-          <div className="text-xs text-neutral-600 mt-1">
-            L’organisateur a activé cette option. Merci d’ajouter l’autorisation signée.
-          </div>
-
-          <div className="mt-3">
-            <Input
-              type="file"
-              accept=".pdf,image/*"
-              disabled={busy}
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) uploadFile(f, "parent");
-              }}
-            />
-            {form?.autorisation_parentale_url ? (
-              <div className="text-xs text-neutral-600 mt-2 break-all">
-                ✅ Autorisation ajoutée : {form.autorisation_parentale_url}
+            {v.justificatif_url ? (
+              <div className="mt-2 text-xs text-neutral-700 break-all">
+                Fichier importé :{" "}
+                <a className="underline" href={v.justificatif_url} target="_blank" rel="noreferrer">
+                  {v.justificatif_url}
+                </a>
               </div>
-            ) : null}
+            ) : (
+              <div className="mt-1 text-xs text-neutral-500">Formats acceptés : image ou PDF.</div>
+            )}
           </div>
-        </div>
-      ) : null}
-
-      {error ? (
-        <div className="mt-4 rounded-2xl border border-red-200 bg-red-50 p-3 text-sm text-red-700">
-          {error}
-        </div>
-      ) : null}
-
-      {mustBlock && !canValidate ? (
-        <div className="mt-4 rounded-2xl border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
-          ⚠️ Justificatif requis : complète les champs ci-dessus pour pouvoir valider l’inscription.
-        </div>
-      ) : null}
+        )}
+      </div>
     </div>
   );
 }
