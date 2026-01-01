@@ -122,7 +122,7 @@ serve(async (req) => {
     const finalReasonLabel =
       reasonLabelFromCode || userReasonText || "Annulation par le capitaine depuis MonInscriptionEquipe";
 
-    // 0) Idempotence : si déjà un remboursement succeeded pour ce groupe => on renvoie OK (évite double-refund)
+    // 0) Idempotence : si déjà un remboursement requested/succeeded pour ce groupe => OK (évite double-refund)
     {
       const { data: existing, error: exErr } = await supabase
         .from("remboursements")
@@ -319,6 +319,7 @@ serve(async (req) => {
         status: "requested",
         reason: finalReasonLabel,
         notes_admin: userReasonText || null,
+        effective_refund: false,
       })
       .select("id")
       .maybeSingle();
@@ -357,6 +358,7 @@ serve(async (req) => {
         stripe_refund_id: stripeRefund.id,
         status: "succeeded",
         processed_at: new Date().toISOString(),
+        effective_refund: true, // ✅ IMPORTANT (déclenche ledger si trigger filtré)
       })
       .eq("id", remboursementId);
 
@@ -367,7 +369,11 @@ serve(async (req) => {
 
     const updPay = await supabase
       .from("paiements")
-      .update({ refunded_total_cents: newRefundedTotal, updated_at: new Date().toISOString() })
+      .update({
+        refunded_total_cents: newRefundedTotal,
+        status: newRefundedTotal >= baseCents ? "rembourse" : "partiellement_rembourse",
+        updated_at: new Date().toISOString(),
+      })
       .eq("id", paiement.id);
 
     if (updPay.error) console.error("TEAM_PAYMENT_UPDATE_REFUNDED_ERROR", updPay.error);
