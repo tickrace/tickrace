@@ -132,11 +132,21 @@ export default function Compta() {
         return;
       }
 
-      // 2) inscriptions de la période (filtre simple par created_at)
+      // ✅ 2) formats des courses (car inscriptions n'a PAS course_id)
+      const { data: fs, error: fe } = await supabase.from("formats").select("id").in("course_id", courseIds).limit(10000);
+      if (fe) throw fe;
+      const formatIds = (fs || []).map((f) => f.id).filter(Boolean);
+
+      if (formatIds.length === 0) {
+        setOptionsRows([]);
+        return;
+      }
+
+      // ✅ 3) inscriptions de la période (filtre simple par created_at) via format_id
       const { data: ins, error: ie } = await supabase
         .from("inscriptions")
         .select("id")
-        .in("course_id", courseIds)
+        .in("format_id", formatIds)
         .gte("created_at", `${from}T00:00:00+00`)
         .lte("created_at", `${to}T23:59:59+00`)
         .limit(5000);
@@ -149,7 +159,7 @@ export default function Compta() {
         return;
       }
 
-      // 3) options confirmées (sans jamais dépendre de Stripe)
+      // 4) options confirmées (sans jamais dépendre de Stripe)
       const { data: opts, error: oe } = await supabase
         .from("inscriptions_options")
         .select("option_id, quantity, prix_unitaire_cents, status, options_catalogue(label, price_cents)")
@@ -159,7 +169,7 @@ export default function Compta() {
 
       if (oe) throw oe;
 
-      // 4) agrégation
+      // 5) agrégation
       const map = new Map(); // option_id -> agg
       for (const r of opts || []) {
         const optionId = String(r.option_id || "").toLowerCase();
@@ -648,9 +658,7 @@ export default function Compta() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Factures TickRace</h2>
-                <p className="mt-1 text-sm text-neutral-600">
-                  Basées sur la commission TickRace (ledger) et figées (snapshot).
-                </p>
+                <p className="mt-1 text-sm text-neutral-600">Basées sur la commission TickRace (ledger) et figées (snapshot).</p>
               </div>
               <button
                 onClick={loadInvoices}
