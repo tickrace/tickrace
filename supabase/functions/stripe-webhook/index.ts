@@ -24,6 +24,9 @@ function cors(h = new Headers()) {
 const STRIPE_API = "https://api.stripe.com/v1";
 const SYNC_STRIPE_FEES_FN = "sync-stripe-fees";
 
+/* ------------------------------ Utils ----------------------------- */
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 async function stripeGet(path: string) {
   const resp = await fetch(`${STRIPE_API}${path}`, {
     method: "GET",
@@ -72,116 +75,7 @@ async function callSendInscriptionEmail(inscriptionId: string) {
   }
 }
 
-/* -------------------------- Refund handler ------------------------ */
-async function processRefund(refund: any) {
-  const refundId = refund?.id as string; // re_...
-  const piId = (refund?.payment_intent as string | null) ?? null;
-  const amount = Number(refund?.amount || 0); // cents
-  const status = (refund?.status as string) || "unknown";
-
-  console.log("PROCESS_REFUND", refundId, "pi", piId, "amount", amount, "status", status);
-
-  // 1) retrouver paiement
-  let paiement: any = null;
-  if (piId) {
-    const { data: pay, error: payErr } = await supabase
-      .from("paiements")
-      .select("*")
-      .or(`stripe_payment_intent.eq.${piId},stripe_payment_intent_id.eq.${piId}`)
-      .order("created_at", { ascending: false })
-      .maybeSingle();
-
-    if (payErr) console.error("REFUND_PAYMENT_LOOKUP_ERROR", payErr);
-    paiement = pay || null;
-  }
-
-  // 2) MAJ paiements (refunded_total + statut)
-  if (paiement) {
-    const prevRefunded = Number(paiement.refunded_total_cents || 0);
-    const newRefundTotal = prevRefunded + amount;
-
-    const total = Number(paiement.total_amount_cents || 0);
-    let newStatus = "rembourse";
-    if (total > 0 && newRefundTotal < total) newStatus = "partiellement_rembourse";
-
-    const { error: upPayErr } = await supabase
-      .from("paiements")
-      .update({
-        refunded_total_cents: newRefundTotal,
-        status: newStatus,
-        updated_at: new Date().toISOString(),
-      })
-      .eq("id", paiement.id);
-
-    if (upPayErr) console.error("REFUND_PAYMENT_UPDATE_ERROR", upPayErr);
-  }
-
-  // 3) Upsert remboursements : 1 ligne par refund re_...
-  const { data: existing, error: exErr } = await supabase
-    .from("remboursements")
-    .select("id")
-    .eq("stripe_refund_id", refundId)
-    .maybeSingle();
-
-  if (exErr) console.error("REFUND_EXISTING_LOOKUP_ERROR", exErr);
-
-  const processedAt = status === "succeeded" ? new Date().toISOString() : null;
-
-  if (!paiement) {
-    console.warn("NO_PAIEMENT_FOR_REFUND", refundId);
-    return;
-  }
-
-  // ✅ IMPORTANT (équipe) : on prend une ancre si inscription_ids vide
-  const firstInsId =
-    Array.isArray(paiement.inscription_ids) && paiement.inscription_ids.length ? paiement.inscription_ids[0] : null;
-  const anchorInsId = (paiement.anchor_inscription_id as string | null) ?? null;
-  const inscription_id = firstInsId || anchorInsId || null;
-
-  // user_id : priorite au coureur_id de l'inscription si possible
-  let user_id = paiement.user_id ?? null;
-  if (inscription_id) {
-    const { data: ins, error: insErr } = await supabase
-      .from("inscriptions")
-      .select("coureur_id")
-      .eq("id", inscription_id)
-      .maybeSingle();
-    if (insErr) console.error("REFUND_INS_LOOKUP_ERROR", insErr);
-    if (ins?.coureur_id) user_id = ins.coureur_id;
-  }
-
-  const payload = {
-    paiement_id: paiement.id,
-    inscription_id,
-    user_id,
-    policy_tier: "stripe_refund",
-    percent: 100,
-    amount_total_cents: paiement.total_amount_cents || amount || 0,
-    base_cents: amount || 0,
-    refund_cents: amount || 0,
-    non_refundable_cents: 0,
-    stripe_refund_id: refundId,
-    status,
-    processed_at: processedAt,
-    reason: "Remboursement Stripe",
-    effective_refund: status === "succeeded",
-    requested_at: new Date().toISOString(),
-  };
-
-  if (existing?.id) {
-    const { error: upErr } = await supabase.from("remboursements").update(payload).eq("id", existing.id);
-    if (upErr) console.error("REFUND_REMBOURSEMENT_UPDATE_ERROR", upErr);
-    else console.log("REFUND_REMBOURSEMENT_UPDATE_OK", existing.id);
-  } else {
-    const { error: insErr } = await supabase.from("remboursements").insert(payload);
-    if (insErr) console.error("REFUND_REMBOURSEMENT_INSERT_ERROR", insErr);
-    else console.log("REFUND_REMBOURSEMENT_INSERT_OK", refundId);
-  }
-}
-
 /* ------------------ CALL sync-stripe-fees (NO SECRET) ------------------ */
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
 async function callSyncStripeFees(params: {
   stripe_payment_intent_id?: string | null;
   stripe_session_id?: string | null;
@@ -194,7 +88,6 @@ async function callSyncStripeFees(params: {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      // ✅ pas de secret custom : on utilise le service role (server-to-server)
       Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
     },
     body: JSON.stringify({
@@ -225,12 +118,238 @@ async function callSyncStripeFees(params: {
   return { ok: true, data };
 }
 
+/* ------------------------- Helpers refund ------------------------ */
+async function resolveAnchorInscriptionId(args: {
+  paiement: any;
+  groupe_id?: string | null;
+}): Promise<string | null> {
+  const p = args.paiement;
+
+  const direct =
+    (p?.anchor_inscription_id as string | null) ||
+    (p?.inscription_id as string | null) ||
+    (Array.isArray(p?.inscription_ids) && p.inscription_ids.length ? (p.inscription_ids[0] as string) : null) ||
+    null;
+
+  if (direct) return direct;
+
+  const gid = args.groupe_id || null;
+  if (gid) {
+    const { data: firstIns, error } = await supabase
+      .from("inscriptions")
+      .select("id")
+      .or(`groupe_id.eq.${gid},member_of_group_id.eq.${gid}`)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (error) console.error("ANCHOR_FROM_GROUP_INS_ERROR", error);
+    return (firstIns?.id as string) || null;
+  }
+
+  return null;
+}
+
+async function resolveUserIdForRefund(args: {
+  paiement: any;
+  inscription_id?: string | null;
+  groupe_id?: string | null;
+}): Promise<string | null> {
+  const { paiement, inscription_id, groupe_id } = args;
+
+  // 1) inscription.coureur_id
+  if (inscription_id) {
+    const { data: ins, error } = await supabase
+      .from("inscriptions")
+      .select("coureur_id")
+      .eq("id", inscription_id)
+      .maybeSingle();
+    if (error) console.error("REFUND_USER_FROM_INS_ERROR", error);
+    if (ins?.coureur_id) return String(ins.coureur_id);
+  }
+
+  // 2) groupe.capitaine_user_id
+  if (groupe_id) {
+    const { data: grp, error } = await supabase
+      .from("inscriptions_groupes")
+      .select("capitaine_user_id")
+      .eq("id", groupe_id)
+      .maybeSingle();
+    if (error) console.error("REFUND_USER_FROM_GROUP_ERROR", error);
+    if (grp?.capitaine_user_id) return String(grp.capitaine_user_id);
+  }
+
+  // 3) paiement.user_id
+  if (paiement?.user_id) return String(paiement.user_id);
+
+  // 4) fallback: premier membre du groupe
+  if (groupe_id) {
+    const { data: mem, error } = await supabase
+      .from("inscriptions")
+      .select("coureur_id")
+      .or(`groupe_id.eq.${groupe_id},member_of_group_id.eq.${groupe_id}`)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+    if (error) console.error("REFUND_USER_FROM_FIRST_MEMBER_ERROR", error);
+    if (mem?.coureur_id) return String(mem.coureur_id);
+  }
+
+  return null;
+}
+
+async function resolveGroupeIdForRefund(args: { refund: any; paiement: any }): Promise<string | null> {
+  const meta = (args.refund?.metadata || {}) as Record<string, string>;
+  const fromMeta = meta.groupe_id ? String(meta.groupe_id) : null;
+  if (fromMeta) return fromMeta;
+
+  // fallback DB: groupe.paiement_id
+  const { data: grp, error } = await supabase
+    .from("inscriptions_groupes")
+    .select("id")
+    .eq("paiement_id", args.paiement.id)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) console.error("REFUND_GROUP_BY_PAIEMENT_ERROR", error);
+  return (grp?.id as string) || null;
+}
+
+/* -------------------------- Refund handler ------------------------ */
+async function processRefund(refund: any) {
+  const refundId = refund?.id as string; // re_...
+  const piId = (refund?.payment_intent as string | null) ?? null;
+  const amount = Number(refund?.amount || 0); // cents
+  const status = (refund?.status as string) || "unknown";
+  const effective = status === "succeeded";
+
+  console.log("PROCESS_REFUND", refundId, "pi", piId, "amount", amount, "status", status);
+
+  // 1) retrouver paiement
+  let paiement: any = null;
+  if (piId) {
+    const { data: pay, error: payErr } = await supabase
+      .from("paiements")
+      .select("*")
+      .or(`stripe_payment_intent.eq.${piId},stripe_payment_intent_id.eq.${piId}`)
+      .order("created_at", { ascending: false })
+      .maybeSingle();
+
+    if (payErr) console.error("REFUND_PAYMENT_LOOKUP_ERROR", payErr);
+    paiement = pay || null;
+  }
+
+  if (!paiement) {
+    console.warn("NO_PAIEMENT_FOR_REFUND", refundId);
+    return;
+  }
+
+  // 2) MAJ paiements (refunded_total + statut)
+  {
+    const prevRefunded = Number(paiement.refunded_total_cents || 0);
+    const newRefundTotal = prevRefunded + amount;
+
+    const total = Number(paiement.total_amount_cents || 0);
+    let newStatus = "rembourse";
+    if (total > 0 && newRefundTotal < total) newStatus = "partiellement_rembourse";
+
+    const { error: upPayErr } = await supabase
+      .from("paiements")
+      .update({
+        refunded_total_cents: newRefundTotal,
+        status: newStatus,
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", paiement.id);
+
+    if (upPayErr) console.error("REFUND_PAYMENT_UPDATE_ERROR", upPayErr);
+  }
+
+  // 3) Déterminer groupe_id + inscription_id(anchor) + user_id (NOT NULL)
+  const meta = (refund?.metadata || {}) as Record<string, string>;
+  const groupe_id = await resolveGroupeIdForRefund({ refund, paiement });
+
+  const anchorFromMeta = meta.anchor_inscription_id ? String(meta.anchor_inscription_id) : null;
+  const inscription_id =
+    anchorFromMeta || (await resolveAnchorInscriptionId({ paiement, groupe_id })) || null;
+
+  const user_id = await resolveUserIdForRefund({ paiement, inscription_id, groupe_id });
+
+  // Respect de ta contrainte SQL (user_id NOT NULL)
+  if (!user_id) {
+    console.error("REFUND_NO_USER_ID_ABORT", {
+      refundId,
+      paiement_id: paiement.id,
+      groupe_id,
+      inscription_id,
+      paiement_user_id: paiement.user_id ?? null,
+    });
+    return;
+  }
+
+  // Respect de ta contrainte CHECK (inscription_id OU groupe_id)
+  if (!inscription_id && !groupe_id) {
+    console.error("REFUND_NO_INSCRIPTION_NOR_GROUP_ABORT", {
+      refundId,
+      paiement_id: paiement.id,
+    });
+    return;
+  }
+
+  // (Optionnel mais utile) backfill anchor_inscription_id sur paiements
+  if (inscription_id && !paiement.anchor_inscription_id) {
+    const { error } = await supabase.from("paiements").update({ anchor_inscription_id: inscription_id }).eq("id", paiement.id);
+    if (error) console.error("BACKFILL_PAIEMENT_ANCHOR_ERROR", error);
+  }
+
+  // 4) Upsert remboursements : 1 ligne par refund re_...
+  const { data: existing, error: exErr } = await supabase
+    .from("remboursements")
+    .select("id")
+    .eq("stripe_refund_id", refundId)
+    .maybeSingle();
+
+  if (exErr) console.error("REFUND_EXISTING_LOOKUP_ERROR", exErr);
+
+  const processedAt = effective ? new Date().toISOString() : null;
+
+  const payload: any = {
+    paiement_id: paiement.id,
+    inscription_id: inscription_id || null,
+    groupe_id: groupe_id || null,
+    user_id,
+    policy_tier: "stripe_refund",
+    percent: 100,
+    amount_total_cents: (paiement.total_amount_cents ?? amount ?? 0) || 0,
+    base_cents: amount || 0,
+    refund_cents: amount || 0,
+    non_refundable_cents: 0,
+    stripe_refund_id: refundId,
+    status,
+    processed_at: processedAt,
+    reason: "Remboursement Stripe",
+    effective_refund: effective,
+    requested_at: new Date().toISOString(),
+    notes_admin: null,
+  };
+
+  if (existing?.id) {
+    const { error: upErr } = await supabase.from("remboursements").update(payload).eq("id", existing.id);
+    if (upErr) console.error("REFUND_REMBOURSEMENT_UPDATE_ERROR", upErr);
+    else console.log("REFUND_REMBOURSEMENT_UPDATE_OK", existing.id);
+  } else {
+    const { error: insErr } = await supabase.from("remboursements").insert(payload);
+    if (insErr) console.error("REFUND_REMBOURSEMENT_INSERT_ERROR", insErr);
+    else console.log("REFUND_REMBOURSEMENT_INSERT_OK", refundId);
+  }
+}
+
 /* ------------------------------ Handler -------------------------- */
 serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v9 (anchor_inscription_id + refunds fallback)");
+  console.log("STRIPE-WEBHOOK v9 (emails + sync fees + refund robust)");
 
   let event: any;
   try {
@@ -253,7 +372,9 @@ serve(async (req) => {
       console.log("CHECKOUT_COMPLETED_SESSION_ID", sessionId);
 
       const paymentIntentId =
-        typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
+        typeof session.payment_intent === "string"
+          ? session.payment_intent
+          : session.payment_intent?.id || null;
 
       const meta = (session.metadata || {}) as Record<string, string>;
       let inscriptionIds: string[] = [];
@@ -269,7 +390,6 @@ serve(async (req) => {
 
         if (groupIds.length) {
           const inscs = await supabase.from("inscriptions").select("id").in("member_of_group_id", groupIds);
-
           if (!inscs.error && inscs.data) {
             inscriptionIds = inscs.data.map((r: any) => r.id);
           } else if (inscs.error) {
@@ -281,6 +401,7 @@ serve(async (req) => {
       const montant_total_cents = session.amount_total ?? null;
       const devise = session.currency || null;
 
+      // Paiement existant
       const payRes = await supabase
         .from("paiements")
         .select("id, inscription_ids, anchor_inscription_id")
@@ -292,11 +413,10 @@ serve(async (req) => {
       const existingInsIds = (payRes.data?.inscription_ids as string[] | null) || [];
       const finalInscriptionIds = inscriptionIds.length > 0 ? inscriptionIds : existingInsIds;
 
-      // ✅ IMPORTANT (équipe) : on fixe toujours une inscription "ancre" si possible
-      const anchorInscriptionId =
-        (finalInscriptionIds && finalInscriptionIds.length ? finalInscriptionIds[0] : null) ||
+      // Anchor inscription (critique pour ledger / refunds)
+      const anchor_inscription_id =
         (payRes.data?.anchor_inscription_id as string | null) ||
-        null;
+        (finalInscriptionIds.length ? finalInscriptionIds[0] : null);
 
       const upd = await supabase
         .from("paiements")
@@ -310,7 +430,7 @@ serve(async (req) => {
           amount_subtotal: session.amount_subtotal ?? null,
           total_amount_cents: montant_total_cents,
           inscription_ids: finalInscriptionIds.length ? finalInscriptionIds : null,
-          anchor_inscription_id: anchorInscriptionId,
+          anchor_inscription_id,
           updated_at: new Date().toISOString(),
         })
         .eq("stripe_session_id", sessionId)
@@ -320,17 +440,11 @@ serve(async (req) => {
       if (upd.error) console.error("PAYMENT_UPDATE_ERROR_CHECKOUT", upd.error);
       else console.log("PAYMENT_UPDATE_OK_CHECKOUT", upd.data?.id);
 
+      // MAJ statuts + options + emails
       if (finalInscriptionIds.length) {
         const u1 = await supabase.from("inscriptions").update({ statut: "paye" }).in("id", finalInscriptionIds);
         if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
         else console.log("INSCRIPTIONS_UPDATE_OK", finalInscriptionIds.length);
-
-        // ✅ backfill prix_total_coureur si manquant
-        const { data: bfCount, error: bfErr } = await supabase.rpc("backfill_prix_total_coureur", {
-          ins_ids: finalInscriptionIds,
-        });
-        if (bfErr) console.error("BACKFILL_PRIX_TOTAL_COUREUR_ERROR", bfErr);
-        else console.log("BACKFILL_PRIX_TOTAL_COUREUR_OK", bfCount);
 
         const u2 = await supabase
           .from("inscriptions_options")
@@ -338,6 +452,7 @@ serve(async (req) => {
           .in("inscription_id", finalInscriptionIds);
         if (u2.error) console.error("OPTIONS_CONFIRM_ERROR", u2.error);
 
+        // groupes : statut paye
         const grpIdsRes = await supabase.from("inscriptions").select("member_of_group_id").in("id", finalInscriptionIds);
         const grpIdsUnique = [...new Set((grpIdsRes.data || []).map((r: any) => r.member_of_group_id).filter(Boolean))];
 
@@ -346,6 +461,7 @@ serve(async (req) => {
           if (u3.error) console.error("GROUPS_UPDATE_ERROR", u3.error);
         }
 
+        // Emails : 1 par inscription
         for (const insId of finalInscriptionIds) {
           try {
             await callSendInscriptionEmail(insId);
@@ -355,7 +471,7 @@ serve(async (req) => {
         }
       }
 
-      // ✅ Déclenche sync-stripe-fees (fees + options) : 2 tentatives (balance tx parfois en retard)
+      // Sync fees + options (2 passes)
       if (paymentIntentId) {
         await callSyncStripeFees({
           stripe_payment_intent_id: paymentIntentId,
