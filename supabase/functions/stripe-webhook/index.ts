@@ -1,3 +1,4 @@
+// supabase/functions/stripe-webhook/index.ts
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -131,7 +132,11 @@ async function processRefund(refund: any) {
     return;
   }
 
-  const inscription_id = paiement.inscription_ids?.[0] ?? null;
+  // ✅ IMPORTANT (équipe) : on prend une ancre si inscription_ids vide
+  const firstInsId =
+    Array.isArray(paiement.inscription_ids) && paiement.inscription_ids.length ? paiement.inscription_ids[0] : null;
+  const anchorInsId = (paiement.anchor_inscription_id as string | null) ?? null;
+  const inscription_id = firstInsId || anchorInsId || null;
 
   // user_id : priorite au coureur_id de l'inscription si possible
   let user_id = paiement.user_id ?? null;
@@ -202,7 +207,9 @@ async function callSyncStripeFees(params: {
 
   const txt = await resp.text();
   let data: any = null;
-  try { data = JSON.parse(txt); } catch {}
+  try {
+    data = JSON.parse(txt);
+  } catch {}
 
   if (!resp.ok) {
     console.error("CALL_SYNC_STRIPE_FEES_FAILED", resp.status, txt);
@@ -223,7 +230,7 @@ serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v8 (CALL sync-stripe-fees - no custom secret)");
+  console.log("STRIPE-WEBHOOK v9 (anchor_inscription_id + refunds fallback)");
 
   let event: any;
   try {
@@ -246,9 +253,7 @@ serve(async (req) => {
       console.log("CHECKOUT_COMPLETED_SESSION_ID", sessionId);
 
       const paymentIntentId =
-        typeof session.payment_intent === "string"
-          ? session.payment_intent
-          : session.payment_intent?.id || null;
+        typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
 
       const meta = (session.metadata || {}) as Record<string, string>;
       let inscriptionIds: string[] = [];
@@ -278,7 +283,7 @@ serve(async (req) => {
 
       const payRes = await supabase
         .from("paiements")
-        .select("id, inscription_ids")
+        .select("id, inscription_ids, anchor_inscription_id")
         .eq("stripe_session_id", sessionId)
         .maybeSingle();
 
@@ -286,6 +291,12 @@ serve(async (req) => {
 
       const existingInsIds = (payRes.data?.inscription_ids as string[] | null) || [];
       const finalInscriptionIds = inscriptionIds.length > 0 ? inscriptionIds : existingInsIds;
+
+      // ✅ IMPORTANT (équipe) : on fixe toujours une inscription "ancre" si possible
+      const anchorInscriptionId =
+        (finalInscriptionIds && finalInscriptionIds.length ? finalInscriptionIds[0] : null) ||
+        (payRes.data?.anchor_inscription_id as string | null) ||
+        null;
 
       const upd = await supabase
         .from("paiements")
@@ -299,6 +310,7 @@ serve(async (req) => {
           amount_subtotal: session.amount_subtotal ?? null,
           total_amount_cents: montant_total_cents,
           inscription_ids: finalInscriptionIds.length ? finalInscriptionIds : null,
+          anchor_inscription_id: anchorInscriptionId,
           updated_at: new Date().toISOString(),
         })
         .eq("stripe_session_id", sessionId)
@@ -312,6 +324,13 @@ serve(async (req) => {
         const u1 = await supabase.from("inscriptions").update({ statut: "paye" }).in("id", finalInscriptionIds);
         if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
         else console.log("INSCRIPTIONS_UPDATE_OK", finalInscriptionIds.length);
+
+        // ✅ backfill prix_total_coureur si manquant
+        const { data: bfCount, error: bfErr } = await supabase.rpc("backfill_prix_total_coureur", {
+          ins_ids: finalInscriptionIds,
+        });
+        if (bfErr) console.error("BACKFILL_PRIX_TOTAL_COUREUR_ERROR", bfErr);
+        else console.log("BACKFILL_PRIX_TOTAL_COUREUR_OK", bfCount);
 
         const u2 = await supabase
           .from("inscriptions_options")
@@ -328,7 +347,9 @@ serve(async (req) => {
         }
 
         for (const insId of finalInscriptionIds) {
-          try { await callSendInscriptionEmail(insId); } catch (err) {
+          try {
+            await callSendInscriptionEmail(insId);
+          } catch (err) {
             console.error("CALL_SEND_INSCRIPTION_EMAIL_ERROR", insId, err);
           }
         }
@@ -382,9 +403,9 @@ serve(async (req) => {
     return new Response(JSON.stringify({ ok: true }), { status: 200, headers });
   } catch (e: any) {
     console.error("WEBHOOK_FATAL", e);
-    return new Response(
-      JSON.stringify({ error: "webhook_failed", details: String(e?.message ?? e) }),
-      { status: 500, headers },
-    );
+    return new Response(JSON.stringify({ error: "webhook_failed", details: String(e?.message ?? e) }), {
+      status: 500,
+      headers,
+    });
   }
 });
