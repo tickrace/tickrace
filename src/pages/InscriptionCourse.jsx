@@ -676,6 +676,7 @@ export default function InscriptionCourse() {
       }
 
       const ageMin = selectedFormat?.age_minimum ? Number(selectedFormat.age_minimum) : null;
+const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
 
       // ----- Contrôle âge minimum : individuel -----
       if (mode === "individuel" && ageMin) {
@@ -733,7 +734,7 @@ export default function InscriptionCourse() {
                 statut: "liste_attente",
                 is_waitlist: true,
                 paiement_trace_id: trace_id,
-
+ prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
                 // ✅ aligner colonnes
                 justificatif_licence_numero: inscription.justificatif_licence_numero || inscription.numero_licence || null,
               },
@@ -774,7 +775,7 @@ export default function InscriptionCourse() {
               format_id: inscription.format_id,
               statut: "en attente",
               paiement_trace_id: trace_id,
-
+prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
               // ✅ colonnes ajoutées
               justificatif_licence_numero: inscription.justificatif_licence_numero || inscription.numero_licence || null,
               justificatif_path: inscription.justificatif_path || null,
