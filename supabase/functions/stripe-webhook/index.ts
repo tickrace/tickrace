@@ -21,11 +21,11 @@ function cors(h = new Headers()) {
   return h;
 }
 
-const STRIPE_API = "https://api.stripe.com/v1";
-const SYNC_STRIPE_FEES_FN = "sync-stripe-fees";
-
 /* ------------------------------ Utils ----------------------------- */
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+const STRIPE_API = "https://api.stripe.com/v1";
+const SYNC_STRIPE_FEES_FN = "sync-stripe-fees";
 
 async function stripeGet(path: string) {
   const resp = await fetch(`${STRIPE_API}${path}`, {
@@ -51,45 +51,51 @@ async function stripeGet(path: string) {
   return parsed;
 }
 
+/* -------------------------- Internal calls ------------------------ */
+function getFnUrl(fnName: string) {
+  return `${SUPABASE_URL}/functions/v1/${fnName}`;
+}
+
+function srHeaders() {
+  // 🔥 important: gateway Supabase aime bien avoir Authorization + apikey
+  return {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+  };
+}
+
 /* -------------------------- Email helper ------------------------- */
 async function callSendInscriptionEmail(inscriptionId: string) {
-  if (!SEND_INSCRIPTION_EMAIL_URL) {
-    console.warn("SEND_INSCRIPTION_EMAIL_URL non défini, email non envoyé pour", inscriptionId);
-    return;
-  }
+  // Fallback: si env non défini, on call direct la function standard
+  const url = SEND_INSCRIPTION_EMAIL_URL || getFnUrl("send-inscription-email");
 
-  const resp = await fetch(SEND_INSCRIPTION_EMAIL_URL, {
+  const resp = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    },
+    headers: srHeaders(),
     body: JSON.stringify({ inscription_id: inscriptionId }),
   });
 
+  const txt = await resp.text().catch(() => "");
   if (!resp.ok) {
-    const txt = await resp.text();
     console.error("SEND_INSCRIPTION_EMAIL_FAILED", inscriptionId, resp.status, txt);
   } else {
     console.log("SEND_INSCRIPTION_EMAIL_OK", inscriptionId);
   }
 }
 
-/* ------------------ CALL sync-stripe-fees (NO SECRET) ------------------ */
+/* ------------------ CALL sync-stripe-fees ------------------ */
 async function callSyncStripeFees(params: {
   stripe_payment_intent_id?: string | null;
   stripe_session_id?: string | null;
   paiement_id?: string | null;
   sync_options?: boolean;
 }) {
-  const url = `${SUPABASE_URL}/functions/v1/${SYNC_STRIPE_FEES_FN}`;
+  const url = getFnUrl(SYNC_STRIPE_FEES_FN);
 
   const resp = await fetch(url, {
     method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-    },
+    headers: srHeaders(),
     body: JSON.stringify({
       paiement_id: params.paiement_id ?? undefined,
       stripe_session_id: params.stripe_session_id ?? undefined,
@@ -202,7 +208,6 @@ async function resolveGroupeIdForRefund(args: { refund: any; paiement: any }): P
   const fromMeta = meta.groupe_id ? String(meta.groupe_id) : null;
   if (fromMeta) return fromMeta;
 
-  // fallback DB: groupe.paiement_id
   const { data: grp, error } = await supabase
     .from("inscriptions_groupes")
     .select("id")
@@ -265,17 +270,15 @@ async function processRefund(refund: any) {
     if (upPayErr) console.error("REFUND_PAYMENT_UPDATE_ERROR", upPayErr);
   }
 
-  // 3) Déterminer groupe_id + inscription_id(anchor) + user_id (NOT NULL)
+  // 3) groupe_id + inscription_id(anchor) + user_id
   const meta = (refund?.metadata || {}) as Record<string, string>;
   const groupe_id = await resolveGroupeIdForRefund({ refund, paiement });
 
   const anchorFromMeta = meta.anchor_inscription_id ? String(meta.anchor_inscription_id) : null;
-  const inscription_id =
-    anchorFromMeta || (await resolveAnchorInscriptionId({ paiement, groupe_id })) || null;
+  const inscription_id = anchorFromMeta || (await resolveAnchorInscriptionId({ paiement, groupe_id })) || null;
 
   const user_id = await resolveUserIdForRefund({ paiement, inscription_id, groupe_id });
 
-  // Respect de ta contrainte SQL (user_id NOT NULL)
   if (!user_id) {
     console.error("REFUND_NO_USER_ID_ABORT", {
       refundId,
@@ -287,25 +290,23 @@ async function processRefund(refund: any) {
     return;
   }
 
-  // Respect de ta contrainte CHECK (inscription_id OU groupe_id)
   if (!inscription_id && !groupe_id) {
-    console.error("REFUND_NO_INSCRIPTION_NOR_GROUP_ABORT", {
-      refundId,
-      paiement_id: paiement.id,
-    });
+    console.error("REFUND_NO_INSCRIPTION_NOR_GROUP_ABORT", { refundId, paiement_id: paiement.id });
     return;
   }
 
-  // (Optionnel mais utile) backfill anchor_inscription_id sur paiements
   if (inscription_id && !paiement.anchor_inscription_id) {
-    const { error } = await supabase.from("paiements").update({ anchor_inscription_id: inscription_id }).eq("id", paiement.id);
+    const { error } = await supabase
+      .from("paiements")
+      .update({ anchor_inscription_id: inscription_id })
+      .eq("id", paiement.id);
     if (error) console.error("BACKFILL_PAIEMENT_ANCHOR_ERROR", error);
   }
 
   // 4) Upsert remboursements : 1 ligne par refund re_...
   const { data: existing, error: exErr } = await supabase
     .from("remboursements")
-    .select("id")
+    .select("id, requested_at")
     .eq("stripe_refund_id", refundId)
     .maybeSingle();
 
@@ -329,8 +330,8 @@ async function processRefund(refund: any) {
     processed_at: processedAt,
     reason: "Remboursement Stripe",
     effective_refund: effective,
-    requested_at: new Date().toISOString(),
-    notes_admin: null,
+    // si row existe, on garde requested_at initial
+    requested_at: existing?.requested_at ?? new Date().toISOString(),
   };
 
   if (existing?.id) {
@@ -349,7 +350,7 @@ serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v9 (emails + sync fees + refund robust)");
+  console.log("STRIPE-WEBHOOK v10 (fix headers apikey + upsert paiement + refunds strict) ");
 
   let event: any;
   try {
@@ -372,9 +373,7 @@ serve(async (req) => {
       console.log("CHECKOUT_COMPLETED_SESSION_ID", sessionId);
 
       const paymentIntentId =
-        typeof session.payment_intent === "string"
-          ? session.payment_intent
-          : session.payment_intent?.id || null;
+        typeof session.payment_intent === "string" ? session.payment_intent : session.payment_intent?.id || null;
 
       const meta = (session.metadata || {}) as Record<string, string>;
       let inscriptionIds: string[] = [];
@@ -401,7 +400,7 @@ serve(async (req) => {
       const montant_total_cents = session.amount_total ?? null;
       const devise = session.currency || null;
 
-      // Paiement existant
+      // 1) lookup paiement
       const payRes = await supabase
         .from("paiements")
         .select("id, inscription_ids, anchor_inscription_id")
@@ -413,34 +412,66 @@ serve(async (req) => {
       const existingInsIds = (payRes.data?.inscription_ids as string[] | null) || [];
       const finalInscriptionIds = inscriptionIds.length > 0 ? inscriptionIds : existingInsIds;
 
-      // Anchor inscription (critique pour ledger / refunds)
       const anchor_inscription_id =
-        (payRes.data?.anchor_inscription_id as string | null) ||
-        (finalInscriptionIds.length ? finalInscriptionIds[0] : null);
+        (payRes.data?.anchor_inscription_id as string | null) || (finalInscriptionIds.length ? finalInscriptionIds[0] : null);
 
-      const upd = await supabase
-        .from("paiements")
-        .update({
-          status: "paye",
-          stripe_payment_intent_id: paymentIntentId,
-          stripe_payment_intent: paymentIntentId,
-          montant_total: montant_total_cents ? montant_total_cents / 100 : null,
-          devise,
-          amount_total: montant_total_cents,
-          amount_subtotal: session.amount_subtotal ?? null,
-          total_amount_cents: montant_total_cents,
-          inscription_ids: finalInscriptionIds.length ? finalInscriptionIds : null,
-          anchor_inscription_id,
-          updated_at: new Date().toISOString(),
-        })
-        .eq("stripe_session_id", sessionId)
-        .select("id")
-        .maybeSingle();
+      // 2) update si existe, sinon insert
+      let paiement_id: string | null = null;
 
-      if (upd.error) console.error("PAYMENT_UPDATE_ERROR_CHECKOUT", upd.error);
-      else console.log("PAYMENT_UPDATE_OK_CHECKOUT", upd.data?.id);
+      if (payRes.data?.id) {
+        const upd = await supabase
+          .from("paiements")
+          .update({
+            status: "paye",
+            stripe_payment_intent_id: paymentIntentId,
+            stripe_payment_intent: paymentIntentId,
+            montant_total: montant_total_cents ? montant_total_cents / 100 : null,
+            devise,
+            amount_total: montant_total_cents,
+            amount_subtotal: session.amount_subtotal ?? null,
+            total_amount_cents: montant_total_cents,
+            inscription_ids: finalInscriptionIds.length ? finalInscriptionIds : null,
+            anchor_inscription_id,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", payRes.data.id)
+          .select("id")
+          .maybeSingle();
 
-      // MAJ statuts + options + emails
+        if (upd.error) console.error("PAYMENT_UPDATE_ERROR_CHECKOUT", upd.error);
+        else {
+          paiement_id = upd.data?.id ?? null;
+          console.log("PAYMENT_UPDATE_OK_CHECKOUT", paiement_id);
+        }
+      } else {
+        const ins = await supabase
+          .from("paiements")
+          .insert({
+            stripe_session_id: sessionId,
+            status: "paye",
+            stripe_payment_intent_id: paymentIntentId,
+            stripe_payment_intent: paymentIntentId,
+            montant_total: montant_total_cents ? montant_total_cents / 100 : null,
+            devise,
+            amount_total: montant_total_cents,
+            amount_subtotal: session.amount_subtotal ?? null,
+            total_amount_cents: montant_total_cents,
+            inscription_ids: finalInscriptionIds.length ? finalInscriptionIds : null,
+            anchor_inscription_id,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+          })
+          .select("id")
+          .maybeSingle();
+
+        if (ins.error) console.error("PAYMENT_INSERT_ERROR_CHECKOUT", ins.error);
+        else {
+          paiement_id = ins.data?.id ?? null;
+          console.log("PAYMENT_INSERT_OK_CHECKOUT", paiement_id);
+        }
+      }
+
+      // 3) statuts + options + emails
       if (finalInscriptionIds.length) {
         const u1 = await supabase.from("inscriptions").update({ statut: "paye" }).in("id", finalInscriptionIds);
         if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
@@ -452,7 +483,6 @@ serve(async (req) => {
           .in("inscription_id", finalInscriptionIds);
         if (u2.error) console.error("OPTIONS_CONFIRM_ERROR", u2.error);
 
-        // groupes : statut paye
         const grpIdsRes = await supabase.from("inscriptions").select("member_of_group_id").in("id", finalInscriptionIds);
         const grpIdsUnique = [...new Set((grpIdsRes.data || []).map((r: any) => r.member_of_group_id).filter(Boolean))];
 
@@ -461,7 +491,6 @@ serve(async (req) => {
           if (u3.error) console.error("GROUPS_UPDATE_ERROR", u3.error);
         }
 
-        // Emails : 1 par inscription
         for (const insId of finalInscriptionIds) {
           try {
             await callSendInscriptionEmail(insId);
@@ -471,12 +500,12 @@ serve(async (req) => {
         }
       }
 
-      // Sync fees + options (2 passes)
+      // 4) sync fees + options (2 passes)
       if (paymentIntentId) {
         await callSyncStripeFees({
           stripe_payment_intent_id: paymentIntentId,
           stripe_session_id: sessionId,
-          paiement_id: upd.data?.id ?? null,
+          paiement_id,
           sync_options: true,
         });
 
@@ -485,14 +514,14 @@ serve(async (req) => {
         await callSyncStripeFees({
           stripe_payment_intent_id: paymentIntentId,
           stripe_session_id: sessionId,
-          paiement_id: upd.data?.id ?? null,
+          paiement_id,
           sync_options: true,
         });
       }
     }
 
     /* ====================================================================== */
-    /* 2) charge.succeeded → fallback déclenchement sync-stripe-fees           */
+    /* 2) charge.succeeded → fallback sync-stripe-fees                         */
     /* ====================================================================== */
     if (event.type === "charge.succeeded") {
       const ch = event.data.object as any;
@@ -510,7 +539,7 @@ serve(async (req) => {
     }
 
     /* ====================================================================== */
-    /* 3) Refunds                                                             */
+    /* 3) Refunds                                                              */
     /* ====================================================================== */
     if (event.type === "refund.created" || event.type === "refund.updated") {
       await processRefund(event.data.object);
