@@ -376,6 +376,14 @@ export default function MonEspaceOrganisateur() {
                         <ClipboardList size={16} />
                         Checklist
                       </Btn>
+{/* Bouton "Préinscription / Tirage" */}
+<Link
+  to={`/organisateur/loterie/${course.id}`}
+  className="inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold bg-white ring-1 ring-gray-200 hover:bg-gray-50"
+>
+  Préinscription / Tirage
+  <ArrowUpRight className="h-4 w-4 opacity-70" />
+</Link>
 
                       {/* Menu "Plus" (désencombre) */}
                       <details className="relative">

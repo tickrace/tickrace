@@ -45,6 +45,7 @@ import DetailsCoureur from "./pages/DetailsCoureur";
 import MemberDetails from "./pages/MemberDetails";
 
 // Organisateur
+import OrganisateurLoterieCourse from "./pages/OrganisateurLoterieCourse";
 import TirageAuSort from "./pages/TirageAuSort";
 import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
@@ -247,6 +248,14 @@ function AppContent() {
           />
 
           {/* ============================ ORGANISATEUR ======================== */}
+          <Route
+  path="/organisateur/loterie/:courseId"
+  element={
+    <ProtectedRoute>
+      <OrganisateurLoterieCourse />
+    </ProtectedRoute>
+  }
+/>
           <Route
   path="/organisateur/tirage/:formatId"
   element={
