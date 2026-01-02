@@ -45,6 +45,7 @@ import DetailsCoureur from "./pages/DetailsCoureur";
 import MemberDetails from "./pages/MemberDetails";
 
 // Organisateur
+import TirageAuSort from "./pages/TirageAuSort";
 import MonProfilOrganisateur from "./pages/MonProfilOrganisateur";
 import MonEspaceOrganisateur from "./pages/MonEspaceOrganisateur";
 import UpsertCourse from "./pages/UpsertCourse";
@@ -246,6 +247,15 @@ function AppContent() {
           />
 
           {/* ============================ ORGANISATEUR ======================== */}
+          <Route
+  path="/organisateur/tirage/:formatId"
+  element={
+    <ProtectedRoute>
+      <TirageAuSort />
+    </ProtectedRoute>
+  }
+/>
+
           <Route
   path="/organisateur/planning-benevoles/:courseId"
   element={
