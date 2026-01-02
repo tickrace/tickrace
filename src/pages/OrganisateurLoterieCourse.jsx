@@ -141,7 +141,7 @@ export default function OrganisateurLoterieCourse() {
     try {
       const { data: c, error: ce } = await supabase
         .from("courses")
-        .select("id, nom, date, lieu")
+        .select("id, nom, lieu")
         .eq("id", courseId)
         .single();
       if (ce) throw ce;
@@ -155,6 +155,13 @@ export default function OrganisateurLoterieCourse() {
       if (fe) throw fe;
 
       setFormats(f || []);
+const earliestFormatDate =
+  (f || [])
+    .map((x) => x.date)
+    .filter(Boolean)
+    .sort()[0] || null;
+
+setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
 
       const ids = (f || []).map((x) => x.id);
       if (!ids.length) {
@@ -334,7 +341,8 @@ export default function OrganisateurLoterieCourse() {
               <div className="font-medium text-gray-900">{course.nom}</div>
               <div className="mt-1 inline-flex items-center gap-2">
                 <CalendarDays className="h-4 w-4" />
-                <span>{fmtDT(course.date)}</span>
+                <span>{fmtDT(course._earliestFormatDate)}</span>
+
                 <span className="text-gray-300">•</span>
                 <span>{course.lieu || "—"}</span>
               </div>

@@ -233,7 +233,7 @@ export default function TirageAuSort() {
 
       const { data: c, error: ce } = await supabase
         .from("courses")
-        .select("id, nom, organisateur_id, date, lieu")
+        .select("id, nom, organisateur_id, lieu")
         .eq("id", f.course_id)
         .single();
       if (ce) throw ce;
