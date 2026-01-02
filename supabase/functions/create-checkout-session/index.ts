@@ -1,4 +1,3 @@
-// supabase/functions/create-checkout-session/index.ts
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -123,6 +122,8 @@ async function upsertPaiement(params: {
   devise?: string | null;
   trace_id?: string | null;
   destination_account_id?: string | null;
+  // ✅ optionnel loterie (si tu as une colonne, sinon ignoré côté DB)
+  lottery_invite_id?: string | null;
 }) {
   const payload: any = {
     stripe_session_id: params.stripe_session_id,
@@ -142,6 +143,11 @@ async function upsertPaiement(params: {
   if (params.destination_account_id && params.destination_account_id.startsWith("acct_")) {
     payload.destination_account_id = params.destination_account_id;
   }
+
+  // ✅ si ta table paiements n'a pas la colonne, laisse commenté
+  // if (params.lottery_invite_id && isUuid(params.lottery_invite_id)) {
+  //   payload.lottery_invite_id = params.lottery_invite_id;
+  // }
 
   const { data, error } = await supabase
     .from("paiements")
@@ -193,6 +199,8 @@ const BodyIndividualSchema = z.object({
   cancelUrl: z.string().url().optional(),
   options_total_eur: z.number().optional(),
   trace_id: z.string().optional(),
+  // ✅ LOTERIE
+  lottery_invite_id: z.string().uuid().optional(),
 }).strip();
 
 const BodyGroupRelayBase = z.object({
@@ -208,6 +216,8 @@ const BodyGroupRelayBase = z.object({
   cancelUrl: z.string().url().optional(),
   options_total_eur: z.number().optional(),
   selected_options: z.array(OptionSchema).optional().default([]),
+  // ✅ LOTERIE
+  lottery_invite_id: z.string().uuid().optional(),
 }).strip();
 
 const BodyGroupRelaySchema = z.union([
@@ -231,7 +241,7 @@ serve(async (req) => {
     /* --------------------- A) INDIVIDUEL via inscription_id --------------------- */
     const tryInd = BodyIndividualSchema.safeParse(body);
     if (tryInd.success) {
-      const { inscription_id, email, successUrl, cancelUrl, trace_id } = tryInd.data;
+      const { inscription_id, email, successUrl, cancelUrl, trace_id, lottery_invite_id } = tryInd.data;
 
       const { data: insc, error: ie } = await supabase
         .from("inscriptions")
@@ -310,6 +320,18 @@ serve(async (req) => {
 
       const payerEmail = email || insc.email || undefined;
 
+      const metadata: Record<string, string> = {
+        mode: "individual",
+        format_id: String(insc.format_id || ""),
+        inscription_id: insc.id,
+        trace_id: trace_id || "",
+      };
+
+      // ✅ LOTERIE (ne met jamais "undefined")
+      if (lottery_invite_id && isUuid(lottery_invite_id)) {
+        metadata.lottery_invite_id = lottery_invite_id;
+      }
+
       const session = await stripe.checkout.sessions.create({
         mode: "payment",
         line_items: items,
@@ -317,12 +339,7 @@ serve(async (req) => {
         payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
         success_url: ensureSuccessUrl(successUrl),
         cancel_url: ensureCancelUrl(cancelUrl),
-        metadata: {
-          mode: "individual",
-          format_id: String(insc.format_id || ""),
-          inscription_id: insc.id,
-          trace_id: trace_id || "",
-        },
+        metadata,
       });
 
       const total = items.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
@@ -335,6 +352,7 @@ serve(async (req) => {
         devise: session.currency || "eur",
         trace_id: trace_id || null,
         destination_account_id,
+        lottery_invite_id: lottery_invite_id ?? null,
       });
 
       return json({ url: session.url }, 200);
@@ -498,6 +516,18 @@ serve(async (req) => {
     }
 
     const payerEmail = payload.email || undefined;
+
+    const metadata: Record<string, string> = {
+      mode,
+      format_id: payload.format_id,
+      groups: createdGroupIds.join(","),
+    };
+
+    // ✅ LOTERIE
+    if (payload.lottery_invite_id && isUuid(payload.lottery_invite_id)) {
+      metadata.lottery_invite_id = payload.lottery_invite_id;
+    }
+
     const session = await stripe.checkout.sessions.create({
       mode: "payment",
       line_items: items,
@@ -505,11 +535,7 @@ serve(async (req) => {
       payment_intent_data: payerEmail ? { receipt_email: payerEmail } : undefined,
       success_url: ensureSuccessUrl(payload.successUrl),
       cancel_url: ensureCancelUrl(payload.cancelUrl),
-      metadata: {
-        mode,
-        format_id: payload.format_id,
-        groups: createdGroupIds.join(","),
-      },
+      metadata,
     });
 
     const total = items.reduce((s, li) => s + (li.price_data?.unit_amount || 0) * (li.quantity || 1), 0);
@@ -522,6 +548,7 @@ serve(async (req) => {
       devise: session.currency || "eur",
       trace_id: null,
       destination_account_id,
+      lottery_invite_id: payload.lottery_invite_id ?? null,
     });
 
     if (paiementId && createdGroupIds.length > 0) {

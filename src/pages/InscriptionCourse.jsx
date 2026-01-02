@@ -1,6 +1,6 @@
 // src/pages/InscriptionCourse.jsx
 import React, { useEffect, useMemo, useState, useRef } from "react";
-import { useParams, Link, useNavigate } from "react-router-dom";
+import { useParams, Link, useNavigate, useSearchParams } from "react-router-dom";
 import { supabase } from "../supabase";
 import { v4 as uuidv4 } from "uuid";
 import JustificatifInscriptionBlock from "../components/inscription/JustificatifInscriptionBlock";
@@ -67,6 +67,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
     return () => {
       abort = true;
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formatId]);
 
   async function persist(inscriptionId) {
@@ -96,6 +97,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
 
   useEffect(() => {
     registerPersist?.(persist);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerPersist, options, quantites, supported]);
 
   function getSelected() {
@@ -109,6 +111,7 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
   }
   useEffect(() => {
     registerGetSelected?.(getSelected);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registerGetSelected, options, quantites]);
 
   const dec = (o) => {
@@ -212,6 +215,9 @@ function OptionsPayantesPicker({ formatId, onTotalCentsChange, registerPersist, 
 export default function InscriptionCourse() {
   const { courseId } = useParams();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const qsFormatId = searchParams.get("formatId");
+  const inviteToken = searchParams.get("invite");
 
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
@@ -233,6 +239,10 @@ export default function InscriptionCourse() {
 
   // ✅ Confirmation liste d’attente (individuel)
   const [waitlistCreated, setWaitlistCreated] = useState(null); // { id, email }
+
+  // ✅ Loterie / invitations
+  const [lotterySettingsByFormat, setLotterySettingsByFormat] = useState({});
+  const [inviteState, setInviteState] = useState({ loading: false, ok: false, error: "", invite: null });
 
   // Équipes
   const emptyMember = () => ({
@@ -411,8 +421,28 @@ export default function InscriptionCourse() {
             return { ...f, inscrits: count || 0 };
           })
         );
+
         setCourse(data);
         setFormats(withCounts);
+
+        // ✅ Charger settings loterie par format
+        try {
+          const ids = (withCounts || []).map((f) => f.id);
+          if (ids.length) {
+            const { data: ls, error: lsErr } = await supabase
+              .from("format_lottery_settings")
+              .select("format_id, enabled, pre_open_at, pre_close_at, draw_at, invite_ttl_hours")
+              .in("format_id", ids);
+
+            if (!lsErr) {
+              const map = {};
+              (ls || []).forEach((r) => (map[r.format_id] = r));
+              setLotterySettingsByFormat(map);
+            }
+          }
+        } catch (e) {
+          console.error("❌ load format_lottery_settings:", e);
+        }
       }
 
       // ✅ Catalogue types (labels)
@@ -473,6 +503,29 @@ export default function InscriptionCourse() {
       mounted = false;
     };
   }, [courseId]);
+
+  // ✅ Préselection format via querystring (si pas déjà choisi)
+  useEffect(() => {
+    if (!qsFormatId) return;
+    if (!formats || formats.length === 0) return;
+    if (inscription.format_id) return;
+
+    const f = formats.find((ff) => ff.id === qsFormatId);
+    if (!f) return;
+
+    setInscription((prev) => ({ ...prev, format_id: qsFormatId }));
+    const newMode = f?.type_format || "individuel";
+    setMode(newMode);
+
+    if (newMode === "individuel") {
+      setTeams([defaultTeam("Équipe 1", 0)]);
+    } else {
+      const def = f?.team_size || f?.nb_coureurs_min || 1;
+      setTeams([defaultTeam("Équipe 1", def)]);
+    }
+    setTotalOptionsCents(0);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [qsFormatId, formats]);
 
   const selectedFormat = useMemo(() => formats.find((f) => f.id === inscription.format_id), [formats, inscription.format_id]);
 
@@ -643,12 +696,71 @@ export default function InscriptionCourse() {
         autorisation_parentale_path: data.path,
       }));
     } catch (e) {
-      console.error("❌ upload autorisation parentale:", e);
+      console.error("❌ upload autorisation:", e);
       alert("Erreur lors de l’upload de l’autorisation parentale.");
     } finally {
       setParentUploading(false);
     }
   }
+
+  // ✅ Loterie : enabled sur le format sélectionné ?
+  const lotteryEnabled = useMemo(() => {
+    if (!inscription.format_id) return false;
+    return Boolean(lotterySettingsByFormat?.[inscription.format_id]?.enabled);
+  }, [lotterySettingsByFormat, inscription.format_id]);
+
+  // ✅ Vérifier l’invitation si invite=TOKEN présent
+  useEffect(() => {
+    let abort = false;
+
+    async function verifyInvite() {
+      if (!inviteToken) {
+        setInviteState({ loading: false, ok: false, error: "", invite: null });
+        return;
+      }
+      if (!inscription.format_id) return;
+
+      setInviteState({ loading: true, ok: false, error: "", invite: null });
+
+      try {
+        const { data, error } = await supabase.functions.invoke("verify-lottery-invite", {
+          body: { token: inviteToken, course_id: courseId, format_id: inscription.format_id },
+        });
+
+        if (abort) return;
+
+        if (error) {
+          setInviteState({
+            loading: false,
+            ok: false,
+            error: error.message || "Erreur vérification invitation",
+            invite: null,
+          });
+          return;
+        }
+
+        if (!data?.ok) {
+          setInviteState({
+            loading: false,
+            ok: false,
+            error: data?.error || "Invitation invalide",
+            invite: null,
+          });
+          return;
+        }
+
+        setInviteState({ loading: false, ok: true, error: "", invite: data.invite });
+      } catch (e) {
+        if (abort) return;
+        setInviteState({ loading: false, ok: false, error: String(e?.message || e), invite: null });
+      }
+    }
+
+    verifyInvite();
+    return () => {
+      abort = true;
+    };
+  }, [inviteToken, courseId, inscription.format_id]);
 
   // ----- Paiement / Waitlist -----
   async function handlePay() {
@@ -675,8 +787,28 @@ export default function InscriptionCourse() {
         return;
       }
 
+      // ✅ Loterie : si activée, il faut une invitation valide pour payer
+      if (lotteryEnabled) {
+        if (!inviteToken) {
+          alert("Ce format fonctionne en préinscription : tu dois d’abord être invité(e) pour finaliser l’inscription.");
+          setSubmitting(false);
+          return;
+        }
+        if (inviteState.loading) {
+          alert("Vérification de l’invitation en cours…");
+          setSubmitting(false);
+          return;
+        }
+        if (!inviteState.ok || !inviteState.invite) {
+          alert(inviteState.error || "Invitation invalide / expirée.");
+          setSubmitting(false);
+          return;
+        }
+      }
+
       const ageMin = selectedFormat?.age_minimum ? Number(selectedFormat.age_minimum) : null;
-const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
+      const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
+      const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
 
       // ----- Contrôle âge minimum : individuel -----
       if (mode === "individuel" && ageMin) {
@@ -693,7 +825,7 @@ const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
         }
       }
 
-      // ✅ Contrôle justificatifs (individuel) selon courses.justif_*
+      // ✅ Contrôle justificatifs (individuel)
       if (mode === "individuel" && courseJustif.required) {
         if (!hasJustificatif(inscription)) {
           alert("Justificatif obligatoire : choisis un type + renseigne un N° licence/PPS ou importe un document.");
@@ -711,7 +843,6 @@ const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
         }
       }
 
-      const payerEmail = inscription.email || user.email || user.user_metadata?.email || "";
       if (!payerEmail) {
         alert("Veuillez renseigner un email.");
         setSubmitting(false);
@@ -721,6 +852,7 @@ const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
       // ===== INDIVIDUEL =====
       if (mode === "individuel") {
         // ✅ Si complet + waitlist activée => liste d’attente
+        // (Si loterie activée, on bloque déjà plus haut sans invitation)
         if (isFormatFull && selectedFormat?.waitlist_enabled) {
           const trace_id = uuidv4();
 
@@ -734,8 +866,7 @@ const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
                 statut: "liste_attente",
                 is_waitlist: true,
                 paiement_trace_id: trace_id,
- prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
-                // ✅ aligner colonnes
+                prix_total_coureur: basePriceIndivEUR,
                 justificatif_licence_numero: inscription.justificatif_licence_numero || inscription.numero_licence || null,
               },
             ])
@@ -775,12 +906,15 @@ const basePriceIndivEUR = Number(selectedFormat?.prix || 0);
               format_id: inscription.format_id,
               statut: "en attente",
               paiement_trace_id: trace_id,
-prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
-              // ✅ colonnes ajoutées
+              prix_total_coureur: basePriceIndivEUR,
               justificatif_licence_numero: inscription.justificatif_licence_numero || inscription.numero_licence || null,
               justificatif_path: inscription.justificatif_path || null,
               autorisation_parentale_url: inscription.autorisation_parentale_url || null,
               autorisation_parentale_path: inscription.autorisation_parentale_path || null,
+
+              // ✅ Loterie (optionnel)
+              preinscription_id: inviteState?.invite?.preinscription_id || null,
+              team_id: inviteState?.invite?.team_id || null,
             },
           ])
           .select()
@@ -807,6 +941,11 @@ prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
             successUrl: "https://www.tickrace.com/merci",
             cancelUrl: "https://www.tickrace.com/paiement-annule",
             options_total_eur: (totalOptionsCents || 0) / 100,
+
+            // ✅ Loterie (pour le webhook Stripe)
+            lottery_invite_token: inviteToken || null,
+            preinscription_id: inviteState?.invite?.preinscription_id || null,
+            team_id: inviteState?.invite?.team_id || null,
           },
         });
 
@@ -893,6 +1032,11 @@ prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
         cancelUrl: "https://www.tickrace.com/paiement-annule",
         options_total_eur: (totalOptionsCents || 0) / 100,
         selected_options,
+
+        // ✅ Loterie (pour le webhook Stripe)
+        lottery_invite_token: inviteToken || null,
+        preinscription_id: inviteState?.invite?.preinscription_id || null,
+        team_id: inviteState?.invite?.team_id || null,
       };
 
       if (teams.length > 1) {
@@ -977,6 +1121,27 @@ prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
         </div>
       </div>
 
+      {/* ✅ Bandeau loterie si activée */}
+      {lotteryEnabled && (
+        <div className="mb-6 rounded-2xl border border-orange-200 bg-orange-50 p-5">
+          <div className="font-semibold text-orange-900">🎟️ Ce format fonctionne en préinscription (tirage au sort)</div>
+          {!inviteToken ? (
+            <div className="mt-1 text-sm text-orange-900/80">
+              Pour finaliser l’inscription, il faut une invitation envoyée par email après le tirage.
+            </div>
+          ) : inviteState.loading ? (
+            <div className="mt-1 text-sm text-orange-900/80">Vérification de ton invitation…</div>
+          ) : inviteState.ok ? (
+            <div className="mt-1 text-sm text-orange-900/80">
+              ✅ Invitation valide{" "}
+              {inviteState.invite?.expires_at ? <> (expire le {new Date(inviteState.invite.expires_at).toLocaleString()})</> : null}.
+            </div>
+          ) : (
+            <div className="mt-1 text-sm text-red-700">❌ {inviteState.error || "Invitation invalide / expirée."}</div>
+          )}
+        </div>
+      )}
+
       {/* ✅ Confirmation liste d’attente */}
       {waitlistCreated && (
         <div className="mb-6 rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
@@ -1019,10 +1184,11 @@ prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
                 name="format_id"
                 value={inscription.format_id}
                 onChange={(e) => {
-                  setField("format_id", e.target.value);
+                  const nextFormatId = e.target.value;
+                  setField("format_id", nextFormatId);
                   setWaitlistCreated(null);
 
-                  const f = formats.find((ff) => ff.id === e.target.value);
+                  const f = formats.find((ff) => ff.id === nextFormatId);
                   const newMode = f?.type_format || "individuel";
                   setMode(newMode);
 
@@ -1044,7 +1210,8 @@ prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
                   const full = max ? Number(f.inscrits) >= max : false;
                   return (
                     <option key={f.id} value={f.id} disabled={full && !f.waitlist_enabled}>
-                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+ {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
+                      {f.nom} — {f.date} — {f.distance_km} km / {f.denivele_dplus} m D+{" "}
+                      {full ? (f.waitlist_enabled ? " (liste d’attente)" : " (complet)") : ""}
                     </option>
                   );
                 })}
@@ -1476,7 +1643,8 @@ prix_total_coureur: basePriceIndivEUR, // ✅ AJOUT
                   submitting ||
                   !inscription.format_id ||
                   !registrationWindow.isOpen ||
-                  (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && isFormatFull)
+                  (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && isFormatFull) ||
+                  (lotteryEnabled && (!inviteToken || inviteState.loading || !inviteState.ok))
                 }
                 className={`w-full rounded-xl px-4 py-3 text-white font-semibold transition ${
                   submitting ? "bg-neutral-400 cursor-not-allowed" : "bg-neutral-900 hover:bg-black"

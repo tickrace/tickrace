@@ -1,4 +1,3 @@
-// supabase/functions/stripe-webhook/index.ts
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { serve } from "https://deno.land/std@0.224.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
@@ -122,6 +121,110 @@ async function callSyncStripeFees(params: {
   });
 
   return { ok: true, data };
+}
+
+/* -------------------------- Lottery helpers ----------------------- */
+function looksLikeUuid(s?: string | null) {
+  if (!s) return false;
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(String(s));
+}
+
+async function sha256Hex(input: string): Promise<string> {
+  const data = new TextEncoder().encode(input);
+  const hashBuf = await crypto.subtle.digest("SHA-256", data);
+  const hashArr = Array.from(new Uint8Array(hashBuf));
+  return hashArr.map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function markLotteryInviteUsedFromMeta(meta: Record<string, string>, opts: { paiement_id?: string | null; session_id?: string | null }) {
+  // Convention:
+  // - meta.lottery_invite_id (uuid) recommandé
+  // - meta.lottery_token (token brut) fallback
+  const inviteId = meta.lottery_invite_id ? String(meta.lottery_invite_id).trim() : "";
+  const token = meta.lottery_token ? String(meta.lottery_token).trim() : "";
+
+  try {
+    if (inviteId && looksLikeUuid(inviteId)) {
+      const { data, error } = await supabase
+        .from("lottery_invites")
+        .update({ used_at: new Date().toISOString() })
+        .eq("id", inviteId)
+        .is("used_at", null)
+        .select("id, preinscription_id, format_id, course_id")
+        .maybeSingle();
+
+      if (error) {
+        console.error("LOTTERY_INVITE_MARK_USED_ERROR_BY_ID", inviteId, error);
+        return;
+      }
+      if (!data?.id) {
+        console.log("LOTTERY_INVITE_ALREADY_USED_OR_NOT_FOUND", inviteId);
+        return;
+      }
+      console.log("LOTTERY_INVITE_MARK_USED_OK", {
+        invite_id: data.id,
+        preinscription_id: data.preinscription_id,
+        format_id: data.format_id,
+        course_id: data.course_id,
+        paiement_id: opts.paiement_id ?? null,
+        session_id: opts.session_id ?? null,
+      });
+      return;
+    }
+
+    if (token) {
+      const token_hash = await sha256Hex(token);
+      const nowIso = new Date().toISOString();
+
+      const { data: inv, error: invErr } = await supabase
+        .from("lottery_invites")
+        .select("id, preinscription_id, format_id, course_id, used_at, expires_at")
+        .eq("token_hash", token_hash)
+        .maybeSingle();
+
+      if (invErr) {
+        console.error("LOTTERY_INVITE_LOOKUP_ERROR_BY_TOKEN", invErr);
+        return;
+      }
+      if (!inv?.id) {
+        console.warn("LOTTERY_INVITE_NOT_FOUND_FOR_TOKEN");
+        return;
+      }
+      if (inv.used_at) {
+        console.log("LOTTERY_INVITE_ALREADY_USED", inv.id);
+        return;
+      }
+      if (inv.expires_at && String(inv.expires_at) <= nowIso) {
+        console.warn("LOTTERY_INVITE_EXPIRED", inv.id, inv.expires_at);
+        return;
+      }
+
+      const { data: upd, error: updErr } = await supabase
+        .from("lottery_invites")
+        .update({ used_at: nowIso })
+        .eq("id", inv.id)
+        .is("used_at", null)
+        .select("id, preinscription_id, format_id, course_id")
+        .maybeSingle();
+
+      if (updErr) {
+        console.error("LOTTERY_INVITE_MARK_USED_ERROR_BY_TOKEN", updErr);
+        return;
+      }
+
+      console.log("LOTTERY_INVITE_MARK_USED_OK", {
+        invite_id: upd?.id ?? inv.id,
+        preinscription_id: upd?.preinscription_id ?? inv.preinscription_id,
+        format_id: upd?.format_id ?? inv.format_id,
+        course_id: upd?.course_id ?? inv.course_id,
+        paiement_id: opts.paiement_id ?? null,
+        session_id: opts.session_id ?? null,
+      });
+      return;
+    }
+  } catch (e) {
+    console.error("LOTTERY_INVITE_MARK_USED_FATAL", e);
+  }
 }
 
 /* ------------------------- Helpers refund ------------------------ */
@@ -350,7 +453,7 @@ serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v10 (fix headers apikey + upsert paiement + refunds strict) ");
+  console.log("STRIPE-WEBHOOK v11 (loterie invite used_at + keep legacy flows) ");
 
   let event: any;
   try {
@@ -413,7 +516,8 @@ serve(async (req) => {
       const finalInscriptionIds = inscriptionIds.length > 0 ? inscriptionIds : existingInsIds;
 
       const anchor_inscription_id =
-        (payRes.data?.anchor_inscription_id as string | null) || (finalInscriptionIds.length ? finalInscriptionIds[0] : null);
+        (payRes.data?.anchor_inscription_id as string | null) ||
+        (finalInscriptionIds.length ? finalInscriptionIds[0] : null);
 
       // 2) update si existe, sinon insert
       let paiement_id: string | null = null;
@@ -499,6 +603,10 @@ serve(async (req) => {
           }
         }
       }
+
+      // ✅ 3bis) LOTERIE : marquer l’invitation comme utilisée (sans casser le reste)
+      // Idempotent: update only if used_at IS NULL
+      await markLotteryInviteUsedFromMeta(meta, { paiement_id, session_id: sessionId });
 
       // 4) sync fees + options (2 passes)
       if (paymentIntentId) {

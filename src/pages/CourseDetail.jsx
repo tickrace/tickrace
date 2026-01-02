@@ -97,21 +97,40 @@ function computeIsFullWithCounts(format, countsByFormat) {
   return count >= max;
 }
 
-function getCtaForFormat({ courseId, format, countsByFormat }) {
+function getInviteTokenFromSearchParams(searchParams) {
+  return (
+    searchParams.get("invite") ||
+    searchParams.get("invite_token") ||
+    searchParams.get("token") ||
+    ""
+  );
+}
+
+function getCtaForFormat({ courseId, format, countsByFormat, inviteToken }) {
   if (!format) return { kind: "disabled", label: "Indisponible" };
 
   const open = isFormatOpenNow(format);
   const future = isFormatFuture(format);
   const past = isFormatPast(format);
 
-  const isFull = computeIsFullWithCounts(format, countsByFormat);
-  const waitlistEnabled = !!format.waitlist_enabled;
-
   if (!open) {
     if (future) return { kind: "disabled", label: "Bientôt" };
     if (past) return { kind: "disabled", label: "Fermé" };
     return { kind: "disabled", label: "Fermé" };
   }
+
+  // ✅ Invitation détectée : on laisse passer vers l'inscription (la validation se fait côté InscriptionCourse)
+  if (inviteToken) {
+    return {
+      kind: "link",
+      label: "Finaliser (invitation)",
+      to: `/inscription/${courseId}?format=${format.id}&invite=${encodeURIComponent(inviteToken)}`,
+      variant: "primary",
+    };
+  }
+
+  const isFull = computeIsFullWithCounts(format, countsByFormat);
+  const waitlistEnabled = !!format.waitlist_enabled;
 
   // ✅ si complet + waitlist => modal
   if (countsByFormat !== null && isFull) {
@@ -143,6 +162,11 @@ export default function CourseDetail() {
   const { id } = useParams();
   const [searchParams] = useSearchParams();
   const { session } = useUser();
+
+  const inviteToken = useMemo(
+    () => getInviteTokenFromSearchParams(searchParams),
+    [searchParams]
+  );
 
   const [loading, setLoading] = useState(true);
   const [course, setCourse] = useState(null);
@@ -371,7 +395,8 @@ export default function CourseDetail() {
 
   const heroFormatWithCounts = useMemo(() => {
     if (!heroFormat) return null;
-    const count = countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
+    const count =
+      countsByFormat === null ? undefined : Number(countsByFormat?.[heroFormat.id] || 0);
     return { ...heroFormat, ...(count === undefined ? {} : { nb_inscrits: count }) };
   }, [heroFormat, countsByFormat]);
 
@@ -412,7 +437,8 @@ export default function CourseDetail() {
           .filter(Boolean)
       )
     );
-    const discipline = types.length === 0 ? null : types.length === 1 ? types[0] : `${types[0]} +${types.length - 1}`;
+    const discipline =
+      types.length === 0 ? null : types.length === 1 ? types[0] : `${types[0]} +${types.length - 1}`;
 
     let is_full = false;
     if (countsByFormat !== null && fList.length) {
@@ -489,7 +515,9 @@ export default function CourseDetail() {
   }
 
   const shareUrl = `${BASE}/courses/${course.id}`;
-  const soon = aggregates.next_date && (parseDate(aggregates.next_date).getTime() - Date.now()) / 86400000 <= 14;
+  const soon =
+    aggregates.next_date &&
+    (parseDate(aggregates.next_date).getTime() - Date.now()) / 86400000 <= 14;
 
   async function copyShare(url) {
     try {
@@ -499,11 +527,12 @@ export default function CourseDetail() {
     } catch {}
   }
 
-  // ✅ CTA intelligent HERO
+  // ✅ CTA intelligent HERO (+ invite)
   const heroCTA = getCtaForFormat({
     courseId: course.id,
     format: heroFormat,
     countsByFormat,
+    inviteToken,
   });
 
   return (
@@ -531,7 +560,7 @@ export default function CourseDetail() {
         defaultEmail={session?.user?.email || ""}
         onSuccess={(msg) => {
           setWaitlistOpen(false);
-          setToast(msg || "Inscription en liste d’attente enregistrée.");
+          setToast(msg || "Préinscription enregistrée.");
           setTimeout(() => setToast(null), 2500);
         }}
       />
@@ -553,6 +582,8 @@ export default function CourseDetail() {
           {aggregates.is_full && <Badge text="Complet" color="rose" />}
           {aggregates.is_new && <Badge text="Nouveau" color="blue" />}
           {!course.en_ligne && <Badge text="Hors-ligne" color="gray" />}
+
+          {inviteToken && <Badge text="Invitation" color="amber" />}
 
           {heroFormatWithCounts && (
             <InscriptionStatusBadge
@@ -599,6 +630,13 @@ export default function CourseDetail() {
                 </span>
               )}
             </div>
+
+            {inviteToken && (
+              <div className="mt-3 rounded-xl bg-white/15 text-white ring-1 ring-white/15 px-3 py-2 text-sm">
+                ✅ Invitation détectée : tu peux <strong>finaliser ton inscription</strong> même si le format est complet
+                (si l’invitation est encore valide).
+              </div>
+            )}
 
             <div className="mt-4 flex flex-wrap items-center gap-2">
               {heroCTA.kind === "link" ? (
@@ -692,7 +730,6 @@ export default function CourseDetail() {
                   <p className="text-neutral-500">La présentation de l’épreuve sera bientôt disponible.</p>
                 )}
 
-                {/* ✅ Ajout discipline */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
                   <Fact title="Discipline" value={aggregates.discipline || "—"} />
                   <Fact title="Distance" value={formatRange(aggregates.min_dist, aggregates.max_dist, " km")} />
@@ -709,7 +746,6 @@ export default function CourseDetail() {
                   <EmptyBox text="Les formats seront publiés bientôt." />
                 ) : (
                   <>
-                    {/* ✅ Contrôles Tri / Filtre */}
                     <div className="rounded-2xl border bg-white shadow-sm p-4">
                       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                         <div className="flex items-center gap-2">
@@ -748,6 +784,7 @@ export default function CourseDetail() {
                       formats={formatsForTab}
                       countsByFormat={countsByFormat}
                       onWaitlist={(f) => openWaitlist(f)}
+                      inviteToken={inviteToken}
                     />
                   </>
                 )}
@@ -840,7 +877,9 @@ export default function CourseDetail() {
                         </InfoItem>
 
                         <InfoItem icon="shield" label="Âge minimum">
-                          {Number.isFinite(Number(selectedFormat?.age_minimum)) ? `${selectedFormat.age_minimum} ans` : "—"}
+                          {Number.isFinite(Number(selectedFormat?.age_minimum))
+                            ? `${selectedFormat.age_minimum} ans`
+                            : "—"}
                         </InfoItem>
                       </SectionCard>
 
@@ -850,14 +889,18 @@ export default function CourseDetail() {
                             items={[
                               selectedFormat?.type_epreuve && selectedFormat.type_epreuve.toUpperCase(),
                               selectedFormat?.distance_km && `${Number(selectedFormat.distance_km)} km`,
-                              Number.isFinite(Number(selectedFormat?.denivele_dplus)) && `${selectedFormat.denivele_dplus} m D+`,
-                              Number.isFinite(Number(selectedFormat?.denivele_dmoins)) && `${selectedFormat.denivele_dmoins} m D-`,
+                              Number.isFinite(Number(selectedFormat?.denivele_dplus)) &&
+                                `${selectedFormat.denivele_dplus} m D+`,
+                              Number.isFinite(Number(selectedFormat?.denivele_dmoins)) &&
+                                `${selectedFormat.denivele_dmoins} m D-`,
                             ]}
                           />
                         </div>
 
                         <InfoItem icon="euro" label="Prix">
-                          {Number.isFinite(Number(selectedFormat?.prix)) ? `${Number(selectedFormat.prix).toFixed(2)} €` : "—"}
+                          {Number.isFinite(Number(selectedFormat?.prix))
+                            ? `${Number(selectedFormat.prix).toFixed(2)} €`
+                            : "—"}
                         </InfoItem>
 
                         <InfoItem icon="trophy" label="Dotation">
@@ -882,15 +925,15 @@ export default function CourseDetail() {
                             </ul>
                           </div>
                         ) : (
-                          <InfoItem icon="bottle" label="Ravitaillements">—</InfoItem>
+                          <InfoItem icon="bottle" label="Ravitaillements">
+                            —
+                          </InfoItem>
                         )}
 
                         <InfoItem icon="id" label="Remise des dossards">
                           {selectedFormat?.remise_dossards || "—"}
                         </InfoItem>
                       </SectionCard>
-
-                      {/* ✅ Supprimé : bloc règlement dans Infos pratiques (déjà un onglet dédié) */}
 
                       <div className="xl:col-span-2">
                         <SectionCard title="Présentation du parcours" subtitle="Description de l’organisateur">
@@ -913,7 +956,9 @@ export default function CourseDetail() {
                     Chargement du règlement…
                   </div>
                 ) : reglementError ? (
-                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">{reglementError}</div>
+                  <div className="rounded-2xl border border-rose-200 bg-rose-50 p-5 text-rose-800">
+                    {reglementError}
+                  </div>
                 ) : reglementText ? (
                   <div className="rounded-2xl border bg-white shadow-sm p-5">
                     <div className="text-sm text-neutral-500 mb-3">Règlement officiel de l’épreuve.</div>
@@ -959,6 +1004,12 @@ export default function CourseDetail() {
               <div className="rounded-2xl border bg-white shadow-sm p-4">
                 <h3 className="text-lg font-semibold">S’inscrire</h3>
 
+                {inviteToken && (
+                  <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 text-amber-900 px-3 py-2 text-sm">
+                    Invitation détectée : clique sur <strong>Finaliser (invitation)</strong>.
+                  </div>
+                )}
+
                 {formats.length === 0 ? (
                   <p className="text-sm text-neutral-600 mt-2">Les formats seront publiés bientôt.</p>
                 ) : (
@@ -972,6 +1023,7 @@ export default function CourseDetail() {
                         courseId: course.id,
                         format: f,
                         countsByFormat,
+                        inviteToken,
                       });
 
                       return (
@@ -1008,7 +1060,7 @@ export default function CourseDetail() {
                               </div>
                             </div>
 
-                            {/* ✅ CTA intelligent */}
+                            {/* ✅ CTA intelligent (+ invite) */}
                             {cta.kind === "link" ? (
                               <Link
                                 to={cta.to}
@@ -1159,29 +1211,32 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
 
     setSaving(true);
     try {
+      // ✅ IMPORTANT : on préinscrit dans format_preinscriptions (cohérent avec lottery_invites.preinscription_id)
       const payload = {
         course_id: courseId,
         format_id: format.id,
         email: e,
         prenom: prenom?.trim() || null,
         nom: nom?.trim() || null,
+        status: "pending", // si colonne existe ; sinon Supabase ignorera ? (si erreur -> à commenter)
       };
 
-      const { error } = await supabase.from("waitlist").insert(payload);
+      const { error } = await supabase.from("format_preinscriptions").insert(payload);
       if (error) {
+        // duplication (selon contrainte unique)
         if (error.code === "23505") {
-          setMsg("Tu es déjà inscrit(e) sur la liste d’attente de ce format.");
+          setMsg("Tu es déjà préinscrit(e) sur la liste d’attente de ce format.");
           return;
         }
-        console.error("WAITLIST_INSERT_ERROR", error);
-        setMsg("Impossible de t’inscrire à la liste d’attente pour le moment.");
+        console.error("PREINSCRIPTION_INSERT_ERROR", error);
+        setMsg("Impossible de te préinscrire pour le moment.");
         return;
       }
 
-      onSuccess?.("✅ Inscription en liste d’attente enregistrée. Tu recevras un email si une place se libère.");
+      onSuccess?.("✅ Préinscription enregistrée. Tu recevras un email si une place se libère.");
     } catch (e) {
       console.error(e);
-      setMsg("Erreur lors de l’inscription en liste d’attente.");
+      setMsg("Erreur lors de la préinscription.");
     } finally {
       setSaving(false);
     }
@@ -1257,7 +1312,7 @@ function WaitlistModal({ open, onClose, courseId, format, defaultEmail = "", onS
             disabled={saving}
             className={["rounded-xl px-4 py-2 text-sm font-semibold text-white", saving ? "bg-neutral-400" : "bg-neutral-900 hover:bg-black"].join(" ")}
           >
-            {saving ? "Inscription…" : "M’inscrire"}
+            {saving ? "Préinscription…" : "Me préinscrire"}
           </button>
         </div>
       </div>
@@ -1290,7 +1345,7 @@ function EmptyBox({ text }) {
   return <div className="rounded-2xl border border-dashed border-neutral-300 p-8 text-center text-neutral-600">{text}</div>;
 }
 
-function FormatsTable({ courseId, formats, countsByFormat, onWaitlist }) {
+function FormatsTable({ courseId, formats, countsByFormat, onWaitlist, inviteToken }) {
   if (!formats?.length) {
     return (
       <div className="rounded-2xl border bg-white shadow-sm p-6 text-sm text-neutral-600">
@@ -1320,7 +1375,7 @@ function FormatsTable({ courseId, formats, countsByFormat, onWaitlist }) {
             const full = computeIsFullWithCounts(f, countsByFormat);
 
             const fmtForBadges = inscrit == null ? f : { ...f, nb_inscrits: inscrit };
-            const cta = getCtaForFormat({ courseId, format: f, countsByFormat });
+            const cta = getCtaForFormat({ courseId, format: f, countsByFormat, inviteToken });
 
             return (
               <tr key={f.id} className={idx % 2 ? "bg-white" : "bg-neutral-50/50"}>
