@@ -200,33 +200,15 @@ export default function CourseCard({ course }) {
           )}
         </div>
 
-        {/* CTAs */}
-        <div className="mt-4 flex flex-col gap-2">
+        {/* CTA unique */}
+        <div className="mt-4">
           <Link
             to={`/courses/${course.id}`}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
+            className="inline-flex w-full items-center justify-center gap-2 rounded-xl bg-neutral-900 px-3 py-2 text-white text-sm font-semibold hover:brightness-110"
             title="Voir l'épreuve"
           >
             Voir l’épreuve ↗
           </Link>
-
-          <div className="grid grid-cols-2 gap-2">
-            <Link
-              to={`/inscription/${course.id}`}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              title="S'inscrire"
-            >
-              S’inscrire
-            </Link>
-
-            <Link
-              to={`/benevoles/${course.id}`}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-              title="S’inscrire comme bénévole"
-            >
-              Bénévoles
-            </Link>
-          </div>
         </div>
       </div>
     </div>
