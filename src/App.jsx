@@ -207,9 +207,9 @@ function AppContent() {
           <Route
             path="/mesinscriptions"
             element={
-              <ProtectedRoute>
+           //   <ProtectedRoute>
                 <MesInscriptions />
-              </ProtectedRoute>
+             // </ProtectedRoute>
             }
           />
 
