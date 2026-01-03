@@ -173,7 +173,7 @@ function AppContent() {
             }
           />
 
-          {/* Tunnel inscription */}
+          {/* Tunnel inscription 
           <Route
             path="/inscription/:courseId"
             element={
@@ -183,7 +183,7 @@ function AppContent() {
                 </ErrorBoundary>
               </ProtectedRoute>
             }
-          />
+          />*/}
 
           {/* Mon inscription */}
           <Route
