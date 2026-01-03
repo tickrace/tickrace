@@ -109,6 +109,45 @@ function getInviteTokenFromSearchParams(searchParams) {
 function getCtaForFormat({ courseId, format, countsByFormat, inviteToken }) {
   if (!format) return { kind: "disabled", label: "Indisponible" };
 
+  // ✅ Invitation détectée : on laisse passer vers l'inscription (validation côté InscriptionCourse)
+  if (inviteToken) {
+    return {
+      kind: "link",
+      label: "Finaliser (invitation)",
+      to: `/inscription/${courseId}?format=${format.id}&invite=${encodeURIComponent(inviteToken)}`,
+      variant: "primary",
+    };
+  }
+
+  // ✅ Mode préinscription / tirage au sort
+  if (format?.lottery?.enabled) {
+    const now = new Date();
+    const openAt = parseDate(format.lottery.pre_open_at);
+    const closeAt = parseDate(format.lottery.pre_closed_at || format.lottery.pre_close_at);
+
+    if (openAt && now < openAt) {
+      return { kind: "disabled", label: "Préinscription bientôt" };
+    }
+
+    if (closeAt && now > closeAt) {
+      // après clôture : utile de renvoyer vers la page tirage (statut/résultat)
+      return {
+        kind: "link",
+        label: "Voir le tirage",
+        to: `/tirage/${format.id}`,
+        variant: "secondary",
+      };
+    }
+
+    return {
+      kind: "link",
+      label: "Préinscription",
+      to: `/tirage/${format.id}`,
+      variant: "primary",
+    };
+  }
+
+  // ✅ Inscriptions classiques (logique actuelle)
   const open = isFormatOpenNow(format);
   const future = isFormatFuture(format);
   const past = isFormatPast(format);
@@ -119,20 +158,9 @@ function getCtaForFormat({ courseId, format, countsByFormat, inviteToken }) {
     return { kind: "disabled", label: "Fermé" };
   }
 
-  // ✅ Invitation détectée : on laisse passer vers l'inscription (la validation se fait côté InscriptionCourse)
-  if (inviteToken) {
-    return {
-      kind: "link",
-      label: "Finaliser (invitation)",
-      to: `/inscription/${courseId}?format=${format.id}&invite=${encodeURIComponent(inviteToken)}`,
-      variant: "primary",
-    };
-  }
-
   const isFull = computeIsFullWithCounts(format, countsByFormat);
   const waitlistEnabled = !!format.waitlist_enabled;
 
-  // ✅ si complet + waitlist => modal
   if (countsByFormat !== null && isFull) {
     if (waitlistEnabled) {
       return {
@@ -151,6 +179,7 @@ function getCtaForFormat({ courseId, format, countsByFormat, inviteToken }) {
     variant: "primary",
   };
 }
+
 
 function isValidEmail(email) {
   const e = String(email || "").trim().toLowerCase();
@@ -275,15 +304,43 @@ export default function CourseDetail() {
         setFormats([]);
       } else {
         const list = (fmts || []).filter(Boolean);
-        setFormats(list);
 
-        const wanted = searchParams.get("format");
-        if (!selectedFormatId && list.length) {
-          const ok = wanted && list.some((f) => f.id === wanted);
-          setSelectedFormatId(ok ? wanted : list[0].id);
-        }
-      }
+// ✅ récupère les settings de tirage pour ces formats (si table accessible)
+let lotteryMap = {};
+try {
+  const fids = list.map((f) => f.id);
+  if (fids.length) {
+    const { data: lot, error: eLot } = await supabase
+      .from("format_lottery_settings")
+      .select("format_id, enabled, pre_open_at, pre_close_at, pre_closed_at, draw_at, invite_ttl_hours")
+      .in("format_id", fids);
 
+    if (!eLot && Array.isArray(lot)) {
+      lotteryMap = lot.reduce((acc, row) => {
+        acc[row.format_id] = row;
+        return acc;
+      }, {});
+    }
+  }
+} catch {
+  // ignore
+}
+
+const enriched = list.map((f) => ({
+  ...f,
+  lottery: lotteryMap[f.id] || null,
+}));
+
+setFormats(enriched);
+
+const wanted = searchParams.get("format");
+if (!selectedFormatId && enriched.length) {
+  const ok = wanted && enriched.some((f) => f.id === wanted);
+  setSelectedFormatId(ok ? wanted : enriched[0].id);
+}
+
+
+      
       // 3) Inscriptions → comptage (peut être bloqué par RLS)
       try {
         const fids = (fmts || []).map((f) => f.id);

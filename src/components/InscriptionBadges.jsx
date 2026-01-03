@@ -50,24 +50,51 @@ const placesText = (format) => {
   return `${count}/${max}`;
 };
 
+function resolveMode(format, mode) {
+  const m = (mode || "auto").toLowerCase();
+  if (m === "inscription") return "inscription";
+  if (m === "preinscription") return "preinscription";
+  // auto
+  return format?.lottery?.enabled ? "preinscription" : "inscription";
+}
+
+function getWindowForMode(format, modeResolved) {
+  if (!format) return { openAt: null, closeAt: null, defaultPrefix: "" };
+
+  if (modeResolved === "preinscription") {
+    const s = format?.lottery || {};
+    const openAt = parseDate(s.pre_open_at);
+    const closeAt = parseDate(s.pre_closed_at || s.pre_close_at);
+    return { openAt, closeAt, defaultPrefix: "Préinscriptions" };
+  }
+
+  const openAt = parseDate(format.inscription_ouverture);
+  const closeAt = parseDate(format.inscription_fermeture);
+  return { openAt, closeAt, defaultPrefix: "Inscriptions" };
+}
+
 /* --------------------------- Components -------------------------- */
 /**
- * Badge statut inscriptions (Ouvertes / Bientôt / Fermées / Complet)
+ * Badge statut inscriptions / préinscriptions (Ouvertes / Bientôt / Fermées / Complet)
+ *
+ * Props:
+ * - mode: "auto" | "inscription" | "preinscription"
  */
 export function InscriptionStatusBadge({
   format,
   isFullOverride,
-  prefix = "Inscriptions",
+  prefix, // si undefined => prefix auto (Inscriptions/Préinscriptions)
   className = "",
+  mode = "auto",
 }) {
   const now = useMemo(() => new Date(), []);
   const full = Boolean(isFullOverride ?? isFormatFull(format));
+  const modeResolved = useMemo(() => resolveMode(format, mode), [format, mode]);
 
   const computed = useMemo(() => {
-    if (!format) return { badge: null, title: "" };
+    if (!format) return { badge: null, title: "", defaultPrefix: "" };
 
-    const openAt = parseDate(format.inscription_ouverture);
-    const closeAt = parseDate(format.inscription_fermeture);
+    const { openAt, closeAt, defaultPrefix } = getWindowForMode(format, modeResolved);
     const status = getWindowStatus(now, openAt, closeAt);
     const badge = statusBadgeForKey(status.key);
 
@@ -75,10 +102,10 @@ export function InscriptionStatusBadge({
     if (status.key === "soon" && openAt) title = `Ouverture le ${formatDate(openAt)}`;
     if (status.key === "closed" && closeAt) title = `Fermeture le ${formatDate(closeAt)}`;
 
-    return { badge, title };
-  }, [format, now]);
+    return { badge, title, defaultPrefix };
+  }, [format, modeResolved, now]);
 
-  if (full) {
+  if (full && modeResolved === "inscription") {
     return (
       <span
         className={[
@@ -93,7 +120,8 @@ export function InscriptionStatusBadge({
 
   if (!computed.badge) return null;
 
-  const text = prefix ? `${prefix} ${computed.badge.text}` : computed.badge.text;
+  const finalPrefix = prefix === undefined ? computed.defaultPrefix : prefix;
+  const text = finalPrefix ? `${finalPrefix} ${computed.badge.text}` : computed.badge.text;
 
   return (
     <span
@@ -111,6 +139,7 @@ export function InscriptionStatusBadge({
 
 /**
  * Badge places (nb_inscrits / nb_max_coureurs)
+ * (inchangé : concerne les inscriptions “classiques”)
  */
 export function InscriptionPlacesBadge({
   format,
