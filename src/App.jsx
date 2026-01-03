@@ -248,6 +248,16 @@ function AppContent() {
           />
 
           {/* ============================ ORGANISATEUR ======================== */}
+          
+<Route
+  path="/organisateur/inscriptions/:courseId"
+  element={
+    <ProtectedRoute>
+      <ListeInscriptions />
+    </ProtectedRoute>
+  }
+/>
+
           <Route
   path="/organisateur/loterie/:courseId"
   element={
