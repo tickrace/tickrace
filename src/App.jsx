@@ -290,14 +290,8 @@ function AppContent() {
             }
           />
 
-          <Route
-            path="/organisateur/inscriptions/:format_id"
-            element={
-              <ProtectedRoute>
-                <ListeInscriptions />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/inscription/:courseId" element={<InscriptionCourse />} />
+
 
           {/* Création/édition */}
           <Route
