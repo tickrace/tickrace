@@ -361,7 +361,7 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
             </PrimaryButton>
 
             <Link
-              to="/organisateur"
+              to="/organisateur/mon-espace"
               className="inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-medium ring-1 ring-gray-200 bg-white hover:bg-gray-50"
             >
               Retour espace orga
