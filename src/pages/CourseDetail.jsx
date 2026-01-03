@@ -337,7 +337,7 @@ const wanted = searchParams.get("format");
 if (!selectedFormatId && enriched.length) {
   const ok = wanted && enriched.some((f) => f.id === wanted);
   setSelectedFormatId(ok ? wanted : enriched[0].id);
-}
+}}
 
 
       
