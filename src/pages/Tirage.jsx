@@ -93,7 +93,7 @@ export default function Tirage() {
         try {
           const { data: l, error: eL } = await supabase
             .from("format_lottery_settings")
-            .select("format_id, enabled, pre_open_at, pre_close_at, pre_closed_at, draw_at, invite_ttl_hours")
+            .select("format_id, enabled, pre_open_at, pre_close_at, pre_close_at, draw_at, invite_ttl_hours")
             .eq("format_id", formatId)
             .maybeSingle();
 
@@ -122,7 +122,7 @@ export default function Tirage() {
     }
 
     const openAt = parseDate(lottery.pre_open_at);
-    const closeAt = parseDate(lottery.pre_closed_at || lottery.pre_close_at);
+    const closeAt = parseDate(lottery.pre_close_at || lottery.pre_close_at);
     const drawAt = parseDate(lottery.draw_at);
 
     if (openAt && now < openAt) return { key: "soon", label: "Préinscription bientôt" };
@@ -261,7 +261,7 @@ export default function Tirage() {
               </div>
               <div>
                 <span className="text-neutral-500">Clôture :</span>{" "}
-                <strong>{(lottery?.pre_closed_at || lottery?.pre_close_at) ? fmtDateTime(lottery.pre_closed_at || lottery.pre_close_at) : "—"}</strong>
+                <strong>{(lottery?.pre_close_at || lottery?.pre_close_at) ? fmtDateTime(lottery.pre_close_at || lottery.pre_close_at) : "—"}</strong>
               </div>
               <div>
                 <span className="text-neutral-500">Tirage :</span>{" "}
