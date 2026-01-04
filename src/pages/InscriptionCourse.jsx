@@ -1047,7 +1047,8 @@ export default function InscriptionCourse() {
             options_total_eur: (totalOptionsCents || 0) / 100,
 
             // Loterie (pour le webhook Stripe)
-            lottery_invite_token: inviteToken || null,
+            lottery_token: inviteToken || null,
+            lottery_invite_id: inviteState?.invite?.id || null,
             preinscription_id: inviteState?.invite?.preinscription_id || null,
             team_id: inviteState?.invite?.team_id || null,
           },
@@ -1135,7 +1136,8 @@ export default function InscriptionCourse() {
         selected_options,
 
         // Loterie (pour le webhook Stripe)
-        lottery_invite_token: inviteToken || null,
+        lottery_token: inviteToken || null,
+        lottery_invite_id: inviteState?.invite?.id || null,
         preinscription_id: inviteState?.invite?.preinscription_id || null,
         team_id: inviteState?.invite?.team_id || null,
       };
