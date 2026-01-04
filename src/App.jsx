@@ -17,6 +17,7 @@ import { Toaster } from "react-hot-toast";
 
 /* ----------------------------- Pages ----------------------------- */
 // Public
+
 import Home from "./pages/Home";
 import Courses from "./pages/Courses";
 import CourseDetail from "./pages/CourseDetail";
@@ -43,6 +44,8 @@ import MesInscriptions from "./pages/MesInscriptions";
 import ProfilCoureur from "./pages/ProfilCoureur";
 import DetailsCoureur from "./pages/DetailsCoureur";
 import MemberDetails from "./pages/MemberDetails";
+import Tirage from "./pages/Tirage";
+
 
 // Organisateur
 import OrganisateurLoterieCourse from "./pages/OrganisateurLoterieCourse";
@@ -122,6 +125,7 @@ function AppContent() {
         <Routes>
           {/* ============================= PUBLIC ============================= */}
           <Route path="/waitlist/accept/*" element={<WaitlistAccept />} />
+<Route path="/tirage/:formatId" element={<Tirage />} />
 
           <Route path="/" element={<Home />} />
           <Route path="/courses" element={<Courses />} />
