@@ -10,19 +10,34 @@ import {
   Save,
   Settings2,
   Timer,
+  Info,
+  Sparkles,
+  Mail,
+  Play,
+  Send,
+  Users,
+  AlertTriangle,
+  RefreshCcw,
 } from "lucide-react";
 import toast from "react-hot-toast";
 import { supabase } from "../supabase";
 
 /**
  * Page organisateur (par course) : liste des formats + activation/paramétrage loterie
- * Route recommandée : /organisateur/loterie/:courseId
+ * Route : /organisateur/loterie/:courseId
+ *
+ * But :
+ * - Activer la loterie par format
+ * - Définir fenêtre de préinscription + TTL invitations
+ * - Donner une compréhension claire du workflow
+ * - Accès direct à /organisateur/tirage/:formatId
+ *
+ * Notes importantes (UX) :
+ * - “Lancer tirage” et “Libérer des invitations” se font dans la page /organisateur/tirage/:formatId.
+ * - Cette page sert à CONFIGURER et à vérifier que tout est cohérent.
  *
  * Table utilisée : format_lottery_settings (PK: format_id)
  * - enabled, pre_open_at, pre_close_at, pre_closed_at, draw_at, invite_ttl_hours
- *
- * Liens :
- * - Interface tirage par format : /organisateur/tirage/:formatId
  */
 
 const Container = ({ children }) => (
@@ -33,11 +48,50 @@ const Card = ({ children, className = "" }) => (
   <div className={`rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 ${className}`}>{children}</div>
 );
 
-const Button = ({ children, className = "", disabled, onClick, type = "button" }) => (
+const SectionTitle = ({ icon: Icon, title, subtitle, right }) => (
+  <div className="flex items-start justify-between gap-4 p-5 border-b border-gray-100">
+    <div className="flex items-start gap-3">
+      {Icon ? (
+        <div className="h-10 w-10 rounded-2xl bg-gray-50 ring-1 ring-gray-200 flex items-center justify-center shrink-0">
+          <Icon className="h-5 w-5 text-gray-800" />
+        </div>
+      ) : null}
+      <div>
+        <div className="text-lg font-semibold text-gray-900">{title}</div>
+        {subtitle ? <div className="text-sm text-gray-600 mt-1">{subtitle}</div> : null}
+      </div>
+    </div>
+    {right ? <div className="shrink-0">{right}</div> : null}
+  </div>
+);
+
+const Pill = ({ children, tone = "orange" }) => {
+  const tones = {
+    orange: "bg-orange-50 ring-orange-200 text-orange-700",
+    green: "bg-green-50 ring-green-200 text-green-700",
+    blue: "bg-blue-50 ring-blue-200 text-blue-700",
+    gray: "bg-gray-50 ring-gray-200 text-gray-700",
+    violet: "bg-violet-50 ring-violet-200 text-violet-800",
+    amber: "bg-amber-50 ring-amber-200 text-amber-800",
+    rose: "bg-rose-50 ring-rose-200 text-rose-800",
+  };
+  return (
+    <span
+      className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ring-1 ${
+        tones[tone] || tones.orange
+      }`}
+    >
+      {children}
+    </span>
+  );
+};
+
+const Button = ({ children, className = "", disabled, onClick, type = "button", title }) => (
   <button
     type={type}
     disabled={disabled}
     onClick={onClick}
+    title={title}
     className={[
       "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition",
       "ring-1 ring-gray-200 bg-white text-gray-900 hover:bg-gray-50",
@@ -49,11 +103,12 @@ const Button = ({ children, className = "", disabled, onClick, type = "button" }
   </button>
 );
 
-const PrimaryButton = ({ children, className = "", disabled, onClick, type = "button" }) => (
+const PrimaryButton = ({ children, className = "", disabled, onClick, type = "button", title }) => (
   <button
     type={type}
     disabled={disabled}
     onClick={onClick}
+    title={title}
     className={[
       "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition",
       "bg-orange-600 text-white hover:bg-orange-700",
@@ -124,6 +179,24 @@ function defaultSettings(formatId) {
   };
 }
 
+function formatHealth(settings) {
+  const enabled = Boolean(settings?.enabled);
+  if (!enabled) return { ok: false, level: "off", text: "Désactivée" };
+
+  const openOk = Boolean(settings?.pre_open_at);
+  const closeOk = Boolean(settings?.pre_close_at);
+  if (!openOk || !closeOk) return { ok: false, level: "warn", text: "Dates manquantes" };
+
+  const o = new Date(settings.pre_open_at);
+  const c = new Date(settings.pre_close_at);
+  if (o > c) return { ok: false, level: "warn", text: "Ouverture > fermeture" };
+
+  const ttl = Number(settings?.invite_ttl_hours ?? 0);
+  if (!Number.isFinite(ttl) || ttl <= 0 || ttl > 720) return { ok: false, level: "warn", text: "TTL invalide" };
+
+  return { ok: true, level: "ok", text: "Prêt" };
+}
+
 export default function OrganisateurLoterieCourse() {
   const { courseId } = useParams();
 
@@ -132,8 +205,10 @@ export default function OrganisateurLoterieCourse() {
 
   const [course, setCourse] = useState(null);
   const [formats, setFormats] = useState([]);
-  const [settingsByFormat, setSettingsByFormat] = useState({}); // format_id -> settings row
-  const [dirty, setDirty] = useState({}); // format_id -> boolean
+  const [settingsByFormat, setSettingsByFormat] = useState({});
+  const [dirty, setDirty] = useState({});
+
+  const hasDirty = useMemo(() => Object.values(dirty).some(Boolean), [dirty]);
 
   const load = async () => {
     if (!courseId) return;
@@ -145,7 +220,6 @@ export default function OrganisateurLoterieCourse() {
         .eq("id", courseId)
         .single();
       if (ce) throw ce;
-      setCourse(c);
 
       const { data: f, error: fe } = await supabase
         .from("formats")
@@ -154,14 +228,14 @@ export default function OrganisateurLoterieCourse() {
         .order("date", { ascending: true });
       if (fe) throw fe;
 
-      setFormats(f || []);
-const earliestFormatDate =
-  (f || [])
-    .map((x) => x.date)
-    .filter(Boolean)
-    .sort()[0] || null;
+      const earliestFormatDate =
+        (f || [])
+          .map((x) => x.date)
+          .filter(Boolean)
+          .sort()[0] || null;
 
-setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
+      setCourse({ ...c, _earliestFormatDate: earliestFormatDate });
+      setFormats(f || []);
 
       const ids = (f || []).map((x) => x.id);
       if (!ids.length) {
@@ -195,8 +269,6 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [courseId]);
 
-  const hasDirty = useMemo(() => Object.values(dirty).some(Boolean), [dirty]);
-
   const patchSettings = (formatId, patch) => {
     setSettingsByFormat((prev) => ({
       ...prev,
@@ -205,24 +277,24 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
     setDirty((prev) => ({ ...prev, [formatId]: true }));
   };
 
+  const validateRow = (row) => {
+    const ttl = Number(row.invite_ttl_hours || 0);
+    if (!Number.isFinite(ttl) || ttl <= 0 || ttl > 720) return "TTL invalide (1h à 720h).";
+
+    if (row.enabled) {
+      if (!row.pre_open_at || !row.pre_close_at) return "Renseigne au minimum les dates d’ouverture/fermeture.";
+      if (new Date(row.pre_open_at) > new Date(row.pre_close_at)) return "La date d’ouverture doit être avant la fermeture.";
+    }
+    return null;
+  };
+
   const saveOne = async (formatId) => {
     const row = settingsByFormat[formatId] || defaultSettings(formatId);
     try {
-      // Small validation
-      const ttl = Number(row.invite_ttl_hours || 0);
-      if (!Number.isFinite(ttl) || ttl <= 0 || ttl > 720) {
-        toast.error("TTL invalide (1h à 720h).");
+      const err = validateRow(row);
+      if (err) {
+        toast.error(err);
         return;
-      }
-      if (row.enabled) {
-        if (!row.pre_open_at || !row.pre_close_at) {
-          toast.error("Renseigne au minimum les dates d’ouverture/fermeture de préinscription.");
-          return;
-        }
-        if (new Date(row.pre_open_at) > new Date(row.pre_close_at)) {
-          toast.error("La date d’ouverture doit être avant la date de fermeture.");
-          return;
-        }
       }
 
       const payload = {
@@ -232,12 +304,10 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
         pre_close_at: row.pre_close_at,
         pre_closed_at: row.pre_closed_at,
         draw_at: row.draw_at,
-        invite_ttl_hours: ttl,
+        invite_ttl_hours: Number(row.invite_ttl_hours ?? 72),
       };
 
-      const { error } = await supabase
-        .from("format_lottery_settings")
-        .upsert(payload, { onConflict: "format_id" });
+      const { error } = await supabase.from("format_lottery_settings").upsert(payload, { onConflict: "format_id" });
       if (error) throw error;
 
       setDirty((prev) => ({ ...prev, [formatId]: false }));
@@ -251,24 +321,15 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
   const saveAll = async () => {
     const ids = formats.map((f) => f.id).filter((id) => dirty[id]);
     if (!ids.length) return;
+
     setSavingAll(true);
     try {
-      // Validate + build payload
       const payloads = [];
       for (const id of ids) {
         const row = settingsByFormat[id] || defaultSettings(id);
-        const ttl = Number(row.invite_ttl_hours || 0);
-        if (!Number.isFinite(ttl) || ttl <= 0 || ttl > 720) {
-          throw new Error(`TTL invalide pour le format ${id} (1h à 720h).`);
-        }
-        if (row.enabled) {
-          if (!row.pre_open_at || !row.pre_close_at) {
-            throw new Error(`Dates manquantes (préinscription) pour le format ${id}.`);
-          }
-          if (new Date(row.pre_open_at) > new Date(row.pre_close_at)) {
-            throw new Error(`Ouverture > fermeture pour le format ${id}.`);
-          }
-        }
+        const err = validateRow(row);
+        if (err) throw new Error(`Format ${id} : ${err}`);
+
         payloads.push({
           format_id: id,
           enabled: Boolean(row.enabled),
@@ -276,13 +337,11 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
           pre_close_at: row.pre_close_at,
           pre_closed_at: row.pre_closed_at,
           draw_at: row.draw_at,
-          invite_ttl_hours: ttl,
+          invite_ttl_hours: Number(row.invite_ttl_hours ?? 72),
         });
       }
 
-      const { error } = await supabase
-        .from("format_lottery_settings")
-        .upsert(payloads, { onConflict: "format_id" });
+      const { error } = await supabase.from("format_lottery_settings").upsert(payloads, { onConflict: "format_id" });
       if (error) throw error;
 
       setDirty({});
@@ -292,6 +351,29 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
       toast.error(e?.message || "Impossible d’enregistrer tous les formats.");
     } finally {
       setSavingAll(false);
+    }
+  };
+
+  const quickApply = (mode) => {
+    // “Assist” pour éviter de configurer format par format à la main
+    // - mode: "openNow_7days" : ouvre maintenant et ferme +7j
+    // - mode: "closeTonight" : ferme aujourd’hui à 23:59
+    const now = new Date();
+    const iso = (d) => d.toISOString();
+
+    if (mode === "openNow_7days") {
+      const close = new Date(now.getTime() + 7 * 24 * 3600 * 1000);
+      const patch = { enabled: true, pre_open_at: iso(now), pre_close_at: iso(close), invite_ttl_hours: 72 };
+      for (const f of formats) patchSettings(f.id, patch);
+      toast.success("Préremplissage appliqué : ouverture maintenant, fermeture +7j, TTL 72h.");
+    }
+
+    if (mode === "closeTonight") {
+      const end = new Date(now);
+      end.setHours(23, 59, 0, 0);
+      const patch = { pre_close_at: iso(end) };
+      for (const f of formats) patchSettings(f.id, patch);
+      toast.success("Préremplissage appliqué : fermeture aujourd’hui 23:59.");
     }
   };
 
@@ -310,19 +392,19 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
     return (
       <Container>
         <Card>
+          <SectionTitle icon={AlertTriangle} title="Préinscription / Tirage au sort" subtitle="Course introuvable ou accès refusé." />
           <div className="p-5">
-            <div className="text-lg font-semibold text-gray-900">Gestion loterie</div>
-            <div className="text-sm text-gray-600 mt-1">Course introuvable ou accès refusé.</div>
-            <div className="mt-4">
-              <Link to="/organisateur" className="text-orange-700 underline">
-                Retour
-              </Link>
-            </div>
+            <Link to="/organisateur" className="text-orange-700 underline">
+              Retour
+            </Link>
           </div>
         </Card>
       </Container>
     );
   }
+
+  const readyCount = formats.filter((f) => formatHealth(settingsByFormat[f.id]).ok).length;
+  const enabledCount = formats.filter((f) => Boolean(settingsByFormat[f.id]?.enabled)).length;
 
   return (
     <Container>
@@ -332,30 +414,39 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
           <div>
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-semibold text-gray-900">Préinscription / Tirage au sort</h1>
-              <span className="inline-flex items-center gap-2 rounded-full bg-orange-50 ring-1 ring-orange-200 px-3 py-1 text-xs text-orange-700">
-                <Settings2 className="h-4 w-4" />
-                par format
-              </span>
+              <Pill>
+                <Settings2 className="h-4 w-4" /> Paramétrage (par format)
+              </Pill>
             </div>
+
             <div className="text-sm text-gray-600 mt-2">
               <div className="font-medium text-gray-900">{course.nom}</div>
-              <div className="mt-1 inline-flex items-center gap-2">
+              <div className="mt-1 inline-flex items-center gap-2 flex-wrap">
                 <CalendarDays className="h-4 w-4" />
                 <span>{fmtDT(course._earliestFormatDate)}</span>
-
                 <span className="text-gray-300">•</span>
                 <span>{course.lieu || "—"}</span>
+                <span className="text-gray-300">•</span>
+                <span className="inline-flex items-center gap-2">
+                  <Users className="h-4 w-4" />
+                  {enabledCount}/{formats.length} format(s) activé(s)
+                </span>
+                <span className="text-gray-300">•</span>
+                <span className="inline-flex items-center gap-2">
+                  <BadgeCheck className="h-4 w-4" />
+                  {readyCount}/{formats.length} prêt(s)
+                </span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button onClick={load}>
-              <Loader2 className="h-4 w-4" />
+            <Button onClick={load} title="Recharge les formats + settings">
+              <RefreshCcw className="h-4 w-4" />
               Recharger
             </Button>
 
-            <PrimaryButton onClick={saveAll} disabled={!hasDirty || savingAll}>
+            <PrimaryButton onClick={saveAll} disabled={!hasDirty || savingAll} title={!hasDirty ? "Aucune modification" : "Enregistre tous les formats modifiés"}>
               {savingAll ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Enregistrer tout
             </PrimaryButton>
@@ -370,6 +461,90 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
           </div>
         </div>
 
+        {/* Big explanation / workflow */}
+        <Card>
+          <SectionTitle
+            icon={Info}
+            title="Comment ça marche (en 4 étapes claires)"
+            subtitle="Ici tu configures. Le tirage et les invitations se gèrent ensuite sur la page “Tirage” de chaque format."
+          />
+          <div className="p-5 grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="space-y-3 text-sm text-gray-700">
+              <div className="rounded-2xl ring-1 ring-gray-200 p-4">
+                <div className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Sparkles className="h-4 w-4" /> 1) Activer la loterie par format
+                </div>
+                <div className="mt-1 text-gray-600">
+                  Si la loterie est désactivée, le format fonctionne “normalement” (pas de préinscription).
+                </div>
+              </div>
+
+              <div className="rounded-2xl ring-1 ring-gray-200 p-4">
+                <div className="font-semibold text-gray-900 flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4" /> 2) Définir la fenêtre de préinscription
+                </div>
+                <div className="mt-1 text-gray-600">
+                  Les coureurs peuvent candidater entre <span className="font-medium">ouverture</span> et{" "}
+                  <span className="font-medium">fermeture</span>.
+                </div>
+              </div>
+
+              <div className="rounded-2xl ring-1 ring-gray-200 p-4">
+                <div className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Mail className="h-4 w-4" /> 3) Définir le TTL des invitations
+                </div>
+                <div className="mt-1 text-gray-600">
+                  Quand tu libères un lot d’invitations, chaque invité a <span className="font-medium">X heures</span> pour s’inscrire.
+                </div>
+              </div>
+
+              <div className="rounded-2xl bg-orange-50 ring-1 ring-orange-200 p-4">
+                <div className="font-semibold text-orange-800 flex items-center gap-2">
+                  <AlertTriangle className="h-4 w-4" /> 4) Ensuite : Tirage + Libération
+                </div>
+                <div className="mt-1 text-orange-800">
+                  Sur <span className="font-semibold">/organisateur/tirage/:formatId</span> :
+                  <ul className="list-disc pl-5 mt-2 space-y-1">
+                    <li>
+                      <span className="font-semibold">Lancer tirage</span> = classer tout le monde (ranked), <span className="font-semibold">aucun email</span>.
+                    </li>
+                    <li>
+                      <span className="font-semibold">Libérer</span> = créer tokens + passer en invited + <span className="font-semibold">emails côté backend</span>.
+                    </li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl bg-gray-50 ring-1 ring-gray-200 p-4">
+              <div className="text-sm font-semibold text-gray-900">Assistants de configuration</div>
+              <div className="text-xs text-gray-600 mt-1">Pour aller vite (applique aux formats listés ci-dessous).</div>
+
+              <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                <Button onClick={() => quickApply("openNow_7days")} title="Active + ouvre maintenant et ferme dans 7 jours">
+                  <Play className="h-4 w-4" />
+                  Ouvrir maintenant (+7j)
+                </Button>
+                <Button onClick={() => quickApply("closeTonight")} title="Met la fermeture à aujourd’hui 23:59">
+                  <Timer className="h-4 w-4" />
+                  Fermer ce soir (23:59)
+                </Button>
+              </div>
+
+              <div className="mt-4 rounded-xl bg-white ring-1 ring-gray-200 p-3 text-xs text-gray-600">
+                <div className="font-semibold text-gray-900">Checklist rapide</div>
+                <ul className="list-disc pl-5 mt-2 space-y-1">
+                  <li>Active la loterie</li>
+                  <li>Ouverture + fermeture OK</li>
+                  <li>TTL raisonnable (48–96h souvent)</li>
+                  <li>Enregistre (bouton “Enregistrer”)</li>
+                  <li>Ouvre la page Tirage pour lancer le tirage + libérer les lots</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </Card>
+
         {/* Formats list */}
         <div className="grid grid-cols-1 gap-4">
           {!formats.length ? (
@@ -382,66 +557,73 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
             const s = settingsByFormat[f.id] || defaultSettings(f.id);
             const isDirty = Boolean(dirty[f.id]);
             const enabled = Boolean(s.enabled);
+            const health = formatHealth(s);
 
             return (
               <Card key={f.id}>
                 <div className="p-5 flex flex-col gap-4">
                   {/* Top line */}
-                  <div className="flex flex-col md:flex-row md:items-start md:justify-between gap-3">
+                  <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-3">
                     <div>
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="text-lg font-semibold text-gray-900">{f.nom || "Format"}</div>
 
                         {enabled ? (
-                          <span className="inline-flex items-center gap-2 rounded-full bg-green-50 ring-1 ring-green-200 px-3 py-1 text-xs text-green-700">
-                            <BadgeCheck className="h-4 w-4" />
-                            Loterie activée
-                          </span>
+                          <Pill tone="green">
+                            <BadgeCheck className="h-4 w-4" /> Activée
+                          </Pill>
                         ) : (
-                          <span className="inline-flex items-center gap-2 rounded-full bg-gray-50 ring-1 ring-gray-200 px-3 py-1 text-xs text-gray-700">
-                            <Lock className="h-4 w-4" />
-                            Désactivée
-                          </span>
+                          <Pill tone="gray">
+                            <Lock className="h-4 w-4" /> Désactivée
+                          </Pill>
                         )}
 
                         {f.is_team_event ? (
-                          <span className="inline-flex items-center gap-2 rounded-full bg-blue-50 ring-1 ring-blue-200 px-3 py-1 text-xs text-blue-700">
-                            Équipe • taille {f.team_size}
-                          </span>
+                          <Pill tone="blue">
+                            <Users className="h-4 w-4" /> Équipe • taille {f.team_size}
+                          </Pill>
                         ) : (
-                          <span className="inline-flex items-center gap-2 rounded-full bg-gray-50 ring-1 ring-gray-200 px-3 py-1 text-xs text-gray-700">
-                            Solo
-                          </span>
+                          <Pill tone="gray">
+                            <Users className="h-4 w-4" /> Solo
+                          </Pill>
+                        )}
+
+                        {health.level === "ok" ? (
+                          <Pill tone="green">✅ {health.text}</Pill>
+                        ) : health.level === "warn" ? (
+                          <Pill tone="amber">⚠️ {health.text}</Pill>
+                        ) : (
+                          <Pill tone="gray">{health.text}</Pill>
                         )}
 
                         {isDirty ? (
-                          <span className="inline-flex items-center gap-2 rounded-full bg-amber-50 ring-1 ring-amber-200 px-3 py-1 text-xs text-amber-800">
-                            <Timer className="h-4 w-4" />
-                            Non enregistré
-                          </span>
+                          <Pill tone="amber">
+                            <Timer className="h-4 w-4" /> Non enregistré
+                          </Pill>
                         ) : null}
                       </div>
 
-                      <div className="text-sm text-gray-600 mt-2">
+                      <div className="text-sm text-gray-600 mt-2 flex flex-wrap items-center gap-2">
                         <span className="font-medium text-gray-900">{fmtDT(f.date)}</span>
                         {f.nb_max_coureurs ? (
                           <>
-                            <span className="mx-2 text-gray-300">•</span>
+                            <span className="text-gray-300">•</span>
                             <span>Quota {f.nb_max_coureurs}</span>
                           </>
                         ) : null}
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <Button
                         onClick={() => patchSettings(f.id, { enabled: !enabled })}
                         className={enabled ? "ring-green-200 bg-green-50 text-green-800 hover:bg-green-100" : ""}
+                        title="Active/désactive la loterie pour ce format"
                       >
-                        {enabled ? "Désactiver" : "Activer"} la loterie
+                        {enabled ? "Désactiver" : "Activer"}
                       </Button>
 
-                      <PrimaryButton onClick={() => saveOne(f.id)}>
+                      <PrimaryButton onClick={() => saveOne(f.id)} title="Enregistre uniquement ce format">
                         <Save className="h-4 w-4" />
                         Enregistrer
                       </PrimaryButton>
@@ -452,7 +634,7 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
                           "inline-flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition",
                           enabled ? "bg-orange-600 text-white hover:bg-orange-700" : "bg-gray-200 text-gray-800 hover:bg-gray-300",
                         ].join(" ")}
-                        title={enabled ? "Ouvrir l’interface tirage" : "Active la loterie pour utiliser le tirage"}
+                        title={enabled ? "Ouvrir l’interface tirage" : "Active la loterie puis enregistre pour accéder au tirage"}
                         aria-disabled={!enabled}
                         onClick={(e) => {
                           if (!enabled) {
@@ -477,6 +659,7 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
                         onChange={(e) => patchSettings(f.id, { pre_open_at: fromDatetimeLocalValue(e.target.value) })}
                         disabled={!enabled}
                       />
+                      <div className="text-[11px] text-gray-500 mt-1">À partir de quand les coureurs peuvent candidater.</div>
                     </div>
 
                     <div>
@@ -487,6 +670,7 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
                         onChange={(e) => patchSettings(f.id, { pre_close_at: fromDatetimeLocalValue(e.target.value) })}
                         disabled={!enabled}
                       />
+                      <div className="text-[11px] text-gray-500 mt-1">Après cette date : plus de candidatures.</div>
                     </div>
 
                     <div>
@@ -497,6 +681,7 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
                         onChange={(e) => patchSettings(f.id, { draw_at: fromDatetimeLocalValue(e.target.value) })}
                         disabled={!enabled}
                       />
+                      <div className="text-[11px] text-gray-500 mt-1">Info organisateur (n’impacte pas la mécanique).</div>
                     </div>
 
                     <div>
@@ -509,25 +694,27 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
                         onChange={(e) => patchSettings(f.id, { invite_ttl_hours: Number(e.target.value || 72) })}
                         disabled={!enabled}
                       />
-                      <div className="text-[11px] text-gray-500 mt-1">
-                        Le TTL démarre à l’envoi de chaque lot (ex : 72h).
-                      </div>
+                      <div className="text-[11px] text-gray-500 mt-1">Délai pour s’inscrire après réception de l’invitation.</div>
                     </div>
                   </div>
 
-                  {/* Read-only info */}
+                  {/* Small “what next” */}
                   {enabled ? (
                     <div className="rounded-2xl bg-gray-50 ring-1 ring-gray-200 p-4 text-sm text-gray-700">
-                      <div className="font-semibold text-gray-900 mb-1">Rappel</div>
-                      <ul className="list-disc pl-5 space-y-1">
-                        <li>Les candidats se préinscrivent pendant la fenêtre définie.</li>
-                        <li>Le tirage génère un ordre complet (rangs 1..N).</li>
-                        <li>Tu libères des lots successifs depuis l’interface “tirage”.</li>
-                      </ul>
+                      <div className="font-semibold text-gray-900 mb-1">Prochaine étape</div>
+                      <div className="text-sm text-gray-700">
+                        Une fois la fenêtre terminée, va dans{" "}
+                        <span className="font-semibold">“Ouvrir tirage”</span> →{" "}
+                        <span className="font-semibold">Lancer tirage</span> →{" "}
+                        <span className="font-semibold">Libérer</span> des lots (ex: 25).
+                      </div>
+                      <div className="mt-2 text-xs text-gray-500">
+                        Rappel : les emails ne partent pas au tirage, ils partent quand tu libères un lot (backend).
+                      </div>
                     </div>
                   ) : (
                     <div className="text-xs text-gray-500">
-                      Active la loterie pour paramétrer la préinscription et accéder à l’interface de tirage.
+                      Active la loterie pour paramétrer la préinscription et accéder au tirage.
                     </div>
                   )}
                 </div>
@@ -535,6 +722,41 @@ setCourse((prev) => ({ ...prev, _earliestFormatDate: earliestFormatDate }));
             );
           })}
         </div>
+
+        {/* Footer note */}
+        <Card>
+          <SectionTitle
+            icon={Info}
+            title="À retenir"
+            subtitle="Cette page = configuration. La page “Tirage” = exécution (tirage + libération des lots)."
+          />
+          <div className="p-5 text-sm text-gray-700">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div className="rounded-2xl ring-1 ring-gray-200 p-4">
+                <div className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Play className="h-4 w-4" /> Tirage
+                </div>
+                <div className="mt-1 text-gray-600">Classe tout le monde (ranked). Aucun email.</div>
+              </div>
+              <div className="rounded-2xl ring-1 ring-gray-200 p-4">
+                <div className="font-semibold text-gray-900 flex items-center gap-2">
+                  <Send className="h-4 w-4" /> Libération
+                </div>
+                <div className="mt-1 text-gray-600">Crée tokens + invited + emails côté backend.</div>
+              </div>
+              <div className="rounded-2xl ring-1 ring-gray-200 p-4">
+                <div className="font-semibold text-gray-900 flex items-center gap-2">
+                  <BadgeCheck className="h-4 w-4" /> Inscription
+                </div>
+                <div className="mt-1 text-gray-600">Passe en registered après paiement (webhook).</div>
+              </div>
+            </div>
+
+            <div className="mt-4 text-xs text-gray-500">
+              Si les statuts changent mais aucun email ne part, c’est côté backend (RPC/Edge/trigger) qu’il faut brancher l’envoi.
+            </div>
+          </div>
+        </Card>
       </div>
     </Container>
   );
