@@ -213,16 +213,13 @@ export default function MesInscriptions() {
               // Inscription d'équipe si reliée à un groupe OU type_format≠individuel OU team_name présent
               const isTeam =
                 !!groupId ||
-                (format?.type_format && format.type_format !== "individuel") ||
+                (format?.type_format &&
+                  format.type_format !== "individuel") ||
                 !!inscription.team_name;
 
-              // ✅ On garde la redirection existante (solo vs équipe)
               const detailUrl = groupId
                 ? `/mon-inscription-equipe/${groupId}`
                 : `/mon-inscription/${id}`;
-
-              // ✅ Nouveau lien vers le tirage public (si formatId dispo)
-              const tirageUrl = format?.id ? `/tirage/${format.id}` : null;
 
               return (
                 <li
@@ -270,35 +267,26 @@ export default function MesInscriptions() {
 
                       <div className="mt-2 text-sm">
                         Statut :{" "}
-                        <span className="font-medium">{statut || "—"}</span>
+                        <span className="font-medium">
+                          {statut || "—"}
+                        </span>
                       </div>
 
-                      <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Link
-                            to={`/courses/${course?.id ?? ""}`}
-                            className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                          >
-                            Voir la page
-                          </Link>
-
-                          {/* ✅ Nouveau bouton Tirage */}
-                          {tirageUrl && (
-                            <Link
-                              to={tirageUrl}
-                              className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
-                              title="Accéder à la page Tirage / Liste d’attente de ce format"
-                            >
-                              Tirage
-                            </Link>
-                          )}
-                        </div>
+                      <div className="mt-4 flex items-center justify-between">
+                        <Link
+                          to={`/courses/${course?.id ?? ""}`}
+                          className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-900 hover:bg-neutral-50"
+                        >
+                          Voir la page
+                        </Link>
 
                         <Link
                           to={detailUrl}
-                          className="inline-flex items-center justify-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
+                          className="inline-flex items-center gap-2 rounded-xl bg-orange-500 px-3 py-2 text-sm font-semibold text-white hover:brightness-110"
                         >
-                          {isTeam ? "Voir l’inscription équipe" : "Voir / Modifier"}
+                          {isTeam
+                            ? "Voir l’inscription équipe"
+                            : "Voir / Modifier"}
                         </Link>
                       </div>
                     </div>
@@ -317,7 +305,9 @@ export default function MesInscriptions() {
 function EmptyState() {
   return (
     <div className="rounded-2xl ring-1 ring-neutral-200 bg-white p-10 text-center">
-      <h3 className="text-lg font-semibold">Aucune inscription pour le moment</h3>
+      <h3 className="text-lg font-semibold">
+        Aucune inscription pour le moment
+      </h3>
       <p className="mt-1 text-neutral-600">
         Parcourez les épreuves et trouvez votre prochaine course.
       </p>
