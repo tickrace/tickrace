@@ -26,6 +26,10 @@ import {
 const GPXViewer = lazy(() => import("../components/GPXViewer"));
 
 /* ============================== Utils ============================== */
+function shouldShowTirageLink(format) {
+  return !!format?.lottery?.enabled;
+}
+
 const parseDate = (d) => {
   if (!d) return null;
   const dt = new Date(d);
@@ -1088,6 +1092,16 @@ if (!selectedFormatId && enriched.length) {
                           <div className="flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <div className="font-medium">{f.nom}</div>
+{/* ✅ Lien Tirage public (uniquement si activé) */}
+{shouldShowTirageLink(f) && !(cta.kind === "link" && String(cta.to || "").startsWith("/tirage/")) && (
+  <Link
+    to={`/tirage/${f.id}`}
+    className="mt-1 inline-flex items-center gap-1 text-xs font-semibold text-orange-700 hover:text-orange-800"
+    title="Voir la page publique du tirage"
+  >
+    🏆 Tirage public <ArrowUpRight className="w-3 h-3" />
+  </Link>
+)}
 
                               <div className="text-xs text-neutral-600 mt-0.5 flex flex-wrap gap-2">
                                 {f.date && (
@@ -1485,7 +1499,20 @@ function FormatsTable({ courseId, formats, countsByFormat, onWaitlist, inviteTok
                     >
                       {cta.label}
                     </button>
+                    
                   )}
+                  {/* ✅ Lien Tirage public (uniquement si activé) */}
+{shouldShowTirageLink(f) && !(cta.kind === "link" && String(cta.to || "").startsWith("/tirage/")) && (
+  <div className="mt-2">
+    <Link
+      to={`/tirage/${f.id}`}
+      className="inline-flex items-center gap-1 text-xs font-semibold text-orange-700 hover:text-orange-800"
+    >
+      Tirage public <ArrowUpRight className="w-3 h-3" />
+    </Link>
+  </div>
+)}
+
                 </td>
               </tr>
             );
