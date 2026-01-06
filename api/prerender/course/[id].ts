@@ -1,4 +1,5 @@
-export const runtime = "edge";
+export const config = { runtime: "edge" };
+
 
 function isBot(ua: string) {
   const U = (ua || "").toLowerCase();
