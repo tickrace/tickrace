@@ -1,5 +1,6 @@
 export default function handler(req, res) {
   res.status(200).json({
+    supabaseUrl: process.env.VITE_SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || null,
     hasViteUrl: Boolean(process.env.VITE_SUPABASE_URL),
     hasNextUrl: Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL),
     hasServiceRole: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
