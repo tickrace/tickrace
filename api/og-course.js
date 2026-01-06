@@ -1,9 +1,7 @@
-export const config = { runtime: "edge" };
+const SUPABASE_URL = process.env.VITE_SUPABASE_URL;
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-
-function pickPrimaryFormat(formats: any[] | null | undefined) {
+function pickPrimaryFormat(formats) {
   if (!Array.isArray(formats) || formats.length === 0) return null;
   const sorted = [...formats].sort((a, b) => {
     const da = `${a?.date || "9999-12-31"}T${a?.heure_depart || "23:59"}`;
@@ -13,7 +11,7 @@ function pickPrimaryFormat(formats: any[] | null | undefined) {
   return sorted[0];
 }
 
-async function supaGetCourse(id: string) {
+async function supaGetCourse(id) {
   const url =
     `${SUPABASE_URL}/rest/v1/courses` +
     `?id=eq.${encodeURIComponent(id)}` +
@@ -32,24 +30,23 @@ async function supaGetCourse(id: string) {
   return rows?.[0] ?? null;
 }
 
-export default async function handler(req: Request) {
-  const url = new URL(req.url);
-  const id = url.searchParams.get("id") || "";
+export default async function handler(req, res) {
   const origin = "https://www.tickrace.com";
+  const id = req.query?.id || "";
 
+  if (!SUPABASE_URL || !SERVICE_ROLE) {
+    res.status(500).json({ error: "Missing env VITE_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY" });
+    return;
+  }
   if (!id) {
-    return new Response(JSON.stringify({ error: "Missing id" }), {
-      status: 400,
-      headers: { "content-type": "application/json" },
-    });
+    res.status(400).json({ error: "Missing id" });
+    return;
   }
 
   const data = await supaGetCourse(id);
   if (!data) {
-    return new Response(JSON.stringify({ error: "Not found" }), {
-      status: 404,
-      headers: { "content-type": "application/json" },
-    });
+    res.status(404).json({ error: "Not found" });
+    return;
   }
 
   const f = pickPrimaryFormat(data.formats);
@@ -69,7 +66,8 @@ export default async function handler(req: Request) {
     .filter(Boolean)
     .join(" • ");
 
-  return new Response(
+  res.setHeader("Content-Type", "application/json");
+  res.status(200).send(
     JSON.stringify({
       id: data.id,
       title,
@@ -77,7 +75,6 @@ export default async function handler(req: Request) {
       url: `${origin}/courses/${data.id}`,
       image: `${origin}/api/og-image?id=${encodeURIComponent(data.id)}`,
       image_bg: data.image_url || null,
-    }),
-    { headers: { "content-type": "application/json" } }
+    })
   );
 }
