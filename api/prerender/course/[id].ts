@@ -19,10 +19,11 @@ function isBot(ua: string) {
 
 function escapeHtml(s: string) {
   return (s || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;");
+.split("&").join("&amp;")
+.split("<").join("&lt;")
+.split(">").join("&gt;")
+.split('"').join("&quot;");
+
 }
 
 export default async function handler(req: Request) {
