@@ -1,14 +1,11 @@
 import { ImageResponse } from "@vercel/og";
-import { createClient } from "@supabase/supabase-js";
 
 export const config = { runtime: "edge" };
 
-
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
-const supabaseSR = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
+const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-const ORANGE = "#f97316"; // Tickrace vibe
+const ORANGE = "#f97316";
 const DARK = "#0a0a0a";
 
 function safeStr(v: any, fb = "") {
@@ -39,34 +36,36 @@ function fmtDateFR(iso: string) {
   }
 }
 
+async function supaGetCourse(id: string) {
+  const url =
+    `${SUPABASE_URL}/rest/v1/courses` +
+    `?id=eq.${encodeURIComponent(id)}` +
+    `&select=id,nom,lieu,image_url,formats:formats(distance,denivele_positif,date,heure_depart)`;
+
+  const res = await fetch(url, {
+    headers: {
+      apikey: SERVICE_ROLE,
+      Authorization: `Bearer ${SERVICE_ROLE}`,
+      Accept: "application/json",
+    },
+  });
+
+  if (!res.ok) return null;
+  const rows = await res.json();
+  return rows?.[0] ?? null;
+}
+
 export default async function handler(req: Request) {
-  const id = new URL(req.url).pathname.split("/").pop();
+  const id = new URL(req.url).pathname.split("/").pop() || "";
 
-  const { data, error } = await supabaseSR
-    .from("courses")
-    .select(
-      `
-      id,
-      nom,
-      lieu,
-      image_url,
-      formats:formats (
-        distance,
-        denivele_positif,
-        date,
-        heure_depart
-      )
-    `
-    )
-    .eq("id", id)
-    .single();
+  const data = await supaGetCourse(id);
 
-  if (error || !data) {
+  if (!data) {
     return new ImageResponse(
       <div
         style={{
-          width: "1200px",
-          height: "630px",
+          width: 1200,
+          height: 630,
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
@@ -99,11 +98,11 @@ export default async function handler(req: Request) {
     (
       <div
         style={{
-          width: "1200px",
-          height: "630px",
+          width: 1200,
+          height: 630,
           display: "flex",
           flexDirection: "column",
-          padding: "56px",
+          padding: 56,
           boxSizing: "border-box",
           background: bg
             ? `linear-gradient(90deg, rgba(10,10,10,.92), rgba(10,10,10,.30)), url(${bg})`
@@ -115,7 +114,6 @@ export default async function handler(req: Request) {
           color: "white",
         }}
       >
-        {/* Header */}
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
             <div style={{ fontSize: 26, fontWeight: 900, letterSpacing: 1 }}>TICKRACE</div>
@@ -151,9 +149,7 @@ export default async function handler(req: Request) {
 
         <div style={{ height: 34 }} />
 
-        {/* Content */}
         <div style={{ flex: 1, display: "flex", flexDirection: "column", justifyContent: "flex-end" }}>
-          {/* Chips */}
           {topChips.length > 0 ? (
             <div style={{ display: "flex", gap: 12, flexWrap: "wrap", marginBottom: 18 }}>
               {topChips.map((c) => (
@@ -173,7 +169,6 @@ export default async function handler(req: Request) {
             </div>
           ) : null}
 
-          {/* Title */}
           <div
             style={{
               fontSize: 72,
@@ -182,55 +177,17 @@ export default async function handler(req: Request) {
               letterSpacing: -1,
               textShadow: "0 10px 30px rgba(0,0,0,.40)",
               marginBottom: 18,
-              maxWidth: "1040px",
+              maxWidth: 1040,
             }}
           >
             {title}
           </div>
 
-          {/* Bottom line */}
           {bottomLine ? (
-            <div
-              style={{
-                fontSize: 24,
-                opacity: 0.92,
-                textShadow: "0 10px 30px rgba(0,0,0,.40)",
-              }}
-            >
+            <div style={{ fontSize: 24, opacity: 0.92, textShadow: "0 10px 30px rgba(0,0,0,.40)" }}>
               {bottomLine}
             </div>
           ) : null}
-        </div>
-
-        {/* Footer */}
-        <div
-          style={{
-            marginTop: 28,
-            paddingTop: 18,
-            borderTop: "1px solid rgba(255,255,255,.14)",
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 16,
-          }}
-        >
-          <div style={{ fontSize: 18, opacity: 0.9 }}>Partage ce lien pour inviter des coureurs 👇</div>
-
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 10,
-              padding: "10px 14px",
-              borderRadius: 14,
-              background: "rgba(255,255,255,.08)",
-              border: "1px solid rgba(255,255,255,.14)",
-              fontSize: 18,
-            }}
-          >
-            <span style={{ color: ORANGE, fontWeight: 900 }}>→</span>
-            /courses/{String(data.id).slice(0, 8)}…
-          </div>
         </div>
       </div>
     ),
