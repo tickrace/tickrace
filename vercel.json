@@ -1,8 +1,7 @@
 {
-  "routes": [
-    { "src": "^/api/(.*)$", "dest": "/api/$1" },
-    { "src": "^/courses/([^/]+)$", "dest": "/api/_prerender_course?id=$1" },
-    { "handle": "filesystem" },
-    { "src": "^(.*)$", "dest": "/index.html" }
+  "rewrites": [
+    { "source": "/api/:path*", "destination": "/api/:path*" },
+    { "source": "/courses/:id", "destination": "/api/_prerender_course?id=:id" },
+    { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
