@@ -43,7 +43,7 @@ export default async function handler(req: Request) {
   }
 
   // ✅ Bots: injecter OG
-  const ogRes = await fetch(`${origin}/api/og/course/${id}`, {
+  const ogRes = await fetch(`${origin}/api/og-course?id=${id}`, {
     headers: { "user-agent": ua },
   });
   if (!ogRes.ok) {
