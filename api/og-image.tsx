@@ -3,7 +3,13 @@ import { ImageResponse } from "@vercel/og";
 export const config = { runtime: "edge" };
 
 const SUPABASE_URL = process.env.VITE_SUPABASE_URL!;
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SERVICE_ROLE =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE;
+
 
 const ORANGE = "#f97316";
 const DARK = "#0a0a0a";

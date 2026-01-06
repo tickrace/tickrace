@@ -2,7 +2,13 @@ const SUPABASE_URL =
   process.env.VITE_SUPABASE_URL ||
   process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-const SERVICE_ROLE = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SERVICE_ROLE =
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE ||
+  process.env.SUPABASE_SERVICE_KEY ||
+  process.env.SUPABASE_SERVICE_ROLE;
+
 
 function pickPrimaryFormat(formats) {
   if (!Array.isArray(formats) || formats.length === 0) return null;
