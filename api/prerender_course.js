@@ -26,6 +26,7 @@ export default async function handler(req, res) {
   const ua = req.headers["user-agent"] || "";
   const origin = "https://www.tickrace.com";
   const id = req.query?.id || "";
+  const bot = isBot(ua);
 
   if (!id) {
     res.status(400).setHeader("content-type", "text/plain; charset=utf-8");
@@ -52,10 +53,16 @@ export default async function handler(req, res) {
 
   const title = escapeHtml(og.title || "Tickrace");
   const desc = escapeHtml(og.description || "Inscriptions & infos sur Tickrace");
-  const image = escapeHtml(og.image || "");
   const pageUrl = escapeHtml(og.url || `${origin}/courses/${id}`);
 
-  // Redirection pour humains (pour ne pas casser l'expérience)
+  // ✅ image (toujours https)
+  const imageUrlRaw = og.image || `${origin}/api/og-image?id=${encodeURIComponent(id)}`;
+  const image = escapeHtml(imageUrlRaw);
+  const imageSecure = escapeHtml(
+    String(imageUrlRaw).startsWith("https://") ? imageUrlRaw : imageUrlRaw.replace(/^http:\/\//, "https://")
+  );
+
+  // Redirection pour humains
   const appUrl = `${origin}/courses/${encodeURIComponent(id)}?from=share`;
 
   const html = `<!doctype html>
@@ -66,13 +73,18 @@ export default async function handler(req, res) {
 
   <title>${title}</title>
   <meta name="description" content="${desc}" />
+  <link rel="canonical" href="${pageUrl}" />
+  <meta property="og:locale" content="fr_FR" />
 
   <meta property="og:type" content="website" />
   <meta property="og:site_name" content="Tickrace" />
   <meta property="og:title" content="${title}" />
   <meta property="og:description" content="${desc}" />
-  <meta property="og:image" content="${image}" />
   <meta property="og:url" content="${pageUrl}" />
+
+  <meta property="og:image" content="${image}" />
+  <meta property="og:image:secure_url" content="${imageSecure}" />
+  <meta property="og:image:type" content="image/png" />
   <meta property="og:image:width" content="1200" />
   <meta property="og:image:height" content="630" />
 
@@ -80,13 +92,19 @@ export default async function handler(req, res) {
   <meta name="twitter:title" content="${title}" />
   <meta name="twitter:description" content="${desc}" />
   <meta name="twitter:image" content="${image}" />
+  <meta name="twitter:image:alt" content="Aperçu course Tickrace" />
 
-  ${!isBot(ua) ? `<meta http-equiv="refresh" content="0;url=${escapeHtml(appUrl)}" />` : ""}
+  ${!bot ? `<meta http-equiv="refresh" content="0;url=${escapeHtml(appUrl)}" />` : ""}
 </head>
 <body></body>
 </html>`;
 
   res.setHeader("content-type", "text/html; charset=utf-8");
-  res.setHeader("cache-control", "public, max-age=0, s-maxage=600");
+
+  // ✅ HTML: on limite le cache (WhatsApp recache très fort sinon)
+  // - côté navigateur: no-store
+  // - côté CDN: s-maxage=0 + must-revalidate
+  res.setHeader("cache-control", "no-store, max-age=0, s-maxage=0, must-revalidate");
+
   return res.status(200).send(html);
 }
