@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/courses/:id",
+      "destination": "/api/prerender/course/:id"
+    },
+    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
