@@ -1,7 +1,7 @@
 {
   "rewrites": [
     { "source": "/api/:path*", "destination": "/api/:path*" },
-    { "source": "/courses/:id", "destination": "/api/_prerender_course?id=:id" },
+    { "source": "/courses/:id", "destination": "/api/prerender_course?id=:id" },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
 }
