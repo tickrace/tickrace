@@ -1,340 +1,565 @@
 // src/pages/TiragePublic.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router-dom";
-import { CalendarDays, Loader2, Search, Info, AlertTriangle, CheckCircle2, Hash, Mail, BadgeCheck } from "lucide-react";
-import toast from "react-hot-toast";
+import { useParams, Link } from "react-router-dom";
 import { supabase } from "../supabase";
+import {
+  Loader2,
+  Search,
+  Trophy,
+  Clock,
+  CheckCircle2,
+  XCircle,
+  AlertTriangle,
+  ArrowUpRight,
+  RefreshCw,
+  Shield,
+} from "lucide-react";
+
+/**
+ * Public : affiche les résultats du tirage + statut des candidats
+ * Route : /tirage/:formatId
+ *
+ * Tables attendues :
+ * - formats (id, nom, date, heure_depart, course_id)
+ * - courses (id, nom, lieu, image_url)
+ * - lottery_draws (id, format_id, created_at?, seed?, candidate_count?, candidate_hash?)
+ * - lottery_ranks (draw_id, preinscription_id, rank)
+ * - format_preinscriptions (id, format_id, course_id, email, prenom, nom, status, created_at)
+ * - lottery_invites (id, preinscription_id, expires_at, used_at, batch_no)  <-- PAS de created_at chez toi
+ *
+ * Sécurité / anonymisation :
+ * - On n’affiche pas l’email complet.
+ * - Par défaut, on affiche prénom + 1ère lettre du nom si dispo, sinon masqué.
+ */
 
 const Container = ({ children }) => (
-  <div className="mx-auto w-full max-w-4xl px-4 sm:px-6 lg:px-8 py-8">{children}</div>
+  <div className="mx-auto w-full max-w-6xl px-4 sm:px-6 lg:px-8 py-8">{children}</div>
 );
 
 const Card = ({ children, className = "" }) => (
-  <div className={`rounded-2xl bg-white shadow-sm ring-1 ring-gray-200 ${className}`}>{children}</div>
+  <div className={`rounded-2xl bg-white shadow-sm ring-1 ring-neutral-200 ${className}`}>{children}</div>
+);
+
+const Pill = ({ children, className = "" }) => (
+  <span
+    className={[
+      "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold ring-1",
+      className,
+    ].join(" ")}
+  >
+    {children}
+  </span>
 );
 
 const Input = (props) => (
   <input
     {...props}
     className={[
-      "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm",
+      "w-full rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm",
       "focus:outline-none focus:ring-2 focus:ring-orange-200 focus:border-orange-300",
       props.className || "",
     ].join(" ")}
   />
 );
 
-const Button = ({ children, className = "", disabled, onClick, type = "button" }) => (
-  <button
-    type={type}
-    disabled={disabled}
-    onClick={onClick}
-    className={[
-      "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition",
-      "ring-1 ring-gray-200 bg-white text-gray-900 hover:bg-gray-50",
-      "disabled:opacity-60 disabled:cursor-not-allowed",
-      className,
-    ].join(" ")}
-  >
-    {children}
-  </button>
-);
-
-const fmtDT = (d) => {
+function fmtDate(d) {
   if (!d) return "—";
   try {
-    const dt = new Date(d);
-    return dt.toLocaleString("fr-FR", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" });
+    return new Date(d).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" });
   } catch {
     return String(d);
   }
-};
+}
+function fmtDT(d) {
+  if (!d) return "—";
+  try {
+    return new Date(d).toLocaleString("fr-FR", {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch {
+    return String(d);
+  }
+}
+function nowIso() {
+  return new Date().toISOString();
+}
+function maskEmail(email) {
+  const e = String(email || "").trim().toLowerCase();
+  if (!e.includes("@")) return "—";
+  const [u, d] = e.split("@");
+  if (!u || !d) return "—";
+  const uMasked = u.length <= 2 ? `${u[0] || "*"}*` : `${u.slice(0, 2)}***`;
+  const dParts = d.split(".");
+  const dom = dParts[0] ? `${dParts[0].slice(0, 2)}***` : "***";
+  const tld = dParts.length > 1 ? `.${dParts[dParts.length - 1]}` : "";
+  return `${uMasked}@${dom}${tld}`;
+}
+function displayName(pre) {
+  const prenom = (pre?.prenom || "").trim();
+  const nom = (pre?.nom || "").trim();
+  if (prenom && nom) return `${prenom} ${nom[0].toUpperCase()}.`;
+  if (prenom) return prenom;
+  // fallback : email masqué
+  return maskEmail(pre?.email);
+}
 
-const badge = (status) => {
-  const base = "inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs ring-1";
-  if (status === "pending") return <span className={`${base} bg-gray-50 ring-gray-200 text-gray-700`}><Info className="h-4 w-4" /> pending</span>;
-  if (status === "ranked") return <span className={`${base} bg-violet-50 ring-violet-200 text-violet-800`}><Hash className="h-4 w-4" /> ranked</span>;
-  if (status === "invited" || status === "direct_invited") return <span className={`${base} bg-blue-50 ring-blue-200 text-blue-700`}><Mail className="h-4 w-4" /> {status}</span>;
-  if (status === "registered") return <span className={`${base} bg-green-50 ring-green-200 text-green-700`}><BadgeCheck className="h-4 w-4" /> registered</span>;
-  if (status === "expired") return <span className={`${base} bg-amber-50 ring-amber-200 text-amber-800`}><AlertTriangle className="h-4 w-4" /> expired</span>;
-  if (status === "withdrawn") return <span className={`${base} bg-gray-50 ring-gray-200 text-gray-700`}><AlertTriangle className="h-4 w-4" /> withdrawn</span>;
-  return <span className={`${base} bg-gray-50 ring-gray-200 text-gray-700`}>{status}</span>;
-};
+function statusMeta(preStatus, invite) {
+  const s = String(preStatus || "").toLowerCase();
+  const hasInvite = Boolean(invite?.id);
+  const used = Boolean(invite?.used_at);
+  const exp = invite?.expires_at ? String(invite.expires_at) : null;
+
+  // Statuts typiques:
+  // pending -> avant tirage
+  // ranked  -> tirage fait, pas encore invité
+  // invited -> invité (token envoyé) mais pas payé
+  // withdrawn -> retiré
+  // (optionnel) accepted/paid/registered -> si tu ajoutes plus tard
+
+  if (s === "withdrawn") {
+    return { label: "Retiré", tone: "neutral", icon: <XCircle className="h-4 w-4" /> };
+  }
+
+  if (used) {
+    return { label: "Invitation utilisée", tone: "green", icon: <CheckCircle2 className="h-4 w-4" /> };
+  }
+
+  if (hasInvite) {
+    if (exp && exp <= nowIso()) {
+      return { label: "Invitation expirée", tone: "amber", icon: <AlertTriangle className="h-4 w-4" /> };
+    }
+    return { label: "Invité", tone: "orange", icon: <Clock className="h-4 w-4" /> };
+  }
+
+  if (s === "ranked") {
+    return { label: "En liste (pas encore invité)", tone: "neutral", icon: <Clock className="h-4 w-4" /> };
+  }
+
+  if (s === "pending") {
+    return { label: "Préinscrit", tone: "neutral", icon: <Clock className="h-4 w-4" /> };
+  }
+
+  // fallback
+  return { label: preStatus || "—", tone: "neutral", icon: <Clock className="h-4 w-4" /> };
+}
+
+function pillClass(tone) {
+  switch (tone) {
+    case "green":
+      return "bg-green-50 text-green-800 ring-green-200";
+    case "orange":
+      return "bg-orange-50 text-orange-800 ring-orange-200";
+    case "amber":
+      return "bg-amber-50 text-amber-900 ring-amber-200";
+    default:
+      return "bg-neutral-50 text-neutral-800 ring-neutral-200";
+  }
+}
 
 export default function TiragePublic() {
-  const { id } = useParams(); // peut être courseId OU formatId
-  const [sp] = useSearchParams();
-  const inviteToken = sp.get("invite") || ""; // optionnel (reçu par email)
-  const prefillEmail = sp.get("email") || "";
+  const { formatId } = useParams();
 
   const [loading, setLoading] = useState(true);
-  const [mode, setMode] = useState(null); // "course" | "format"
-  const [course, setCourse] = useState(null);
-  const [formats, setFormats] = useState([]);
+  const [err, setErr] = useState("");
   const [format, setFormat] = useState(null);
-  const [settings, setSettings] = useState(null);
+  const [course, setCourse] = useState(null);
+  const [draw, setDraw] = useState(null);
 
-  const [email, setEmail] = useState(prefillEmail);
-  const [statusRow, setStatusRow] = useState(null); // format_preinscriptions row enriched with rank/invite
+  const [rows, setRows] = useState([]); // {pre, rank, invite}
+  const [q, setQ] = useState("");
+  const [onlyInvited, setOnlyInvited] = useState(false);
+  const [onlyUsed, setOnlyUsed] = useState(false);
 
-  const load = async () => {
-    if (!id) return;
+  async function load() {
+    if (!formatId) return;
     setLoading(true);
-    setStatusRow(null);
+    setErr("");
 
     try {
-      // 1) try format
+      // 1) Format + Course
       const { data: f, error: fe } = await supabase
         .from("formats")
-        .select("id, course_id, nom, date, heure_depart, nb_max_coureurs, is_team_event, team_size")
-        .eq("id", id)
-        .maybeSingle();
-
+        .select("id, nom, date, heure_depart, course_id")
+        .eq("id", formatId)
+        .single();
       if (fe) throw fe;
+      setFormat(f);
 
-      if (f?.id) {
-        setMode("format");
-        setFormat(f);
+      const { data: c, error: ce } = await supabase
+        .from("courses")
+        .select("id, nom, lieu, image_url")
+        .eq("id", f.course_id)
+        .single();
+      if (ce) throw ce;
+      setCourse(c);
 
-        const { data: c, error: ce } = await supabase
-          .from("courses")
-          .select("id, nom, lieu")
-          .eq("id", f.course_id)
-          .single();
-        if (ce) throw ce;
-        setCourse(c);
+      // 2) Draw (idempotent : on prend le dernier si plusieurs, sinon single)
+      const { data: draws, error: de } = await supabase
+        .from("lottery_draws")
+        .select("id, format_id, seed, candidate_count, candidate_hash")
+        .eq("format_id", formatId)
+        .order("created_at", { ascending: false }) // si created_at n’existe pas, supabase ignore ? non -> erreur. Donc on évite.
+        .limit(1);
 
-        const { data: s, error: se } = await supabase
-          .from("format_lottery_settings")
-          .select("enabled, pre_open_at, pre_close_at, draw_at, invite_ttl_hours")
-          .eq("format_id", f.id)
-          .maybeSingle();
-        if (se) throw se;
-        setSettings(s);
+      // ⚠️ Si ta table lottery_draws n'a pas created_at, la ligne ci-dessus peut planter.
+      // Pour être robuste, on retente sans order si erreur "column ... does not exist".
+      let drawRow = null;
+      if (de) {
+        // fallback safe
+        const { data: d2, error: de2 } = await supabase
+          .from("lottery_draws")
+          .select("id, format_id, seed, candidate_count, candidate_hash")
+          .eq("format_id", formatId)
+          .limit(1);
+        if (de2) throw de2;
+        drawRow = (d2 && d2[0]) || null;
+      } else {
+        drawRow = (draws && draws[0]) || null;
+      }
+      setDraw(drawRow);
 
+      if (!drawRow?.id) {
+        // Pas de tirage encore
+        setRows([]);
+        setLoading(false);
         return;
       }
 
-      // 2) else: course mode
-      const { data: c2, error: ce2 } = await supabase
-        .from("courses")
-        .select("id, nom, lieu")
-        .eq("id", id)
-        .single();
-      if (ce2) throw ce2;
+      // 3) Ranks (ordre complet)
+      const { data: rks, error: re } = await supabase
+        .from("lottery_ranks")
+        .select("preinscription_id, rank")
+        .eq("draw_id", drawRow.id)
+        .order("rank", { ascending: true });
+      if (re) throw re;
 
-      setMode("course");
-      setCourse(c2);
+      const preIds = (rks || []).map((x) => x.preinscription_id).filter(Boolean);
+      if (!preIds.length) {
+        setRows([]);
+        setLoading(false);
+        return;
+      }
 
-      const { data: fs, error: fse } = await supabase
-        .from("formats")
-        .select("id, nom, date, heure_depart, nb_max_coureurs")
-        .eq("course_id", c2.id)
-        .order("date", { ascending: true });
-      if (fse) throw fse;
-      setFormats(fs || []);
+      // 4) Préinscriptions
+      const { data: pres, error: pe } = await supabase
+        .from("format_preinscriptions")
+        .select("id, email, prenom, nom, status, created_at")
+        .in("id", preIds);
+      if (pe) throw pe;
+
+      const preMap = new Map((pres || []).map((p) => [p.id, p]));
+
+      // 5) Invites (⚠️ pas de created_at chez toi -> on NE le select pas)
+      const { data: invs, error: ie } = await supabase
+        .from("lottery_invites")
+        .select("id, preinscription_id, expires_at, used_at, batch_no")
+        .in("preinscription_id", preIds);
+      if (ie) throw ie;
+
+      const invMap = new Map((invs || []).map((i) => [i.preinscription_id, i]));
+
+      // 6) Assemble
+      const assembled = (rks || [])
+        .map((rk) => {
+          const pre = preMap.get(rk.preinscription_id) || null;
+          const invite = invMap.get(rk.preinscription_id) || null;
+          return {
+            pre,
+            rank: rk.rank,
+            invite,
+          };
+        })
+        .filter((x) => x.pre);
+
+      setRows(assembled);
     } catch (e) {
       console.error(e);
-      toast.error(e?.message || "Impossible de charger la page tirage.");
+      setErr(e?.message || "Erreur lors du chargement.");
     } finally {
       setLoading(false);
     }
-  };
+  }
 
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+  }, [formatId]);
 
-  const checkStatus = async () => {
-    if (!format?.id) return;
-    const e = String(email || "").trim().toLowerCase();
-    if (!e) return toast.error("Entre ton email.");
+  const stats = useMemo(() => {
+    const total = rows.length;
+    const invited = rows.filter((r) => r.invite?.id).length;
+    const used = rows.filter((r) => r.invite?.used_at).length;
+    const expired = rows.filter((r) => r.invite?.id && r.invite?.expires_at && String(r.invite.expires_at) <= nowIso())
+      .length;
+    return { total, invited, used, expired };
+  }, [rows]);
 
-    try {
-      setLoading(true);
+  const filtered = useMemo(() => {
+    const qq = q.trim().toLowerCase();
 
-      const { data: pre, error: pe } = await supabase
-        .from("format_preinscriptions")
-        .select(
-          `
-          id, email, status, created_at, withdrawn_at,
-          lottery_ranks:lottery_ranks(rank, draw_id),
-          lottery_invites:lottery_invites(invited_at, expires_at, used_at, batch_no)
-        `
-        )
-        .eq("format_id", format.id)
-        .ilike("email", e) // ok pour emails
-        .maybeSingle();
+    return rows.filter((r) => {
+      if (!r.pre) return false;
 
-      if (pe) throw pe;
+      if (onlyInvited && !r.invite?.id) return false;
+      if (onlyUsed && !r.invite?.used_at) return false;
 
-      if (!pre?.id) {
-        setStatusRow(null);
-        toast("Aucune préinscription trouvée pour cet email.");
-        return;
-      }
+      if (!qq) return true;
 
-      const rank = Array.isArray(pre.lottery_ranks) && pre.lottery_ranks.length ? pre.lottery_ranks[0].rank : null;
-      const invite = Array.isArray(pre.lottery_invites) && pre.lottery_invites.length ? pre.lottery_invites[0] : null;
-      setStatusRow({ ...pre, rank, invite });
-    } catch (e) {
-      console.error(e);
-      toast.error(e?.message || "Erreur lors de la vérification.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const inscriptionUrl = useMemo(() => {
-    if (!course?.id || !format?.id) return "#";
-    const u = new URL(`/inscription/${course.id}`, window.location.origin);
-    u.searchParams.set("formatId", format.id);
-    if (inviteToken) u.searchParams.set("invite", inviteToken);
-    return u.pathname + u.search;
-  }, [course?.id, format?.id, inviteToken]);
+      const name = `${r.pre?.prenom || ""} ${r.pre?.nom || ""}`.trim().toLowerCase();
+      const masked = maskEmail(r.pre?.email).toLowerCase();
+      const rk = String(r.rank || "");
+      return name.includes(qq) || masked.includes(qq) || rk === qq;
+    });
+  }, [rows, q, onlyInvited, onlyUsed]);
 
   if (loading) {
     return (
       <Container>
-        <div className="flex items-center gap-3 text-gray-700">
+        <div className="flex items-center gap-3 text-neutral-700">
           <Loader2 className="h-5 w-5 animate-spin" />
-          <div>Chargement…</div>
+          <div>Chargement du tirage…</div>
         </div>
       </Container>
     );
   }
 
-  // Mode course (landing)
-  if (mode === "course") {
-    return (
-      <Container>
-        <div className="mb-4">
-          <div className="text-2xl font-semibold text-gray-900">Tirage au sort</div>
-          <div className="text-sm text-gray-600 mt-1">
-            <div className="font-medium text-gray-900">{course?.nom}</div>
-            <div className="mt-1 inline-flex items-center gap-2">
-              <CalendarDays className="h-4 w-4" /> {course?.lieu || "—"}
-            </div>
-          </div>
-        </div>
-
-        <Card>
-          <div className="p-5">
-            <div className="text-sm text-gray-700">
-              Choisis ton format pour consulter ton statut de préinscription.
-            </div>
-
-            <div className="mt-4 grid grid-cols-1 gap-3">
-              {(formats || []).map((f) => (
-                <Link
-                  key={f.id}
-                  to={`/tirage/${f.id}`}
-                  className="rounded-2xl ring-1 ring-gray-200 hover:ring-orange-300 bg-white p-4 transition"
-                >
-                  <div className="font-semibold text-gray-900">{f.nom || "Format"}</div>
-                  <div className="text-sm text-gray-600 mt-1">{fmtDT(f.date)}</div>
-                </Link>
-              ))}
-              {!formats?.length ? <div className="text-sm text-gray-600">Aucun format.</div> : null}
-            </div>
-          </div>
-        </Card>
-      </Container>
-    );
-  }
-
-  // Mode format (status check)
   return (
-    <Container>
-      <div className="mb-4">
-        <div className="text-2xl font-semibold text-gray-900">Résultat / Statut</div>
-        <div className="text-sm text-gray-600 mt-1">
-          <div className="font-medium text-gray-900">{course?.nom}</div>
-          <div className="mt-1">
-            <span className="text-gray-800 font-medium">{format?.nom || "Format"}</span>
-            <span className="mx-2 text-gray-300">•</span>
-            <span>{fmtDT(format?.date)}</span>
-          </div>
-        </div>
-      </div>
-
-      <Card>
-        <div className="p-5">
-          <div className="rounded-2xl bg-gray-50 ring-1 ring-gray-200 p-4 text-sm text-gray-700">
-            <div className="font-semibold text-gray-900">Comment lire ton statut ?</div>
-            <div className="mt-1">
-              <div>• <b>pending</b> : tu es bien dans la liste, le tirage n’est pas lancé (ou pas encore pris en compte).</div>
-              <div>• <b>ranked</b> : un rang t’a été attribué, mais tu n’es pas encore invité.</div>
-              <div>• <b>invited</b> : tu as reçu un email avec un lien d’inscription (avec expiration).</div>
-              <div>• <b>registered</b> : inscription finalisée.</div>
-            </div>
-          </div>
-
-          <div className="mt-4 flex flex-col sm:flex-row gap-2 sm:items-center">
-            <div className="flex-1 relative">
-              <Search className="h-4 w-4 text-gray-400 absolute left-3 top-3" />
-              <Input
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Ton email de préinscription"
-                className="pl-9"
-              />
-            </div>
-            <Button onClick={checkStatus}>
-              <Search className="h-4 w-4" /> Vérifier
-            </Button>
-          </div>
-
-          {statusRow ? (
-            <div className="mt-4 rounded-2xl ring-1 ring-gray-200 p-4">
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="font-semibold text-gray-900">{statusRow.email}</div>
-                {badge(statusRow.status)}
-                {statusRow.rank ? (
-                  <span className="inline-flex items-center gap-2 rounded-full bg-violet-50 ring-1 ring-violet-200 px-3 py-1 text-xs text-violet-800">
-                    <Hash className="h-4 w-4" /> Rang {statusRow.rank}
-                  </span>
-                ) : null}
+    <div className="min-h-screen bg-neutral-50 text-neutral-900">
+      <section className="bg-white border-b border-neutral-200">
+        <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-10">
+          <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-6">
+            <div className="flex items-start gap-4">
+              <div className="h-12 w-12 rounded-2xl bg-orange-50 ring-1 ring-orange-200 grid place-items-center">
+                <Trophy className="h-6 w-6 text-orange-700" />
               </div>
-
-              <div className="text-sm text-gray-700 mt-3 space-y-1">
-                <div>Préinscription : <b>{fmtDT(statusRow.created_at)}</b></div>
-                {statusRow.invite?.invited_at ? <div>Invitation : <b>{fmtDT(statusRow.invite.invited_at)}</b></div> : null}
-                {statusRow.invite?.expires_at ? <div>Expiration : <b>{fmtDT(statusRow.invite.expires_at)}</b></div> : null}
-              </div>
-
-              {statusRow.status === "invited" || statusRow.status === "direct_invited" ? (
-                <div className="mt-4">
-                  {inviteToken ? (
-                    <Link
-                      to={inscriptionUrl}
-                      className="inline-flex items-center gap-2 rounded-xl bg-orange-600 text-white px-4 py-2 text-sm font-semibold hover:bg-orange-700"
-                    >
-                      <CheckCircle2 className="h-4 w-4" /> Finaliser mon inscription
-                    </Link>
-                  ) : (
-                    <div className="rounded-xl bg-amber-50 ring-1 ring-amber-200 p-3 text-sm text-amber-900 flex items-start gap-2">
-                      <AlertTriangle className="h-4 w-4 mt-0.5" />
-                      <div>
-                        Pour finaliser, utilise le lien reçu par email (il contient ton token d’invitation).
-                      </div>
-                    </div>
-                  )}
+              <div>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-2xl sm:text-3xl font-black tracking-tight">
+                    Résultats du tirage
+                  </h1>
+                  <Pill className="bg-neutral-50 text-neutral-700 ring-neutral-200">
+                    <Shield className="h-4 w-4" />
+                    Public
+                  </Pill>
                 </div>
+
+                <p className="mt-2 text-neutral-600">
+                  {course?.nom ? <span className="font-semibold text-neutral-900">{course.nom}</span> : "—"}
+                  {format?.nom ? <span> • <b>{format.nom}</b></span> : null}
+                  {course?.lieu ? <span> • {course.lieu}</span> : null}
+                  {format?.date ? <span> • {fmtDate(format.date)}</span> : null}
+                </p>
+
+                <p className="mt-1 text-sm text-neutral-500">
+                  Les informations affichées sont anonymisées. Seul l’organisateur voit les emails complets.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={load}
+                className="inline-flex items-center gap-2 rounded-xl bg-white px-4 py-2 text-sm font-semibold ring-1 ring-neutral-200 hover:bg-neutral-50"
+              >
+                <RefreshCw className="h-4 w-4" />
+                Actualiser
+              </button>
+
+              {course?.id ? (
+                <Link
+                  to={`/courses/${course.id}`}
+                  className="inline-flex items-center gap-2 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
+                >
+                  Voir la page course
+                  <ArrowUpRight className="h-4 w-4" />
+                </Link>
               ) : null}
             </div>
-          ) : (
-            <div className="mt-4 text-sm text-gray-600">
-              Entre ton email puis clique sur “Vérifier”.
-            </div>
-          )}
-
-          <div className="mt-6 text-xs text-gray-500">
-            Astuce : si tu es organisateur, utilise l’espace <Link className="underline text-orange-700" to={`/organisateur/tirage/${format?.id}`}>Tirage</Link>.
           </div>
         </div>
-      </Card>
-    </Container>
+      </section>
+
+      <Container>
+        {err ? (
+          <Card>
+            <div className="p-5">
+              <div className="text-lg font-semibold text-neutral-900">Erreur</div>
+              <div className="mt-1 text-sm text-neutral-600">{err}</div>
+            </div>
+          </Card>
+        ) : null}
+
+        {!draw?.id ? (
+          <Card>
+            <div className="p-6">
+              <div className="text-lg font-semibold text-neutral-900">Tirage non publié</div>
+              <p className="mt-2 text-sm text-neutral-600">
+                Le tirage n’a pas encore été effectué pour ce format.
+              </p>
+              <p className="mt-2 text-sm text-neutral-600">
+                Si tu es organisateur, lance le tirage depuis ton espace : <b>Organisateur → Tirage</b>.
+              </p>
+            </div>
+          </Card>
+        ) : (
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+              <Card>
+                <div className="p-4">
+                  <div className="text-xs text-neutral-500">Candidats</div>
+                  <div className="text-2xl font-black">{stats.total}</div>
+                </div>
+              </Card>
+              <Card>
+                <div className="p-4">
+                  <div className="text-xs text-neutral-500">Invitations envoyées</div>
+                  <div className="text-2xl font-black">{stats.invited}</div>
+                </div>
+              </Card>
+              <Card>
+                <div className="p-4">
+                  <div className="text-xs text-neutral-500">Invitations utilisées</div>
+                  <div className="text-2xl font-black">{stats.used}</div>
+                </div>
+              </Card>
+              <Card>
+                <div className="p-4">
+                  <div className="text-xs text-neutral-500">Expirées</div>
+                  <div className="text-2xl font-black">{stats.expired}</div>
+                </div>
+              </Card>
+            </div>
+
+            {/* Filters */}
+            <Card className="mb-5">
+              <div className="p-4 flex flex-col md:flex-row md:items-center gap-3">
+                <div className="flex-1 relative">
+                  <Search className="h-4 w-4 text-neutral-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                  <Input
+                    value={q}
+                    onChange={(e) => setQ(e.target.value)}
+                    placeholder="Recherche : rang, prénom, nom (anonymisé), email masqué…"
+                    className="pl-9"
+                  />
+                </div>
+
+                <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={onlyInvited}
+                    onChange={(e) => setOnlyInvited(e.target.checked)}
+                  />
+                  Invitations envoyées
+                </label>
+
+                <label className="inline-flex items-center gap-2 text-sm text-neutral-700">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={onlyUsed}
+                    onChange={(e) => setOnlyUsed(e.target.checked)}
+                  />
+                  Invitations utilisées
+                </label>
+              </div>
+            </Card>
+
+            {/* Table */}
+            <Card>
+              <div className="p-4 border-b border-neutral-200 flex items-center justify-between">
+                <div className="text-sm text-neutral-600">
+                  Affichage : <b>{filtered.length}</b> / {rows.length}
+                </div>
+                <div className="text-xs text-neutral-500">
+                  Mise à jour : {fmtDT(new Date().toISOString())}
+                </div>
+              </div>
+
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead className="bg-neutral-50 border-b border-neutral-200">
+                    <tr className="text-left">
+                      <th className="px-4 py-3 font-semibold text-neutral-700 w-20">Rang</th>
+                      <th className="px-4 py-3 font-semibold text-neutral-700">Candidat</th>
+                      <th className="px-4 py-3 font-semibold text-neutral-700">Statut</th>
+                      <th className="px-4 py-3 font-semibold text-neutral-700">Expiration</th>
+                      <th className="px-4 py-3 font-semibold text-neutral-700">Lot</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-4 py-8 text-center text-neutral-500">
+                          Aucun résultat.
+                        </td>
+                      </tr>
+                    ) : (
+                      filtered.map((r) => {
+                        const meta = statusMeta(r.pre?.status, r.invite);
+                        const exp = r.invite?.expires_at ? String(r.invite.expires_at) : null;
+                        const expText = exp ? fmtDT(exp) : "—";
+                        const batch = r.invite?.batch_no ?? null;
+
+                        return (
+                          <tr key={r.pre.id} className="border-b border-neutral-100 hover:bg-neutral-50">
+                            <td className="px-4 py-3 font-black text-neutral-900">#{r.rank}</td>
+                            <td className="px-4 py-3">
+                              <div className="font-semibold text-neutral-900">{displayName(r.pre)}</div>
+                              <div className="text-xs text-neutral-500">{maskEmail(r.pre?.email)}</div>
+                            </td>
+                            <td className="px-4 py-3">
+                              <Pill className={pillClass(meta.tone)}>
+                                {meta.icon}
+                                {meta.label}
+                              </Pill>
+                            </td>
+                            <td className="px-4 py-3 text-neutral-700">
+                              {r.invite?.id ? (
+                                <div className="flex items-center gap-2">
+                                  {r.invite?.used_at ? (
+                                    <CheckCircle2 className="h-4 w-4 text-green-700" />
+                                  ) : exp && exp <= nowIso() ? (
+                                    <AlertTriangle className="h-4 w-4 text-amber-800" />
+                                  ) : (
+                                    <Clock className="h-4 w-4 text-neutral-400" />
+                                  )}
+                                  <span>{expText}</span>
+                                </div>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                            <td className="px-4 py-3 text-neutral-700">
+                              {batch ? (
+                                <span className="inline-flex rounded-lg bg-neutral-100 px-2 py-1 text-xs font-semibold">
+                                  Lot {batch}
+                                </span>
+                              ) : (
+                                "—"
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              <div className="p-4 text-xs text-neutral-500">
+                Légende : “Invité” = invitation envoyée (un lien perso a été généré). “Invitation utilisée” = inscription
+                finalisée après paiement (l’invitation est consommée).
+              </div>
+            </Card>
+          </>
+        )}
+      </Container>
+    </div>
   );
 }

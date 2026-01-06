@@ -14,7 +14,7 @@ const BASE_URL = Deno.env.get("TICKRACE_BASE_URL") || "https://www.tickrace.com"
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const stripe = new Stripe(STRIPE_SECRET_KEY, { httpClient: Stripe.createFetchHttpClient() });
 
-/* ------------------------------ CORS ----------------------------- */
+/* ------------------------------ CORS ------------------------------ */
 function corsHeaders() {
   const h = new Headers();
   h.set("Access-Control-Allow-Origin", "*");
@@ -24,8 +24,7 @@ function corsHeaders() {
   h.set("content-type", "application/json; charset=utf-8");
   return h;
 }
-const json = (body: unknown, status = 200) =>
-  new Response(JSON.stringify(body), { status, headers: corsHeaders() });
+const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: corsHeaders() });
 
 /* ----------------------------- Helpers --------------------------- */
 function normMode(raw?: string): "individual" | "team" | "relay" {
@@ -66,6 +65,12 @@ function isUuid(v: any) {
   return typeof v === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v);
 }
 
+/** ✅ helper: ne jamais injecter undefined / string vide dans metadata Stripe */
+function setMeta(meta: Record<string, string>, key: string, value?: string | null) {
+  const v = String(value ?? "").trim();
+  if (v) meta[key] = v;
+}
+
 /**
  * ✅ Résout le compte Stripe connecté de l’organisateur
  * - course_id -> courses.organisateur_id -> profils_utilisateurs.stripe_account_id
@@ -75,22 +80,14 @@ async function resolveDestinationAccountId(params: { course_id?: string | null; 
   let courseId = params.course_id ?? null;
 
   if (!courseId && params.format_id) {
-    const { data: f, error: fe } = await supabase
-      .from("formats")
-      .select("course_id")
-      .eq("id", params.format_id)
-      .maybeSingle();
+    const { data: f, error: fe } = await supabase.from("formats").select("course_id").eq("id", params.format_id).maybeSingle();
     if (fe) console.error("DEST_ACCOUNT_FORMAT_LOOKUP_ERROR", fe);
     courseId = (f as any)?.course_id ?? null;
   }
 
   if (!courseId) return null;
 
-  const { data: c, error: ce } = await supabase
-    .from("courses")
-    .select("organisateur_id")
-    .eq("id", courseId)
-    .maybeSingle();
+  const { data: c, error: ce } = await supabase.from("courses").select("organisateur_id").eq("id", courseId).maybeSingle();
   if (ce) {
     console.error("DEST_ACCOUNT_COURSE_LOOKUP_ERROR", ce);
     return null;
@@ -99,11 +96,7 @@ async function resolveDestinationAccountId(params: { course_id?: string | null; 
   const orgaId = (c as any)?.organisateur_id ?? null;
   if (!orgaId) return null;
 
-  const { data: p, error: pe } = await supabase
-    .from("profils_utilisateurs")
-    .select("stripe_account_id")
-    .eq("user_id", orgaId)
-    .maybeSingle();
+  const { data: p, error: pe } = await supabase.from("profils_utilisateurs").select("stripe_account_id").eq("user_id", orgaId).maybeSingle();
   if (pe) {
     console.error("DEST_ACCOUNT_PROFILE_LOOKUP_ERROR", pe);
     return null;
@@ -124,6 +117,9 @@ async function upsertPaiement(params: {
   destination_account_id?: string | null;
   // ✅ optionnel loterie (si tu as une colonne, sinon ignoré côté DB)
   lottery_invite_id?: string | null;
+  // ✅ utile pour debug / lien
+  format_id?: string | null;
+  course_id?: string | null;
 }) {
   const payload: any = {
     stripe_session_id: params.stripe_session_id,
@@ -149,11 +145,7 @@ async function upsertPaiement(params: {
   //   payload.lottery_invite_id = params.lottery_invite_id;
   // }
 
-  const { data, error } = await supabase
-    .from("paiements")
-    .upsert(payload, { onConflict: "stripe_session_id" })
-    .select("id")
-    .single();
+  const { data, error } = await supabase.from("paiements").upsert(payload, { onConflict: "stripe_session_id" }).select("id").single();
 
   if (error) {
     console.error("PAIEMENTS_UPSERT_ERROR", { payload }, error);
@@ -163,6 +155,19 @@ async function upsertPaiement(params: {
   return data?.id as string;
 }
 
+/* ------------------------------ LOTERIE (NEW) ------------------------------ */
+/**
+ * ✅ Récupère le token brut (query param) depuis un URL de retour / contexte front, et le pose en metadata
+ * MAIS ici tu veux surtout passer ce qu’on a côté front :
+ * - lottery_invite_id (uuid) ET/OU
+ * - lottery_token (string hex 64) (optionnel, pour que le webhook puisse marquer used_at si tu n’as pas l’id)
+ *
+ * => On ajoute au Body schema le champ lottery_token, sans casser le reste.
+ */
+function isHexToken(v: any) {
+  return typeof v === "string" && /^[0-9a-f]{32,128}$/i.test(v.trim());
+}
+
 /* ------------------------------- Zod ----------------------------- */
 const OptionSchema = z.object({
   option_id: z.string().uuid(),
@@ -170,55 +175,62 @@ const OptionSchema = z.object({
   prix_unitaire_cents: z.coerce.number().int().nonnegative(),
 });
 
-const MemberSchema = z.object({
-  nom: z.string().min(1),
-  prenom: z.string().min(1),
-  genre: z.string().optional(),
-  date_naissance: z.string().optional(),
-  numero_licence: z.string().optional(),
-  email: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().email().optional(),
-  ),
-}).strip();
+const MemberSchema = z
+  .object({
+    nom: z.string().min(1),
+    prenom: z.string().min(1),
+    genre: z.string().optional(),
+    date_naissance: z.string().optional(),
+    numero_licence: z.string().optional(),
+    email: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().email().optional()),
+  })
+  .strip();
 
-const TeamSchemaLoose = z.object({
-  team_name: z.string().min(1),
-  team_size: z.coerce.number().int().positive(),
-  category: z.string().nullable().optional(),
-  members: z.array(MemberSchema).min(1),
-}).strip();
+const TeamSchemaLoose = z
+  .object({
+    team_name: z.string().min(1),
+    team_size: z.coerce.number().int().positive(),
+    category: z.string().nullable().optional(),
+    members: z.array(MemberSchema).min(1),
+  })
+  .strip();
 
-const BodyIndividualSchema = z.object({
-  inscription_id: z.string().uuid(),
-  email: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().email().optional(),
-  ),
-  successUrl: z.string().url().optional(),
-  cancelUrl: z.string().url().optional(),
-  options_total_eur: z.number().optional(),
-  trace_id: z.string().optional(),
-  // ✅ LOTERIE
-  lottery_invite_id: z.string().uuid().optional(),
-}).strip();
+const BodyIndividualSchema = z
+  .object({
+    inscription_id: z.string().uuid(),
+    email: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().email().optional()),
+    successUrl: z.string().url().optional(),
+    cancelUrl: z.string().url().optional(),
+    options_total_eur: z.number().optional(),
+    trace_id: z.string().optional(),
 
-const BodyGroupRelayBase = z.object({
-  mode: z.string(),
-  format_id: z.string().uuid(),
-  course_id: z.string().uuid().optional(),
-  user_id: z.string().uuid().optional(),
-  email: z.preprocess(
-    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
-    z.string().email().optional(),
-  ),
-  successUrl: z.string().url().optional(),
-  cancelUrl: z.string().url().optional(),
-  options_total_eur: z.number().optional(),
-  selected_options: z.array(OptionSchema).optional().default([]),
-  // ✅ LOTERIE
-  lottery_invite_id: z.string().uuid().optional(),
-}).strip();
+    // ✅ LOTERIE (déjà présent)
+    lottery_invite_id: z.string().uuid().optional(),
+
+    // ✅ LOTERIE (NEW) token brut (pour webhook used_at + status registered)
+    lottery_token: z.string().optional(),
+  })
+  .strip();
+
+const BodyGroupRelayBase = z
+  .object({
+    mode: z.string(),
+    format_id: z.string().uuid(),
+    course_id: z.string().uuid().optional(),
+    user_id: z.string().uuid().optional(),
+    email: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), z.string().email().optional()),
+    successUrl: z.string().url().optional(),
+    cancelUrl: z.string().url().optional(),
+    options_total_eur: z.number().optional(),
+    selected_options: z.array(OptionSchema).optional().default([]),
+
+    // ✅ LOTERIE (déjà présent)
+    lottery_invite_id: z.string().uuid().optional(),
+
+    // ✅ LOTERIE (NEW)
+    lottery_token: z.string().optional(),
+  })
+  .strip();
 
 const BodyGroupRelaySchema = z.union([
   BodyGroupRelayBase.extend({ teams: z.array(TeamSchemaLoose).min(1) }),
@@ -241,7 +253,7 @@ serve(async (req) => {
     /* --------------------- A) INDIVIDUEL via inscription_id --------------------- */
     const tryInd = BodyIndividualSchema.safeParse(body);
     if (tryInd.success) {
-      const { inscription_id, email, successUrl, cancelUrl, trace_id, lottery_invite_id } = tryInd.data;
+      const { inscription_id, email, successUrl, cancelUrl, trace_id, lottery_invite_id, lottery_token } = tryInd.data;
 
       const { data: insc, error: ie } = await supabase
         .from("inscriptions")
@@ -250,11 +262,7 @@ serve(async (req) => {
         .single();
       if (ie || !insc) throw new Error("inscription introuvable");
 
-      const { data: format, error: fe } = await supabase
-        .from("formats")
-        .select("id, nom, prix, prix_repas")
-        .eq("id", insc.format_id)
-        .single();
+      const { data: format, error: fe } = await supabase.from("formats").select("id, nom, prix, prix_repas").eq("id", insc.format_id).single();
       if (fe || !format) throw new Error("format introuvable");
 
       const destination_account_id = await resolveDestinationAccountId({
@@ -320,16 +328,18 @@ serve(async (req) => {
 
       const payerEmail = email || insc.email || undefined;
 
-      const metadata: Record<string, string> = {
-        mode: "individual",
-        format_id: String(insc.format_id || ""),
-        inscription_id: insc.id,
-        trace_id: trace_id || "",
-      };
+      const metadata: Record<string, string> = {};
+      setMeta(metadata, "mode", "individual");
+      setMeta(metadata, "format_id", String(insc.format_id || ""));
+      setMeta(metadata, "inscription_id", insc.id);
+      setMeta(metadata, "trace_id", trace_id || "");
 
-      // ✅ LOTERIE (ne met jamais "undefined")
+      // ✅ LOTERIE : on met (1) invite_id si dispo, (2) token brut si dispo
       if (lottery_invite_id && isUuid(lottery_invite_id)) {
-        metadata.lottery_invite_id = lottery_invite_id;
+        setMeta(metadata, "lottery_invite_id", lottery_invite_id);
+      }
+      if (lottery_token && isHexToken(lottery_token)) {
+        setMeta(metadata, "lottery_token", lottery_token.trim());
       }
 
       const session = await stripe.checkout.sessions.create({
@@ -353,6 +363,8 @@ serve(async (req) => {
         trace_id: trace_id || null,
         destination_account_id,
         lottery_invite_id: lottery_invite_id ?? null,
+        format_id: String(insc.format_id || null),
+        course_id: String((insc as any).course_id || null),
       });
 
       return json({ url: session.url }, 200);
@@ -370,18 +382,16 @@ serve(async (req) => {
 
     const teams = Array.isArray(payload.teams)
       ? payload.teams
-      : [{
-          team_name: payload.team_name,
-          team_size: Number(payload.team_size),
-          category: payload.category ?? null,
-          members: payload.members ?? [],
-        }];
+      : [
+          {
+            team_name: payload.team_name,
+            team_size: Number(payload.team_size),
+            category: payload.category ?? null,
+            members: payload.members ?? [],
+          },
+        ];
 
-    const { data: format, error: fe2 } = await supabase
-      .from("formats")
-      .select("id, nom, prix, prix_equipe, course_id")
-      .eq("id", payload.format_id)
-      .single();
+    const { data: format, error: fe2 } = await supabase.from("formats").select("id, nom, prix, prix_equipe, course_id").eq("id", payload.format_id).single();
     if (fe2 || !format) throw new Error("format introuvable");
 
     const destination_account_id = await resolveDestinationAccountId({
@@ -414,11 +424,7 @@ serve(async (req) => {
         capitaine_user_id: payload.user_id ?? null,
       };
 
-      const { data: g, error: ge } = await supabase
-        .from("inscriptions_groupes")
-        .insert(groupPayload)
-        .select("id")
-        .single();
+      const { data: g, error: ge } = await supabase.from("inscriptions_groupes").insert(groupPayload).select("id").single();
 
       if (ge || !g) {
         console.error("GROUP_INSERT_ERROR", { groupPayload, ge });
@@ -452,10 +458,7 @@ serve(async (req) => {
         statut: "en attente",
       }));
 
-      const { data: inscs, error: ie2 } = await supabase
-        .from("inscriptions")
-        .insert(rows)
-        .select("id, prenom, nom");
+      const { data: inscs, error: ie2 } = await supabase.from("inscriptions").insert(rows).select("id, prenom, nom");
 
       if (ie2 || !inscs) {
         console.error("INSCRIPTIONS_INSERT_ERROR", { rows, ie2 });
@@ -517,15 +520,17 @@ serve(async (req) => {
 
     const payerEmail = payload.email || undefined;
 
-    const metadata: Record<string, string> = {
-      mode,
-      format_id: payload.format_id,
-      groups: createdGroupIds.join(","),
-    };
+    const metadata: Record<string, string> = {};
+    setMeta(metadata, "mode", mode);
+    setMeta(metadata, "format_id", payload.format_id);
+    setMeta(metadata, "groups", createdGroupIds.join(","));
 
-    // ✅ LOTERIE
+    // ✅ LOTERIE (même si c’est rare en groupe, on supporte sans casser)
     if (payload.lottery_invite_id && isUuid(payload.lottery_invite_id)) {
-      metadata.lottery_invite_id = payload.lottery_invite_id;
+      setMeta(metadata, "lottery_invite_id", payload.lottery_invite_id);
+    }
+    if (payload.lottery_token && isHexToken(payload.lottery_token)) {
+      setMeta(metadata, "lottery_token", payload.lottery_token.trim());
     }
 
     const session = await stripe.checkout.sessions.create({
@@ -549,13 +554,12 @@ serve(async (req) => {
       trace_id: null,
       destination_account_id,
       lottery_invite_id: payload.lottery_invite_id ?? null,
+      format_id: payload.format_id ?? null,
+      course_id: payload.course_id ?? ((format as any)?.course_id ?? null),
     });
 
     if (paiementId && createdGroupIds.length > 0) {
-      const { error: upg } = await supabase
-        .from("inscriptions_groupes")
-        .update({ paiement_id: paiementId })
-        .in("id", createdGroupIds);
+      const { error: upg } = await supabase.from("inscriptions_groupes").update({ paiement_id: paiementId }).in("id", createdGroupIds);
       if (upg) console.error("GROUPS_UPDATE_PAYMENT_ERROR", upg);
     }
 

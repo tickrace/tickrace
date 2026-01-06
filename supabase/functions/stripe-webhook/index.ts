@@ -11,7 +11,7 @@ const SEND_INSCRIPTION_EMAIL_URL = Deno.env.get("SEND_INSCRIPTION_EMAIL_URL") ||
 /* --------------------------- Clients ----------------------------- */
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-/* ------------------------------ CORS ----------------------------- */
+/* ------------------------------ CORS ------------------------------ */
 function cors(h = new Headers()) {
   h.set("Access-Control-Allow-Origin", "*");
   h.set("Access-Control-Allow-Methods", "POST, OPTIONS");
@@ -136,7 +136,56 @@ async function sha256Hex(input: string): Promise<string> {
   return hashArr.map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-async function markLotteryInviteUsedFromMeta(meta: Record<string, string>, opts: { paiement_id?: string | null; session_id?: string | null }) {
+async function markPreinscriptionRegistered(preinscriptionId: string, ctx: { paiement_id?: string | null; session_id?: string | null }) {
+  try {
+    if (!looksLikeUuid(preinscriptionId)) return;
+
+    // Idempotent: on ne repasse pas en registered si déjà registered (ou si statut déjà bon)
+    const { data, error } = await supabase
+      .from("format_preinscriptions")
+      .update({ status: "registered" })
+      .eq("id", preinscriptionId)
+      .in("status", ["invited", "ranked", "pending"]) // tolérant (au cas où)
+      .select("id, status, email, format_id, course_id")
+      .maybeSingle();
+
+    if (error) {
+      console.error("LOTTERY_PREINSCRIPTION_MARK_REGISTERED_ERROR", preinscriptionId, error);
+      return;
+    }
+    if (!data?.id) {
+      console.log("LOTTERY_PREINSCRIPTION_ALREADY_REGISTERED_OR_NOT_FOUND", {
+        preinscription_id: preinscriptionId,
+        paiement_id: ctx.paiement_id ?? null,
+        session_id: ctx.session_id ?? null,
+      });
+      return;
+    }
+
+    console.log("LOTTERY_PREINSCRIPTION_MARK_REGISTERED_OK", {
+      preinscription_id: data.id,
+      email: data.email,
+      format_id: data.format_id,
+      course_id: data.course_id,
+      paiement_id: ctx.paiement_id ?? null,
+      session_id: ctx.session_id ?? null,
+    });
+  } catch (e) {
+    console.error("LOTTERY_PREINSCRIPTION_MARK_REGISTERED_FATAL", e);
+  }
+}
+
+type LotteryMarkResult = {
+  invite_id: string;
+  preinscription_id: string | null;
+  format_id: string | null;
+  course_id: string | null;
+} | null;
+
+async function markLotteryInviteUsedFromMeta(
+  meta: Record<string, string>,
+  opts: { paiement_id?: string | null; session_id?: string | null }
+): Promise<LotteryMarkResult> {
   // Convention:
   // - meta.lottery_invite_id (uuid) recommandé
   // - meta.lottery_token (token brut) fallback
@@ -155,11 +204,11 @@ async function markLotteryInviteUsedFromMeta(meta: Record<string, string>, opts:
 
       if (error) {
         console.error("LOTTERY_INVITE_MARK_USED_ERROR_BY_ID", inviteId, error);
-        return;
+        return null;
       }
       if (!data?.id) {
         console.log("LOTTERY_INVITE_ALREADY_USED_OR_NOT_FOUND", inviteId);
-        return;
+        return null;
       }
       console.log("LOTTERY_INVITE_MARK_USED_OK", {
         invite_id: data.id,
@@ -169,7 +218,12 @@ async function markLotteryInviteUsedFromMeta(meta: Record<string, string>, opts:
         paiement_id: opts.paiement_id ?? null,
         session_id: opts.session_id ?? null,
       });
-      return;
+      return {
+        invite_id: data.id,
+        preinscription_id: (data.preinscription_id as string) || null,
+        format_id: (data.format_id as string) || null,
+        course_id: (data.course_id as string) || null,
+      };
     }
 
     if (token) {
@@ -184,19 +238,24 @@ async function markLotteryInviteUsedFromMeta(meta: Record<string, string>, opts:
 
       if (invErr) {
         console.error("LOTTERY_INVITE_LOOKUP_ERROR_BY_TOKEN", invErr);
-        return;
+        return null;
       }
       if (!inv?.id) {
         console.warn("LOTTERY_INVITE_NOT_FOUND_FOR_TOKEN");
-        return;
+        return null;
       }
       if (inv.used_at) {
         console.log("LOTTERY_INVITE_ALREADY_USED", inv.id);
-        return;
+        return {
+          invite_id: inv.id,
+          preinscription_id: (inv.preinscription_id as string) || null,
+          format_id: (inv.format_id as string) || null,
+          course_id: (inv.course_id as string) || null,
+        };
       }
       if (inv.expires_at && String(inv.expires_at) <= nowIso) {
         console.warn("LOTTERY_INVITE_EXPIRED", inv.id, inv.expires_at);
-        return;
+        return null;
       }
 
       const { data: upd, error: updErr } = await supabase
@@ -209,7 +268,7 @@ async function markLotteryInviteUsedFromMeta(meta: Record<string, string>, opts:
 
       if (updErr) {
         console.error("LOTTERY_INVITE_MARK_USED_ERROR_BY_TOKEN", updErr);
-        return;
+        return null;
       }
 
       console.log("LOTTERY_INVITE_MARK_USED_OK", {
@@ -220,18 +279,23 @@ async function markLotteryInviteUsedFromMeta(meta: Record<string, string>, opts:
         paiement_id: opts.paiement_id ?? null,
         session_id: opts.session_id ?? null,
       });
-      return;
+
+      return {
+        invite_id: (upd?.id as string) || inv.id,
+        preinscription_id: (upd?.preinscription_id as string) || (inv.preinscription_id as string) || null,
+        format_id: (upd?.format_id as string) || (inv.format_id as string) || null,
+        course_id: (upd?.course_id as string) || (inv.course_id as string) || null,
+      };
     }
   } catch (e) {
     console.error("LOTTERY_INVITE_MARK_USED_FATAL", e);
   }
+
+  return null;
 }
 
 /* ------------------------- Helpers refund ------------------------ */
-async function resolveAnchorInscriptionId(args: {
-  paiement: any;
-  groupe_id?: string | null;
-}): Promise<string | null> {
+async function resolveAnchorInscriptionId(args: { paiement: any; groupe_id?: string | null }): Promise<string | null> {
   const p = args.paiement;
 
   const direct =
@@ -399,10 +463,7 @@ async function processRefund(refund: any) {
   }
 
   if (inscription_id && !paiement.anchor_inscription_id) {
-    const { error } = await supabase
-      .from("paiements")
-      .update({ anchor_inscription_id: inscription_id })
-      .eq("id", paiement.id);
+    const { error } = await supabase.from("paiements").update({ anchor_inscription_id: inscription_id }).eq("id", paiement.id);
     if (error) console.error("BACKFILL_PAIEMENT_ANCHOR_ERROR", error);
   }
 
@@ -453,7 +514,7 @@ serve(async (req) => {
   const headers = cors();
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
 
-  console.log("STRIPE-WEBHOOK v11 (loterie invite used_at + keep legacy flows) ");
+  console.log("STRIPE-WEBHOOK v11.1 (loterie: used_at + preinscription registered + keep legacy flows)");
 
   let event: any;
   try {
@@ -581,10 +642,7 @@ serve(async (req) => {
         if (u1.error) console.error("INSCRIPTIONS_UPDATE_ERROR", u1.error);
         else console.log("INSCRIPTIONS_UPDATE_OK", finalInscriptionIds.length);
 
-        const u2 = await supabase
-          .from("inscriptions_options")
-          .update({ status: "confirmed" })
-          .in("inscription_id", finalInscriptionIds);
+        const u2 = await supabase.from("inscriptions_options").update({ status: "confirmed" }).in("inscription_id", finalInscriptionIds);
         if (u2.error) console.error("OPTIONS_CONFIRM_ERROR", u2.error);
 
         const grpIdsRes = await supabase.from("inscriptions").select("member_of_group_id").in("id", finalInscriptionIds);
@@ -604,9 +662,29 @@ serve(async (req) => {
         }
       }
 
-      // ✅ 3bis) LOTERIE : marquer l’invitation comme utilisée (sans casser le reste)
-      // Idempotent: update only if used_at IS NULL
-      await markLotteryInviteUsedFromMeta(meta, { paiement_id, session_id: sessionId });
+      // ✅ 3bis) LOTERIE :
+      // - Marque l’invite used_at
+      // - + Met le statut format_preinscriptions en registered (sinon il reste "invited")
+      const lot = await markLotteryInviteUsedFromMeta(meta, { paiement_id, session_id: sessionId });
+
+      // Si tu veux aussi supporter un meta direct (au cas où tu l’ajoutes plus tard)
+      const metaPreId = meta.preinscription_id ? String(meta.preinscription_id) : "";
+
+      const preIdToRegister = (lot?.preinscription_id || null) ?? (looksLikeUuid(metaPreId) ? metaPreId : null);
+
+      if (preIdToRegister) {
+        await markPreinscriptionRegistered(preIdToRegister, { paiement_id, session_id: sessionId });
+      } else {
+        // log léger pour comprendre si la session n’était pas loterie
+        if (meta.lottery_invite_id || meta.lottery_token) {
+          console.warn("LOTTERY_FLOW_NO_PREINSCRIPTION_ID_TO_REGISTER", {
+            has_invite_id: Boolean(meta.lottery_invite_id),
+            has_token: Boolean(meta.lottery_token),
+            session_id: sessionId,
+            paiement_id,
+          });
+        }
+      }
 
       // 4) sync fees + options (2 passes)
       if (paymentIntentId) {
