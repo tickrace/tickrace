@@ -30,23 +30,20 @@ export default async function handler(req: Request) {
   const id = url.pathname.split("/").pop() || "";
   const origin = url.origin;
 
-  // ✅ Si on force l’app (humain), on renvoie l’index SPA direct
-  // (utile avec le meta refresh)
-  if (url.searchParams.get("app") === "1") {
-    const htmlRes = await fetch(`${origin}/index.html`);
-    const html = await htmlRes.text();
+  // ✅ si humain -> renvoyer l'app SPA
+  if (!isBot(ua) && url.searchParams.get("app") === "1") {
+    const spa = await fetch(`${origin}/`);
+    const html = await spa.text();
     return new Response(html, {
       headers: { "content-type": "text/html; charset=utf-8" },
     });
   }
 
-  // On part d’un "shell" minimal (pas besoin de charger index.html complet)
-  // car WhatsApp n’exécute pas le JS. On veut juste les metas.
+  // ✅ récupérer les infos OG
   const ogRes = await fetch(`${origin}/api/og-course?id=${encodeURIComponent(id)}`, {
     headers: { "user-agent": ua },
   });
 
-  // Fallback si course introuvable
   const og = ogRes.ok
     ? await ogRes.json()
     : {
@@ -60,8 +57,6 @@ export default async function handler(req: Request) {
   const desc = escapeHtml(og.description || "Inscriptions & infos sur Tickrace");
   const image = escapeHtml(og.image || "");
   const pageUrl = escapeHtml(og.url || `${origin}/courses/${id}`);
-
-  // ✅ Pour les humains : on redirige vers l’app
   const appUrl = `${pageUrl}${pageUrl.includes("?") ? "&" : "?"}app=1`;
 
   const html = `<!doctype html>
@@ -88,12 +83,7 @@ export default async function handler(req: Request) {
   <meta name="twitter:description" content="${desc}" />
   <meta name="twitter:image" content="${image}" />
 
-  ${
-    // ✅ On redirige seulement si ce n'est pas un bot
-    !isBot(ua)
-      ? `<meta http-equiv="refresh" content="0;url=${escapeHtml(appUrl)}" />`
-      : ""
-  }
+  ${!isBot(ua) ? `<meta http-equiv="refresh" content="0;url=${escapeHtml(appUrl)}" />` : ""}
 </head>
 <body>
   <noscript>Tickrace</noscript>
@@ -103,7 +93,6 @@ export default async function handler(req: Request) {
   return new Response(html, {
     headers: {
       "content-type": "text/html; charset=utf-8",
-      // cache OK pour bots, mais pas trop long pendant la mise au point
       "cache-control": "public, max-age=0, s-maxage=600",
     },
   });
