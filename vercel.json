@@ -1,8 +1,17 @@
 {
-  "routes": [
-    { "src": "/api/(.*)", "dest": "/api/$1" },
-    { "src": "/courses/([^/]+)", "dest": "/api/prerender/course/$1" },
-    { "handle": "filesystem" },
-    { "src": "/(.*)", "dest": "/index.html" }
+  "rewrites": [
+    {
+      "source": "/courses/:id",
+      "has": [{ "type": "query", "key": "app", "value": "1" }],
+      "destination": "/index.html"
+    },
+    {
+      "source": "/courses/:id",
+      "destination": "/api/prerender/course/:id"
+    },
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
   ]
 }
