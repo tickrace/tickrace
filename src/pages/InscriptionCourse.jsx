@@ -1048,10 +1048,10 @@ export default function InscriptionCourse() {
             options_total_eur: (totalOptionsCents || 0) / 100,
 
             // Loterie (pour le webhook Stripe)
-            lottery_token: inviteToken || null,
-            lottery_invite_id: inviteState?.invite?.id || null,
-            preinscription_id: inviteState?.invite?.preinscription_id || null,
-            team_id: inviteState?.invite?.team_id || null,
+            lottery_token: inviteToken || undefined,
+            lottery_invite_id: inviteState?.invite?.id || undefined,
+            preinscription_id: inviteState?.invite?.preinscription_id || undefined,
+            team_id: inviteState?.invite?.team_id || undefined,
           },
         });
 
@@ -1137,10 +1137,10 @@ export default function InscriptionCourse() {
         selected_options,
 
         // Loterie (pour le webhook Stripe)
-        lottery_token: inviteToken || null,
-        lottery_invite_id: inviteState?.invite?.id || null,
-        preinscription_id: inviteState?.invite?.preinscription_id || null,
-        team_id: inviteState?.invite?.team_id || null,
+        lottery_token: inviteToken || undefined,
+        lottery_invite_id: inviteState?.invite?.id || undefined,
+        preinscription_id: inviteState?.invite?.preinscription_id || undefined,
+        team_id: inviteState?.invite?.team_id || undefined,
       };
 
       if (teams.length > 1) {
