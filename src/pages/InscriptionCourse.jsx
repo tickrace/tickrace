@@ -368,6 +368,7 @@ export default function InscriptionCourse() {
   const [totalOptionsCents, setTotalOptionsCents] = useState(0);
   const persistOptionsFnRef = useRef(null);
   const getSelectedOptionsRef = useRef(null);
+  const sectionRefs = useRef({});
 
   function setField(name, value) {
     setInscription((prev) => ({ ...prev, [name]: value }));
@@ -1213,6 +1214,140 @@ export default function InscriptionCourse() {
     (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && isFormatFull) ||
     (lotteryEnabled && (!inviteToken || inviteState.loading || !inviteState.ok));
 
+  const precheck = useMemo(() => {
+    const warnIssues = [];
+    const blockIssues = [];
+    const ageMin = selectedFormat?.age_minimum ? Number(selectedFormat.age_minimum) : null;
+
+    if (!selectedFormat) {
+      warnIssues.push({ msg: "Choix du format: selectionner un format.", section: "format" });
+    }
+
+    if (!registrationWindow.isOpen) {
+      blockIssues.push({ msg: `Inscriptions: ${registrationWindow.reason}`, section: "format" });
+    }
+
+    if (lotteryEnabled) {
+      if (!inviteToken) {
+        blockIssues.push({ msg: "Loterie: invitation requise pour payer.", section: "format" });
+      } else if (inviteState.loading) {
+        blockIssues.push({ msg: "Loterie: verification de l'invitation en cours.", section: "format" });
+      } else if (!inviteState.ok) {
+        blockIssues.push({
+          msg: `Loterie: ${inviteState.error || "invitation invalide ou expiree."}`,
+          section: "format",
+        });
+      }
+    }
+
+    if (mode === "individuel") {
+      if (isFormatFull) {
+        if (selectedFormat?.waitlist_enabled) {
+          warnIssues.push({
+            msg: "Inscriptions: format complet, inscription en liste d'attente (sans paiement).",
+            section: "format",
+          });
+        } else {
+          blockIssues.push({
+            msg: `Inscriptions: le format ${selectedFormat?.nom || ""} est complet.`,
+            section: "format",
+          });
+        }
+      }
+
+      if (courseJustif.required && !hasJustificatif(inscription)) {
+        warnIssues.push({ msg: "Justificatifs: ajouter un PPS, une licence ou un document.", section: "justif" });
+      }
+
+      if (needParentAuth && !String(inscription.autorisation_parentale_url || "").trim()) {
+        warnIssues.push({ msg: "Autorisation parentale: document requis.", section: "justif" });
+      }
+
+      if (ageMin && inscription.date_naissance) {
+        const age = calculerAge(inscription.date_naissance);
+        if (age !== null && age < ageMin) {
+          warnIssues.push({ msg: `Age minimum: ${ageMin} ans.`, section: "info" });
+        }
+      }
+    } else {
+      const teamIssues = [];
+      teams.forEach((t, idx) => {
+        if (!t.team_name || !t.team_size) {
+          teamIssues.push({ msg: `Equipe ${idx + 1}: nom et taille requis.`, section: "teams" });
+          return;
+        }
+        if (t.team_size < minTeam) {
+          teamIssues.push({ msg: `Equipe ${idx + 1}: taille minimale ${minTeam} coureurs.`, section: "teams" });
+        }
+        if (t.team_size > maxTeam) {
+          teamIssues.push({ msg: `Equipe ${idx + 1}: taille maximale ${maxTeam} coureurs.`, section: "teams" });
+        }
+        if ((t.members || []).length !== (t.team_size || 0)) {
+          teamIssues.push({ msg: `Equipe ${idx + 1}: completer la liste des membres.`, section: "teams" });
+        }
+        if (!isTeamComplete(t)) {
+          teamIssues.push({ msg: `Equipe ${idx + 1}: infos ou justificatifs incomplets.`, section: "teams" });
+        }
+      });
+      teamIssues.forEach((m) => warnIssues.push(m));
+      if (ageMin) {
+        const tooYoung = teams.some((t) =>
+          (t.members || []).some((m) => {
+            const age = calculerAge(m.date_naissance);
+            return age !== null && age < ageMin;
+          })
+        );
+        if (tooYoung) warnIssues.push({ msg: `Age minimum: ${ageMin} ans.`, section: "teams" });
+      }
+    }
+
+    const status = blockIssues.length > 0 ? "block" : warnIssues.length > 0 ? "warn" : "ok";
+    const items = blockIssues.length > 0 ? blockIssues : warnIssues;
+
+    return {
+      status,
+      items,
+      canJoinWaitlist: mode === "individuel" && !!selectedFormat?.waitlist_enabled && isFormatFull,
+    };
+  }, [
+    selectedFormat,
+    registrationWindow,
+    lotteryEnabled,
+    inviteToken,
+    inviteState.loading,
+    inviteState.ok,
+    inviteState.error,
+    mode,
+    isFormatFull,
+    courseJustif.required,
+    inscription,
+    needParentAuth,
+    teams,
+    minTeam,
+    maxTeam,
+  ]);
+
+  const scrollToSection = (key) => {
+    const el = sectionRefs.current[key];
+    if (el && typeof el.scrollIntoView === "function") {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+      return true;
+    }
+    return false;
+  };
+
+  const handlePrecheckFix = () => {
+    const first = precheck.items?.[0];
+    if (first?.section && scrollToSection(first.section)) return;
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const handlePrecheckLater = () => {};
+
+  const handleViewOtherFormats = () => {
+    navigate(`/courses/${courseId}`);
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       {/* Header */}
@@ -1295,7 +1430,12 @@ export default function InscriptionCourse() {
         {/* Formulaire */}
         <div className="lg:col-span-2 space-y-6">
           {/* Choix format */}
-          <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+          <section
+            ref={(el) => {
+              sectionRefs.current.format = el;
+            }}
+            className="rounded-2xl border border-neutral-200 bg-white shadow-sm"
+          >
             <div className="p-5 border-b border-neutral-100">
               <h2 className="text-lg font-semibold">Choix du format</h2>
               <p className="text-sm text-neutral-500">
@@ -1403,7 +1543,12 @@ export default function InscriptionCourse() {
 
           {/* Équipes (groupe/relais) */}
           {selectedFormat && mode !== "individuel" && (
-            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <section
+              ref={(el) => {
+                sectionRefs.current.teams = el;
+              }}
+              className="rounded-2xl border border-neutral-200 bg-white shadow-sm"
+            >
               <div className="p-5 border-b border-neutral-100 flex items-center justify-between">
                 <div>
                   <h2 className="text-lg font-semibold">{mode === "groupe" ? "Équipe" : "Équipes relais"}</h2>
@@ -1617,7 +1762,12 @@ export default function InscriptionCourse() {
 
           {/* Infos coureur : INDIVIDUEL */}
           {mode === "individuel" && (
-            <section className="rounded-2xl border border-neutral-200 bg-white shadow-sm">
+            <section
+              ref={(el) => {
+                sectionRefs.current.info = el;
+              }}
+              className="rounded-2xl border border-neutral-200 bg-white shadow-sm"
+            >
               <div className="p-5 border-b border-neutral-100">
                 <h2 className="text-lg font-semibold">Informations coureur</h2>
               </div>
@@ -1732,7 +1882,12 @@ export default function InscriptionCourse() {
                 </div>
 
                 {/* Justificatifs + autorisation parentale */}
-                <div className="pt-4 border-t border-neutral-200">
+                <div
+                  ref={(el) => {
+                    sectionRefs.current.justif = el;
+                  }}
+                  className="pt-4 border-t border-neutral-200"
+                >
                   <JustificatifInscriptionBlock
                     course={course}
                     types={justifTypes}
@@ -1752,12 +1907,18 @@ export default function InscriptionCourse() {
 
           {/* Options payantes */}
           {selectedFormat && (mode === "individuel" || mode === "groupe" || mode === "relais") && (
-            <OptionsPayantesPicker
+            <div
+              ref={(el) => {
+                sectionRefs.current.options = el;
+              }}
+            >
+              <OptionsPayantesPicker
               formatId={selectedFormat.id}
               onTotalCentsChange={(c) => setTotalOptionsCents(c)}
               registerPersist={registerPersist}
               registerGetSelected={registerGetSelected}
-            />
+              />
+            </div>
           )}
         </div>
 
@@ -1887,6 +2048,93 @@ export default function InscriptionCourse() {
             </div>
 
             <div className="p-5">
+              {/* Verifications avant paiement */}
+              <div className="mb-4 rounded-2xl border border-neutral-200 bg-white p-4">
+                <div className="flex items-start gap-3">
+                  <div
+                    className={`h-2.5 w-2.5 rounded-full mt-1 ${
+                      precheck.status === "ok"
+                        ? "bg-emerald-500"
+                        : precheck.status === "warn"
+                        ? "bg-amber-500"
+                        : "bg-rose-500"
+                    }`}
+                  />
+                  <div className="flex-1">
+                    <div className="text-sm font-semibold">
+                      {precheck.status === "ok"
+                        ? "Tout est pret"
+                        : precheck.status === "warn"
+                        ? "Action requise avant paiement"
+                        : "Inscription impossible"}
+                    </div>
+
+                    <div className="mt-1 text-sm text-neutral-600">
+                      {precheck.status === "ok" &&
+                        "Tes informations sont completes. Tu peux payer en toute securite."}
+                      {precheck.status === "warn" &&
+                        "Il manque encore quelques elements pour finaliser ton inscription."}
+                      {precheck.status === "block" &&
+                        "Ce format ne peut pas etre paye maintenant."}
+                    </div>
+
+                    {precheck.items?.length > 0 && (
+                      <ul className="mt-2 text-sm text-neutral-700 space-y-1">
+                        {precheck.items.map((item, idx) => (
+                          <li key={idx}>• {item.msg}</li>
+                        ))}
+                      </ul>
+                    )}
+
+                    {precheck.status === "ok" && (
+                      <div className="mt-2 text-xs text-neutral-500">
+                        Le paiement ne sera lance que si tout est valide.
+                      </div>
+                    )}
+
+                    {precheck.status === "warn" && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button
+                          type="button"
+                          onClick={handlePrecheckFix}
+                          className="rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white"
+                        >
+                          Corriger maintenant
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePrecheckLater}
+                          className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-800"
+                        >
+                          Continuer plus tard
+                        </button>
+                      </div>
+                    )}
+
+                    {precheck.status === "block" && (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {precheck.canJoinWaitlist && (
+                          <button
+                            type="button"
+                            onClick={handlePrecheckFix}
+                            className="rounded-lg bg-neutral-900 px-3 py-2 text-xs font-semibold text-white"
+                          >
+                            Rejoindre la liste d'attente
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={handleViewOtherFormats}
+                          className="rounded-lg border border-neutral-300 px-3 py-2 text-xs font-semibold text-neutral-800"
+                        >
+                          Voir d'autres formats
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={handlePay}
