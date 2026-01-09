@@ -1174,46 +1174,6 @@ export default function InscriptionCourse() {
     }
   }
 
-  /* ---------------------------------------------------------------------------
-     UI
-  --------------------------------------------------------------------------- */
-  if (loading) {
-    return (
-      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="h-7 w-64 bg-neutral-200 rounded animate-pulse mb-6" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 space-y-4">
-            <div className="h-48 bg-neutral-100 rounded-2xl animate-pulse" />
-            <div className="h-48 bg-neutral-100 rounded-2xl animate-pulse" />
-          </div>
-          <div className="h-64 bg-neutral-100 rounded-2xl animate-pulse" />
-        </div>
-      </div>
-    );
-  }
-
-  if (!course || formats.length === 0) {
-    return (
-      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <p className="text-neutral-600">Aucun format disponible pour cette course.</p>
-      </div>
-    );
-  }
-
-  const placesRestantes = selectedFormat
-    ? Math.max(0, Number(selectedFormat.nb_max_coureurs || 0) - Number(selectedFormat.inscrits || 0))
-    : null;
-
-  const basePriceIndivEUR = selectedFormat ? Number(selectedFormat.prix || 0) : 0;
-  const indivWaitlistMode = mode === "individuel" && !!selectedFormat?.waitlist_enabled && isFormatFull;
-
-  const disablePay =
-    submitting ||
-    !inscription.format_id ||
-    !registrationWindow.isOpen ||
-    (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && isFormatFull) ||
-    (lotteryEnabled && (!inviteToken || inviteState.loading || !inviteState.ok));
-
   const precheck = useMemo(() => {
     const warnIssues = [];
     const blockIssues = [];
@@ -1347,6 +1307,46 @@ export default function InscriptionCourse() {
   const handleViewOtherFormats = () => {
     navigate(`/courses/${courseId}`);
   };
+
+  /* ---------------------------------------------------------------------------
+     UI
+  --------------------------------------------------------------------------- */
+  if (loading) {
+    return (
+      <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <div className="h-7 w-64 bg-neutral-200 rounded animate-pulse mb-6" />
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          <div className="lg:col-span-2 space-y-4">
+            <div className="h-48 bg-neutral-100 rounded-2xl animate-pulse" />
+            <div className="h-48 bg-neutral-100 rounded-2xl animate-pulse" />
+          </div>
+          <div className="h-64 bg-neutral-100 rounded-2xl animate-pulse" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!course || formats.length === 0) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
+        <p className="text-neutral-600">Aucun format disponible pour cette course.</p>
+      </div>
+    );
+  }
+
+  const placesRestantes = selectedFormat
+    ? Math.max(0, Number(selectedFormat.nb_max_coureurs || 0) - Number(selectedFormat.inscrits || 0))
+    : null;
+
+  const basePriceIndivEUR = selectedFormat ? Number(selectedFormat.prix || 0) : 0;
+  const indivWaitlistMode = mode === "individuel" && !!selectedFormat?.waitlist_enabled && isFormatFull;
+
+  const disablePay =
+    submitting ||
+    !inscription.format_id ||
+    !registrationWindow.isOpen ||
+    (mode === "individuel" && selectedFormat && !selectedFormat.waitlist_enabled && isFormatFull) ||
+    (lotteryEnabled && (!inviteToken || inviteState.loading || !inviteState.ok));
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
