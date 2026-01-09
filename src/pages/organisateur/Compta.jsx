@@ -94,10 +94,10 @@ export default function Compta() {
     setErr("");
     setLoading(true);
     try {
-      await requireAuth();
+      const user = await requireAuth();
 
       // ✅ on lit la VUE (avec course_nom)
-      const { data, error } = await supabase
+      const base = supabase
         .from("organisateur_ledger_v")
         .select(
           "id, occurred_at, source_event, label, course_nom, gross_cents, tickrace_fee_cents, stripe_fee_cents, net_org_cents",
@@ -106,6 +106,13 @@ export default function Compta() {
         .lte("occurred_at", `${to}T23:59:59+00`)
         .order("occurred_at", { ascending: false })
         .limit(700);
+
+      let { data, error } = await base.eq("organisateur_id", user.id);
+
+      // Fallback si la vue n'expose pas organisateur_id
+      if (error && String(error.message || "").includes("organisateur_id")) {
+        ({ data, error } = await base);
+      }
 
       if (error) throw error;
       setLedger(data || []);
@@ -209,13 +216,14 @@ export default function Compta() {
   async function loadInvoices() {
     setErr("");
     try {
-      await requireAuth();
+      const user = await requireAuth();
 
       const { data, error } = await supabase
         .from("factures_tickrace")
         .select(
           "id, invoice_no, status, period_from, period_to, subtotal_cents, vat_rate_bp, vat_cents, total_cents, created_at, lines",
         )
+        .eq("organisateur_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -422,12 +430,15 @@ export default function Compta() {
                     className="mt-1 w-28 rounded-xl border border-neutral-200 px-3 py-2 text-sm"
                   />
                 </label>
+                <div className="text-xs text-neutral-600 max-w-sm">
+                  Les factures finales sont générées automatiquement lors du reversement final.
+                </div>
                 <button
                   onClick={generateInvoice}
                   disabled={busyInvoice}
                   className="rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-50"
                 >
-                  {busyInvoice ? "Génération…" : "Générer la facture"}
+                  {busyInvoice ? "Génération…" : "Générer une facture manuelle"}
                 </button>
               </div>
             )}
@@ -658,7 +669,9 @@ export default function Compta() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Factures TickRace</h2>
-                <p className="mt-1 text-sm text-neutral-600">Basées sur la commission TickRace (ledger) et figées (snapshot).</p>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Les factures finales sont générées automatiquement au reversement final. Les factures manuelles restent possibles si besoin.
+                </p>
               </div>
               <button
                 onClick={loadInvoices}

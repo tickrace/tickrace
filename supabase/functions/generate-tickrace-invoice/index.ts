@@ -8,6 +8,7 @@ const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const FACTURES_BUCKET = Deno.env.get("FACTURES_BUCKET") || "factures";
 const DEFAULT_VAT_BP = Number(Deno.env.get("TICKRACE_DEFAULT_VAT_BP") || "0");
+const INTERNAL_INVOICE_KEY = Deno.env.get("INTERNAL_INVOICE_KEY") || "";
 
 // --- LEGAL / BRAND
 const LEGAL_NAME = Deno.env.get("TICKRACE_LEGAL_NAME") || "TickRace";
@@ -38,6 +39,9 @@ const Body = z.object({
   period_from: z.string().min(10),
   period_to: z.string().min(10),
   vat_bp: z.coerce.number().int().min(0).max(10000).optional(),
+  organisateur_id: z.string().uuid().optional(),
+  course_id: z.string().uuid().optional(),
+  paiement_id: z.string().uuid().optional(),
 }).strip();
 
 // WinAnsi-safe
@@ -332,18 +336,25 @@ serve(async (req) => {
 
   try {
     const authHeader = req.headers.get("Authorization") || "";
-    if (!authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
+    const internalKey = req.headers.get("x-internal-key") || "";
+    const isInternal = INTERNAL_INVOICE_KEY && internalKey === INTERNAL_INVOICE_KEY;
+    if (!isInternal && !authHeader.startsWith("Bearer ")) return json({ error: "unauthorized" }, 401);
 
     const body = Body.parse(await req.json());
     const periodFrom = body.period_from;
     const periodTo = body.period_to;
     const vatBp = typeof body.vat_bp === "number" ? body.vat_bp : DEFAULT_VAT_BP;
 
-    // caller
-    const jwt = authHeader.replace("Bearer ", "");
-    const { data: u, error: uErr } = await supabase.auth.getUser(jwt);
-    if (uErr || !u?.user?.id) return json({ error: "unauthorized" }, 401);
-    const organisateurId = u.user.id;
+    let organisateurId = "";
+    if (isInternal) {
+      organisateurId = body.organisateur_id || "";
+      if (!organisateurId) return json({ error: "missing_organisateur_id" }, 400);
+    } else {
+      const jwt = authHeader.replace("Bearer ", "");
+      const { data: u, error: uErr } = await supabase.auth.getUser(jwt);
+      if (uErr || !u?.user?.id) return json({ error: "unauthorized" }, 401);
+      organisateurId = u.user.id;
+    }
 
     // Profil orga (nom + contact)
     const { data: prof, error: pErr } = await supabase
@@ -358,13 +369,25 @@ serve(async (req) => {
     const orgPhone = prof?.telephone ?? null;
 
     // Ledger -> somme tickrace_fee_cents sur période
-    const { data: led, error: ledErr } = await supabase
+    let ledgerQuery = supabase
       .from("organisateur_ledger")
-      .select("course_id, tickrace_fee_cents, occurred_at")
+      .select("course_id, tickrace_fee_cents, occurred_at, source_table, source_id")
       .eq("organisateur_id", organisateurId)
-      .eq("status", "confirmed")
-      .gte("occurred_at", `${periodFrom}T00:00:00+00`)
-      .lte("occurred_at", `${periodTo}T23:59:59+00`);
+      .eq("status", "confirmed");
+
+    if (body.paiement_id) {
+      ledgerQuery = ledgerQuery.eq("source_table", "paiements").eq("source_id", body.paiement_id);
+    } else {
+      ledgerQuery = ledgerQuery
+        .gte("occurred_at", `${periodFrom}T00:00:00+00`)
+        .lte("occurred_at", `${periodTo}T23:59:59+00`);
+    }
+
+    if (body.course_id) {
+      ledgerQuery = ledgerQuery.eq("course_id", body.course_id);
+    }
+
+    const { data: led, error: ledErr } = await ledgerQuery;
     if (ledErr) throw ledErr;
 
     const byCourse = new Map<string, number>();
