@@ -78,8 +78,6 @@ export default function Compta() {
   const [optionsRows, setOptionsRows] = useState([]);
 
   // Factures
-  const [vatBp, setVatBp] = useState(0); // 2000 = 20.00%
-  const [busyInvoice, setBusyInvoice] = useState(false);
   const [invoices, setInvoices] = useState([]);
   const [busyDownload, setBusyDownload] = useState({});
   const [invoiceModal, setInvoiceModal] = useState({ open: false, invoice: null });
@@ -94,10 +92,10 @@ export default function Compta() {
     setErr("");
     setLoading(true);
     try {
-      await requireAuth();
+      const user = await requireAuth();
 
       // ✅ on lit la VUE (avec course_nom)
-      const { data, error } = await supabase
+      const base = supabase
         .from("organisateur_ledger_v")
         .select(
           "id, occurred_at, source_event, label, course_nom, gross_cents, tickrace_fee_cents, stripe_fee_cents, net_org_cents",
@@ -106,6 +104,13 @@ export default function Compta() {
         .lte("occurred_at", `${to}T23:59:59+00`)
         .order("occurred_at", { ascending: false })
         .limit(700);
+
+      let { data, error } = await base.eq("organisateur_id", user.id);
+
+      // Fallback si la vue n'expose pas organisateur_id
+      if (error && String(error.message || "").includes("organisateur_id")) {
+        ({ data, error } = await base);
+      }
 
       if (error) throw error;
       setLedger(data || []);
@@ -209,13 +214,14 @@ export default function Compta() {
   async function loadInvoices() {
     setErr("");
     try {
-      await requireAuth();
+      const user = await requireAuth();
 
       const { data, error } = await supabase
         .from("factures_tickrace")
         .select(
           "id, invoice_no, status, period_from, period_to, subtotal_cents, vat_rate_bp, vat_cents, total_cents, created_at, lines",
         )
+        .eq("organisateur_id", user.id)
         .order("created_at", { ascending: false })
         .limit(50);
 
@@ -273,26 +279,7 @@ export default function Compta() {
     const qty = optionsRows.reduce((s, r) => s + Number(r.qty || 0), 0);
     const total = optionsRows.reduce((s, r) => s + Number(r.total_cents || 0), 0);
     return { qty, total };
-  }, [optionsRows]);
-
-  async function generateInvoice() {
-    setErr("");
-    setBusyInvoice(true);
-    try {
-      const { data, error } = await supabase.functions.invoke("generate-tickrace-invoice", {
-        body: { period_from: from, period_to: to, vat_bp: Number(vatBp || 0) },
-      });
-      if (error) throw error;
-      if (!data?.ok) throw new Error(data?.error || "Génération échouée.");
-
-      await loadInvoices();
-      alert(`Facture générée ✅ (${data.invoice?.invoice_no})`);
-    } catch (e) {
-      alert("Erreur: " + (e?.message ?? String(e)));
-    } finally {
-      setBusyInvoice(false);
-    }
-  }
+  }, [optionsRows]);\r\n  }
 
   async function downloadInvoice(invoiceId) {
     setErr("");
@@ -402,35 +389,13 @@ export default function Compta() {
                   Déjà versé: <b>{eurFromCents(transferStats.alreadyPaid)}</b>
                 </span>
                 <span>
-                  Solde à venir:{" "}
+                  Solde à venir: {" "}
                   <b className={transferStats.due < 0 ? "text-red-600" : "text-emerald-700"}>
                     {eurFromCents(transferStats.due)}
                   </b>
                 </span>
               </div>
-            ) : (
-              <div className="flex items-end gap-3">
-                <label className="text-sm">
-                  <div className="text-xs font-semibold text-neutral-600">TVA (%)</div>
-                  <input
-                    type="number"
-                    min={0}
-                    max={100}
-                    step={0.01}
-                    value={(Number(vatBp || 0) / 100).toString()}
-                    onChange={(e) => setVatBp(Math.round(Number(e.target.value || 0) * 100))}
-                    className="mt-1 w-28 rounded-xl border border-neutral-200 px-3 py-2 text-sm"
-                  />
-                </label>
-                <button
-                  onClick={generateInvoice}
-                  disabled={busyInvoice}
-                  className="rounded-xl bg-black px-4 py-2 text-sm font-semibold text-white hover:bg-neutral-800 disabled:opacity-50"
-                >
-                  {busyInvoice ? "Génération…" : "Générer la facture"}
-                </button>
-              </div>
-            )}
+            ) : null}
           </div>
         </div>
 
@@ -658,7 +623,9 @@ export default function Compta() {
             <div className="flex items-start justify-between gap-3">
               <div>
                 <h2 className="text-lg font-semibold">Factures TickRace</h2>
-                <p className="mt-1 text-sm text-neutral-600">Basées sur la commission TickRace (ledger) et figées (snapshot).</p>
+                <p className="mt-1 text-sm text-neutral-600">
+                  Les factures finales sont générées automatiquement au reversement final (solde à J+2).
+                </p>
               </div>
               <button
                 onClick={loadInvoices}
@@ -777,3 +744,10 @@ export default function Compta() {
     </div>
   );
 }
+
+
+
+
+
+
+
