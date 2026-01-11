@@ -279,7 +279,7 @@ export default function Compta() {
     const qty = optionsRows.reduce((s, r) => s + Number(r.qty || 0), 0);
     const total = optionsRows.reduce((s, r) => s + Number(r.total_cents || 0), 0);
     return { qty, total };
-  }, [optionsRows]);\r\n  }
+  }, [optionsRows]);
 
   async function downloadInvoice(invoiceId) {
     setErr("");
