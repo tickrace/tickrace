@@ -1,9 +1,9 @@
 // src/pages/UpsertCourse.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate, Link } from "react-router-dom";
+import { useParams, useNavigate, Link, useSearchParams } from "react-router-dom";
 import { v4 as uuidv4 } from "uuid";
 import { supabase } from "../supabase";
-import { BookOpen, ArrowUpRight } from "lucide-react";
+import { BookOpen, ArrowUpRight, LifeBuoy, X, ShieldCheck } from "lucide-react";
 import GainPreview from "../components/GainPreview";
 
 // ✅ NEW
@@ -307,11 +307,7 @@ function OptionsEditor({ options, setOptions }) {
         <div key={o._local_id} className="rounded-xl bg-white ring-1 ring-neutral-200 p-3 grid gap-3">
           <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
             <Field label="Libellé" required>
-              <Input
-                value={o.label}
-                onChange={(e) => update(o._local_id, { label: e.target.value })}
-                placeholder="Ex. Repas d'après-course"
-              />
+              <Input value={o.label} onChange={(e) => update(o._local_id, { label: e.target.value })} placeholder="Ex. Repas d'après-course" />
             </Field>
 
             <Field label="Prix (€/unité)" required>
@@ -335,11 +331,7 @@ function OptionsEditor({ options, setOptions }) {
 
             <Field label="Actif">
               <div className="flex items-center h-[38px]">
-                <input
-                  type="checkbox"
-                  checked={o.is_active}
-                  onChange={(e) => update(o._local_id, { is_active: e.target.checked })}
-                />
+                <input type="checkbox" checked={o.is_active} onChange={(e) => update(o._local_id, { is_active: e.target.checked })} />
                 <span className="ml-2 text-xs text-neutral-600">Visible au moment de l’inscription</span>
               </div>
             </Field>
@@ -384,6 +376,18 @@ export default function UpsertCourse() {
   const { id } = useParams();
   const isEdit = Boolean(id);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  const supportToken = searchParams.get("support") || "";
+  const supportMode = !!supportToken;
+
+  const [supportMeta, setSupportMeta] = useState(null);
+  const [supportMetaLoading, setSupportMetaLoading] = useState(supportMode);
+  const [endingSupport, setEndingSupport] = useState(false);
+
+  const [supportRequested, setSupportRequested] = useState(false);
+  const [supportRequesting, setSupportRequesting] = useState(false);
+  const [supportActiveForOrga, setSupportActiveForOrga] = useState(null); // session active visible par orga
 
   const [course, setCourse] = useState({
     nom: "",
@@ -408,10 +412,7 @@ export default function UpsertCourse() {
     parent_authorization_enabled: false,
   });
 
-  const selectedSport = useMemo(
-    () => SPORTS.find((s) => s.code === course.sport_code) || SPORTS[0],
-    [course.sport_code]
-  );
+  const selectedSport = useMemo(() => SPORTS.find((s) => s.code === course.sport_code) || SPORTS[0], [course.sport_code]);
   const availableDisciplines = selectedSport?.disciplines || [];
 
   const formatTemplate = () => {
@@ -482,6 +483,11 @@ export default function UpsertCourse() {
     }
 
     if (files) {
+      // En mode support admin : on évite les uploads côté client (policies Storage)
+      if (supportMode) {
+        alert("En mode assistance, l’upload de fichiers est désactivé pour le moment. Demande à l’organisateur de l’ajouter ensuite.");
+        return;
+      }
       setCourse((p) => ({ ...p, [name + "File"]: files[0] }));
       return;
     }
@@ -491,6 +497,10 @@ export default function UpsertCourse() {
 
   const handleFormatChange = (index, e) => {
     const { name, value, files } = e.target;
+    if (files && supportMode) {
+      alert("En mode assistance, l’upload de fichiers est désactivé pour le moment. Demande à l’organisateur de l’ajouter ensuite.");
+      return;
+    }
     const up = [...formats];
     up[index][files ? name + "File" : name] = files ? files[0] : value;
     setFormats(up);
@@ -511,6 +521,93 @@ export default function UpsertCourse() {
     }));
   };
 
+  // --- Helper : invoke support function
+  const invokeSupport = async (action, payload = {}) => {
+    const { data, error } = await supabase.functions.invoke("support-upsertcourse", {
+      body: { token: supportToken, action, payload },
+    });
+    if (error) throw error;
+    if (data?.error) throw new Error(data.error);
+    return data;
+  };
+
+  // --- Load support meta for admin
+  useEffect(() => {
+    (async () => {
+      if (!supportMode) return;
+      try {
+        setSupportMetaLoading(true);
+        const meta = await invokeSupport("support.meta", {});
+        setSupportMeta(meta?.session || null);
+      } catch (e) {
+        console.error(e);
+        alert("Lien d’assistance invalide / expiré, ou droits admin manquants.");
+        setSupportMeta(null);
+      } finally {
+        setSupportMetaLoading(false);
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [supportMode, supportToken]);
+
+  // --- Bandeau orga : session support active ?
+  useEffect(() => {
+    let channel = null;
+    let mounted = true;
+
+    const loadActive = async () => {
+      try {
+        const { data: sessionData } = await supabase.auth.getSession();
+        const userId = sessionData?.session?.user?.id;
+        if (!userId) return;
+
+        const { data, error } = await supabase
+          .from("support_sessions")
+          .select("id, status, expires_at, activated_at, created_at, scope")
+          .eq("scope", "upsertcourse")
+          .eq("status", "active")
+          .gt("expires_at", new Date().toISOString())
+          .order("activated_at", { ascending: false })
+          .limit(1);
+
+        if (!mounted) return;
+        if (error) {
+          setSupportActiveForOrga(null);
+          return;
+        }
+        setSupportActiveForOrga((data || [])[0] || null);
+
+        // realtime best effort
+        channel?.unsubscribe?.();
+        channel = supabase
+          .channel("support_sessions_watch_upsertcourse")
+          .on(
+            "postgres_changes",
+            {
+              event: "*",
+              schema: "public",
+              table: "support_sessions",
+              filter: `organisateur_id=eq.${userId}`,
+            },
+            () => loadActive()
+          )
+          .subscribe();
+      } catch {
+        // ignore
+      }
+    };
+
+    // Important : on ne montre ce bandeau que pour l’organisateur (pas en mode support admin)
+    if (!supportMode) loadActive();
+
+    return () => {
+      mounted = false;
+      try {
+        channel?.unsubscribe?.();
+      } catch {}
+    };
+  }, [supportMode]);
+
   useEffect(() => {
     (async () => {
       try {
@@ -521,7 +618,113 @@ export default function UpsertCourse() {
           return;
         }
 
-        // Course
+        if (supportMode) {
+          const res = await invokeSupport("course.load", { courseId: id });
+
+          const c = res?.course;
+          const fs = res?.formats || [];
+          const etapes = res?.etapes || [];
+          const opts = res?.options || [];
+
+          const sport_code = c?.sport_code || "trail";
+          const sportDef = SPORTS.find((s) => s.code === sport_code) || SPORTS[0];
+
+          setCourse((prev) => ({
+            ...prev,
+            nom: c?.nom || "",
+            lieu: c?.lieu || "",
+            departement: c?.departement || "",
+            code_postal: c?.code_postal || "",
+            presentation: c?.presentation || "",
+            imageFile: null,
+            image_url: c?.image_url || "",
+            sport_code,
+            discipline_code: c?.discipline_code || "",
+            timing_mode: c?.timing_mode || sportDef.defaultTimingMode || "simple",
+            is_team_event: typeof c?.is_team_event === "boolean" ? c.is_team_event : !!sportDef.defaultIsTeamEvent,
+
+            justif_block_if_missing: !!c?.justif_block_if_missing,
+            justif_type_1: c?.justif_type_1 || "",
+            justif_type_2: c?.justif_type_2 || "",
+            justif_type_3: c?.justif_type_3 || "",
+            parent_authorization_enabled: !!c?.parent_authorization_enabled,
+          }));
+
+          const etapesByFormat = (etapes || []).reduce((acc, cur) => {
+            (acc[cur.format_id] ||= []).push({ ...cur, _local_id: uuidv4() });
+            return acc;
+          }, {});
+
+          const optionsByFormat = (opts || []).reduce((acc, cur) => {
+            (acc[cur.format_id] ||= []).push({
+              _local_id: uuidv4(),
+              id: cur.id,
+              label: cur.label,
+              price_eur: (cur.price_cents / 100).toString(),
+              description: cur.description || "",
+              is_active: cur.is_active,
+              max_qty_per_inscription: cur.max_qty_per_inscription?.toString() || "1",
+              image_url: cur.image_url || null,
+            });
+            return acc;
+          }, {});
+
+          setFormats(
+            (fs || []).map((f) => {
+              const sg = normalizeFormatSport(f.sport_global) || fallbackSportFromTypeEpreuve(f.type_epreuve) || "trail";
+              const te = typeEpreuveFromSport(sg);
+
+              return {
+                ...formatTemplate(),
+                id: f.id,
+                nom: f.nom || "",
+                image_url: f.image_url || null,
+                date: f.date || "",
+                heure_depart: f.heure_depart || "",
+                presentation_parcours: f.presentation_parcours || "",
+                gpx_url: f.gpx_url || null,
+                reglement_pdf_url: f.reglement_pdf_url || null,
+
+                sport_global: sg,
+                type_epreuve: te,
+
+                distance_km: f.distance_km ?? "",
+                denivele_dplus: f.denivele_dplus ?? "",
+                denivele_dmoins: f.denivele_dmoins ?? "",
+                adresse_depart: f.adresse_depart || "",
+                adresse_arrivee: f.adresse_arrivee || "",
+                prix: f.prix ?? "",
+                stock_repas: f.stock_repas ?? "",
+                prix_repas: f.prix_repas ?? "",
+                prix_total_inscription: f.prix_total_inscription ?? "",
+                ravitaillements: f.ravitaillements || "",
+                remise_dossards: f.remise_dossards || "",
+                dotation: f.dotation || "",
+                nb_max_coureurs: f.nb_max_coureurs ?? "",
+                age_minimum: f.age_minimum ?? "",
+                hebergements: f.hebergements || "",
+                type_format: f.type_format || "individuel",
+                team_size: f.team_size ?? "",
+                nb_coureurs_min: f.nb_coureurs_min ?? "",
+                nb_coureurs_max: f.nb_coureurs_max ?? "",
+                prix_equipe: f.prix_equipe ?? "",
+                inscription_ouverture: f.inscription_ouverture ? new Date(f.inscription_ouverture).toISOString().slice(0, 16) : "",
+                inscription_fermeture: f.inscription_fermeture ? new Date(f.inscription_fermeture).toISOString().slice(0, 16) : "",
+                fuseau_horaire: f.fuseau_horaire || "Europe/Paris",
+                close_on_full: !!f.close_on_full,
+                waitlist_enabled: !!f.waitlist_enabled,
+                quota_attente: f.quota_attente ?? 0,
+                etapes: etapesByFormat[f.id] || [],
+                options: optionsByFormat[f.id] || [],
+              };
+            })
+          );
+
+          setLoading(false);
+          return;
+        }
+
+        // ---- normal (organisateur)
         const { data: c, error: cErr } = await supabase.from("courses").select("*").eq("id", id).single();
         if (cErr) throw cErr;
 
@@ -542,7 +745,6 @@ export default function UpsertCourse() {
           timing_mode: c?.timing_mode || sportDef.defaultTimingMode || "simple",
           is_team_event: typeof c?.is_team_event === "boolean" ? c.is_team_event : !!sportDef.defaultIsTeamEvent,
 
-          // ✅ NEW justificatifs (courses)
           justif_block_if_missing: !!c?.justif_block_if_missing,
           justif_type_1: c?.justif_type_1 || "",
           justif_type_2: c?.justif_type_2 || "",
@@ -550,7 +752,6 @@ export default function UpsertCourse() {
           parent_authorization_enabled: !!c?.parent_authorization_enabled,
         }));
 
-        // Formats
         const { data: fs, error: fErr } = await supabase
           .from("formats")
           .select("*")
@@ -564,11 +765,7 @@ export default function UpsertCourse() {
         if (fs?.length) {
           const ids = fs.map((f) => f.id);
 
-          const { data: etapes, error: eErr } = await supabase
-            .from("formats_etapes")
-            .select("*")
-            .in("format_id", ids)
-            .order("ordre", { ascending: true });
+          const { data: etapes, error: eErr } = await supabase.from("formats_etapes").select("*").in("format_id", ids).order("ordre", { ascending: true });
           if (eErr) throw eErr;
 
           if (etapes) {
@@ -600,10 +797,7 @@ export default function UpsertCourse() {
 
         setFormats(
           (fs || []).map((f) => {
-            const sg =
-              normalizeFormatSport(f.sport_global) ||
-              fallbackSportFromTypeEpreuve(f.type_epreuve) ||
-              "trail";
+            const sg = normalizeFormatSport(f.sport_global) || fallbackSportFromTypeEpreuve(f.type_epreuve) || "trail";
             const te = typeEpreuveFromSport(sg);
 
             return {
@@ -660,7 +854,7 @@ export default function UpsertCourse() {
       }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id, isEdit]);
+  }, [id, isEdit, supportMode]);
 
   const validate = () => {
     if (!course.nom?.trim() || !course.lieu?.trim() || !course.code_postal?.trim()) {
@@ -700,16 +894,49 @@ export default function UpsertCourse() {
     return true;
   };
 
+  const requestAssistance = async () => {
+    try {
+      setSupportRequesting(true);
+      const reason = window.prompt("Explique en 1 phrase le besoin (optionnel) :", "") || "";
+
+      const { data, error } = await supabase.functions.invoke("support-request-upsertcourse", {
+        body: { reason, course_id: isEdit ? id : null },
+      });
+
+      if (error) throw error;
+      if (data?.error) throw new Error(data.error);
+
+      setSupportRequested(true);
+      alert("Demande envoyée ✅ Un membre Tickrace va vous recontacter / intervenir si besoin.");
+    } catch (e) {
+      console.error(e);
+      alert("Impossible d’envoyer la demande : " + (e?.message || "inconnue"));
+    } finally {
+      setSupportRequesting(false);
+    }
+  };
+
+  const endSupport = async () => {
+    if (!supportMode) return;
+    try {
+      setEndingSupport(true);
+      await invokeSupport("support.end", {});
+      alert("Assistance terminée.");
+      navigate("/organisateur/mon-espace");
+    } catch (e) {
+      console.error(e);
+      alert("Impossible de terminer l’assistance : " + (e?.message || "inconnue"));
+    } finally {
+      setEndingSupport(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!validate()) return;
     setSaving(true);
 
     try {
-      const { data: sessionData } = await supabase.auth.getSession();
-      const userId = sessionData?.session?.user?.id;
-      if (!userId) throw new Error("Utilisateur non connecté.");
-
       async function geocode(postal, ville) {
         try {
           const resp = await fetch(
@@ -722,6 +949,150 @@ export default function UpsertCourse() {
         } catch {}
         return { lat: null, lng: null };
       }
+
+      const { lat, lng } = await geocode(course.code_postal, course.lieu);
+
+      // Upload image course
+      let imageCourseUrl = course.image_url || null;
+
+      if (!supportMode) {
+        if (course.imageFile) {
+          const { data, error } = await supabase.storage.from("courses").upload(`course-${Date.now()}.jpg`, course.imageFile, { upsert: false });
+          if (error) throw error;
+          imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
+        }
+      }
+
+      // coursePayload inclut justificatifs directement dans courses
+      const coursePayload = {
+        nom: course.nom,
+        lieu: course.lieu,
+        departement: course.departement,
+        code_postal: course.code_postal,
+        lat,
+        lng,
+        presentation: course.presentation,
+        image_url: imageCourseUrl,
+
+        course_type: "chrono",
+        sport_code: course.sport_code || "trail",
+        discipline_code: course.discipline_code || null,
+        timing_mode: course.timing_mode || "simple",
+        is_team_event: !!course.is_team_event,
+
+        justif_block_if_missing: !!course.justif_block_if_missing,
+        justif_type_1: course.justif_type_1 || null,
+        justif_type_2: course.justif_type_2 || null,
+        justif_type_3: course.justif_type_3 || null,
+        parent_authorization_enabled: !!course.parent_authorization_enabled,
+      };
+
+      // Prépare formats payload (sans upload en mode support)
+      const preparedFormats = [];
+
+      for (const f of formats) {
+        // GPX
+        let gpxUrl = f.gpx_url || null;
+        if (!supportMode && f.gpx_urlFile) {
+          const { data, error } = await supabase.storage
+            .from("formats")
+            .upload(`gpx-${Date.now()}-${f.nom || "sans-nom"}.gpx`, f.gpx_urlFile, { upsert: false });
+          if (!error) gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
+        }
+
+        // Règlement
+        let reglementUrl = f.reglement_pdf_url || null;
+        if (!supportMode && f.fichier_reglementFile) {
+          const { data, error } = await supabase.storage
+            .from("reglements")
+            .upload(`reglement-${Date.now()}-${f.nom || "sans-nom"}.pdf`, f.fichier_reglementFile, { upsert: false });
+          if (!error) reglementUrl = supabase.storage.from("reglements").getPublicUrl(data.path).data.publicUrl;
+        }
+
+        const prix = f.prix ? parseFloat(String(f.prix).replace(",", ".")) : 0;
+        const prix_total_inscription = Number.isFinite(prix) ? prix : 0;
+
+        const sport_global_code = normalizeFormatSport(f.sport_global) || normalizeFormatSport(course.sport_code) || "trail";
+        const te = typeEpreuveFromSport(sport_global_code);
+
+        const payload = {
+          // id peut être un UUID réel (edit) ou un local id : la function gère
+          id: f.id,
+          nom: f.nom || "Format sans nom",
+
+          image_url: f.image_url || null,
+          date: f.date || null,
+          heure_depart: f.heure_depart || null,
+          presentation_parcours: f.presentation_parcours || null,
+          gpx_url: gpxUrl,
+
+          sport_global: sport_global_code,
+          type_epreuve: te,
+
+          distance_km: f.distance_km ? parseFloat(String(f.distance_km).replace(",", ".")) : null,
+          denivele_dplus: f.denivele_dplus ? parseInt(f.denivele_dplus, 10) : null,
+          denivele_dmoins: f.denivele_dmoins ? parseInt(f.denivele_dmoins, 10) : null,
+          adresse_depart: f.adresse_depart || null,
+          adresse_arrivee: f.adresse_arrivee || null,
+          prix: prix_total_inscription,
+          stock_repas: 0,
+          prix_repas: 0,
+          prix_total_inscription,
+
+          ravitaillements: f.ravitaillements || null,
+          remise_dossards: f.remise_dossards || null,
+          dotation: f.dotation || null,
+          reglement_pdf_url: reglementUrl,
+
+          nb_max_coureurs: f.nb_max_coureurs ? parseInt(f.nb_max_coureurs, 10) : null,
+          age_minimum: f.age_minimum ? parseInt(f.age_minimum, 10) : null,
+          hebergements: f.hebergements || null,
+
+          type_format: f.type_format || "individuel",
+          team_size:
+            f.type_format === "relais"
+              ? f.team_size
+                ? Number(f.team_size)
+                : f.etapes?.length || null
+              : f.team_size
+              ? Number(f.team_size)
+              : null,
+          nb_coureurs_min: f.nb_coureurs_min ? Number(f.nb_coureurs_min) : null,
+          nb_coureurs_max: f.nb_coureurs_max ? Number(f.nb_coureurs_max) : null,
+          prix_equipe: f.prix_equipe ? Number(String(f.prix_equipe).replace(",", ".")) : null,
+
+          inscription_ouverture: f.inscription_ouverture ? new Date(f.inscription_ouverture).toISOString() : null,
+          inscription_fermeture: f.inscription_fermeture ? new Date(f.inscription_fermeture).toISOString() : null,
+          fuseau_horaire: f.fuseau_horaire || "Europe/Paris",
+          close_on_full: !!f.close_on_full,
+          waitlist_enabled: !!f.waitlist_enabled,
+          quota_attente: f.quota_attente ?? 0,
+
+          // nested
+          etapes: Array.isArray(f.etapes) ? f.etapes : [],
+          options: Array.isArray(f.options) ? f.options : [],
+        };
+
+        preparedFormats.push(payload);
+      }
+
+      // ----------------- SAVE (support vs normal) -----------------
+      if (supportMode) {
+        const res = await invokeSupport("upsertcourse.save", {
+          courseId: isEdit ? id : null,
+          course: coursePayload,
+          formats: preparedFormats,
+        });
+
+        alert(isEdit ? "Épreuve mise à jour (mode support) !" : "Épreuve créée (mode support) !");
+        navigate("/organisateur/mon-espace");
+        return;
+      }
+
+      // ----------------- NORMAL (organisateur) -----------------
+      const { data: sessionData } = await supabase.auth.getSession();
+      const userId = sessionData?.session?.user?.id;
+      if (!userId) throw new Error("Utilisateur non connecté.");
 
       async function syncOptions(formatId, optionsArr) {
         if (!formatId) return;
@@ -779,56 +1150,14 @@ export default function UpsertCourse() {
         }
       }
 
-      const { lat, lng } = await geocode(course.code_postal, course.lieu);
-
-      // Upload image course
-      let imageCourseUrl = course.image_url || null;
-      if (course.imageFile) {
-        const { data, error } = await supabase.storage.from("courses").upload(`course-${Date.now()}.jpg`, course.imageFile, { upsert: false });
-        if (error) throw error;
-        imageCourseUrl = supabase.storage.from("courses").getPublicUrl(data.path).data.publicUrl;
-      }
-
-      // ✅ coursePayload inclut maintenant la config justificatifs directement dans courses
-      const coursePayload = {
-        nom: course.nom,
-        lieu: course.lieu,
-        departement: course.departement,
-        code_postal: course.code_postal,
-        lat,
-        lng,
-        presentation: course.presentation,
-        image_url: imageCourseUrl,
-
-        course_type: "chrono",
-        sport_code: course.sport_code || "trail",
-        discipline_code: course.discipline_code || null,
-        timing_mode: course.timing_mode || "simple",
-        is_team_event: !!course.is_team_event,
-
-        // ✅ NEW justificatifs (courses)
-        justif_block_if_missing: !!course.justif_block_if_missing,
-        justif_type_1: course.justif_type_1 || null,
-        justif_type_2: course.justif_type_2 || null,
-        justif_type_3: course.justif_type_3 || null,
-        parent_authorization_enabled: !!course.parent_authorization_enabled,
-      };
-
       // Upsert course
       let courseId = id;
       if (!isEdit) {
-        const { data: cIns, error: cErr } = await supabase
-          .from("courses")
-          .insert({ ...coursePayload, organisateur_id: userId })
-          .select("id")
-          .single();
+        const { data: cIns, error: cErr } = await supabase.from("courses").insert({ ...coursePayload, organisateur_id: userId }).select("id").single();
         if (cErr) throw cErr;
         courseId = cIns.id;
       } else {
-        const { error: cUpErr } = await supabase
-          .from("courses")
-          .update({ ...coursePayload, updated_at: new Date().toISOString() })
-          .eq("id", courseId);
+        const { error: cUpErr } = await supabase.from("courses").update({ ...coursePayload, updated_at: new Date().toISOString() }).eq("id", courseId);
         if (cUpErr) throw cUpErr;
       }
 
@@ -841,9 +1170,7 @@ export default function UpsertCourse() {
         // GPX
         let gpxUrl = f.gpx_url || null;
         if (f.gpx_urlFile) {
-          const { data, error } = await supabase.storage
-            .from("formats")
-            .upload(`gpx-${Date.now()}-${f.nom || "sans-nom"}.gpx`, f.gpx_urlFile, { upsert: false });
+          const { data, error } = await supabase.storage.from("formats").upload(`gpx-${Date.now()}-${f.nom || "sans-nom"}.gpx`, f.gpx_urlFile, { upsert: false });
           if (!error) gpxUrl = supabase.storage.from("formats").getPublicUrl(data.path).data.publicUrl;
         }
 
@@ -859,11 +1186,7 @@ export default function UpsertCourse() {
         const prix = f.prix ? parseFloat(String(f.prix).replace(",", ".")) : 0;
         const prix_total_inscription = Number.isFinite(prix) ? prix : 0;
 
-        const sport_global_code =
-          normalizeFormatSport(f.sport_global) ||
-          normalizeFormatSport(course.sport_code) ||
-          "trail";
-
+        const sport_global_code = normalizeFormatSport(f.sport_global) || normalizeFormatSport(course.sport_code) || "trail";
         const te = typeEpreuveFromSport(sport_global_code);
 
         const payload = {
@@ -987,12 +1310,65 @@ export default function UpsertCourse() {
     }
   };
 
-  if (loading) {
+  if (loading || supportMetaLoading) {
     return <div className="min-h-screen bg-neutral-50 text-neutral-900 p-8">Chargement…</div>;
   }
 
   return (
     <div className="min-h-screen bg-neutral-50 text-neutral-900">
+      {/* Bandeau admin (mode support) */}
+      {supportMode && (
+        <div className="sticky top-0 z-50 border-b border-orange-200 bg-orange-50">
+          <div className="mx-auto max-w-7xl px-4 py-3 flex items-start sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <div className="mt-0.5">
+                <ShieldCheck className="h-5 w-5 text-orange-700" />
+              </div>
+              <div>
+                <div className="text-sm font-bold text-orange-900">MODE SUPPORT — intervention admin</div>
+                <div className="text-xs text-orange-800">
+                  Session: <span className="font-mono">{supportMeta?.id || "—"}</span>{" "}
+                  {supportMeta?.expires_at ? (
+                    <>
+                      • expire le{" "}
+                      {new Date(supportMeta.expires_at).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}
+                    </>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={endSupport}
+              disabled={endingSupport}
+              className="inline-flex items-center gap-2 rounded-xl border border-orange-200 bg-white px-3 py-2 text-sm font-semibold text-orange-900 hover:bg-orange-100 disabled:opacity-60"
+            >
+              <X className="h-4 w-4" />
+              Terminer l’assistance
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Bandeau organisateur (assistance active) */}
+      {!supportMode && supportActiveForOrga && (
+        <div className="sticky top-0 z-40 border-b border-blue-200 bg-blue-50">
+          <div className="mx-auto max-w-7xl px-4 py-3 flex items-start sm:items-center justify-between gap-3">
+            <div className="flex items-start gap-3">
+              <LifeBuoy className="h-5 w-5 text-blue-700 mt-0.5" />
+              <div>
+                <div className="text-sm font-bold text-blue-900">Assistance Tickrace en cours</div>
+                <div className="text-xs text-blue-800">
+                  Un admin est connecté à cette page pour vous aider. Session expire le{" "}
+                  {new Date(supportActiveForOrga.expires_at).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}.
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <section className="bg-white border-b border-neutral-200">
         <div className="mx-auto max-w-7xl px-4 py-10 text-center">
@@ -1003,8 +1379,8 @@ export default function UpsertCourse() {
             </span>
           </h1>
 
-          {/* Lien vers le tuto */}
-          <div className="mt-3">
+          {/* Lien vers le tuto + demande assistance (organisateur) */}
+          <div className="mt-3 flex flex-col items-center gap-2">
             <Link
               to="/help/creer-une-course"
               className="inline-flex items-center gap-2 rounded-xl border border-neutral-200 bg-white px-3 py-2 text-sm font-semibold text-neutral-800 hover:bg-neutral-50 transition"
@@ -1014,7 +1390,27 @@ export default function UpsertCourse() {
               <ArrowUpRight className="h-4 w-4 opacity-70" />
             </Link>
 
-            <p className="mt-1 text-xs text-neutral-500">Étapes, checklist, options, chronométrage et publication.</p>
+            {!supportMode && (
+              <button
+                type="button"
+                onClick={requestAssistance}
+                disabled={supportRequesting || supportRequested}
+                className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100 disabled:opacity-60"
+              >
+                <LifeBuoy className="h-4 w-4" />
+                {supportRequested ? "Demande d’assistance envoyée ✅" : "Demander assistance à la création"}
+              </button>
+            )}
+
+            <p className="mt-1 text-xs text-neutral-500">
+              Étapes, checklist, options, chronométrage et publication.
+            </p>
+
+            {supportMode && (
+              <p className="mt-1 text-xs text-orange-700">
+                En mode support, l’upload de fichiers (image/GPX/règlement) est désactivé pour éviter les erreurs Storage.
+              </p>
+            )}
           </div>
 
           <p className="mt-2 text-neutral-600 text-base">
@@ -1138,12 +1534,7 @@ export default function UpsertCourse() {
               </Field>
 
               <Field label="Présentation">
-                <Textarea
-                  name="presentation"
-                  value={course.presentation}
-                  onChange={handleCourseChange}
-                  placeholder="Décrivez votre épreuve, les paysages, l’ambiance, etc."
-                />
+                <Textarea name="presentation" value={course.presentation} onChange={handleCourseChange} placeholder="Décrivez votre épreuve, les paysages, l’ambiance, etc." />
               </Field>
 
               <Field label="Image de l’épreuve">
@@ -1152,16 +1543,14 @@ export default function UpsertCourse() {
                   name="image"
                   accept="image/*"
                   onChange={handleCourseChange}
-                  className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
+                  disabled={supportMode}
+                  className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50 disabled:opacity-60"
                 />
                 <p className="mt-1 text-xs text-neutral-500">JPEG/PNG recommandé, ~1600×900.</p>
               </Field>
 
               {/* ✅ NEW: Justificatifs (courses only) */}
-              <JustificatifCourseSettings
-                value={course}
-                onChange={(next) => setCourse(next)}
-              />
+              <JustificatifCourseSettings value={course} onChange={(next) => setCourse(next)} />
             </div>
           </div>
 
@@ -1172,22 +1561,14 @@ export default function UpsertCourse() {
                 <h2 className="text-lg sm:text-xl font-bold">Formats de course</h2>
                 <p className="mt-1 text-sm text-neutral-600">Ajoutez un ou plusieurs formats (10K, relais, rando, etc.), avec leurs options.</p>
               </div>
-              <button
-                type="button"
-                onClick={addFormat}
-                className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110"
-              >
+              <button type="button" onClick={addFormat} className="rounded-xl bg-orange-500 px-4 py-2 text-sm font-semibold text-white hover:brightness-110">
                 + Ajouter un format
               </button>
             </div>
 
             <div className="p-5 grid gap-6">
               {formats.map((f, index) => {
-                const sportCode =
-                  normalizeFormatSport(f.sport_global) ||
-                  normalizeFormatSport(course.sport_code) ||
-                  "trail";
-
+                const sportCode = normalizeFormatSport(f.sport_global) || normalizeFormatSport(course.sport_code) || "trail";
                 const sportLabel = SPORTS.find((s) => s.code === sportCode)?.label || sportCode;
 
                 // ✅ te = sport du format (affichage)
@@ -1256,10 +1637,6 @@ export default function UpsertCourse() {
                       </div>
 
                       {/* ... le reste inchangé ... */}
-                      {/* (j’ai conservé tout ton bloc formats tel quel) */}
-
-                      {/* (le reste de ton JSX formats est identique à ce que tu avais) */}
-                      {/* ↓↓↓ */}
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <Field label="Date">
                           <Input type="date" name="date" value={f.date} onChange={(e) => handleFormatChange(index, e)} />
@@ -1274,10 +1651,18 @@ export default function UpsertCourse() {
 
                       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <Field label="Ouverture des inscriptions">
-                          <Input type="datetime-local" value={f.inscription_ouverture} onChange={(e) => updateFormat(f.id, { inscription_ouverture: e.target.value })} />
+                          <Input
+                            type="datetime-local"
+                            value={f.inscription_ouverture}
+                            onChange={(e) => updateFormat(f.id, { inscription_ouverture: e.target.value })}
+                          />
                         </Field>
                         <Field label="Fermeture des inscriptions">
-                          <Input type="datetime-local" value={f.inscription_fermeture} onChange={(e) => updateFormat(f.id, { inscription_fermeture: e.target.value })} />
+                          <Input
+                            type="datetime-local"
+                            value={f.inscription_fermeture}
+                            onChange={(e) => updateFormat(f.id, { inscription_fermeture: e.target.value })}
+                          />
                         </Field>
                         <Field label="Fuseau horaire">
                           <Input value={f.fuseau_horaire} onChange={(e) => updateFormat(f.id, { fuseau_horaire: e.target.value })} placeholder="Europe/Paris" />
@@ -1349,7 +1734,8 @@ export default function UpsertCourse() {
                             name="gpx_url"
                             accept=".gpx"
                             onChange={(e) => handleFormatChange(index, e)}
-                            className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
+                            disabled={supportMode}
+                            className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50 disabled:opacity-60"
                           />
                           {f.gpx_url && (
                             <div className="text-xs text-neutral-600 mt-1 break-all">
@@ -1367,7 +1753,8 @@ export default function UpsertCourse() {
                             name="fichier_reglement"
                             accept="application/pdf"
                             onChange={(e) => handleFormatChange(index, e)}
-                            className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50"
+                            disabled={supportMode}
+                            className="block w-full text-sm text-neutral-700 file:mr-3 file:rounded-xl file:border file:border-neutral-200 file:bg-white file:px-3 file:py-2 hover:file:bg-neutral-50 disabled:opacity-60"
                           />
                           {f.reglement_pdf_url && (
                             <div className="text-xs text-neutral-600 mt-1 break-all">
@@ -1429,7 +1816,6 @@ export default function UpsertCourse() {
                         </div>
                         <OptionsEditor options={f.options || []} setOptions={(next) => updateFormat(f.id, { options: next })} />
                       </div>
-                      {/* ↑↑↑ */}
                     </div>
                   </div>
                 );
