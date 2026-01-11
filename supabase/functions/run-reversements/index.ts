@@ -8,6 +8,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.45.4";
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 const STRIPE_SECRET_KEY = Deno.env.get("STRIPE_SECRET_KEY")!;
+const INTERNAL_INVOICE_KEY = Deno.env.get("INTERNAL_INVOICE_KEY") || "";
 
 // ✅ Resend
 const RESEND_API_KEY = Deno.env.get("RESEND_API_KEY") || "";
@@ -117,6 +118,99 @@ async function markStatus(id: string, patch: any) {
     .update({ ...patch, updated_at: new Date().toISOString() })
     .eq("id", id);
   if (error) throw error;
+}
+
+async function generateFinalInvoiceOnce(params: {
+  organisateur_id: string;
+  course_id: string | null;
+  reversement_id: string;
+  paiement_id: string;
+  period_from: string;
+  period_to: string;
+}) {
+  if (!INTERNAL_INVOICE_KEY) return { skipped: true, reason: "missing_internal_key" };
+
+  const lockKey = `reversements:${params.reversement_id}:invoice_final`;
+
+  const { error: lockErr } = await supabase.from("organisateur_ledger").insert({
+    organisateur_id: params.organisateur_id,
+    course_id: params.course_id,
+    source_table: "organisateur_reversements",
+    source_id: params.reversement_id,
+    source_event: "invoice_final",
+    source_key: lockKey,
+    occurred_at: new Date().toISOString(),
+    gross_cents: 0,
+    tickrace_fee_cents: 0,
+    stripe_fee_cents: 0,
+    net_org_cents: 0,
+    currency: "eur",
+    status: "pending",
+    label: "Facture finale reversement",
+    metadata: {
+      paiement_id: params.paiement_id,
+      period_from: params.period_from,
+      period_to: params.period_to,
+      invoice_status: "pending",
+    },
+  });
+
+  if (lockErr) {
+    const code = (lockErr as any)?.code || "";
+    if (code === "23505") return { skipped: true, reason: "already_created" };
+    console.error("INVOICE_LOCK_INSERT_ERROR", lockErr);
+    return { skipped: true, reason: "lock_insert_failed" };
+  }
+
+  try {
+    const resp = await fetch(`${SUPABASE_URL}/functions/v1/generate-tickrace-invoice`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+        "Content-Type": "application/json",
+        "x-internal-key": INTERNAL_INVOICE_KEY,
+      },
+      body: JSON.stringify({
+        organisateur_id: params.organisateur_id,
+        course_id: params.course_id,
+        paiement_id: params.paiement_id,
+        period_from: params.period_from,
+        period_to: params.period_to,
+      }),
+    });
+
+    const out = await resp.json().catch(() => ({}));
+    if (!resp.ok || !out?.invoice?.id) {
+      throw new Error(out?.error || out?.details || "invoice_create_failed");
+    }
+
+    await supabase
+      .from("organisateur_ledger")
+      .update({
+        status: "confirmed",
+        metadata: {
+          paiement_id: params.paiement_id,
+          period_from: params.period_from,
+          period_to: params.period_to,
+          invoice_status: "created",
+          invoice_id: out.invoice.id,
+          invoice_no: out.invoice.invoice_no,
+        },
+      })
+      .eq("source_key", lockKey);
+
+    return { ok: true };
+  } catch (e: any) {
+    console.error("INVOICE_CREATE_FAILED", e);
+    await supabase
+      .from("organisateur_ledger")
+      .update({
+        status: "void",
+        metadata: { invoice_status: "failed", error: String(e?.message ?? e) },
+      })
+      .eq("source_key", lockKey);
+    return { ok: false };
+  }
 }
 
 /* ---------------------------- Resend ----------------------------- */
@@ -826,21 +920,41 @@ serve(async (req) => {
         // 9) EMAILS :
         // - tranche 1 : PAS d’email immédiat (digest hebdo envoyé à part)
         // - tranche 2 : email final immédiat (non bloquant)
-        if (Number(r.tranche) === 2) {
-          try {
-            await sendFinalPayoutEmailOnce({
-              organisateur_id: r.organisateur_id,
-              course_id: r.course_id ?? null,
-              reversement_id: r.id,
-              tranche: 2,
-              amount_cents: amount,
-              stripe_transfer_id: transferId,
-              paiement_id: r.paiement_id,
-            });
-          } catch (e: any) {
-            console.error("FINAL_PAYOUT_EMAIL_NON_BLOCKING_ERROR", r.id, e?.message ?? e);
-          }
+      if (Number(r.tranche) === 2) {
+        try {
+          await sendFinalPayoutEmailOnce({
+            organisateur_id: r.organisateur_id,
+            course_id: r.course_id ?? null,
+            reversement_id: r.id,
+            tranche: 2,
+            amount_cents: amount,
+            stripe_transfer_id: transferId,
+            paiement_id: r.paiement_id,
+          });
+        } catch (e: any) {
+          console.error("FINAL_PAYOUT_EMAIL_NON_BLOCKING_ERROR", r.id, e?.message ?? e);
         }
+        try {
+          const { data: p } = await supabase
+            .from("paiements")
+            .select("created_at")
+            .eq("id", r.paiement_id)
+            .maybeSingle();
+          const createdAt = (p as any)?.created_at ? new Date((p as any).created_at) : new Date();
+          const periodFrom = isoDateOnly(createdAt);
+          const periodTo = isoDateOnly(new Date());
+          await generateFinalInvoiceOnce({
+            organisateur_id: r.organisateur_id,
+            course_id: r.course_id ?? null,
+            reversement_id: r.id,
+            paiement_id: r.paiement_id,
+            period_from: periodFrom,
+            period_to: periodTo,
+          });
+        } catch (e: any) {
+          console.error("FINAL_INVOICE_NON_BLOCKING_ERROR", r.id, e?.message ?? e);
+        }
+      }
 
         processed++;
       } catch (e: any) {

@@ -370,8 +370,8 @@ serve(async (req) => {
 
     // Ledger -> somme tickrace_fee_cents sur période
     let ledgerQuery = supabase
-      .from("organisateur_ledger")
-      .select("course_id, tickrace_fee_cents, occurred_at, source_table, source_id")
+      .from("organisateur_ledger_v")
+      .select("course_id, course_nom, tickrace_fee_cents, occurred_at, source_table, source_id")
       .eq("organisateur_id", organisateurId)
       .eq("status", "confirmed");
 
@@ -390,14 +390,19 @@ serve(async (req) => {
     const { data: led, error: ledErr } = await ledgerQuery;
     if (ledErr) throw ledErr;
 
-    const byCourse = new Map<string, number>();
+    const byCourse = new Map<string, { amount: number; label: string }>();
     for (const r of led || []) {
       const cid = r.course_id || "unknown";
       const v = Number(r.tickrace_fee_cents || 0);
       if (!v) continue;
-      byCourse.set(cid, (byCourse.get(cid) || 0) + v);
+      const label = (r as any)?.course_nom || (cid === "unknown" ? "-" : cid);
+      const prev = byCourse.get(cid) || { amount: 0, label };
+      prev.amount += v;
+      if (!prev.label || prev.label === cid) prev.label = label;
+      byCourse.set(cid, prev);
     }
 
+    // Fallback: si course_nom absent dans la vue, on hydrate depuis courses
     const courseIds = [...byCourse.keys()].filter((x) => x !== "unknown");
     const coursesMap = new Map<string, string>();
     if (courseIds.length) {
@@ -406,11 +411,11 @@ serve(async (req) => {
     }
 
     const lines = [...byCourse.entries()]
-      .filter(([, amount]) => amount !== 0)
-      .map(([courseId, amount]) => ({
+      .filter(([, v]) => v.amount !== 0)
+      .map(([courseId, v]) => ({
         course_id: courseId === "unknown" ? null : courseId,
-        label: courseId === "unknown" ? "-" : (coursesMap.get(courseId) || courseId),
-        amount_cents: amount,
+        label: v.label || (courseId === "unknown" ? "-" : (coursesMap.get(courseId) || courseId)),
+        amount_cents: v.amount,
       }))
       .sort((a, b) => b.amount_cents - a.amount_cents);
 
